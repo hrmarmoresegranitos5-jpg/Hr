@@ -11627,6 +11627,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v200: rota pública /voz-video/<cena> (só a narração do vídeo da equipe, nada mais).
 // v199: narração do vídeo "pontos, metas e prêmio" — gera a voz de cada cena (mesma voz do bot) e guarda no D1 (tabela tmp_voz) para o vídeo
 const NARR199 = {
   titulo: 'Oi, equipe! Neste vídeo eu explico como funcionam os pontos, as metas e o prêmio do mês. É rapidinho.',
@@ -11639,6 +11640,15 @@ const NARR199 = {
   dicas: 'Dicas para ganhar mais pontos: mande foto de cada etapa, porque vale ponto e protege o seu trabalho. Ajudou numa instalação? Mande foto do serviço e ganhe a parte de ajudante. O seu nível começa pelo seu tempo de casa. E a qualquer hora, pergunte ao bot: quantos pontos eu tenho?',
   fim: 'Bora bater a meta, equipe!',
 };
+// v200: serve a narração de cada cena (gera a que faltar) para a página que monta o vídeo com voz no celular do dono
+async function vozVideoRota(env, k) {
+  const H = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=86400' };
+  if (!NARR199[k] || !env.HR_DB) return new Response('não', { status: 404, headers: H });
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_voz (k TEXT PRIMARY KEY, b64 TEXT, via TEXT, n INTEGER)').run();
+  let r = await env.HR_DB.prepare('SELECT b64 FROM tmp_voz WHERE k = ?').bind(k).first();
+  if (!r || !r.b64) { await vozEscolhaCarregar(env).catch(() => {}); const g = await gerarVoz(env, NARR199[k], globalThis.__voz || ''); const b = new Uint8Array(g.audio); await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_voz (k, b64, via, n) VALUES (?, ?, ?, ?)').bind(k, bytesParaBase64(b), g.via, b.length).run(); return new Response(b, { headers: { ...H, 'Content-Type': 'audio/ogg' } }); }
+  return new Response(base64ParaBytes(r.b64), { headers: { ...H, 'Content-Type': 'audio/ogg' } });
+}
 async function mig199Narracao(env) {
   if (await env.HR_KV.get('mig:199')) return; if (!(await travaEnvio(env, 'mig:199'))) return; await env.HR_KV.put('mig:199', '1');
   if (!env.HR_DB) return; await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_voz (k TEXT PRIMARY KEY, b64 TEXT, via TEXT, n INTEGER)').run();
@@ -31335,6 +31345,7 @@ export default {
     const url = new URL(req.url);
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
