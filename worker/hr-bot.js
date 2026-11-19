@@ -7753,8 +7753,8 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
 //   "entreguei o da Maria" → entregue, avisa o dono e pergunta o pagamento; "o que tenho pra fazer?" → lista.
 // ═════════════════════════════════════════════════════════════════════════════
 async function pedidosProducao(env, filtro) {
-  const out = []; const l = await env.HR_KV.list({ prefix: 'ped:', limit: 500 }).catch(() => ({ keys: [] }));
-  for (const k of l.keys) { try { const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (p && filtro(p)) out.push(p); } catch (_) {} }
+  const out = [], keys = []; let cur; for (let i = 0; i < 6; i++) { const l = await env.HR_KV.list({ prefix: 'ped:', limit: 1000, ...(cur ? { cursor: cur } : {}) }).catch(() => ({ keys: [], list_complete: true })); keys.push(...(l.keys || [])); if (l.list_complete !== false || !l.cursor) break; cur = l.cursor; } // v176: passa das 500 chaves
+  for (const k of keys) { try { const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (p && filtro(p)) out.push(p); } catch (_) {} }
   return out.sort((a, b) => (a.despachadoEm || a.id || 0) - (b.despachadoEm || b.id || 0));
 }
 const naFabrica = p => !!p.fichaEnviadaEm && !p.fabProntoEm && !p.prontoEm && !p.entregueEm && p.status !== 'recusado';
@@ -9267,6 +9267,7 @@ async function prodPedirFoto(env, ped, from, nome, texto, receb) {
 async function prodFotoRecebida(env, f, from, m, nome) {
   let pe = null; try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
   const leg = String((m.image && m.image.caption) || '').trim();
+  if (leg && !pe && !/\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalando|entreguei|entregando|terminei|terminando|pronto|pronta|acabei|cortei|montando|montei)\b/.test(normaliza(leg))) return prodFotoPerguntar(env, f, from, m, nome, leg); // v176: legenda só com o cliente ("Serviços da dona Renata") → lista desse cliente, sem passar pela IA
   if (leg && (!pe || /\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
     await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); // v161: a foto espera ele dizer qual é
@@ -10600,13 +10601,20 @@ async function rotaBonus(req, env, url) {
 
 // v165: foto da equipe sem legenda → "de qual serviço?" (lista com as tarefas dele) e o que foi: começou, terminou ou só registro
 async function prodFotoPerguntar(env, f, from, m, nome, leg) {
-  await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 6 * 3600 });
-  const id = String(f.id); let l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].includes(id));
-  if (leg) { const ach = acharPorNome(l, leg); if (ach.length) l = [...ach, ...l.filter(p => !ach.includes(p))]; } // v169: o cliente da legenda vem primeiro
-  if (!l.length || (leg && !acharPorNome(l, leg).length)) { // v172: sem serviço aberto com ele → serviços recentes da equipe (abertos ou entregues nos últimos 3 dias)
-    const rec = await pedidosProducao(env, p => (p.fichaEnviadaEm || p.fechDono || p.origem === 'manual' || p.origem === 'acordo') && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
-    let ach = leg ? acharPorNome(rec, leg) : []; const outros = rec.sort((a, b) => (b.atualizado || b.criado || 0) - (a.atualizado || a.criado || 0)).filter(p => !ach.includes(p) && !l.includes(p));
-    l = [...ach, ...l, ...outros].slice(0, 4);
+  const k8 = ultimos8(from); let fp0 = null; try { fp0 = JSON.parse((await env.HR_KV.get('prod:fotopend:' + k8)) || 'null'); } catch (_) {}
+  if (fp0 && fp0.listaEm && Date.now() - fp0.listaEm < 5 * 60000 && !(leg && fp0.leg !== leg)) { // v176: várias fotos seguidas → uma pergunta só; as outras vão junto
+    const mids = [...(fp0.mids || [fp0.mid]), m.image.id].filter((x, i, a) => x && a.indexOf(x) === i); await env.HR_KV.put('prod:fotopend:' + k8, JSON.stringify({ ...fp0, mids, mid: mids[0] }), { expirationTtl: 6 * 3600 }); return true;
+  }
+  if (leg) await env.HR_KV.put('prod:fotocli:' + k8, leg, { expirationTtl: 3 * 3600 }); else leg = (await env.HR_KV.get('prod:fotocli:' + k8)) || ''; // v176: lembra o cliente da última legenda
+  await env.HR_KV.put('prod:fotopend:' + k8, JSON.stringify({ mid: m.image.id, mids: [m.image.id], leg, listaEm: Date.now(), em: Date.now() }), { expirationTtl: 6 * 3600 });
+  const id = String(f.id); const temNome = l0 => leg && tokensPedra(leg).length && l0.filter(p => tokensPedra(p.nome || '').some(w => w.length >= 3 && tokensPedra(leg).includes(w)));
+  let l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].includes(id));
+  if (leg) { const ach = temNome(l) || []; if (ach.length) l = [...ach, ...l.filter(p => !ach.includes(p))]; } // v169: o cliente da legenda vem primeiro
+  if (!l.length || (leg && !(temNome(l) || []).length)) { // v172/v176: sem serviço aberto com ele → serviços da equipe (abertos ou entregues há pouco; com nome na legenda, procura em todos)
+    const rec = await pedidosProducao(env, p => p.status !== 'recusado' && (leg ? (!p.entregueEm || Date.now() - p.entregueEm < 20 * 86400000) && Date.now() - (p.criado || p.id || 0) < 120 * 86400000 : (p.fichaEnviadaEm || p.fechDono || p.origem === 'manual' || p.origem === 'acordo') && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000)));
+    let ach = leg ? (temNome(rec) || []) : []; if (leg && !ach.length) { const ap = await prodPorApelido(env, rec, leg).catch(() => []); ach = ap; }
+    if (leg && ach.length) { l = ach.slice(0, 4); } else { const outros = rec.sort((a, b) => (b.atualizado || b.criado || 0) - (a.atualizado || a.criado || 0)).filter(p => !ach.includes(p) && !l.includes(p));
+    l = [...ach, ...l, ...outros].slice(0, 4); }
   }
   const linhas = [];
   for (const p of l.slice(0, 4)) {
@@ -10615,17 +10623,28 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
       const porDono = (p.prodLog || []).some(x => (x.e === 'instalacao' || x.e === 'entrega') && x.dono) && Date.now() - p.entregueEm < 12 * 3600000 && !p.fotoEntregaEm;
       if (porDono) linhas.push({ id: `fot|${p.id}|reabre`, titulo: `📍 ${pn}`.slice(0, 24), descricao: 'Começando a instalação agora (foto do local)' });
       linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Guardar a foto no serviço' }); continue; }
-    if ((p.entResp === id || !p.entResp) && naEntrega(p)) {
+    if (naEntrega(p)) { // v176: ajudante da instalação (ex.: Jefferson com o Gibson) também pode marcar
       if (!p.instIniEm) linhas.push({ id: `fot|${p.id}|ini`, titulo: `📍 ${pn}`.slice(0, 24), descricao: 'Começando a instalação (foto do local)' });
       linhas.push({ id: `fot|${p.id}|fim`, titulo: `✅ ${pn}`.slice(0, 24), descricao: pedComplexo(p) ? 'Terminei a instalação (foto final)' : 'Entreguei (foto das peças)' });
     } else if (naFabrica(p)) linhas.push({ id: `fot|${p.id}|pronto`, titulo: `✅ ${pn}`.slice(0, 24), descricao: 'Terminei (peças prontas)' });
     linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Só guardar a foto no pedido' });
   }
-  if (!linhas.length) { await enviar(env, from, `📸 Recebi a foto, ${nome}! Não achei serviço aberto com você. Me diga de qual cliente é (ex.: _instalei o da Maria_) que eu guardo no pedido certo.`); return true; }
+  if (!linhas.length) { // v176: não acha o pedido → a foto não se perde: vai para o dono
+    try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: m.image.id, caption: `📷 Foto do ${nome}${leg ? ` ("${leg}")` : ''}. Não achei o pedido no sistema; confira de qual cliente é.` } }); } catch (_) {}
+    await enviar(env, from, `📸 Recebi a foto, ${nome}!${leg ? ` Não achei o pedido de *${leg.replace(/^(servi[cç]os?|foto|fotos)\s+(d[aoe]s?\s+)?/i, '')}* no sistema.` : ' Não achei serviço aberto com você.'} Guardei e mandei para o Sr. Hangel conferir. Se quiser, me diga o nome do cliente (ex.: _instalei o da Maria_).`); return true; }
   await enviarLista(env, from, `📸 Recebi a foto, ${nome}! É de qual serviço?`, 'Escolher', linhas.slice(0, 10), true);
   return true;
 }
-async function prodFotoEscolha(env, f, from, idB, nome) {
+async function prodFotoEscolha(env, f, from, idB, nome) { // v176: com várias fotos, a 1ª vai para a etapa escolhida e as outras ficam guardadas no pedido
+  let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
+  const mids = fp && fp.mids && fp.mids.length > 1 ? fp.mids : null;
+  if (mids) await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: mids[0], em: Date.now() }), { expirationTtl: 6 * 3600 });
+  const r = await prodFotoEscolha1(env, f, from, idB, nome);
+  if (mids) { const pid = idB.split('|')[1]; let ok = 0; for (const mid of mids.slice(1)) { try { const b = await baixarMidia(env, mid); if (await fotoTabela(env)) { await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('obra:' + pid, bytesParaBase64(new Uint8Array(b.buf)), b.tipo, Date.now(), String(f.id)).run(); ok++; } } catch (_) {} }
+    if (ok) await enviar(env, from, `📷 E guardei mais ${ok} foto(s) no mesmo pedido.`).catch(() => {}); }
+  return r;
+}
+async function prodFotoEscolha1(env, f, from, idB, nome) {
   const [, pid, ac] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
   let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!fp || !fp.mid) { await enviar(env, from, 'A foto expirou. Manda de novo, por favor.'); return true; }
@@ -10704,6 +10723,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v176: legenda só com o cliente → lista dele; várias fotos seguidas → uma pergunta; ajudante pode marcar instalação; procura em todos os pedidos; foto sem pedido vai ao dono.
 // v175: poucas peças → o pedido da foto explica como mostrar todas; se não bater, pede OUTRA foto antes de perguntar a quantidade. Muitas: tudo bem não caber.
 // v174: CONFERÊNCIA DA QUANTIDADE na foto da entrega (soleiras/peitoris, poucas peças) — a IA conta; se não bater, o entregador confirma
 function contarAtivo(env, ped) { const n = nPecasPed(ped); return String(env.CONTAR_PECAS ?? '1') !== '0' && !pedComplexo(ped) && n >= 1 && n <= (Number(env.CONTAR_PECAS_MAX) || 15) && String(ped.entrega || '') !== 'retirada'; }
