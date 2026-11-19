@@ -104,6 +104,7 @@
     var lista = d.funcionarios.slice().sort(function (a, b) { return (b.previsto.total - a.previsto.total) || ((b.semana ? b.semana.pct : 0) - (a.semana ? a.semana.pct : 0)); });
     h += lista.map(cartaoFunc).join('');
     var R = d.regras;
+    h += '<a href="video-equipe.html" target="_blank" rel="noopener" style="display:block;text-align:center;padding:14px;border-radius:14px;margin:10px 0;background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;font-weight:800;text-decoration:none">🎬 Vídeo explicativo com voz (para a equipe)</a>';
     h += '<details class="bon-sec" open><summary>📖 Como funciona a bonificação</summary><div class="bon-p">' + esc(R.premio) + '</div><div class="bon-p">' + esc(R.meta) + '</div></details>'
       + '<details class="bon-sec"><summary>⭐ Quanto vale cada tarefa</summary>' + rg(R.pontos) + '</details>'
       + '<details class="bon-sec"><summary>🎚️ Nível do serviço (multiplica os pontos)</summary>' + rg(R.niveis) + '<div class="bon-p">Serviço com mais detalhes e peças maiores sobe de nível. No corte o nível conta pela metade.</div></details>'

@@ -1,0 +1,56 @@
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vídeo da equipe com voz · HR</title>
+<style>body{margin:0;background:#0a0908;color:#efe9dc;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:14px;gap:12px}
+canvas{width:min(92vw,420px);aspect-ratio:9/16;border-radius:14px;background:#000;box-shadow:0 8px 30px rgba(0,0,0,.6)}
+button{width:min(92vw,420px);padding:15px;border:none;border-radius:14px;font-size:1.05rem;font-weight:800;cursor:pointer}
+.ouro{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408}.sec{background:#1c1913;color:#f0d78c;border:1px solid #4a3f28}
+#st{font-size:.92rem;color:#c9bfa6;text-align:center;max-width:420px;line-height:1.4}h1{font-size:1.2rem;color:#f0d78c;margin:4px 0}</style></head><body>
+<h1>🎬 Vídeo da equipe com voz</h1><canvas id="cv" width="1080" height="1920"></canvas>
+<div id="st">Carregando a voz e as cenas…</div>
+<button class="ouro" id="bGerar" disabled>🎬 Gerar o vídeo com voz</button>
+<button class="sec" id="bVer" disabled>▶️ Só assistir</button>
+<a id="dl" style="display:none"></a>
+<script>
+const BOT='https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev';
+const CENAS=['titulo','pontos','semana','dia','faixas','cartao','premio','dicas','fim'];
+const cv=document.getElementById('cv'),cx=cv.getContext('2d'),st=document.getElementById('st');
+let AC=null,bufs={},vids={},pronto=false,rodando=false;
+function msg(t){st.textContent=t;}
+async function carregar(){
+  AC=new (window.AudioContext||window.webkitAudioContext)();
+  let n=0;
+  await Promise.all(CENAS.map(async k=>{
+    const v=document.createElement('video');v.src='video-equipe/v_'+k+'.mp4';v.muted=true;v.playsInline=true;v.preload='auto';vids[k]=v;
+    await new Promise((ok,er)=>{v.oncanplaythrough=ok;v.onerror=()=>er(new Error('cena '+k));v.load();});
+    const r=await fetch(BOT+'/voz-video/'+k);if(!r.ok)throw new Error('voz '+k+' ('+r.status+')');
+    bufs[k]=await AC.decodeAudioData(await r.arrayBuffer());n++;msg('Carregando… '+n+' de '+CENAS.length);
+  }));
+  pronto=true;msg('Pronto! Toque em "Gerar o vídeo com voz". Leva uns 2 minutos e meio: deixe a tela ligada.');
+  document.getElementById('bGerar').disabled=false;document.getElementById('bVer').disabled=false;
+  vids.titulo.currentTime=0.6;vids.titulo.onseeked=()=>cx.drawImage(vids.titulo,0,0,1080,1920);
+}
+function desenhar(v,a){cx.globalAlpha=1;cx.fillStyle='#0a0908';cx.fillRect(0,0,1080,1920);cx.globalAlpha=a;cx.drawImage(v,0,0,1080,1920);cx.globalAlpha=1;}
+async function tocar(dest){
+  if(rodando)return;rodando=true;await AC.resume();
+  for(const k of CENAS){
+    const v=vids[k],b=bufs[k],ad=b.duration+0.7,vd=v.duration;
+    v.playbackRate=Math.max(0.7,Math.min(1.6,vd/ad));v.currentTime=0;
+    const s=AC.createBufferSource();s.buffer=b;s.connect(AC.destination);if(dest)s.connect(dest);
+    const t0=performance.now();await v.play().catch(()=>{});s.start(AC.currentTime+0.25);
+    await new Promise(ok=>{(function f(){const el=(performance.now()-t0)/1000;desenhar(v,1);if(v.ended&&el>=ad){ok();return;}requestAnimationFrame(f);})();});
+  }
+  rodando=false;
+}
+document.getElementById('bVer').onclick=()=>tocar(null).catch(e=>msg('⚠️ '+e.message));
+document.getElementById('bGerar').onclick=async()=>{
+  try{
+    const dest=AC.createMediaStreamDestination(),vs=cv.captureStream(30),ms=new MediaStream([...vs.getVideoTracks(),...dest.stream.getAudioTracks()]);
+    const tipos=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm'],tp=tipos.find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t))||'';
+    const rec=new MediaRecorder(ms,tp?{mimeType:tp,videoBitsPerSecond:4e6}:{}),partes=[];rec.ondataavailable=e=>{if(e.data.size)partes.push(e.data);};
+    msg('🔴 Gravando… deixe a tela ligada até o fim.');rec.start(1000);await tocar(dest);await new Promise(ok=>{rec.onstop=ok;rec.stop();});
+    const ext=/mp4/.test(rec.mimeType||tp)?'mp4':'webm',blob=new Blob(partes,{type:rec.mimeType||tp||'video/webm'}),nome='Pontos-metas-premio-HR.'+ext,f=new File([blob],nome,{type:blob.type});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){msg('✅ Pronto! Escolha o WhatsApp para mandar.');await navigator.share({files:[f],title:nome}).catch(()=>{});}
+    const u=URL.createObjectURL(blob),a=document.getElementById('dl');a.href=u;a.download=nome;a.click();msg('✅ Vídeo salvo ('+(blob.size/1e6).toFixed(1)+' MB, '+ext+'). Se não abriu o compartilhar, ele está nos Downloads.');
+  }catch(e){msg('⚠️ '+e.message);rodando=false;}
+};
+carregar().catch(e=>msg('⚠️ Não consegui carregar: '+e.message+'. Confira a internet e tente de novo.'));
+</script></body></html>
