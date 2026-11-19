@@ -27477,7 +27477,11 @@ async function recadoEquipe(env, cfg, alvo, rec) {
     const ult = +(await env.HR_KV.get('ponto:saud:' + f.id)) || -1;
     let k = Math.floor(Math.random() * SAUD.length); if (k === ult) k = (k + 1) % SAUD.length; // não repete a anterior
     await env.HR_KV.put('ponto:saud:' + f.id, String(k), { expirationTtl: 30 * 86400 });
-    const sd = SAUD[k](ap).replace(/,$/, '!'), r1 = rec.charAt(0).toUpperCase() + rec.slice(1);
+    const sd0 = SAUD[k](ap).replace(/,$/, '!'), r1 = rec.charAt(0).toUpperCase() + rec.slice(1);
+    // v171: o recado já chama pelo nome ou já cumprimenta ("Gibson, preciso…", "Ô farofinha!…") → não manda a saudação separada (não repete o nome)
+    const ini = normaliza(r1.slice(0, 40)), nomesF = [n, ap, String(f.nome).split(' ')[0]].filter(Boolean).map(x => normaliza(x));
+    const jaChama = nomesF.some(x => x && new RegExp('^(?:o |oi |ola |opa |fala |e ai |salve |bom dia |boa tarde |boa noite |eai )?,?\\s*' + x.replace(/[^a-z0-9 ]/g, '') + '\\b').test(ini)) || /^(oi|ola|opa|fala|e ai|eai|salve|bom dia|boa tarde|boa noite|o )\b/.test(ini);
+    const sd = jaChama ? '' : sd0;
     const via = await falarComFuncionario(env, f, r1, { saud: sd, recado: true, titulo: "Recado do Sr. Hangel", cfg }); // v47: saudação solta + recado
     res.push(`${n}: ${via === 'whatsapp' ? 'entregue ✅' : via === 'modelo' ? 'chamado no WhatsApp (entrego quando ele tocar em Ver recado)' : via === 'app' ? 'avisado pelo app de ponto (vai no WhatsApp quando ele falar com o bot)' : 'guardado (entrego quando ele falar com o bot)'}`);
   }
