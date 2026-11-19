@@ -1,3 +1,4 @@
+// v157 (19/11/2026): RECEBIMENTO PELO CLIENTE (✅ Tudo certo / ⚠️ problema + nota 1-5 da equipe; nota 5 = +1 ponto), RETRABALHO (−2, registrar_retrabalho), RELATÓRIO "qualidade" (fotos, horário, notas, retrabalhos)
 // v156 (19/11/2026): PONTOS POR DIFICULDADE (tamanho da peça + cuba/esculpida/rebaixo/45°/saia/furos), CORTE PEÇA A PEÇA ("cortei 2 da Maria"), INÍCIO DA INSTALAÇÃO com foto (cliente avisado, duração), FOTO COM LEGENDA
 // v155 (19/11/2026): contato de funcionário enviado pelo dono → confirma, grava o telefone no RH e manda o manual
 // v154 (19/11/2026): EQUIPE VALENDO ("equipe valendo"/"equipe em teste" no KV; padrão valendo), manual de boas-vindas a cada funcionário, +pontos na hora, resumo do fim do dia 17h30, mural com a foto do serviço entregue
@@ -7840,6 +7841,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   const jaEntregue = !!ped.entregueEm;
   ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await salvarPedido(env, ped);
   if (!jaEntregue && ped.numero) await garDoPedido(env, ped).catch(e => console.log('[GAR] entrega:', e.message)); // v144
+  if (!jaEntregue) await rcbPedir(env, ped).catch(e => console.log('[RCB]', e.message)); // v157
   if (!jaEntregue) await metaChecar(env, ped.entFeitoPor); // v147
   if (!jaEntregue && ped.instIniEm) { const min = Math.round((ped.entregueEm - ped.instIniEm) / 60000); await pontoAvisarDono(env, `⏱️ Instalação de *${ped.nome}*: ${horaTs(ped.instIniEm)} → ${horaTs(ped.entregueEm)} (${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')})${ped.instIniFotoEm ? ' · fotos de início e fim ✅' : ' · sem foto do início'}.`).catch(() => {}); } // v156
   if (!jaEntregue) await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, entrega: dataBahia() }, 'entregue');
@@ -9306,9 +9308,10 @@ async function equipeFuncoesTool(env, a) {
   return { texto: `${f.nome.split(' ')[0]} agora: ${cur.map(x => FUNC_TXT[x]).join(', ') || 'sem função'}. O bot já distribui o serviço assim. Confirme em UMA frase.` };
 }
 // ── revisão anual: 30 dias antes de vencer a garantia, oferece ao cliente revisão e impermeabilização ──
+async function qualidadeSemanal(env) { const t = await qualidadeTexto(env, 7).catch(() => ''); if (t) await pontoAvisarDono(env, t.replace('últimos 7 dias', 'semana')).catch(() => {}); } // v157
 async function semanalRotina(env) {
   const ag = agoraBahia(), hoje = dataBahia();
-  if (ag.dia === 0 && ag.min >= 19 * 60 && !(await env.HR_KV.get('sem:' + hoje)) && await travaEnvio(env, 'sem:' + hoje)) { await env.HR_KV.put('sem:' + hoje, '1', { expirationTtl: 3 * 86400 }); await pontoAvisarDono(env, await resumoSemanaTexto(env)); }
+  if (ag.dia === 0 && ag.min >= 19 * 60 && !(await env.HR_KV.get('sem:' + hoje)) && await travaEnvio(env, 'sem:' + hoje)) { await env.HR_KV.put('sem:' + hoje, '1', { expirationTtl: 3 * 86400 }); await pontoAvisarDono(env, await resumoSemanaTexto(env)); await qualidadeSemanal(env); }
   if (hoje.slice(8) === '01' && ag.min >= 8 * 60 && !(await env.HR_KV.get('desemp:' + hoje)) && await travaEnvio(env, 'desemp:' + hoje)) { // dia 1º: desempenho e lucro do mês que passou
     await env.HR_KV.put('desemp:' + hoje, '1', { expirationTtl: 3 * 86400 });
     const ant = isoSomaDias(hoje, -1).slice(0, 7);
@@ -9391,7 +9394,8 @@ async function metasPontos(env, de, ate) { // v149: registro de etapas (prodLog)
     if (!tipos.has('fabricacao') && p.fabFeitoPor && p.fabProntoEm && p.fabFeitoPor !== p.corteFeitoPor) log.push({ e: 'fabricacao', por: [p.fabFeitoPor], ts: p.fabProntoEm });
     if (!tipos.has('entrega') && !tipos.has('instalacao') && p.entFeitoPor && p.entregueEm) log.push({ e: cx ? 'instalacao' : 'entrega', por: [p.entFeitoPor], ts: p.entregueEm });
     for (const x of log) {
-      if (!dentro(x.ts) || !Array.isArray(x.por) || !x.por.length || x.e === 'inicio') continue;
+      if (!dentro(x.ts) || !Array.isArray(x.por) || !x.por.length || x.e === 'inicio' || x.e === 'inicio_inst') continue;
+      if (x.e === 'avaliacao' || x.e === 'retrabalho') { for (const id of x.por) add(String(id), +x.pts || 0, x.e === 'avaliacao' ? `⭐ cliente deu ${x.nota}` : `🔁 retrabalho${x.motivo ? ' (' + String(x.motivo).slice(0, 30) + ')' : ''}`, p, x.ts, null); continue; } // v157
       let pts = 0, ex = null;
       if (x.e === 'corte') pts = x.pecas ? meio(ptsEtapa(p, 'corte') * x.pecas / n) || 0.5 : ptsEtapa(p, 'corte'); // v156: dificuldade e corte por peça
       else if (x.e === 'acabamento') pts = ptsEtapa(p, 'acabamento');
@@ -9437,7 +9441,7 @@ async function metaPainel(env, funcId) {
   const falta = Math.max(0, m.meta - atual.pts);
   return { ok: true, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
     porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: atual.tarefas.slice(-12).reverse(), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
-    hist: hist.slice(0, 6).reverse(), regras: [['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
+    hist: hist.slice(0, 6).reverse(), regras: [['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['🌟 Cliente deu nota 5', '+1'], ['🔁 Retrabalho', '−2'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
 }
 // avisos de progresso no WhatsApp (chamado quando alguém conclui uma tarefa)
 async function metaChecar(env, funcId) {
@@ -9847,6 +9851,7 @@ async function previsaoTexto(env) {
 async function googleLinkCarregar(env) { if (globalThis.__gLinkEm && Date.now() - globalThis.__gLinkEm < 10 * 60000) return; globalThis.__gLinkEm = Date.now(); globalThis.__gLink = (await env.HR_KV.get('cfg:google_link').catch(() => '')) || ''; }
 
 async function v151ComandoDono(env, from, msg, texto) {
+  if (/^(qualidade|relatorio de qualidade|qualidade (da equipe|do mes|dos servicos))$/.test(msg)) { await enviar(env, from, await qualidadeTexto(env, 30)); return true; } // v157
   if (/^(perdas?|perdas do mes|quebras?|quanto (eu )?perdi( no mes)?\??)$/.test(msg)) { await enviar(env, from, await perdasTexto(env)); return true; }
   if (/^(sobras?|retalhos?|sobras guardadas)$/.test(msg)) { await enviar(env, from, await sobrasTexto(env)); return true; }
   if (/^(previsao( do mes| de caixa)?|quanto vai entrar( esse mes| este mes| no mes)?\??|vai entrar quanto( esse mes)?\??)$/.test(msg)) { await enviar(env, from, await previsaoTexto(env)); return true; }
@@ -10201,6 +10206,79 @@ async function prodFotoInicio(env, f, from, ped, buf, tipo, nome) {
   ped.instIniFotoEm = Date.now(); await salvarPedido(env, ped);
   try { const up = await subirImagemMeta(env, buf, 'inicio-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📍 Início da instalação · ${ped.nome} · ${nome} · ${horaTs(Date.now())}` } }).catch(() => {}); } catch (_) {}
   await enviar(env, from, `📸 Foto do início guardada. Bom trabalho! Quando terminar: _instalei o da ${String(ped.nome).split(' ')[0]}_ e a foto com todas as peças instaladas.`);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v157: RECEBIMENTO PELO CLIENTE (aceite + nota da equipe) · RETRABALHO · RELATÓRIO DE QUALIDADE
+// ═════════════════════════════════════════════════════════════════════════════
+async function rcbPedir(env, ped) { // logo depois da entrega/instalação com foto
+  if (!ped.numero || String(ped.entrega || '') === 'retirada' || ped.rcbPedidoEm || String(env.RECEBIMENTO ?? '1') === '0') return;
+  if (!(await janela24h(env, ped.numero))) return;
+  ped.rcbPedidoEm = Date.now(); await salvarPedido(env, ped);
+  await enviarComBotoes(env, ped.numero, `${nomeDeTratamento(ped.nome) || 'Olá'}, a equipe finalizou ${pedComplexo(ped) ? 'a instalação' : 'a entrega'} de ${resumoPecas(ped)}. Confere para mim: ficou tudo certinho?`, [{ id: 'rcb_ok|' + ped.id, titulo: '✅ Tudo certo' }, { id: 'rcb_pb|' + ped.id, titulo: '⚠️ Tenho um problema' }]);
+}
+async function rcbClienteMsg(env, from, m) {
+  const id = m.type === 'interactive' ? (m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '') : ''; if (!/^(rcb_ok|rcb_pb|rcn)\|/.test(id)) return false;
+  const [ac, pid, nota] = id.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) return false;
+  const pn = nomeDeTratamento(ped.nome);
+  if (ac === 'rcb_ok') {
+    ped.rcbOkEm = Date.now(); ped.rcbNum = normalizarBR(from); await salvarPedido(env, ped);
+    await enviarLista(env, from, `Que bom${pn ? ', ' + pn : ''}! 🥰 Recebimento confirmado. De 1 a 5, que nota você dá para a nossa equipe (pontualidade, cuidado e limpeza)?`, 'Dar nota', [5, 4, 3, 2, 1].map(n => ({ id: `rcn|${ped.id}|${n}`, titulo: '⭐'.repeat(n), descricao: ['', 'Ruim', 'Pode melhorar', 'Bom', 'Muito bom', 'Excelente!'][n] })));
+    return true;
+  }
+  if (ac === 'rcb_pb') {
+    ped.rcbProblemaEm = Date.now(); await salvarPedido(env, ped);
+    await enviar(env, from, `Poxa${pn ? ', ' + pn : ''}, me conta o que aconteceu e, se puder, mande uma foto. Já passo para o Sr. Hangel resolver com você.`);
+    await anotarNoHistorico(env, from, `[O cliente disse que TEVE UM PROBLEMA logo após ${pedComplexo(ped) ? 'a instalação' : 'a entrega'} de ${resumoPecas(ped)}. Acolha, peça detalhes e foto e diga que o Sr. Hangel vai resolver. Não prometa prazo nem valor.]`).catch(() => {});
+    await pontoAvisarDono(env, `⚠️ *${ped.nome}* disse que tem um problema logo após ${pedComplexo(ped) ? 'a instalação' : 'a entrega'} (${resumoPecas(ped)}). Pedi detalhes e foto.\nwa.me/${normalizarBR(from)}`).catch(() => {});
+    return true;
+  }
+  const n = Math.max(1, Math.min(5, +nota || 0)); if (ped.rcbNota) { await enviar(env, from, 'Sua nota já foi registrada. Obrigada! 🙏'); return true; }
+  ped.rcbNota = n; ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
+  const eq = [...new Set([ped.entFeitoPor, ped.instIniPor, ...ped.prodLog.filter(x => x.e === 'instalacao' || x.e === 'entrega').flatMap(x => x.por || [])].filter(Boolean).map(String))];
+  if (eq.length && (n === 5 || n <= 2)) ped.prodLog.push({ e: 'avaliacao', por: eq, ts: Date.now(), nota: n, pts: n === 5 ? 1 : -1 });
+  await salvarPedido(env, ped);
+  await enviar(env, from, n >= 4 ? `Muito obrigada! 🙏 Vou passar o elogio para a equipe.` : `Obrigada pela sinceridade. O Sr. Hangel vai ver o que podemos melhorar. Se quiser, me conte o que não gostou.`);
+  const nomes = []; for (const fid of eq) nomes.push(await respNome(env, fid));
+  await pontoAvisarDono(env, `${n >= 4 ? '⭐' : '⚠️'} *${ped.nome}* confirmou o recebimento e deu nota *${n}* para a equipe${nomes.length ? ' (' + nomes.join(', ') + ')' : ''}.`).catch(() => {});
+  if (n === 5) for (const fid of eq) { const t = await respTel(env, fid); if (t) await enviar(env, t, `🌟 ${await respNome(env, fid)}, *${String(ped.nome).split(' ')[0]}* deu *nota 5* para o serviço! +1 ponto. Parabéns pelo capricho! 👏`).catch(() => {}); await metaChecar(env, fid); }
+  return true;
+}
+// retrabalho: o dono registra; desconta 2 pontos de quem fez a etapa e entra no relatório de qualidade
+async function retrabalhoTool(env, a) {
+  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
+  const ped = l.sort((x, y) => (y.criado || 0) - (x.criado || 0))[0]; if (!ped) return { erro: true, texto: 'Não achei esse serviço. Pergunte o nome do cliente em UMA frase.' };
+  const et = String(a.etapa || 'instalacao'), cfg = await pontoCfg(env);
+  let ids = [];
+  for (const nmF of (Array.isArray(a.funcionarios) ? a.funcionarios : [])) { const t2 = tokensPedra(String(nmF)); const f = cfg.funcs.find(z => t2.length && tokensPedra(z.nome)[0] === t2[0]); if (f) ids.push(String(f.id)); }
+  if (!ids.length) { const log = Array.isArray(ped.prodLog) ? ped.prodLog : []; const de = log.filter(x => x.e === et).flatMap(x => x.por || []); ids = de.length ? de : [et === 'corte' ? ped.corteFeitoPor : et === 'acabamento' ? ped.acabResp : /fabric/.test(et) ? ped.fabFeitoPor : ped.entFeitoPor].filter(Boolean); }
+  ids = [...new Set(ids.map(String))];
+  const desc = a.desconta === false ? 0 : -2;
+  ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : []; ped.prodLog.push({ e: 'retrabalho', por: ids, ts: Date.now(), etapa: et, motivo: String(a.motivo || '').slice(0, 120), pts: ids.length ? desc / ids.length : 0 });
+  ped.retrabalhos = (ped.retrabalhos || 0) + 1; await salvarPedido(env, ped);
+  const nomes = []; for (const id of ids) nomes.push(await respNome(env, id));
+  if (a.avisar !== false) for (const id of ids) { const t = await respTel(env, id); if (t) await enviar(env, t, `🔁 ${await respNome(env, id)}, foi registrado um retrabalho em *${ped.nome}* (${et.replace('instalacao', 'instalação').replace('fabricacao', 'fabricação')})${a.motivo ? ': ' + a.motivo : ''}. ${desc ? 'Vale −2 pontos.' : ''} Vamos caprichar para não repetir! 💪`).catch(() => {}); }
+  return { texto: `Retrabalho registrado em ${ped.nome} (${et})${nomes.length ? ', responsável: ' + nomes.join(' e ') : ''}${desc ? ', −2 pontos' + (ids.length > 1 ? ' divididos' : '') : ''}. Entra no relatório de qualidade. Confirme em UMA frase.` };
+}
+async function qualidadeTexto(env, dias) {
+  dias = dias || 30; const desde = Date.now() - dias * 86400000;
+  const l = await pedidosProducao(env, p => (p.entregueEm || 0) >= desde || (p.criado || 0) >= desde), ent = l.filter(p => (p.entregueEm || 0) >= desde);
+  const comFoto = ent.filter(p => p.fotoEntregaEm).length, inst = ent.filter(p => p.instIniEm), ambas = inst.filter(p => p.instIniFotoEm && p.fotoEntregaEm).length;
+  const notas = ent.filter(p => p.rcbNota).map(p => p.rcbNota), media = notas.length ? (notas.reduce((t, x) => t + x, 0) / notas.length).toFixed(1).replace('.', ',') : '—';
+  const durs = inst.filter(p => p.entregueEm > p.instIniEm).map(p => (p.entregueEm - p.instIniEm) / 60000), durM = durs.length ? Math.round(durs.reduce((t, x) => t + x, 0) / durs.length) : 0;
+  const retr = l.flatMap(p => (p.prodLog || []).filter(x => x.e === 'retrabalho' && x.ts >= desde).map(x => ({ ...x, nome: p.nome })));
+  const noPrazo = ent.filter(p => p.janela && p.entregueEm <= p.janela.fim + 30 * 60000).length, comJ = ent.filter(p => p.janela).length;
+  const probl = ent.filter(p => p.rcbProblemaEm).length, conf = ent.filter(p => p.rcbOkEm).length;
+  const porF = {}; for (const r of retr) for (const id of r.por) porF[id] = (porF[id] || 0) + 1;
+  const linF = []; for (const [id, n] of Object.entries(porF)) linF.push(`${await respNome(env, id)} ${n}`);
+  return [`🏅 *Qualidade dos últimos ${dias} dias*`, '',
+    `Serviços entregues: *${ent.length}*`,
+    `📸 Com foto de comprovante: ${comFoto}/${ent.length}${inst.length ? ` · instalações com foto de início e fim: ${ambas}/${inst.length}` : ''}`,
+    `⏱️ No horário combinado: ${comJ ? `${noPrazo}/${comJ}` : '—'}${durM ? ` · instalação média: ${Math.floor(durM / 60)}h${String(durM % 60).padStart(2, '0')}` : ''}`,
+    `✅ Cliente confirmou o recebimento: ${conf}/${ent.length}${probl ? ` · ⚠️ com problema: ${probl}` : ''}`,
+    `⭐ Nota média da equipe: *${media}*${notas.length ? ` (${notas.length} nota${notas.length > 1 ? 's' : ''})` : ''}`,
+    `🔁 Retrabalhos: *${retr.length}*${linF.length ? ' · ' + linF.join(' · ') : ''}`,
+    ...retr.slice(-5).map(r => `  • ${r.nome}: ${String(r.etapa).replace('instalacao', 'instalação').replace('fabricacao', 'fabricação')}${r.motivo ? ' — ' + r.motivo : ''}`)].join('\n');
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -11397,6 +11475,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
+    name: 'registrar_retrabalho',
+    description: 'Registra um RETRABALHO (serviço que voltou por erro: medida errada, peça trincada na instalação, desnível, silicone mal feito). Desconta 2 pontos de quem fez a etapa (divididos se foram vários) e entra no relatório de qualidade. Ex.: "a bancada da Maria voltou, ficou desnivelada, foi o Gibson" → etapa instalacao, funcionarios [Gibson]. Sem funcionário, o bot usa quem fez a etapa. desconta=false se ele disser que não é para tirar ponto.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['corte', 'acabamento', 'fabricacao', 'instalacao', 'entrega'] }, motivo: { type: 'string' }, funcionarios: { type: 'array', items: { type: 'string' } }, desconta: { type: 'boolean' }, avisar: { type: 'boolean' } }, required: ['cliente', 'etapa'] },
+  },
+  {
     name: 'acordo_pagamento',
     description: 'ACORDO DE PAGAMENTO: cliente que não pagou como combinado e o serviço vai ser instalado/entregue assim mesmo, ou qualquer saldo que ela vai pagar em partes (ex.: "a Maria não conseguiu pagar, o projeto deu 6 mil, já pagou 2 mil, amanhã a gente instala, ela paga 1500 na instalação e o resto em 2x dia 10/12 e 10/01"). O bot manda à cliente o termo de acordo em PDF para aceitar, avisa o instalador quanto receber, ajusta a 1ª parcela se ela pagar menos e manda o Pix em cada vencimento (multa e juros no atraso). Se ele não disse como fica o restante, chame sem "parcelas" que a ferramenta diz o que perguntar. Se ele não disse o total, a ferramenta usa o valor do orçamento (informe orcamento_nome quando o orçamento estiver em outro nome). Valores "em torno de" podem ir assim: ele confere na prévia antes de enviar. Datas em AAAA-MM-DD (use a data de HOJE do contexto).',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'WhatsApp com DDD, se ele deu ou mandou o contato' }, total: { type: 'number', description: 'valor total do projeto' }, ja_pago: { type: 'number', description: 'quanto já foi pago (cartão, sinal etc.)' }, na_instalacao: { type: 'number', description: 'quanto ela paga no dia da instalação' }, data_instalacao: { type: 'string' }, parcelas: { type: 'array', items: { type: 'object', properties: { valor: { type: 'number' }, data: { type: 'string' } } }, description: 'o restante depois da instalação' }, instaladores: { type: 'array', items: { type: 'string' } }, descricao: { type: 'string', description: 'ex.: Cozinha em Preto São Gabriel' }, endereco: { type: 'string' }, orcamento_nome: { type: 'string', description: 'nome em que o orçamento está, se for outro (ex.: do marido)' } }, required: ['cliente'] },
@@ -11886,6 +11969,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'producao_status') return await producaoStatusTool(env, a); // v149
   if (nome === 'registrar_perda') return await perdaTool(env, a); // v151
   if (nome === 'acordo_pagamento') return await acordoTool(env, from, a); // v152
+  if (nome === 'registrar_retrabalho') return await retrabalhoTool(env, a); // v157
   if (nome === 'registrar_sobra') return await sobraTool(env, a); // v151
   if (nome === 'previsao_mes') return { texto: (await previsaoTexto(env)) + '\n\n(Repasse esses números de forma curta e clara.)' }; // v151
   if (nome === 'equipe_atualizar') return await equipeAtualizar(env, a); // v141
@@ -17192,6 +17276,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono) await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {});
   if (!dono && (m.type === 'audio' || m.type === 'text')) await kvGravarSeMudou(env, 'clivoz:' + ultimos8(from), m.type === 'audio' ? '1' : '0', 3 * 24 * 60 * 60).catch(() => {});
   if (!dono) await kvUltimoCliente(env, from).catch(() => {});
+  if (!dono && await rcbClienteMsg(env, from, m).catch(e => { console.log('[RCB] cliente:', e.message); return false; })) return; // v157
   if (!dono && await acdClienteMsg(env, from, m).catch(e => { console.log('[ACD] cliente:', e.message); return false; })) return; // v152
   if (!dono && await onbClienteMsg(env, from, m).catch(e => { console.log('[ONB] cliente:', e.message); return false; })) return; // v143
   if (!dono && await garClienteMsg(env, from, m).catch(e => { console.log('[GAR] cliente:', e.message); return false; })) return; // v144
