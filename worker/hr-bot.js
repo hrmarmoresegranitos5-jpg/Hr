@@ -6851,6 +6851,7 @@ async function pedirAvaliacoes(env) {
   await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
   await mig182Reabrir(env).catch(e => console.log('[MIG182]', e.message)); // v182
   await mig185Garantias(env).catch(e => console.log('[MIG185]', e.message)); // v185
+  await mig188Etapas(env).catch(e => console.log('[MIG188]', e.message)); // v188
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7902,7 +7903,9 @@ async function prodMarcarPronto(env, ped, from, nome) {
     if (ped.fab2Resp && !ped.corteEm && fid && fid !== String(ped.fab2Resp)) {
       ped.corteEm = Date.now(); ped.corteFeitoPor = fid; await salvarPedido(env, ped);
       const t2 = await respTel(env, ped.fab2Resp), n2 = await respNome(env, ped.fab2Resp);
-      if (t2) await enviar(env, t2, `${avisoTeste(env)}🪚 As peças de *${ped.nome}* (${resumoPecas(ped)}) já estão *cortadas*. Pode seguir com a fabricação (45°, cuba, acabamento). Quando terminar: _terminei o de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {});
+      const sH = unidadesEtapa(ped, 'fabricacao') || [], uP = unidadesEtapa(ped, 'polimento') || []; // v188
+      if (t2) await enviar(env, t2, `${avisoTeste(env)}🪚 As peças de *${ped.nome}* (${resumoPecas(ped)}) já estão *cortadas*. A sua parte:${sH.length ? '\n' + sH.map(u => `• ${u.nome} (${vPt(u.pts)} pts)`).join('\n') : ' 45°, cuba e acabamento.'}\nA cada parte pronta pode me dizer (ex.: _colei a cuba da ${String(ped.nome).split(' ')[0]}_). No fim: _terminei o de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {});
+      if (uP.length) { const pid = await polidorDe(env, ped); if (pid && pid !== String(ped.fab2Resp)) { ped.poliResp = pid; await salvarPedido(env, ped); const tp = await respTel(env, pid); if (tp) await enviar(env, tp, `${avisoTeste(env)}✨ ${await respNome(env, pid)}, os frontões/saias de *${ped.nome}* estão cortados. Pode fazer o *polimento* (${uP.length} peça${uP.length > 1 ? 's' : ''}):\n${uP.slice(0, 8).map(u => '• ' + u.nome).join('\n')}\nQuando terminar: _poli os frontões da ${String(ped.nome).split(' ')[0]}_.`).catch(() => {}); } }
       await enviar(env, from, `Show, ${nome}! Corte de *${ped.nome}* anotado. Passei para o ${n2 || 'Hugo'} fazer a fabricação.`);
       await pontoAvisarDono(env, `🪚 ${nome} cortou o pedido de *${ped.nome}*; ${n2 || 'Hugo'} segue com a fabricação.`).catch(() => {});
       await metaChecar(env, fid); // v147
@@ -9519,7 +9522,7 @@ function dificuldade(p) {
   let corte = 0, det = 0; const lista = [];
   for (const it of its) {
     for (const pc of it.pecas) corte += ptsBasePeca(pc.comp_cm, pc.larg_cm) * (+pc.qtd || 1);
-    for (const k of (it.sv || [])) { let v = SV_PTS[k] || 0; if (k === 'cuba_lav' || k === 'cuba_coz') { const cid = String(it.cuba || ''); if (/esc_mxc/.test(cid)) v = 8; else if (/esc_com/.test(cid)) v = 5; else if (/esc_sim|esculp/i.test(cid)) v = 3; } if (v) { det += v; lista.push(/esc_/.test(String(it.cuba || '')) && /^cuba/.test(k) ? 'cuba esculpida' : (SV_NOME[k] || k)); } }
+    for (const k of (it.sv || [])) { let v = SV_PTS[k] || 0; if (k === 'cuba_lav' || k === 'cuba_coz') { const cid = String(it.cuba || ''); if (/esc_mxc/.test(cid)) v = 8; else if (/esc_com/.test(cid)) v = 5; else if (/esc_sim|esculp/i.test(cid)) v = 3; else { const ct = cubaTipo(it); if (ct === 'flush') v = 4; else if (ct === 'embutir') v = 2; else if (ct === 'sobrepor') v = 1; } } if (k === 's_45') v = 3; /* v188 */ if (v) { det += v; lista.push(/esc_/.test(String(it.cuba || '')) && /^cuba/.test(k) ? 'cuba esculpida' : (SV_NOME[k] || k)); } }
     if (it.acabamento === '45' && !(it.sv || []).includes('sol_45')) { det += 2; lista.push('45°'); } else if (it.acabamento === '2_lados' && !(it.sv || []).includes('sol2')) det += 0.5;
   }
   return { corte: meio(corte), det: meio(det), lista: [...new Set(lista)] };
@@ -9530,7 +9533,13 @@ function nivelDif(p) { const d = dificuldade(p); const sc = d ? d.corte + d.det 
 // pontos base de cada etapa (sem prazo e foto)
 function ptsEtapa(p, e) {
   { const its = p && !p.__item && p.resumoApp && p.resumoApp.itens; // v182: vários itens → cada item vale como um serviço (soma)
-    if (its && its.length > 1 && ['acabamento', 'polimento', 'fabricacao'].includes(e)) return meio(its.reduce((t, it) => t + ptsEtapa(ptsItemPed(p, it), e), 0)); }
+    if (its && its.length > 1 && ['acabamento', 'polimento', 'fabricacao'].includes(e) && !pedComplexo(p)) return meio(its.reduce((t, it) => t + ptsEtapa(ptsItemPed(p, it), e), 0)); }
+  if (p && pedComplexo(p) && ((p.resumoApp || {}).itens || []).some(i => (i.pecas || []).length)) { // v188: bancada/cozinha pelas partes reais
+    const mu = nivelDif(p).mult;
+    if (e === 'polimento') return poliPtsTotal(p) || 0.5;
+    if (e === 'fabricacao') return meio((1 + hugoPtsBase(p)) * mu);
+    if (e === 'corte') { const d = dificuldade(p); return meio(((d ? d.corte : nPecasPed(p)) + ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('reb_a')).length)) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); }
+  }
   const d = dificuldade(p), n = nPecasPed(p), mu = d ? nivelDif(p).mult : 1;
   if (e === 'corte') return meio((d ? d.corte : n) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); // corte pesa menos o nível (o difícil é a fabricação)
   if (e === 'fabricacao') return d ? meio((2 + d.det + d.corte * 0.5) * mu) : 3 + n;
@@ -10823,6 +10832,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v188: etapas reais da bancada (corte com tampo do rebaixo, polimento de frontões/saias, Hugo: rebaixo americano, cuba sobrepor/embutida/flush/esculpida, saia 45°, cooktop, furos); "a cuba da Maria é flush".
 // v187: "minhas tarefas" mostra o progresso por item (2 de 4 lavatórios, quais faltam).
 // v186: o bot do cliente prometeu algo que só o dono faz ("envio o termo em instantes") → aviso ao dono.
 // v185: CPF/nome que o cliente manda completam a garantia emitida sem CPF (e a da Renata é corrigida); mensagens à equipe sem repetição simultânea.
@@ -11016,6 +11026,7 @@ async function aumentoTexto(env) {
   return L.join('\n');
 }
 async function desempComandoDono(env, from, msg, bruto) {
+  if (await cubaTipoComando(env, from, msg)) return true; // v188
   { const mg = msg.match(/^(?:reenvia|reenviar|manda de novo|mande de novo|envia|enviar|manda) (?:o certificado d[ae] |a )?garantia d[aoe] ([a-z ]{3,40})$/); // v185
     if (mg && await garTabela(env)) { const tk = tokensPedra(mg[1]); const r = (await env.HR_DB.prepare("SELECT * FROM garantia WHERE status = 'ativa' ORDER BY criado DESC LIMIT 300").all()).results || []; const g = r.find(x => tk.every(w => tokensPedra(x.cliente || '').includes(w)));
       if (!g) { await enviar(env, from, `Não achei garantia ativa de ${mg[1]}.`); return true; }
@@ -11162,10 +11173,11 @@ async function mig185Garantias(env) {
 // v182: ETAPAS POR ITEM — um projeto com vários itens (ex.: 4 lavatórios, a bancada e os frontões da cozinha) tem cada item como
 // uma parte da etapa (corte, polimento, acabamento, fabricação). Cada item vale a sua parte dos pontos (pelo tamanho).
 // "terminei esse lavatório", "terminei 2 lavatórios da Maria", "poli os frontões do Papinha", "cortei todos os peitoris".
-const ITEM_NOUN = /\b(lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
+const ITEM_NOUN = /\b(rebaixos?|cubas?|cooktops?|cook|furos?|tampos?|saias? (?:em |de )?45|lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
 const capT = t => String(t || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 function ptsItemPed(p, it) { return { __item: true, interesse: it.ambiente || p.interesse || '', projetoApp: it.ambiente || '', resumoApp: { pedra: (p.resumoApp || {}).pedra, itens: [it] }, pecas: (it.pecas || []).map(pc => ({ tipo: it.ambiente || 'peça', ...pc })) }; }
-function unidadesPed(p) {
+function unidadesPed(p, et) {
+  { const E = et ? unidadesEtapa(p, et) : null; if (E) return E; } // v188: bancada/cozinha: partes reais de cada etapa
   const r = p.resumoApp || {}, its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: p.interesse || '', pecas: p.pecas || [] }];
   const area = pc => Math.max(1, (+pc.comp_cm || 1) * (+pc.larg_cm || 1)), U = [];
   if (its.length > 1) its.forEach((it, i) => { const nm = capT(it.ambiente || 'item'), mesmos = its.filter(x => x.ambiente === it.ambiente).length, k = its.slice(0, i + 1).filter(x => x.ambiente === it.ambiente).length;
@@ -11183,6 +11195,7 @@ function unidadesPed(p) {
 function casaNoun(u, noun) {
   const n = normaliza(noun), t = u.tipo + ' ' + normaliza(u.nome);
   if (/^(pecas?|itens|item)$/.test(n)) return true;
+  if (/^rebaix|^tampo/.test(n) && /rebaixo/.test(t)) return true; if (/^cuba/.test(n)) return /cuba/.test(t); if (/^cook/.test(n)) return /cooktop/.test(t); if (/^furo/.test(n)) return /furo/.test(t); if (/^saias? (em |de )?45/.test(n)) return /45/.test(t); // v188
   if (/^lavat|^lavabo/.test(n)) return /lavat|lavabo|banheir/.test(t);
   if (/^front|^testeir|^saia|^rodape|^espelho/.test(n)) return u.larg > 0 && u.larg <= 25 && !/peitor|soleir/.test(t);
   if (/^peitor/.test(n)) return /peitor/.test(t);
@@ -11195,18 +11208,19 @@ function nomeParecido(ped, texto) { // "Papinho" acha "Jailton (papinha)"
 }
 async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   const msg = normaliza(texto || '');
-  if (!/\b(terminei|terminamos|terminad[oa]s?|finalizei|finalizad[oa]s?|acabei|acabad[oa]s?|prontos?|prontas?|cortei|cortad[oa]s?|poli|polid[oa]s?|lustrei|lustrad[oa]s?|feitos|feitas)\b/.test(msg)) return false;
+  if (!/\b(terminei|terminamos|terminad[oa]s?|finalizei|finalizad[oa]s?|acabei|acabad[oa]s?|prontos?|prontas?|cortei|cortad[oa]s?|poli|polid[oa]s?|lustrei|lustrad[oa]s?|feitos|feitas|colei|colad[oa]s?|recortei|recortad[oa]s?|abri|fiz|feito|feita)\b/.test(msg)) return false;
   const nm = msg.match(ITEM_NOUN), qn = msg.match(/\b(\d{1,2}|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)\b/), esse = /\b(esse|esses|essa|essas|este|estes|esta|estas)\b/.test(msg);
   if (!nm && !qn && !esse) return false;
   const id = String(f.id), l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && p.status !== 'recusado');
   let ach = l.filter(p => nomeParecido(p, texto)); if (!ach.length) ach = await prodPorApelido(env, l, texto).catch(() => []);
   if (!ach.length) { let fu = null; try { fu = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {} if (fu && Date.now() - fu.em < 30 * 60000) ach = l.filter(p => String(p.id) === String(fu.pid)); }
-  if (!ach.length) { const mine = l.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].map(String).includes(id) && unidadesPed(p).length > 1); if (mine.length === 1) ach = mine; }
+  if (!ach.length) { const mine = l.filter(p => [p.fabResp, p.fab2Resp, p.acabResp, p.poliResp].map(String).includes(id) && unidadesPed(p).length > 1); if (mine.length === 1) ach = mine; }
   if (ach.length !== 1) return false;
-  const ped = ach[0], U = unidadesPed(ped); if (U.length < 2) return false;
+  const ped = ach[0];
   const papel = (await funcoesEquipe(env)).map[id] || [];
-  let et = /\b(cortei|cortad)/.test(msg) ? 'corte' : /\b(poli|polid|lustr|polimento)/.test(msg) ? 'polimento' : null;
+  let et = /\b(cortei|cortad)/.test(msg) ? 'corte' : /\b(poli|polid|lustr|polimento)/.test(msg) ? 'polimento' : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : pedComplexo(ped) && String(ped.poliResp || '') === id && ped.corteEm && !ped.poliEm ? 'polimento' : null; // v188
   if (!et) et = String(ped.acabResp) === id && !ped.acabEm ? 'acabamento' : String(ped.fabResp) === id && !ped.corteEm ? 'corte' : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : ped.corteEm || !papel.includes('corte') ? (pedComplexo(ped) && papel.includes('fabricacao') ? 'fabricacao' : 'acabamento') : 'corte';
+  const U = unidadesPed(ped, et); if (U.length < 2) return false; // v188: as partes dependem da etapa
   const prog = ped.prog || {}, feitos = new Set(prog[et] || []), pend = U.filter(u => !feitos.has(u.i));
   if (!pend.length) { await enviar(env, from, `${nome}, ${ETAPA_NOME[et] || et} de *${ped.nome}* já estava completo em todos os itens.`); return true; }
   const noun = nm ? nm[1] : '', cand = noun ? pend.filter(u => casaNoun(u, noun)) : pend;
@@ -11230,14 +11244,14 @@ const ETAPA_NOME = { corte: 'o corte', polimento: 'o polimento', acabamento: 'o 
 async function prodItensResposta(env, f, from, texto, nome) {
   let c = null; try { c = JSON.parse((await env.HR_KV.get('prod:itens:' + ultimos8(from))) || 'null'); } catch (_) {} if (!c) return false;
   const msg = normaliza(texto || ''); if (!/^\s*(todos|todas|tudo|[\d\s,e]+)\s*$/.test(msg)) return false;
-  const ped = await lerPedido(env, c.pid).catch(() => null); if (!ped) return false; const U = unidadesPed(ped);
+  const ped = await lerPedido(env, c.pid).catch(() => null); if (!ped) return false; const U = unidadesPed(ped, c.et);
   const nums = /todos|todas|tudo/.test(msg) ? c.ids.map((_, k) => k + 1) : (msg.match(/\d{1,2}/g) || []).map(Number);
   const sel = [...new Set(nums)].map(k => U[c.ids[k - 1]]).filter(Boolean); if (!sel.length) { await enviar(env, from, 'Não entendi os números. Ex.: _1, 3_ ou *todos*.'); return true; }
   await env.HR_KV.delete('prod:itens:' + ultimos8(from));
   return prodItensRegistrar(env, f, from, ped, c.et, sel, nome);
 }
 async function prodItensRegistrar(env, f, from, ped, et, sel, nome) {
-  const id = String(f.id), U = unidadesPed(ped); ped.prog = ped.prog || {}; const feitos = new Set(ped.prog[et] || []);
+  const id = String(f.id), U = unidadesPed(ped, et); ped.prog = ped.prog || {}; const feitos = new Set(ped.prog[et] || []);
   sel = sel.filter(u => !feitos.has(u.i)); if (!sel.length) { await enviar(env, from, `${nome}, esses itens já estavam anotados.`); return true; }
   const frac = Math.round(sel.reduce((t, u) => t + u.frac, 0) * 1000) / 1000;
   sel.forEach(u => feitos.add(u.i)); ped.prog[et] = [...feitos];
@@ -11246,7 +11260,7 @@ async function prodItensRegistrar(env, f, from, ped, et, sel, nome) {
   if (!completo) ped.prodLog.push({ e: et, por: [id], ts: Date.now(), frac, itens: sel.map(u => u.i) });
   else { const resto = Math.round(Math.max(0, 1 - (ped.prodLog.filter(x => x.e === et && x.frac != null).reduce((t, x) => t + x.frac, 0))) * 1000) / 1000; if (resto > 0.001 && resto < 0.999) ped.prodLog.push({ e: et, por: [id], ts: Date.now(), frac: resto, itens: sel.map(u => u.i) }); }
   if (et === 'corte') ped.cortadas = Math.min(nPecasPed(ped), (+ped.cortadas || 0) + sel.length);
-  if (et === 'polimento' && completo) ped.poliEm = Date.now();
+  if (et === 'polimento' && completo) { ped.poliEm = Date.now(); if (ped.fab2Resp && String(ped.fab2Resp) !== id) { const th = await respTel(env, ped.fab2Resp); if (th) await enviar(env, th, `${avisoTeste(env)}✨ Os frontões/saias de *${ped.nome}* já estão polidos (${nome}).`).catch(() => {}); } } // v188
   await salvarPedido(env, ped);
   { let ft = null; try { ft = JSON.parse((await env.HR_KV.get('prod:itensfoto:' + ultimos8(from))) || 'null'); } catch (_) {} // a foto que veio junto fica no pedido
     if (ft && ft.mid) { await env.HR_KV.delete('prod:itensfoto:' + ultimos8(from)); try { const b = await baixarMidia(env, ft.mid); if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind((completo && et !== 'polimento' ? 'pronto:' : 'obra:') + ped.id, bytesParaBase64(new Uint8Array(b.buf)), b.tipo, Date.now(), id).run(); if (completo && et !== 'polimento' && et !== 'corte') { ped.fotoProntoEm = Date.now(); await salvarPedido(env, ped); } } catch (_) {} } }
@@ -11326,6 +11340,63 @@ async function nivelComandoDono(env, from, msg) {
   await enviar(env, from, `Feito: a carreira do ${apelidoFunc(cfg, f)} agora está no ${CARREIRA[i].ico} *${CARREIRA[i].nome}* (${CARREIRA[i].xp} pontos). Daqui ele sobe com os pontos de cada semana.`);
   if (f.tel) await eqTexto(env, f.tel, `${avisoTeste(env)}🎖️ ${apelidoFunc(cfg, f)}, o Sr. Hangel reconheceu a sua experiência: a sua carreira de pontos agora começa no ${CARREIRA[i].ico} *${CARREIRA[i].nome}*. 💪`).catch(() => {});
   return true;
+}
+
+// v188: ETAPAS REAIS DA BANCADA (como o Sr. Hangel explicou) — 1) CORTE: bancada, tampo do rebaixo americano, frontões e saias;
+// 2) POLIMENTO dos frontões e saias; 3) HUGO: rebaixo americano (recorte, polimento e colar o tampo), cuba (sobrepor < embutida < flush < esculpida),
+// saia em 45° (muito trabalhosa), cooktop e furos. Cada parte vale os seus pontos; o que já foi lançado é recalculado com estas regras.
+function cubaTipo(it) { const t = normaliza(String(it.cubaInst || '') + ' ' + String(it.cuba || '')); return /esc_mxc/.test(t) ? 'esc3' : /esc_com/.test(t) ? 'esc2' : /esc_sim|esculp/.test(t) ? 'esc1' : /flush/.test(t) ? 'flush' : /embut/.test(t) ? 'embutir' : /sobrep/.test(t) ? 'sobrepor' : ''; }
+const CUBA_HUGO = { sobrepor: [1.5, 'Cuba de sobrepor: recorte, polimento e colar'], embutir: [3, 'Cuba embutida: recorte, polimento e colagem'], flush: [6, 'Cuba flush: recorte profissional e nivelamento'], esc1: [6, 'Cuba esculpida'], esc2: [8, 'Cuba esculpida com detalhe'], esc3: [10, 'Cuba esculpida completa'], '': [2.5, 'Cuba: recorte, polimento e colagem'] };
+const pcEstreita = pc => (+pc.larg_cm || 0) > 0 && (+pc.larg_cm || 0) <= 25;
+function servicosHugo(it) {
+  const sv = it.sv || [], L = [], saiaM = (it.pecas || []).filter(pcEstreita).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
+  if (sv.includes('reb_a')) L.push({ nome: 'Rebaixo americano: recorte, polimento e colar o tampo', pts: 4 });
+  if (sv.includes('reb_n')) L.push({ nome: 'Rebaixo: recorte e polimento', pts: 2 });
+  if (sv.includes('cuba_lav') || sv.includes('cuba_coz') || it.cuba) { const c = CUBA_HUGO[cubaTipo(it)]; L.push({ nome: c[1], pts: c[0] }); }
+  if (sv.includes('cook')) L.push({ nome: 'Recorte do cooktop', pts: 1.5 });
+  if (sv.includes('s_45') || it.acabamento === '45') L.push({ nome: 'Saia em 45°: corte, colagem e acabamento', pts: Math.min(8, Math.max(3, meio(saiaM * 0.75))) }); // frontões e saias têm a mesma largura no orçamento: estimativa
+  else if (sv.some(k => /^s_(reta|boleada|slim)$/.test(k))) L.push({ nome: 'Saias: colagem e acabamento', pts: Math.max(1, meio(saiaM * 0.5)) });
+  const furos = sv.filter(k => k === 'forn' || k === 'fralo').length; if (furos) L.push({ nome: `Furos (${furos})`, pts: 0.5 * furos });
+  if (!L.length) L.push({ nome: 'Acabamento final', pts: 1 });
+  return L;
+}
+function unidadesEtapa(p, et) {
+  const its = ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length); if (!its.length || !pedComplexo(p) || !['corte', 'polimento', 'fabricacao'].includes(et)) return null;
+  const U = [], mais = its.length > 1;
+  its.forEach((it, i) => {
+    const nm = capT(it.ambiente || 'item'), mesmos = its.filter(x => x.ambiente === it.ambiente).length, pre = mais ? (mesmos > 1 ? `${nm} ${its.slice(0, i + 1).filter(x => x.ambiente === it.ambiente).length}` : nm) + ' · ' : '';
+    const dim = pc => `${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`;
+    if (et === 'corte') { for (const pc of it.pecas) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `${pcEstreita(pc) ? 'Frontão/saia' : 'Bancada'} ${dim(pc)}`, pts: ptsBasePeca(pc.comp_cm, pc.larg_cm), larg: +pc.larg_cm || 0, tipo: normaliza((pcEstreita(pc) ? 'frontao saia ' : 'bancada ') + (it.ambiente || '')) });
+      if ((it.sv || []).includes('reb_a')) U.push({ nome: pre + 'Tampo do rebaixo americano', pts: 1, larg: 30, tipo: 'tampo rebaixo' }); }
+    if (et === 'polimento') for (const pc of it.pecas.filter(pcEstreita)) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `Frontão/saia ${dim(pc)}`, pts: meio(0.5 + (+pc.comp_cm || 0) / 200) || 0.5, larg: +pc.larg_cm || 0, tipo: 'frontao saia' });
+    if (et === 'fabricacao') for (const s of servicosHugo(it)) U.push({ nome: pre + s.nome, pts: s.pts, larg: 0, tipo: normaliza(s.nome) });
+  });
+  const tot = U.reduce((t, u) => t + u.pts, 0) || 1; U.forEach((u, k) => { u.i = k; u.peso = u.pts; u.frac = u.pts / tot; }); return U.slice(0, 40);
+}
+function poliPtsTotal(p) { const U = unidadesEtapa(p, 'polimento'); return U ? meio(U.reduce((t, u) => t + u.pts, 0)) : 0; }
+function hugoPtsBase(p) { return ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length).reduce((t, it) => t + servicosHugo(it).reduce((a, s) => a + s.pts, 0), 0); }
+async function polidorDe(env, ped) {
+  if (ped.poliResp) return String(ped.poliResp); const { map, cfg } = await funcoesEquipe(env);
+  const f = cfg.funcs.find(x => (map[x.id] || []).includes('acabamento') && !(map[x.id] || []).includes('fabricacao') && !(map[x.id] || []).some(k => ENT_F.includes(k)) && x.tel);
+  return f ? String(f.id) : (ped.acabResp ? String(ped.acabResp) : '');
+}
+// dono: "a cuba da Maria é flush" (ou embutida / de sobrepor) → corrige o tipo no pedido e os pontos do Hugo
+async function cubaTipoComando(env, from, msg) {
+  const m = msg.match(/^(?:a )?cuba d[aoe] ([a-z ]{3,40}?) (?:e|eh|é) (?:de )?(flush|embutida|embutir|sobrepor|esculpida)$/); if (!m) return false;
+  const tk = tokensPedra(m[1]); const l = await pedidosProducao(env, p => !p.entregueEm && tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
+  const ped = l.sort((a, b) => (b.criado || 0) - (a.criado || 0))[0]; if (!ped || !ped.resumoApp) { await enviar(env, from, `Não achei pedido aberto de ${m[1]} com os itens do app.`); return true; }
+  const tipo = { embutida: 'embutir', embutir: 'embutir', sobrepor: 'sobrepor', flush: 'flush', esculpida: 'esc_sim' }[m[2]]; let n = 0;
+  for (const it of ped.resumoApp.itens || []) if ((it.sv || []).some(k => /^cuba_/.test(k)) || it.cuba) { it.cubaInst = tipo; n++; }
+  if (!n) { await enviar(env, from, `O pedido de ${ped.nome} não tem cuba no orçamento.`); return true; }
+  await salvarPedido(env, ped); await enviar(env, from, `Anotado: cuba ${m[2]} no pedido de ${ped.nome}. Os pontos do ${await respNome(env, ped.fab2Resp) || 'Hugo'} já contam com isso (${CUBA_HUGO[cubaTipo(ped.resumoApp.itens.find(i => i.cubaInst))][0]} pts na cuba).`); return true;
+}
+// correção do que já foi lançado: em bancada/cozinha, "acabamento" de frontões/saias por item vira POLIMENTO
+async function mig188Etapas(env) {
+  if (await env.HR_KV.get('mig:188')) return; if (!(await travaEnvio(env, 'mig:188'))) return; await env.HR_KV.put('mig:188', '1');
+  for (const p of await pedidosProducao(env, p => pedComplexo(p) && Array.isArray(p.prodLog) && p.prodLog.some(x => x.e === 'acabamento' && x.itens))) {
+    let n = 0; for (const x of p.prodLog) if (x.e === 'acabamento' && x.itens) { x.e = 'polimento'; n += x.itens.length; }
+    p.prog = p.prog || {}; const U = unidadesEtapa(p, 'polimento') || []; p.prog.polimento = U.slice(0, n).map(u => u.i); delete p.prog.acabamento; await salvarPedido(env, p);
+  }
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
