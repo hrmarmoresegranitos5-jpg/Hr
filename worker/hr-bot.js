@@ -6846,6 +6846,7 @@ async function pedirAvaliacoes(env) {
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
   await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
   await mig182Reabrir(env).catch(e => console.log('[MIG182]', e.message)); // v182
+  await mig185Garantias(env).catch(e => console.log('[MIG185]', e.message)); // v185
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -10304,6 +10305,7 @@ async function acdComandoDono(env, from, msg) {
 // v154: EQUIPE VALENDO — boas-vindas com o manual, resumo do fim do dia, mural de serviços entregues (foto para a equipe)
 // ═════════════════════════════════════════════════════════════════════════════
 async function eqEnviar(env, tel, texto, curto) { // fora das 24 h usa o modelo aprovado e guarda o texto para quando responder
+  { let h = 0; for (const ch of String(texto || '') + '|' + String(curto || '')) h = (h * 31 + ch.charCodeAt(0)) | 0; if (!(await travaEnvio(env, 'eqenv:' + ultimos8(tel) + ':' + h))) return 'dup'; } // v185: rotinas ao mesmo tempo não repetem (Hugo recebeu 5×)
   if (await janela24h(env, tel)) { await enviar(env, tel, texto); return 'ok'; }
   try { await postarMsg(env, tel, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto).slice(0, 200) }] }] } }); await eqPendAdd(env, tel, { texto }); return 'modelo'; }
   catch (e) { return 'falha'; }
@@ -10574,15 +10576,22 @@ async function garPedirDados(env, g) {
   }
   await pontoAvisarDono(env, `🛡️ A garantia *${g.id}* de *${g.cliente}* só sai com nome completo e CPF. Já pedi a ela; emito o certificado assim que chegar.`).catch(() => {});
 }
+const nomeProprio = t => String(t || '').trim().toLowerCase().split(/\s+/).map((w, i) => i && /^(da|de|do|das|dos|e)$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join(' '); // v185
+async function garSemCpfDoNumero(env, from) { // v185: garantia deste cliente emitida sem CPF (antes da regra) ou aguardando os dados
+  try { if (!(await garTabela(env))) return null; const rs = (await env.HR_DB.prepare("SELECT id, num, status, cpf, criado FROM garantia WHERE (cpf IS NULL OR cpf = '') AND status IN ('ativa', 'aguardando_dados') AND criado > ? ORDER BY criado DESC LIMIT 50").bind(Date.now() - 90 * 86400000).all()).results || [];
+    const g = rs.find(x => ultimos8(String(x.num || '')) === ultimos8(normalizarBR(from))); return g ? g.id : null; } catch (_) { return null; }
+}
 async function garDadosMsg(env, from, m) {
-  const gid = await env.HR_KV.get('gar:dados:' + ultimos8(normalizarBR(from))); if (!gid) return false;
+  let gid = await env.HR_KV.get('gar:dados:' + ultimos8(normalizarBR(from)));
+  if (!gid) { const t0 = m.type === 'text' ? String(m.text?.body || '') : (m._texto || ''); if (!/\d{3}\D?\d{3}\D?\d{3}\D?\d{2}/.test(t0) || !cpfOk((t0.match(/\d{3}\D?\d{3}\D?\d{3}\D?\d{2}/) || [''])[0])) { const g1 = await garSemCpfDoNumero(env, from); if (!g1 || !(await env.HR_KV.get('gar:dadosp:' + g1))) return false; gid = g1; } else gid = await garSemCpfDoNumero(env, from); if (!gid) return false; }
   let tx = m.type === 'text' ? String(m.text?.body || '') : (m._texto || '');
   if (!tx && m.type === 'audio') { tx = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = tx; }
   if (!tx || !/\d{3}\D?\d{3}\D?\d{3}\D?\d{2}|\bcpf\b|^\s*[A-Za-zÀ-ú]+(\s+[A-Za-zÀ-ú]+){2,}\s*$/.test(tx)) return false; // não parece resposta aos dados
-  const g0 = await garLer(env, gid); if (!g0 || g0.status !== 'aguardando_dados') { await env.HR_KV.delete('gar:dados:' + ultimos8(normalizarBR(from))); return false; }
+  const g0 = await garLer(env, gid); if (!g0 || !(g0.status === 'aguardando_dados' || (g0.status === 'ativa' && !g0.cpf))) { await env.HR_KV.delete('gar:dados:' + ultimos8(normalizarBR(from))); return false; }
   const g = { ...g0 }, x = await onbExtrair(env, tx);
   let pend = {}; try { pend = JSON.parse((await env.HR_KV.get('gar:dadosp:' + gid)) || '{}') || {}; } catch (_) {}
-  if (x.nome_completo && String(x.nome_completo).trim().split(/\s+/).length >= 2) pend.nome = String(x.nome_completo).trim().slice(0, 80);
+  if (x.nome_completo && String(x.nome_completo).trim().split(/\s+/).length >= 2) pend.nome = nomeProprio(String(x.nome_completo).trim().slice(0, 80));
+  { const mc = tx.match(/\d{3}\D?\d{3}\D?\d{3}\D?\d{2}/); if (!x.cpf && mc && cpfOk(mc[0])) x.cpf = mc[0]; } // v185: o número sozinho já vale
   let ruim = false; if (x.cpf && cpfOk(x.cpf)) pend.cpf = String(x.cpf).replace(/\D/g, ''); else if (x.cpf) ruim = true;
   if (x.endereco) pend.end = String(x.endereco).slice(0, 160);
   await env.HR_KV.put('gar:dadosp:' + gid, JSON.stringify(pend), { expirationTtl: 60 * 86400 });
@@ -10810,6 +10819,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v185: CPF/nome que o cliente manda completam a garantia emitida sem CPF (e a da Renata é corrigida); mensagens à equipe sem repetição simultânea.
 // v184: economia da IA (cache de 1 h nas regras e dados, cache nas voltas das ferramentas, parte viva fora do cache, histórico resumido, Haiku no RH e na contagem, "ok/obrigado" sem IA) e medidor ("consumo da ia").
 // v183: funcionário pergunta sobre pontos/nível/meta → explicação com os números dele; níveis renomeados (não são cargo); dono define o nível inicial.
 // v182: etapas por item (cada lavatório/frontão é uma parte da etapa), polimento, só quem instala marca entrega, correção das entregas de hoje, reabrir entrega.
@@ -11000,6 +11010,12 @@ async function aumentoTexto(env) {
   return L.join('\n');
 }
 async function desempComandoDono(env, from, msg, bruto) {
+  { const mg = msg.match(/^(?:reenvia|reenviar|manda de novo|mande de novo|envia|enviar|manda) (?:o certificado d[ae] |a )?garantia d[aoe] ([a-z ]{3,40})$/); // v185
+    if (mg && await garTabela(env)) { const tk = tokensPedra(mg[1]); const r = (await env.HR_DB.prepare("SELECT * FROM garantia WHERE status = 'ativa' ORDER BY criado DESC LIMIT 300").all()).results || []; const g = r.find(x => tk.every(w => tokensPedra(x.cliente || '').includes(w)));
+      if (!g) { await enviar(env, from, `Não achei garantia ativa de ${mg[1]}.`); return true; }
+      if (!g.cpf) { await enviar(env, from, `A garantia ${g.id} de ${g.cliente} ainda está sem CPF. Mande: _pede o CPF da ${String(g.cliente).split(' ')[0]} para a garantia_.`); return true; }
+      const bytes = await garCertificadoPdf(env, g); const foi = await garEnviarCertificado(env, { ...g, cert_b64: bytesParaBase64(bytes) }, bytes).then(() => true).catch(() => false);
+      await enviar(env, from, foi ? `Certificado ${g.id} reenviado a ${g.cliente}.` : `Não consegui enviar agora (fora das 24 h da conversa dela?). Tente quando ela responder.`); return true; } }
   if (await nivelComandoDono(env, from, msg)) return true; // v183
   let m = String(bruto || '').match(/^\s*sal[aá]rio d[oae]s?\s+([A-Za-zÀ-ú]+)[^\d]{0,12}(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)\s*$/i);
   if (m) { const cfg = await pontoCfg(env), tk = normaliza(m[1]), f = cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(tk) || normaliza(apelidoFunc(cfg, x)) === tk); if (!f) { await enviar(env, from, `Não achei ${m[1]} na equipe.`); return true; }
@@ -11120,6 +11136,23 @@ async function premioExigencias(env, fid, mes, ws) {
   return { uteis, bateu, pctDias, retrab, perdas, nota: nota != null ? Math.round(nota * 10) / 10 : null, okDias, okQual, ok: okDias && okQual };
 }
 
+// v185: garantias emitidas sem CPF: se o cliente já mandou CPF e nome completo na conversa, completa e manda o certificado certo
+async function mig185Garantias(env) {
+  if (await env.HR_KV.get('mig:185')) return; if (!(await travaEnvio(env, 'mig:185'))) return; await env.HR_KV.put('mig:185', '1');
+  if (!(await garTabela(env)) || !(await crmAtivo(env))) return;
+  const gs = (await env.HR_DB.prepare("SELECT * FROM garantia WHERE (cpf IS NULL OR cpf = '') AND status IN ('ativa', 'aguardando_dados') AND criado > ?").bind(Date.now() - 30 * 86400000).all()).results || [];
+  for (const g0 of gs) {
+    const ms = (await env.HR_DB.prepare("SELECT ts, texto FROM crm_msg WHERE num = ? AND q = 'c' AND tipo IN ('text', 'audio') AND ts > ? ORDER BY ts").bind(String(g0.num), Date.now() - 5 * 86400000).all()).results || [];
+    let cpf = '', nome = '', tsC = 0;
+    for (const x of ms) { const mc = String(x.texto || '').match(/\d{3}\D?\d{3}\D?\d{3}\D?\d{2}/); if (mc && cpfOk(mc[0])) { cpf = mc[0].replace(/\D/g, ''); tsC = x.ts; } }
+    if (!cpf) continue;
+    for (const x of ms) { const t = String(x.texto || '').trim(); if (Math.abs(x.ts - tsC) < 3600000 && /^[A-Za-zÀ-ú]+(\s+[A-Za-zÀ-ú]+){2,5}$/.test(t)) nome = nomeProprio(t); }
+    if (!nome) continue;
+    const g = { ...g0, cliente: nome, cpf, status: 'ativa' }; const bytes = await garCertificadoPdf(env, g); g.cert_b64 = bytesParaBase64(bytes); await garSalvar(env, g);
+    await garEvento(env, g.id, 'ativada', `Dados recebidos na conversa (CPF ${cpfFmt(cpf)}); certificado refeito`).catch(() => {});
+    await pontoAvisarDono(env, `🛡️ Garantia *${g.id}* corrigida com os dados que ela já tinha mandado: *${nome}* · CPF ${cpfFmt(cpf)}. O certificado novo está pronto; para enviar a ela, mande: _reenviar garantia da ${nome.split(' ')[0].toLowerCase()}_.`).catch(() => {}); // o dono decide o envio
+  }
+}
 // v182: ETAPAS POR ITEM — um projeto com vários itens (ex.: 4 lavatórios, a bancada e os frontões da cozinha) tem cada item como
 // uma parte da etapa (corte, polimento, acabamento, fabricação). Cada item vale a sua parte dos pontos (pelo tamanho).
 // "terminei esse lavatório", "terminei 2 lavatórios da Maria", "poli os frontões do Papinha", "cortei todos os peitoris".
