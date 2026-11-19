@@ -9736,13 +9736,13 @@ async function metaChecar(env, funcId) {
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
       if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
         const cruzou = FAIXAS.some(x => pctQ(pn) >= x.pct && !ja.includes('|' + x.pct));
-        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.faixa ? ' ' + pn.faixa.ico : ''}${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.prox ? ` · ${pn.prox.ico} ${pn.prox.nome.replace(' (meta)', '')} em ${vPt(pn.prox.faltam)}` : ' · 💎 no topo'}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅ meta do dia' : ''}${pn.teto < 999 ? '\n🔁 Teve retrabalho: nesta semana a faixa para na Prata.' : ''}\n${pn.carreira.ico} ${pn.carreira.nome} · ${vPt(pn.xp)} pts na carreira`).catch(() => {}); }
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅' : ''}\n📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}`).catch(() => {}); } // v207: simples — hoje e semana
     }
     // v158: cada faixa alcançada é comemorada (e a equipe fica sabendo do Ouro e do Diamante)
-    const pctR = pctQ(pn), nova = [...FAIXAS].reverse().find(x => pctR >= x.pct && !ja.includes('|' + x.pct)); // v181: com retrabalho, no máximo Prata
+    const pctR = pctQ(pn), nova = [...FAIXAS].reverse().find(x => x.pct === 100 && pctR >= x.pct && !ja.includes('|' + x.pct)); // v207: só comemora a meta batida (simples)
     if (nova) {
       await env.HR_KV.put(k, ja + FAIXAS.filter(x => pctR >= x.pct).map(x => '|' + x.pct).join(''), { expirationTtl: 9 * 86400 });
-      const frase = { 80: `🥉 *BRONZE!* ${nome}, você chegou a 80% da meta. Faltam ${vPt(pn.falta)} para a Prata. Bora! 💪`, 100: `🥈🎉 *META BATIDA, ${nome}!* Prata garantida com ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}*!` : ''} Agora vem o Ouro: mais ${vPt(meio(pn.meta * 1.25 - pn.pts))} pontos. 🥇`, 125: `🥇🔥 *OURO!* ${nome}, 125% da meta (${vPt(pn.pts)} pontos)! Pouca gente chega aqui. O Diamante está a ${vPt(meio(pn.meta * 1.5 - pn.pts))} pontos. 💎`, 150: `💎👑 *DIAMANTE!* ${nome}, 150% da meta! ${vPt(pn.pts)} pontos nesta semana. Você é referência na HR! 🏆` }[nova.pct];
+      const frase = { 80: `🥉 *BRONZE!* ${nome}, você chegou a 80% da meta. Faltam ${vPt(pn.falta)} para a Prata. Bora! 💪`, 100: `🎉 *META DA SEMANA BATIDA, ${nome}!* ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}*!` : ''} Tudo o que fizer a mais conta para o prêmio do mês. 💪`, 125: `🥇🔥 *OURO!* ${nome}, 125% da meta (${vPt(pn.pts)} pontos)! Pouca gente chega aqui. O Diamante está a ${vPt(meio(pn.meta * 1.5 - pn.pts))} pontos. 💎`, 150: `💎👑 *DIAMANTE!* ${nome}, 150% da meta! ${vPt(pn.pts)} pontos nesta semana. Você é referência na HR! 🏆` }[nova.pct];
       await eqTexto(env, tel, avisoTeste(env) + frase).catch(() => {});
       if (nova.pct >= 100) await pontoAvisarDono(env, `${nova.ico} *${nome}* chegou no *${nova.nome}* da semana (${vPt(pn.pts)}/${vPt(pn.meta)} pts)${pn.bonus && nova.pct === 100 ? ` · bônus R$ ${reais(pn.bonus)}` : ''}.`).catch(() => {});
       if (nova.pct >= 125 && !emTesteEquipe(env)) { const cfgE = await pontoCfg(env); for (const g of cfgE.funcs) { if (!g.tel || String(g.id) === String(funcId)) continue; const tg = normalizarBR(g.tel.startsWith('55') ? g.tel : '55' + g.tel); if (await janela24h(env, tg)) await enviar(env, tg, `${nova.ico} *${nome}* chegou no *${nova.nome.toUpperCase()}* desta semana! Quem vem junto? 💪`).catch(() => {}); } }
@@ -9752,9 +9752,9 @@ async function metaChecar(env, funcId) {
       if (antes == null) await env.HR_KV.put(kc, String(car.i));
       else if (car.i > +antes) {
         await env.HR_KV.put(kc, String(car.i));
-        await eqTexto(env, tel, `${avisoTeste(env)}🎖️ *SUBIU DE NÍVEL!* ${nome}, agora você é *${car.ico} ${car.nome}* na HR (${vPt(pn.xp)} pontos na carreira).${car.prox ? ` Próximo: ${car.prox.ico} ${car.prox.nome} em ${car.prox.faltam} pontos.` : ' Nível máximo! 🏛️'}`).catch(() => {});
-        await pontoAvisarDono(env, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}* (${vPt(pn.xp)} pontos na carreira). Vale um parabéns pessoalmente!`).catch(() => {});
-        if (!emTesteEquipe(env)) { const cfgE = await pontoCfg(env); for (const g of cfgE.funcs) { if (!g.tel || String(g.id) === String(funcId)) continue; const tg = normalizarBR(g.tel.startsWith('55') ? g.tel : '55' + g.tel); if (await janela24h(env, tg)) await enviar(env, tg, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}*! Parabéns! 👏`).catch(() => {}); } }
+        if (false) await eqTexto(env, tel, `${avisoTeste(env)}🎖️ *SUBIU DE NÍVEL!* ${nome}, agora você é *${car.ico} ${car.nome}* na HR (${vPt(pn.xp)} pontos na carreira).${car.prox ? ` Próximo: ${car.prox.ico} ${car.prox.nome} em ${car.prox.faltam} pontos.` : ' Nível máximo! 🏛️'}`).catch(() => {});
+        if (false) await pontoAvisarDono(env, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}* (${vPt(pn.xp)} pontos na carreira). Vale um parabéns pessoalmente!`).catch(() => {});
+        if (false && !emTesteEquipe(env)) { const cfgE = await pontoCfg(env); for (const g of cfgE.funcs) { if (!g.tel || String(g.id) === String(funcId)) continue; const tg = normalizarBR(g.tel.startsWith('55') ? g.tel : '55' + g.tel); if (await janela24h(env, tg)) await enviar(env, tg, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}*! Parabéns! 👏`).catch(() => {}); } }
       }
     }
   } catch (e) { console.log('[META] checar:', e.message); }
@@ -10453,7 +10453,7 @@ async function eqResumoDiaRotina(env) {
     if (!f.tel || emFeriasHoje(eqd, f.id, hoje)) continue;
     const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) continue; const d = pts[f.id]; const dTxt = `📅 Meta do dia: *${vPt(pn.metaDia)}* · você fez *${vPt(pn.ptsHoje || 0)}* ${(pn.ptsHoje || 0) >= pn.metaDia ? '✅' : '❌'}`; // v181
     const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel); if (!(await janela24h(env, tel))) continue; // só quem está conversando (sem modelo pago todo dia)
-    await enviar(env, tel, [`🌇 *Fim do dia, ${apelidoFunc(cfg, f)}!*`, '', d && d.tarefas.length ? `Hoje: ${d.tarefas.map(t => `${t.tipo} ${t.nome.split(' ')[0]} (+${t.pts})`).join(' · ')}\n*+${d.pts} pontos hoje*` : 'Hoje não registrei tarefa sua. Se fez alguma, me conte (ex.: _terminei o da Maria_ ou _instalei o da Maria_).', `Semana: *${pn.pts} de ${pn.meta}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${pn.falta}${pn.porDia ? ' (' + pn.porDia + ' por dia)' : ''}` : ' · meta batida 🎯'}`, dTxt, '', 'Descanse! Amanhã cedo mando a sua lista. 💪'].join('\n')).catch(() => {});
+    await enviar(env, tel, [`🌇 *Fim do dia, ${apelidoFunc(cfg, f)}!*`, '', d && d.tarefas.length ? `Hoje: ${d.tarefas.map(t => `${t.tipo} ${t.nome.split(' ')[0]} (+${t.pts})`).join(' · ')}\n*+${d.pts} pontos hoje*` : 'Hoje não registrei tarefa sua. Se fez alguma, me conte (ex.: _terminei o da Maria_ ou _instalei o da Maria_).', `📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}* ${(pn.ptsHoje || 0) >= pn.metaDia ? '✅' : '❌'}`, `📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}`, '', 'Descanse! Amanhã cedo mando a sua lista. 💪'].join('\n')).catch(() => {});
   }
 }
 // mural: serviço entregue com foto → a equipe vê o resultado do trabalho
@@ -11424,18 +11424,8 @@ async function eqExplicarPontos(env, f, from, texto, nome) {
   const pergunta = /\?|\b(por ?que|pq|o que|oque|quanto|quantos|quantas|como|significa|quer dizer|entendi nao|nao entendi|explica|me fala|cade)\b/.test(msg);
   if (!tema || !pergunta) return false;
   const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) return false;
-  const car = pn.carreira, cfg = await pontoCfg(env);
-  const L = [`${nome}, te explico:`];
-  if (/\b(aprendiz|ajudante|profissional|especialista|mestre|nivel|niveis|carreira|largada|ritmo|destaque|craque|lenda|conhece)\b/.test(msg)) {
-    L.push('', `🎖️ *Nível* é só a soma dos pontos que você junta *desde que o sistema de pontos começou* (esta semana). *Não é cargo* e não mede o seu tempo de casa nem a sua experiência: todo mundo começou do zero no mesmo dia, inclusive quem trabalha aqui há anos.`,
-      `Você está no ${car.ico} *${car.nome}* com *${vPt(pn.xp)} pontos*${car.prox ? `. Faltam *${vPt(car.prox.faltam)}* para o ${car.prox.ico} *${car.prox.nome}*` : ''}.`,
-      'Níveis: ' + CARREIRA.map(x => `${x.ico} ${x.nome} (${x.xp})`).join(' · '));
-  }
-  if (/\b(pontos?|pts|meta|faixa|bronze|prata|ouro|diamante|ranking|lugar|bonus|premio)\b/.test(msg)) {
-    L.push('', `🎯 *Semana:* ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}. 📅 *Hoje:* ${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}.`,
-      `Faixas da semana: 🥉 Bronze 80% · 🥈 Prata 100% (meta) · 🥇 Ouro 125% · 💎 Diamante 150%.`,
-      'Cada tarefa que você marca soma: corte, acabamento, cada item de um projeto, com foto. Peça maior e com mais detalhe vale mais. Retrabalho tira 2 pontos.');
-  }
+  const L = [`${nome}, é simples:`, '', `1️⃣ Cada serviço que você *termina* vale pontos. Serviço que dá mais trabalho vale mais (1 ponto ≈ 2 horas de trabalho). Mande foto de cada etapa.`, `2️⃣ A meta é *${vPt(pn.meta)} pontos na semana* (uns *${vPt(pn.metaDia)} por dia*).`, `3️⃣ Bateu a meta todas as semanas do mês, sem retrabalho nem quebra demais → *prêmio do mês*.`, '', `📅 Hoje você está com *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}*. 📆 Na semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` (faltam ${vPt(pn.falta)})` : ' 🎯'}.`]; // v207: explicação curta
+  if (/\b(aprendiz|ajudante|profissional|especialista|mestre|nivel|niveis|carreira|largada|ritmo|destaque|craque|lenda)\b/.test(msg)) L.push('', 'O nível que aparece no app é só um selo dos pontos que você já juntou. Não é cargo, não mexe no salário nem no prêmio.');
   L.push('', 'Quer ver tudo? Mande _minhas tarefas_ ou _meus pontos_.');
   await enviar(env, from, L.join('\n'));
   if (/\b(aprendiz|conhece|injust|nao concordo|errado)\b/.test(msg)) await pontoAvisarDono(env, `ℹ️ *${nome}* perguntou sobre o nível dele: "${String(texto).slice(0, 140)}". Expliquei que o nível conta só os pontos desde que o sistema começou, não a experiência. Se quiser reconhecer a experiência dele, mande: _nível do ${nome} ${CARREIRA[2].nome}_ (ou outro nível).`).catch(() => {});
@@ -11674,6 +11664,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v207: pontos SIMPLES para a equipe: mensagens só com "hoje X de Y" e "semana X de Y"; comemora só a meta batida; sem avisos de faixa/nível/lugar.
 // v206: serviços do Hugo (sainha 45° por metro, rebaixo americano/normal) pelo preço do app ÷ R$ 45 por ponto; preços vêm do app.
 // v205: RÉGUA DO TEMPO (a partir de 23/11): 1 ponto ≈ 2 h de trabalho padrão em todas as funções; peitoril/soleira e cortes valem pelo tempo real; meta igual para todos (19, proporcional aos dias da semana).
 // v204: meta da fabricação (Hugo) pela média de 4 semanas +10% (mín. 18, máx. 26): ~4 cozinhas/mês = 1 por semana.
