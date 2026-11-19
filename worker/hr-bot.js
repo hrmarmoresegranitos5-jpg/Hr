@@ -6824,6 +6824,7 @@ async function pedirAvaliacoes(env) {
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
+  await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -9517,7 +9518,7 @@ async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (p
     else if (tipos.has('corte') && p.corteEm && p.corteFeitoPor && log.filter(x => x.e === 'corte').every(x => x.pecas)) { const feitas = log.filter(x => x.e === 'corte').reduce((t, x) => t + x.pecas, 0); if (n - feitas > 0) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm, pecas: n - feitas }); } // v156: o resto do corte parcial
     if (!tipos.has('fabricacao') && !tipos.has('acabamento') && p.fabFeitoPor && p.fabProntoEm && p.fabFeitoPor !== p.corteFeitoPor) log.push({ e: 'fabricacao', por: [p.fabFeitoPor], ts: p.fabProntoEm });
     if (!tipos.has('entrega') && !tipos.has('instalacao') && p.entFeitoPor && p.entregueEm) log.push({ e: cx ? 'instalacao' : 'entrega', por: [p.entFeitoPor], ts: p.entregueEm });
-    for (const x of log) {
+    for (const x of metasBlindar(p, log, n)) { // v181
       if (!dentro(x.ts) || !Array.isArray(x.por) || !x.por.length || x.e === 'inicio' || x.e === 'inicio_inst') continue;
       if (x.e === 'avaliacao' || x.e === 'retrabalho') { for (const id of x.por) add(String(id), +x.pts || 0, x.e === 'avaliacao' ? `⭐ cliente deu ${x.nota}` : `🔁 retrabalho${x.motivo ? ' (' + String(x.motivo).slice(0, 30) + ')' : ''}`, p, x.ts, null); continue; } // v157
       let pts = 0, ex = null;
@@ -9526,10 +9527,12 @@ async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (p
       else if (x.e === 'fabricacao') { pts = ptsEtapa(p, 'fabricacao'); const no = p.prontoPrevisto ? x.ts <= p.prontoPrevisto.ts + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; ex = { no }; }
       else if (x.e === 'entrega' || x.e === 'instalacao') { pts = ptsEtapa(p, x.e) + (x.e === 'instalacao' && p.instIniFotoEm ? 1 : 0); const no = p.janela ? x.ts <= p.janela.fim + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; if (p.fotoEntregaEm) pts += 1; ex = { no, foto: !!p.fotoEntregaEm }; }
       else continue;
+      if (!x.dono && !p.fotoProntoEm && x.ts < Date.now() - 24 * 3600000 && (x.e === 'fabricacao' || (x.e === 'acabamento' && !cx))) pts = meio(pts / 2) || 0.5; // v181: sem foto das peças prontas vale metade
       const cada = Math.round(pts / x.por.length * 10) / 10;
       for (const id of x.por) add(String(id), cada, (x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : ''), p, x.ts, ex);
     }
   }
+  try { if (env.HR_DB) { const rs = await env.HR_DB.prepare('SELECT func, cliente, ts FROM perda WHERE dia BETWEEN ? AND ?').bind(de, ate).all(); for (const x of rs.results || []) if (x.func) add(String(x.func), -1, '💥 quebra/perda', { nome: x.cliente || 'peça', id: null }, x.ts, null); } } catch (_) {} // v181
   return out;
 }
 // v158: faixas da semana (sobre a meta) e carreira (pontos acumulados de sempre)
@@ -9556,10 +9559,10 @@ async function metaDe(env, funcId, cfgM, hist) { // meta da semana: a do dono ou
   const c = (cfgM || await metasCfg(env))[funcId] || {};
   if (c.pontos > 0) return { meta: c.pontos, auto: false, bonus: c.bonus || 0 };
   const { map } = await funcoesEquipe(env), fs = map[funcId] || [];
-  const minimo = fs.includes('fabricacao') ? 16 : fs.some(x => ENT_F.includes(x)) ? 15 : 18; // v158: meta desafiadora
+  const minimo = fs.includes('fabricacao') ? 18 : fs.some(x => ENT_F.includes(x)) ? 17 : 20; // v158/v181: meta difícil
   const ws = (hist || []).filter(w => w.pts > 0).slice(0, 4);
   const media = ws.length ? ws.reduce((t, w) => t + w.pts, 0) / ws.length : 0, melhor = ws.reduce((m, w) => Math.max(m, w.pts), 0);
-  return { meta: Math.max(minimo, Math.ceil(media * 1.15), Math.ceil(melhor * 0.9)), auto: true, bonus: c.bonus || 0 };
+  return { meta: Math.max(minimo, Math.ceil(media * 1.2), Math.ceil(melhor * 0.95)), auto: true, bonus: c.bonus || 0 }; // v181: sempre acima do que ele já faz
 }
 async function metasSemanas(env, nSem) { // [{ini, fim, por:{id:{pts...}}}] da semana atual para trás
   const hoje = dataBahia(), out = []; let ini = semIni(hoje);
@@ -9582,9 +9585,11 @@ async function metaPainel(env, funcId) {
   if (rank[0] && rank[0].id === String(funcId) && rank[0].pts > 0) medalhas.push({ i: '🏆', t: 'Líder da semana' });
   const hojeD = dataBahia(), diasRest = Math.max(0, 6 - ((diaSemanaISO(hojeD) + 6) % 7)); // até sábado
   const falta = Math.max(0, m.meta - atual.pts);
-  const pctR = atual.pts / m.meta * 100, faixa = [...FAIXAS].reverse().find(x => pctR >= x.pct) || null, prox = FAIXAS.find(x => pctR < x.pct) || null; // v158
+  const teto = (atual.tarefas || []).some(t => /retrabalho/.test(t.tipo)) ? 100 : 999; // v181: retrabalho na semana trava a faixa na Prata
+  const pctR = Math.min(atual.pts / m.meta * 100, teto), faixa = [...FAIXAS].reverse().find(x => pctR >= x.pct) || null, prox = teto < 999 && pctR >= 100 ? null : FAIXAS.find(x => pctR < x.pct) || null; // v158
+  const metaDia = metaDoDia(m.meta), ptsHoje = meio((atual.tarefas || []).filter(t => t.dia === hojeD).reduce((t, x) => t + x.pts, 0)); // v181
   const xp = await xpDe(env, funcId, atual.pts), car = carreira(xp);
-  return { ok: true, faixa, prox: prox ? { ...prox, faltam: meio(Math.max(0, m.meta * prox.pct / 100 - atual.pts)) } : null, xp, carreira: car, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
+  return { ok: true, teto, metaDia, ptsHoje, faixa, prox: prox ? { ...prox, faltam: meio(Math.max(0, m.meta * prox.pct / 100 - atual.pts)) } : null, xp, carreira: car, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
     porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: atual.tarefas.slice(-12).reverse(), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
     hist: hist.slice(0, 6).reverse(), regras: [['🎚️ Nível do serviço', '🟢 ×1 · 🟡 ×1,25 · 🔴 ×1,5 · 💎 ×1,8'], ['🏅 Faixas da semana', '🥉 80% · 🥈 100% · 🥇 125% · 💎 150%'], ['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['🌟 Cliente deu nota 5', '+1'], ['🔁 Retrabalho', '−2'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
 }
@@ -9603,11 +9608,11 @@ async function metaChecar(env, funcId) {
     { // v154: avisa cada ponto ganho, na hora
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
       if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
-        const cruzou = FAIXAS.some(x => pn.pts / pn.meta * 100 >= x.pct && !ja.includes('|' + x.pct));
-        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.faixa ? ' ' + pn.faixa.ico : ''}${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.prox ? ` · ${pn.prox.ico} ${pn.prox.nome.replace(' (meta)', '')} em ${vPt(pn.prox.faltam)}` : ' · 💎 no topo'}\n${pn.carreira.ico} ${pn.carreira.nome} · ${vPt(pn.xp)} pts na carreira`).catch(() => {}); }
+        const cruzou = FAIXAS.some(x => pctQ(pn) >= x.pct && !ja.includes('|' + x.pct));
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.faixa ? ' ' + pn.faixa.ico : ''}${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.prox ? ` · ${pn.prox.ico} ${pn.prox.nome.replace(' (meta)', '')} em ${vPt(pn.prox.faltam)}` : ' · 💎 no topo'}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅ meta do dia' : ''}${pn.teto < 999 ? '\n🔁 Teve retrabalho: nesta semana a faixa para na Prata.' : ''}\n${pn.carreira.ico} ${pn.carreira.nome} · ${vPt(pn.xp)} pts na carreira`).catch(() => {}); }
     }
     // v158: cada faixa alcançada é comemorada (e a equipe fica sabendo do Ouro e do Diamante)
-    const pctR = pn.pts / pn.meta * 100, nova = [...FAIXAS].reverse().find(x => pctR >= x.pct && !ja.includes('|' + x.pct));
+    const pctR = pctQ(pn), nova = [...FAIXAS].reverse().find(x => pctR >= x.pct && !ja.includes('|' + x.pct)); // v181: com retrabalho, no máximo Prata
     if (nova) {
       await env.HR_KV.put(k, ja + FAIXAS.filter(x => pctR >= x.pct).map(x => '|' + x.pct).join(''), { expirationTtl: 9 * 86400 });
       const frase = { 80: `🥉 *BRONZE!* ${nome}, você chegou a 80% da meta. Faltam ${vPt(pn.falta)} para a Prata. Bora! 💪`, 100: `🥈🎉 *META BATIDA, ${nome}!* Prata garantida com ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}*!` : ''} Agora vem o Ouro: mais ${vPt(meio(pn.meta * 1.25 - pn.pts))} pontos. 🥇`, 125: `🥇🔥 *OURO!* ${nome}, 125% da meta (${vPt(pn.pts)} pontos)! Pouca gente chega aqui. O Diamante está a ${vPt(meio(pn.meta * 1.5 - pn.pts))} pontos. 💎`, 150: `💎👑 *DIAMANTE!* ${nome}, 150% da meta! ${vPt(pn.pts)} pontos nesta semana. Você é referência na HR! 🏆` }[nova.pct];
@@ -9691,8 +9696,8 @@ async function premioMes(env, mes) {
     for (const ini of sems) {
       if (ini > semAtual) { ws.push({ ini, futura: true }); continue; }
       const hist = []; for (let k = 1; k <= 4; k++) { const a = isoSomaDias(ini, -7 * k); hist.push({ ini: a, pts: ((await pontosSem(a))[f.id] || {}).pts || 0 }); }
-      const m = await metaDe(env, f.id, cfgM, hist), pts = ((await pontosSem(ini))[f.id] || {}).pts || 0;
-      ws.push({ ini, pts, meta: m.meta, bateu: pts >= m.meta, atual: ini === semAtual && isoSomaDias(ini, 5) >= hoje });
+      const m = await metaDe(env, f.id, cfgM, hist), ps = (await pontosSem(ini))[f.id] || {}, pts = ps.pts || 0, tarefasDia = {}; for (const t of ps.tarefas || []) tarefasDia[t.dia] = (tarefasDia[t.dia] || 0) + t.pts; // v181
+      ws.push({ ini, pts, meta: m.meta, bateu: pts >= m.meta, atual: ini === semAtual && isoSomaDias(ini, 5) >= hoje, tarefasDia });
     }
     const feitas = ws.filter(w => !w.futura && !w.atual), abaixo = feitas.filter(w => !w.bateu);
     const somaP = ws.filter(w => !w.futura).reduce((t, w) => t + w.pts, 0), somaM = ws.filter(w => !w.futura).reduce((t, w) => t + w.meta, 0);
@@ -9704,8 +9709,11 @@ async function premioMes(env, mes) {
     else if (abaixo.length === 0) { st = 'caminho'; txt = fechado ? 'Bateu a meta em todas as semanas! 🎉' : feitas.length ? 'No caminho: todas as semanas batidas até agora.' : 'Valendo! Bata a meta desta semana e das próximas do mês.'; }
     else if (abaixo.length === 1 && pc.coringa) { falta = Math.max(0, metaMes - somaP); st = falta ? 'coringa' : 'caminho'; txt = falta ? `Usou o coringa: para compensar, feche o mês com ${metaMes} pontos (faltam ${falta}).` : 'Usou o coringa e já compensou no total do mês. 👏'; }
     else { st = 'fora'; txt = `Ficou abaixo da meta em ${abaixo.length} semanas: fora do prêmio deste mês.`; }
-    const ganhou = fechado && ativo && (abaixo.length === 0 || (abaixo.length === 1 && pc.coringa && somaP >= somaM));
-    res.push({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], semanas: ws, somaP, somaM, pct: somaM ? Math.round(somaP / somaM * 100) : 0, st, txt, falta, ganhou, fechado });
+    const ex = ativo ? await premioExigencias(env, f.id, mes, ws).catch(() => null) : null; // v181: constância diária e qualidade
+    if (ex && !ex.ok && (st === 'caminho' || st === 'coringa')) { st = 'fora'; txt = !ex.okQual ? `Qualidade do mês fora do prêmio (${ex.retrab} retrabalho(s), ${ex.perdas} quebra(s)${ex.nota != null ? ', nota ' + String(ex.nota).replace('.', ',') : ''}). Máximo: 1 retrabalho, 1 quebra e nota 4,5.` : `Bateu a meta do dia em ${ex.bateu} de ${ex.uteis} dias (${ex.pctDias}%). Para o prêmio, precisa de 60% dos dias.`; }
+    else if (ex && (st === 'caminho' || st === 'coringa')) txt += ` Meta do dia: ${ex.bateu}/${ex.uteis} dias (precisa 60%).`;
+    const ganhou = fechado && ativo && (!ex || ex.ok) && (abaixo.length === 0 || (abaixo.length === 1 && pc.coringa && somaP >= somaM));
+    res.push({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], ex, semanas: ws, somaP, somaM, pct: somaM ? Math.round(somaP / somaM * 100) : 0, st, txt, falta, ganhou, fechado });
   }
   const fechado = res.length && res[0].fechado;
   const cand = res.filter(r => fechado ? r.ganhou : (r.st === 'caminho' || r.st === 'coringa')).sort((a, b) => b.pct - a.pct || b.somaP - a.somaP);
@@ -10314,9 +10322,9 @@ async function eqResumoDiaRotina(env) {
   const cfg = await pontoCfg(env), pts = await metasPontos(env, hoje, hoje), eqd = await equipeLer(env).catch(() => ({ funcs: [] }));
   for (const f of cfg.funcs) {
     if (!f.tel || emFeriasHoje(eqd, f.id, hoje)) continue;
-    const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) continue; const d = pts[f.id];
+    const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) continue; const d = pts[f.id]; const dTxt = `📅 Meta do dia: *${vPt(pn.metaDia)}* · você fez *${vPt(pn.ptsHoje || 0)}* ${(pn.ptsHoje || 0) >= pn.metaDia ? '✅' : '❌'}`; // v181
     const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel); if (!(await janela24h(env, tel))) continue; // só quem está conversando (sem modelo pago todo dia)
-    await enviar(env, tel, [`🌇 *Fim do dia, ${apelidoFunc(cfg, f)}!*`, '', d && d.tarefas.length ? `Hoje: ${d.tarefas.map(t => `${t.tipo} ${t.nome.split(' ')[0]} (+${t.pts})`).join(' · ')}\n*+${d.pts} pontos hoje*` : 'Hoje não registrei tarefa sua. Se fez alguma, me conte (ex.: _terminei o da Maria_ ou _instalei o da Maria_).', `Semana: *${pn.pts} de ${pn.meta}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${pn.falta}${pn.porDia ? ' (' + pn.porDia + ' por dia)' : ''}` : ' · meta batida 🎯'}`, '', 'Descanse! Amanhã cedo mando a sua lista. 💪'].join('\n')).catch(() => {});
+    await enviar(env, tel, [`🌇 *Fim do dia, ${apelidoFunc(cfg, f)}!*`, '', d && d.tarefas.length ? `Hoje: ${d.tarefas.map(t => `${t.tipo} ${t.nome.split(' ')[0]} (+${t.pts})`).join(' · ')}\n*+${d.pts} pontos hoje*` : 'Hoje não registrei tarefa sua. Se fez alguma, me conte (ex.: _terminei o da Maria_ ou _instalei o da Maria_).', `Semana: *${pn.pts} de ${pn.meta}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${pn.falta}${pn.porDia ? ' (' + pn.porDia + ' por dia)' : ''}` : ' · meta batida 🎯'}`, dTxt, '', 'Descanse! Amanhã cedo mando a sua lista. 💪'].join('\n')).catch(() => {});
   }
 }
 // mural: serviço entregue com foto → a equipe vê o resultado do trabalho
@@ -10600,8 +10608,8 @@ async function bonusPainel(env, mes) {
       niveis: NIVEIS_DIF.map(n => [n.ico + ' ' + n.nome, '×' + String(n.mult).replace('.', ',')]),
       faixas: FAIXAS.map(x => [x.ico + ' ' + x.nome, x.pct + '% da meta']),
       carreira: CARREIRA.map(x => [x.ico + ' ' + x.nome, x.xp + ' pontos']),
-      meta: 'Meta da semana (segunda a sábado): a que o senhor fixou, ou a automática = a maior entre a média das últimas 4 semanas + 15%, 90% da melhor semana e o mínimo da função (corte 18, fabricação 16, instalação/entrega 15).',
-      premio: `Prêmio do mês: R$ ${reais(pm.valor)} para quem bater a meta em TODAS as semanas do mês${pm.coringa ? ' (1 semana abaixo é perdoada — coringa — se o total do mês compensar)' : ''}. ${pm.lider ? `Líder do mês (maior % entre os ganhadores): +R$ ${reais(pm.lider)}${pm.liderTexto ? ' e ' + pm.liderTexto : ''}.` : ''} Bônus semanal (se o senhor definiu para alguém): pago a cada semana com a meta batida.`,
+      meta: 'Meta da semana (segunda a sábado): a que o senhor fixou, ou a automática = a maior entre a média das últimas 4 semanas + 20%, 95% da melhor semana e o mínimo da função (corte/acabamento 20, fabricação 18, instalação/entrega 17). Meta do dia = meta da semana ÷ 6 + 10%. Blindagem: cada etapa conta uma vez por pedido; corte por peça não passa do total; etapa final da fábrica sem foto das peças prontas vale metade depois de 24 h; quebra/perda −1; retrabalho −2 e trava a faixa da semana na Prata; o senhor pode anular pontos ("anula o corte da Maria do Fabrício"); auditoria diária às 17:40.',
+      premio: `Prêmio do mês: R$ ${reais(pm.valor)} para quem bater a meta em TODAS as semanas do mês, bater a meta do dia em pelo menos 60% dos dias e tiver no máximo 1 retrabalho, 1 quebra e nota média 4,5${pm.coringa ? ' (1 semana abaixo é perdoada — coringa — se o total do mês compensar)' : ''}. ${pm.lider ? `Líder do mês (maior % entre os ganhadores): +R$ ${reais(pm.lider)}${pm.liderTexto ? ' e ' + pm.liderTexto : ''}.` : ''} Bônus semanal (se o senhor definiu para alguém): pago a cada semana com a meta batida.`,
       comandos: ['"meta do Fabrício 20 pontos, bônus 50" (meta e bônus semanal)', '"prêmio 200, líder 80" (valor do prêmio do mês)', '"prêmio do mês" (situação no WhatsApp)', '"desempenho" · "qualidade"'] } };
 }
 async function rotaBonus(req, env, url) {
@@ -10769,6 +10777,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v181: blindagem dos pontos (uma vez por etapa, anulação, foto, quebra, trava de qualidade), metas mais difíceis, meta do dia, exigências do prêmio e auditoria diária.
 // v180: foto/texto "começando o corte/acabamento" marca o início (tempo real); acabador vê as opções dele; "falta o Lucas terminar" não dá a etapa como feita.
 // v179: análise de desempenho (ponto, tempo por tarefa, velocidade × qualidade, retorno sobre o salário, aumento) + retorno semanal a cada um.
 // v178: PENDÊNCIAS DE FOTO — lembra uma vez: foto que falta para dar baixa (1h30), foto sem serviço escolhido (1h), instalação começada e não terminada (6h)
@@ -10960,6 +10969,8 @@ async function desempComandoDono(env, from, msg, bruto) {
     const v = parseFloat(m[2].replace(/\./g, '').replace(',', '.')); if (!(v > 100)) return false; const s = await salariosLer(env); s[f.id] = v; await env.HR_KV.put('cfg:salarios', JSON.stringify(s));
     await enviar(env, from, `Anotado: salário do ${apelidoFunc(cfg, f)} = ${dsmBRL(v)}/mês. Agora o desempenho mostra se ele está se pagando.`); return true; }
   m = msg.match(/^referencia de retorno (\d+(?:[.,]\d)?) ?x?$/); if (m) { const c = await dsmCfg(env); c.mult = parseFloat(m[1].replace(',', '.')); await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); await enviar(env, from, `Referência de retorno: ${c.mult}× o salário.`); return true; }
+  if (/^(auditoria|auditoria (dos pontos|de hoje|do dia)|conferir pontos)$/.test(msg)) { await enviar(env, from, (await auditoriaTexto(env)) || 'Hoje ainda não há etapas registradas.'); return true; } // v181
+  if (/^auditoria de ontem$/.test(msg)) { await enviar(env, from, (await auditoriaTexto(env, dataBahia(-1))) || 'Ontem não houve etapas registradas.'); return true; }
   if (/^(quem merece aumento\??|aumento|aumentos|avaliacao (da equipe|de aumento)|quem (esta|ta) (se )?pagando( o salario)?\??)$/.test(msg)) { await enviar(env, from, await aumentoTexto(env)); return true; }
   m = msg.match(/^(?:desempenho|produtividade)(?: da equipe)?(?: (?:ultim[oa]s |dos )?(\d{1,3}) dias| da semana| do mes)?$/);
   if (m) { await enviar(env, from, await desempenhoEquipeTexto(env, m[1] || (/semana/.test(msg) ? 7 : 30))); return true; }
@@ -10988,6 +10999,84 @@ async function desempSemanalRotina(env) {
     if (!melhor && !pior && !x.retrab) L.push('Ritmo firme e sem retrabalho. Para subir de faixa: um serviço a mais por semana, com o mesmo capricho.');
     await eqTexto(env, f.tel, L.join("\n")).catch(() => {});
   }
+}
+
+// v181: BLINDAGEM DOS PONTOS — cada etapa conta uma vez por pedido (o registro do funcionário vale sobre o do dono), corte por peça
+// nunca passa do total de peças, pontos anulados pelo dono saem, etapa final da fábrica sem foto vale metade depois de 24 h,
+// quebra/perda tira 1 ponto, retrabalho na semana trava a faixa na Prata, meta do dia e exigências do prêmio do mês. Auditoria diária ao dono.
+const META_UNICAS = ['acabamento', 'fabricacao', 'instalacao', 'entrega', 'retirada'];
+function metasBlindar(p, log, n) {
+  const anul = log.filter(x => x.e === 'anulado');
+  const vale = log.filter(x => x.e !== 'anulado' && !x.anulado && !anul.some(a => a.alvo === x.e && (!a.quem || (x.por || []).map(String).includes(String(a.quem))) && (!a.ate || x.ts <= a.ate)));
+  const esc = {}; for (const x of vale) if (META_UNICAS.includes(x.e)) { const c = esc[x.e]; if (!c || (c.dono && !x.dono)) esc[x.e] = x; }
+  let soma = 0; const cortes = [], inteiros = vale.filter(x => x.e === 'corte' && !x.pecas), inteiro = inteiros.find(x => !x.dono) || inteiros[0];
+  for (const x of vale.filter(x => x.e === 'corte' && x.pecas).sort((a, b) => a.ts - b.ts)) { const r = Math.min(+x.pecas || 0, n - soma); if (r > 0) { cortes.push(r === x.pecas ? x : { ...x, pecas: r }); soma += r; } }
+  if (inteiro && soma < n) cortes.push(soma ? { ...inteiro, pecas: n - soma } : inteiro);
+  return vale.filter(x => !META_UNICAS.includes(x.e) && x.e !== 'corte').concat(Object.values(esc), cortes);
+}
+const pctQ = pn => Math.min(pn.pts / pn.meta * 100, pn.teto || 999); // faixa com a trava de qualidade
+const metaDoDia = metaSem => Math.ceil(metaSem / 6 * 1.1 * 2) / 2; // 6 dias de trabalho, +10%
+// dono: "anula o corte da Maria do Fabrício (motivo)"
+async function pontosAnularTool(env, a) {
+  const etapa = String(a.etapa || '').toLowerCase(); if (!ETAPA_TXT[etapa] || etapa === 'inicio') return { erro: true, texto: 'Etapa inválida.' };
+  const cfg = await pontoCfg(env), tkF = tokensPedra(String(a.funcionario || '')), f = tkF.length ? cfg.funcs.find(x => tokensPedra(x.nome)[0] === tkF[0] || normaliza(apelidoFunc(cfg, x)) === normaliza(a.funcionario)) : null;
+  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
+  const ped = l.sort((x, y) => (y.criado || 0) - (x.criado || 0))[0]; if (!ped) return { erro: true, texto: `Não achei o pedido de ${a.cliente}.` };
+  ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
+  const alvo = ped.prodLog.filter(x => x.e === etapa && (!f || (x.por || []).map(String).includes(String(f.id))));
+  if (!alvo.length && !(etapa === 'corte' && ped.corteFeitoPor) && !((etapa === 'entrega' || etapa === 'instalacao') && ped.entFeitoPor)) return { erro: true, texto: `Não há ${etapa} registrado${f ? ' do ' + apelidoFunc(cfg, f) : ''} no pedido de ${ped.nome}.` };
+  ped.prodLog.push({ e: 'anulado', alvo: etapa, quem: f ? String(f.id) : '', ate: Date.now(), ts: Date.now(), motivo: String(a.motivo || '').slice(0, 80), dono: 1 });
+  if (a.desfazer_etapa) { if (etapa === 'corte') { ped.corteEm = null; ped.corteFeitoPor = null; } if (etapa === 'acabamento') ped.acabEm = null; if (['acabamento', 'fabricacao'].includes(etapa) && !ped.entregueEm) { ped.fabProntoEm = null; ped.prontoEm = null; } }
+  await salvarPedido(env, ped);
+  const quem = f ? [f] : cfg.funcs.filter(x => alvo.some(y => (y.por || []).map(String).includes(String(x.id))));
+  for (const g of quem) { if (!g.tel) continue; await eqTexto(env, g.tel, `${avisoTeste(env)}ℹ️ ${apelidoFunc(cfg, g)}, o Sr. Hangel anulou os pontos de *${ETAPA_TXT[etapa] ? etapa : etapa}* do pedido de *${ped.nome}*${a.motivo ? ': ' + String(a.motivo).slice(0, 80) : ''}.${a.desfazer_etapa ? ' A etapa voltou a ficar pendente.' : ''}`).catch(() => {}); }
+  return { texto: `Anulado: ${etapa} de ${ped.nome}${f ? ' (' + apelidoFunc(cfg, f) + ')' : ''}. Os pontos saíram da semana${quem.length ? ' e ele foi avisado' : ''}.${a.desfazer_etapa ? ' A etapa voltou para pendente.' : ''} Confirme em UMA frase.` };
+}
+// auditoria do dia (17:40) e comando "auditoria"
+async function auditoriaTexto(env, dia) {
+  dia = dia || dataBahia(); const cfg = await pontoCfg(env), peds = await pedidosProducao(env, () => true), h = await pontoHorasDia(env, dia, cfg, {}).catch(() => ({})), usaPonto = Object.keys(h).length > 0;
+  const nomeDe = id => { const f = cfg.funcs.find(x => String(x.id) === String(id)); return f ? apelidoFunc(cfg, f) : (id ? 'alguém' : 'o senhor'); };
+  const linhas = [], alertas = [];
+  for (const p of peds) {
+    const log = Array.isArray(p.prodLog) ? p.prodLog : [], n = nPecasPed(p), val = metasBlindar(p, log, n);
+    for (const x of log) {
+      if (diaDe(x.ts) !== dia || !Array.isArray(x.por) || !['corte', 'acabamento', 'fabricacao', 'instalacao', 'entrega', 'retirada'].includes(x.e)) continue;
+      const contou = val.includes(x) || val.some(v => v.ts === x.ts && v.e === x.e), fl = [];
+      if (!contou) fl.push('🚫 repetido/anulado (não contou)');
+      const ini = x.e === 'corte' ? p.corteIniEm : x.e === 'acabamento' ? p.acabIniEm : (x.e === 'instalacao' || x.e === 'entrega') ? p.instIniEm : null;
+      const dur = ini && ini < x.ts ? minUteis(env, ini, x.ts) : null, pts = ptsEtapa(p, x.e === 'retirada' ? 'entrega' : x.e);
+      if (dur != null && dur < 10 && pts >= 2) fl.push(`⚡ rápido demais (${Math.round(dur)} min)`);
+      if (!x.dono && (x.e === 'fabricacao' || (x.e === 'acabamento' && !pedComplexo(p))) && !p.fotoProntoEm) fl.push('📷 sem foto das peças prontas');
+      if (!x.dono && (x.e === 'instalacao' || x.e === 'entrega') && !p.fotoEntregaEm) fl.push('📷 sem foto da entrega');
+      for (const id of x.por) {
+        if (x.dono) continue;
+        const resp = x.e === 'corte' ? p.fabResp : x.e === 'acabamento' ? p.acabResp : x.e === 'fabricacao' ? (p.fab2Resp || p.fabResp) : p.entResp;
+        if (resp && String(resp) !== String(id) && !(x.e === 'instalacao' || x.e === 'entrega')) fl.push(`👤 era tarefa do ${nomeDe(resp)}`);
+        if (usaPonto) { const hp = h[id]; const md = dsmMinDia(x.ts); if (!hp) fl.push('⏰ sem ponto hoje'); else if (md < hp.ent - 15 || (hp.sai != null && md > hp.sai + 30)) fl.push('⏰ fora do horário dele'); }
+      }
+      const t = `${x.dono ? '👔' : '•'} ${horaTs(x.ts)} ${x.por.map(nomeDe).join(' e ')} — ${ETAPA_TXT[x.e] || x.e} *${p.nome}*${x.pecas ? ` (${x.pecas} peça${x.pecas > 1 ? 's' : ''})` : ''}${dur != null ? ` · ${dsmDur(dur)}` : ''}${x.dono ? ' · lançado pelo senhor' : ''}`;
+      (fl.length ? alertas : linhas).push(fl.length ? `${t}\n   ${[...new Set(fl)].join(' · ')}` : t);
+    }
+  }
+  if (!linhas.length && !alertas.length) return '';
+  return [`🛡️ *Auditoria dos pontos · ${dataBR(dia).slice(0, 5)}*`, '', ...(alertas.length ? ['*Conferir:*', ...alertas, ''] : ['✅ Nada estranho hoje.', '']), ...(linhas.length ? ['*Tudo certo:*', ...linhas] : []), '', '_Para tirar pontos: "anula o corte da Maria do Fabrício (motivo)". Repetidos já não contam._'].join('\n');
+}
+async function auditoriaRotina(env) {
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 17 * 60 + 40 || ag.min > 19 * 60 || String(env.AUDITORIA ?? '1') === '0') return;
+  const k = 'aud:' + hoje; if (await env.HR_KV.get(k)) return; if (!(await travaEnvio(env, k))) return; await env.HR_KV.put(k, '1', { expirationTtl: 2 * 86400 });
+  const t = await auditoriaTexto(env, hoje); if (t && /\*Conferir:\*/.test(t)) await pontoAvisarDono(env, t); // só avisa quando há o que conferir
+}
+// prêmio do mês: além das semanas, constância diária e qualidade
+async function premioExigencias(env, fid, mes, ws) {
+  const hoje = dataBahia(), dias = {}; let uteis = 0, bateu = 0;
+  for (const w of ws) { if (w.futura || !w.meta) continue; const md = metaDoDia(w.meta);
+    for (let k = 0; k < 6; k++) { const d = isoSomaDias(w.ini, k); if (d.slice(0, 7) !== mes || d > hoje || !dsmDiaTrab(env, d)) continue; const pd = (w.tarefasDia || {})[d] || 0; if (d === hoje && pd < md) continue; uteis++; if (pd >= md) bateu++; dias[d] = pd; } }
+  let retrab = 0, perdas = 0, notas = []; const de = mes + '-01', ate = isoSomaDias(isoSomaDias(de, 32).slice(0, 7) + '-01', -1);
+  for (const p of await pedidosProducao(env, () => true)) for (const x of (p.prodLog || [])) { const d = diaDe(x.ts); if (d < de || d > ate || !(x.por || []).map(String).includes(String(fid))) continue; if (x.e === 'retrabalho') retrab++; if (x.e === 'avaliacao' && x.nota) notas.push(+x.nota); }
+  try { if (env.HR_DB) { const r = await env.HR_DB.prepare('SELECT COUNT(*) n FROM perda WHERE func = ? AND dia BETWEEN ? AND ?').bind(String(fid), de, ate).first(); perdas = +(r && r.n) || 0; } } catch (_) {}
+  const nota = notas.length ? notas.reduce((a, b) => a + b, 0) / notas.length : null, pctDias = uteis ? Math.round(bateu / uteis * 100) : 0;
+  const okDias = uteis < 3 || pctDias >= 60, okQual = retrab <= 1 && perdas <= 1 && (nota == null || nota >= 4.5);
+  return { uteis, bateu, pctDias, retrab, perdas, nota: nota != null ? Math.round(nota * 10) / 10 : null, okDias, okQual, ok: okDias && okQual };
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -12314,6 +12403,11 @@ const FERRAMENTAS = [
       motivo: { type: 'string', description: 'ex.: hora extra no sábado' } }, required: ['funcionarios'] },
   },
   {
+    name: 'pontos_anular',
+    description: 'O Sr. Hangel ANULA os pontos de uma etapa que não valeu (ex.: "anula o corte da Maria do Fabrício, ficou torto", "tira os pontos do acabamento do Douglas do Lucas", "o Lucas não fez o acabamento do Douglas, anula"). Use desfazer_etapa=true quando a etapa NÃO foi feita (volta a ficar pendente).',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['corte', 'acabamento', 'fabricacao', 'instalacao', 'entrega', 'retirada'] }, funcionario: { type: 'string', description: 'vazio = de todos nessa etapa' }, motivo: { type: 'string' }, desfazer_etapa: { type: 'boolean' } }, required: ['cliente', 'etapa'] },
+  },
+  {
     name: 'desempenho_equipe',
     description: 'ANÁLISE DE DESEMPENHO dos funcionários: horário (chegada, saída, atrasos pelo ponto), quanto tempo cada um leva em cada tarefa (corte, acabamento, fabricação, instalação), pontos por hora, qualidade (retrabalho, nota dos clientes, perdas), quanto cada um gerou em serviços × o salário (se está se pagando) e se merece aumento. Use para "como está o Gibson?", "quem está mais rápido?", "o Fabrício está pagando o salário dele?", "quem merece aumento?", "quanto tempo o Lucas leva no acabamento?".',
     input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome (vazio = equipe toda)' }, dias: { type: 'number', description: 'período em dias (padrão 30; 90 para aumento)' }, aumento: { type: 'boolean', description: 'true para a avaliação de aumento de todos (90 dias)' } } },
@@ -12771,6 +12865,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {} // v74b: o rascunho antigo não é reenviado por um "sim" depois
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
   }
+  if (nome === 'pontos_anular') return await pontosAnularTool(env, a); // v181
   if (nome === 'desempenho_equipe') { const t = a.aumento && !a.funcionario ? await aumentoTexto(env) : await desempenhoEquipeTexto(env, a.dias || (a.funcionario ? 30 : 30), a.funcionario || ''); return { texto: t + '\n\nRepasse ao Sr. Hangel este relatório como está (pode resumir se ele pediu algo específico). Não invente números.' }; } // v179
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
