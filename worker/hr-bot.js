@@ -10739,9 +10739,17 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
     } else if (naFabrica(p) && (!p.fabResp || [p.fabResp, p.fab2Resp].map(String).includes(id))) linhas.push({ id: `fot|${p.id}|pronto`, titulo: `✅ ${pn}`.slice(0, 24), descricao: p.corteEm || !precisaAcab(p) ? 'Terminei (peças prontas)' : 'Terminei o corte' });
     linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Só guardar a foto no pedido' });
   }
-  { const n = normaliza(leg || ''), quer = /\b(cortad[oa]s?|pront[oa]s?|acabad[oa]s?|terminad[oa]s?|fabricad[oa]s?)\b/.test(n) ? 'pronto' : /\b(instalad[oa]s?|entregue?s?|finalizad[oa]s?|montad[oa]s?)\b/.test(n) ? 'fim' : /\b(chegand[oa]|chegamos|cheguei|comecand[oa]|comecar|comecei|comecou|iniciar|iniciando|inicio|antes)\b/.test(n) ? 'ini' : ''; // v178: a legenda ("peitoril cortado") põe a opção certa em primeiro
+  { const n = normaliza(leg || ''), quer0 = /\b(finaliz\w*|terminand[oa]|conclu\w*)\b/.test(n) ? 'fim' : /\b(inicia|iniciou|comecando|vou comecar|vamos comecar)\b/.test(n) ? 'ini' : '', quer = quer0 || /\b(cortad[oa]s?|pront[oa]s?|acabad[oa]s?|terminad[oa]s?|fabricad[oa]s?)\b/.test(n) ? 'pronto' : /\b(instalad[oa]s?|entregue?s?|finalizad[oa]s?|montad[oa]s?)\b/.test(n) ? 'fim' : /\b(chegand[oa]|chegamos|cheguei|comecand[oa]|comecar|comecei|comecou|iniciar|iniciando|inicio|antes)\b/.test(n) ? 'ini' : ''; // v178: a legenda ("peitoril cortado") põe a opção certa em primeiro
     const suf = { ini: ['ini', 'cti', 'aci'], pronto: ['pronto', 'acf'], fim: ['fim'] }[quer] || [], tem = x => suf.some(k => x.id.endsWith('|' + k)) ? 1 : 0;
-    if (quer) linhas.sort((a, b) => tem(b) - tem(a)); }
+    if (quer) linhas.sort((a, b) => tem(b) - tem(a));
+    /* v196: a legenda já diz o cliente e o que foi ("Serviço de Renata finalizando", "Dona Renata serviço finalizado") → não pergunta de novo */
+    const achL = leg ? (temNome(l) || []) : [];
+    if (achL.length === 1) {
+      const pid = String(achL[0].id), doCli = linhas.filter(x => x.id.split('|')[1] === pid), grupo = quer === 'fim' || quer === 'pronto' ? ['fim', 'pronto', 'acf'] : quer === 'ini' ? ['ini', 'cti', 'aci'] : [];
+      const cand = doCli.filter(x => grupo.includes(x.id.split('|')[2]));
+      const esc = cand.length === 1 ? cand[0] : (doCli.length === 1 ? doCli[0] : (quer && !cand.length && achL[0].entregueEm ? doCli.find(x => x.id.endsWith('|foto')) : null));
+      if (esc) { const mids = [...(fp0 && fp0.mids && Date.now() - (fp0.em || 0) < 15 * 60000 ? fp0.mids : []), m.image.id].filter((x, i, a) => x && a.indexOf(x) === i); await env.HR_KV.put('prod:fotopend:' + k8, JSON.stringify({ mid: mids[0], mids, leg, em: Date.now() }), { expirationTtl: 6 * 3600 }); return prodFotoEscolha(env, f, from, esc.id, nome); }
+    } }
   if (!linhas.length) { // v176: não acha o pedido → a foto não se perde: vai para o dono
     try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: m.image.id, caption: `📷 Foto do ${nome}${leg ? ` ("${leg}")` : ''}. Não achei o pedido no sistema; confira de qual cliente é.` } }); } catch (_) {}
     await enviar(env, from, `📸 Recebi a foto, ${nome}!${leg ? ` Não achei o pedido de *${leg.replace(/^(servi[cç]os?|foto|fotos)\s+(d[aoe]s?\s+)?/i, '')}* no sistema.` : ' Não achei serviço aberto com você.'} Guardei e mandei para o Sr. Hangel conferir. Se quiser, me diga o nome do cliente (ex.: _instalei o da Maria_).`); return true; }
@@ -10843,6 +10851,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v196: foto com legenda que já diz o cliente e o que foi ("Serviço de Renata finalizando", resposta "Dona Renata serviço finalizado") vai direto, sem a lista.
 // v195: garantia não duplica (mesmo cliente + mesmo serviço vindo do pedido e do livro); CPF de garantia anterior é reaproveitado; G-0043 da Renata cancelada.
 // v194: desenho técnico do app (rota /bot/desenho): guarda no pedido, troca as peças pelas do desenho e manda a imagem à equipe.
 // v193: mensagens seguidas do dono viram uma só para a IA; resposta curta continua a tarefa; "são 3 peitoris" não relê fotos da cuba; total do dia inclui o lançamento novo; pronúncia Rangel; expediente 20/11 e 21/11 gravado.
