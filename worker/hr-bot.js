@@ -2117,11 +2117,12 @@ async function resumoHoje(env) {
     `*Entradas:* R$ ${reais(ent)}`, `*Gastos:* R$ ${reais(sai)}`, `*Saldo do dia:* R$ ${reais(ent - sai)}`, ...(nota ? ['', nota] : [])].join('\n');
 }
 
-async function totaisHoje(env, dia) {
+async function totaisHoje(env, dia, novo) {
   const hoje = dia || dataBahia();
   const u = await lancamentosUnificados(env, hoje, hoje);
   let ent = 0, sai = 0;
   for (const r of u.itens) { if (r.type === 'in') ent += r.value; else sai += r.value; }
+  if (novo && (novo.date || hoje) === hoje && !u.itens.some(r => r.type === novo.type && Math.abs(r.value - novo.value) < 0.01 && String(r.desc || '') === String(novo.desc || ''))) { if (novo.type === 'in') ent += novo.value; else sai += novo.value; } // v193: o que acabou de ser lançado ainda não aparece na lista
   return { ent, sai };
 }
 
@@ -2447,7 +2448,7 @@ async function tratarFinancas(env, from, bruto, msg, F, voz) {
 
 async function confirmarLancamento(env, from, l, F, voz) {
   const rec = await registrarLancamento(env, l);
-  const tot = await totaisHoje(env);
+  const tot = await totaisHoje(env, null, l);
   const botoes = [{ id: 'desf|' + rec.k, titulo: 'Desfazer' }];
   if (l.cat) botoes.push({ id: 'catmenu|' + rec.k, titulo: 'Trocar categoria' });
   botoes.push(BTN_HOJE);
@@ -2605,7 +2606,7 @@ async function vozEscolhaCarregar(env) { if (globalThis.__vozEm && Date.now() - 
 function falaCasual(t) { // v160: complemento do textoParaFala para áudio de conversa
   return String(t || '').replace(/https?:\/\/\S+/g, '').replace(/\bkkk+\b/gi, 'haha').replace(/\bvc\b/gi, 'você').replace(/\btb\b/gi, 'também').replace(/\bpq\b/gi, 'porque').replace(/\bblz\b/gi, 'beleza').replace(/!{2,}/g, '!').replace(/\.\s*\./g, '.').trim();
 }
-const VOZ_INSTR = 'Fale como uma moça brasileira de verdade mandando um áudio no WhatsApp para alguém conhecido: português do Brasil com sotaque nordestino leve, ritmo natural de conversa (nem lento nem corrido), entonação que sobe e desce, pausas curtas onde a gente respira, sorriso leve na voz. Nada de voz de locutora, de atendimento eletrônico ou de leitura. Se o texto for brincalhão, fale com alegria e leveza; se for sério, com calma e firmeza.';
+const VOZ_INSTR = 'O nome do dono é Rangel (escrito Hangel): pronuncie sempre RAN-JÉU, com o R forte do começo de rato. Fale como uma moça brasileira de verdade mandando um áudio no WhatsApp para alguém conhecido: português do Brasil com sotaque nordestino leve, ritmo natural de conversa (nem lento nem corrido), entonação que sobe e desce, pausas curtas onde a gente respira, sorriso leve na voz. Nada de voz de locutora, de atendimento eletrônico ou de leitura. Se o texto for brincalhão, fale com alegria e leveza; se for sério, com calma e firmeza.';
 async function gerarVoz(env, fala, escolha) {
   const op = VOZ_OPCOES.find(x => x.k === escolha) || null;
   const elId = op && op.prov === 'el' ? op.id : (!op && env.ELEVENLABS_KEY ? (env.ELEVENLABS_VOICE || 'RGymW84CSmfVugnA5tvA') : '');
@@ -6853,6 +6854,7 @@ async function pedirAvaliacoes(env) {
   await mig185Garantias(env).catch(e => console.log('[MIG185]', e.message)); // v185
   await mig188Etapas(env).catch(e => console.log('[MIG188]', e.message)); // v188
   await previsaoRotina(env).catch(e => console.log('[PREV]', e.message)); // v191
+  await mig193Expediente(env).catch(e => console.log('[MIG193]', e.message)); // v193
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -10833,6 +10835,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v193: mensagens seguidas do dono viram uma só para a IA; resposta curta continua a tarefa; "são 3 peitoris" não relê fotos da cuba; total do dia inclui o lançamento novo; pronúncia Rangel; expediente 20/11 e 21/11 gravado.
 // v192: pedra de retenção nas soleiras (largura configurada no app/WhatsApp, comprimento da soleira): orçamento pelo WhatsApp, peça na produção e nos pontos.
 // v191: previsão inteligente da produção (ritmo aprendido de cada um, fila por entrega, risco de atraso às 7h, gargalo) — comando "previsão da produção", ferramenta da IA e painel.
 // v190: ficha de produção no app (tipo de cada peça, saia, cuba, rebaixo, cooktop e responsáveis) usada nas etapas e pontos; o app manda o nome das peças do orçamento.
@@ -11517,6 +11520,28 @@ async function previsaoRotina(env) {
   const t = await previsaoTextoProd(env, true); if (t) await pontoAvisarDono(env, t);
 }
 
+// v193: o dono manda várias mensagens seguidas (encaminha a lista e depois "Verde Ubatuba"): a IA responde uma vez só, com tudo junto
+async function juntarMsgsDono(env, texto) {
+  if (!env.HR_DB || String(env.JUNTAR_DONO ?? '1') === '0') return texto;
+  try {
+    if (!globalThis.__agbufT) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS ag_buf (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, texto TEXT)').run(); globalThis.__agbufT = 1; }
+    const ts = Date.now(), r = await env.HR_DB.prepare('INSERT INTO ag_buf (ts, texto) VALUES (?, ?)').bind(ts, String(texto || '').slice(0, 4000)).run(), meu = +(r && r.meta && r.meta.last_row_id) || 0;
+    if (!meu) return texto;
+    await new Promise(ok => setTimeout(ok, +(env.JUNTAR_MS || 3500)));
+    const rs = (await env.HR_DB.prepare('SELECT id, texto FROM ag_buf WHERE ts > ? ORDER BY id').bind(ts - 60000).all()).results || [];
+    if (rs.some(x => x.id > meu)) return null; // chegou outra depois: a última responde por todas
+    const juntas = rs.filter(x => x.id <= meu); await env.HR_DB.prepare('DELETE FROM ag_buf WHERE id <= ?').bind(meu).run();
+    return juntas.length > 1 ? juntas.map(x => x.texto).join('\n') : texto;
+  } catch (e) { console.log('[JUNTAR]', e.message); return texto; }
+}
+// v193: o expediente combinado (sexta 20/11 meio período de manhã, sábado 21/11 folga) fica gravado
+async function mig193Expediente(env) {
+  if (await env.HR_KV.get('mig:193')) return; if (!(await travaEnvio(env, 'mig:193'))) return; await env.HR_KV.put('mig:193', '1');
+  if (dataBahia() > '2026-11-20') return; const cfg = await pontoCfg(env), tem = d => (cfg.excBot || []).some(x => x.data === d) || (cfg.folgasBot || []).includes(d) || (cfg.trab || []).includes(d);
+  const dias = []; if (!tem('2026-11-20')) dias.push({ data: '2026-11-20', tipo: 'meio', periodo: 'manha' }); if (!tem('2026-11-21')) dias.push({ data: '2026-11-21', tipo: 'folga' });
+  if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
+  globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
+}
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -13584,6 +13609,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: prints de anúncio com a legenda "cadastrar cuba" (+ "margem 40") → cadastra no catálogo do app, "meta 60000" / "meta 60 mil todo mes" / "meta" (meta de vendas do mês), "indicacao" (programa de indicação: "indicacao: quem indica ganha ...; quem chega ganha ...", "convite indicacao <número> <nome>"), "radar" / "vendas da semana" (números da semana e 3 ações), "orcamentos parados" (lista de quem não respondeu, para retomar com 1 toque), prints da conversa com um cliente + o número ("continue o atendimento do 74 9...") → o bot lê, entende onde parou e escreve a mensagem para fechar (ele aprova antes), "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
+      `- RESPOSTA CURTA A UMA PERGUNTA SUA: se na mensagem anterior você pediu dados (nome do cliente, pedra, prazo, acabamento) e ele responde só isso (ex.: "Joel", "Verde Ubatuba", "amanhã"), é a RESPOSTA: continue a tarefa pendente com o que já foi dito antes (medidas, itens) e NÃO pergunte de novo o que ele já disse nem traga assuntos antigos do mesmo cliente.`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
       `- Se faltar uma informação indispensável, faça UMA pergunta objetiva e curta. Se ele disser que você agiu errado ou der uma instrução sobre o seu comportamento, reconheça com clareza, explique o que vai fazer diferente e, se já puder, faça.`,
       `- Responda SOMENTE com base nos dados acima e no histórico. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso. Confira contas e somas com cuidado.`,
@@ -18803,7 +18829,7 @@ async function tratarMensagemBase(env, m, ctx) {
         if (!ult || !/\?\s*$|\?[^?]{0,80}$/.test(String(ult.content || '').slice(-200))) { await enviar(env, from, '👍'); return; }
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
-      await responderAgente(env, from, bruto, F, voz);
+      { const junto = await juntarMsgsDono(env, bruto); if (junto === null) return; await responderAgente(env, from, junto, F, voz); } // v193: mensagens seguidas viram uma só
       return;
     }
     // Orçamento de soleira/peitoril: tem fluxo próprio (rascunho + perguntas fixas), sem passar pela IA geral
@@ -21202,9 +21228,9 @@ async function cubaTratarTexto(env, from, bruto, msg) {
     return true;
   }
   // "leia todos", "são 7": relê com todas as fotos que chegaram nos últimos minutos
-  if (/\b(leia|ler|le|releia|reler)\b.*\b(todos|todas|prints|fotos|imagens)\b|\bsao \d+\b|\bfaltou (print|foto)/.test(msg)) {
+  if (/\b(leia|ler|le|releia|reler)\b.*\b(todos|todas|prints|fotos|imagens)\b|^sao \d+( (fotos|prints|imagens))?$|\bsao \d+ (fotos|prints|imagens)\b|\bfaltou (print|foto)/.test(msg)) { // v193: "são 3 peitoris" não é foto
     const ult = JSON.parse((await env.HR_KV.get('cub:ultses:' + from)) || 'null');
-    if (ult) { const extra = await mrDesde(env, from, ult.criado - 4 * 60000); const todas = [...new Set([...(ult.ultimas || []), ...extra.map(x => x.id)])];
+    if (ult && Date.now() - (ult.criado || 0) < 30 * 60000) { const extra = await mrDesde(env, from, ult.criado - 4 * 60000); const todas = [...new Set([...(ult.ultimas || []), ...extra.map(x => x.id)])];
       const cab = todas.length; await enviar(env, from, `Relendo com ${cab} foto(s) que chegaram…${cab < 3 ? ' Se ainda faltar, mande as que faltam com a legenda "cadastrar cuba".' : ''}`);
       await cubaProcessar(env, from, { ...ult, imgs: todas }).catch(async e => enviar(env, from, await textoFalhaIA(env, e))); return true; }
   }
