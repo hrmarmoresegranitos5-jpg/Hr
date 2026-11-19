@@ -1,3 +1,4 @@
+// v168 (19/11/2026): orçamento com DIA E HORA da entrega (hoje inclusive) e conferência do expediente combinado (meio período/folga entram em dia útil, prazos e horários)
 // v167 (19/11/2026): orçamento com entrega HOJE (pronta entrega) e aviso de feriado na data; "manda a ficha técnica pra Fabrício" vai para a IA
 // v166 (19/11/2026): DICA DE FOTOS para a equipe (uma vez para cada um; "dica das fotos" reenvia) e o manual explica as fotos
 // v165 (19/11/2026): FOTO DA EQUIPE não cai mais no atendimento de cliente; sem legenda, o bot pergunta de qual serviço (começou, terminou, entregou ou só guardar)
@@ -3450,6 +3451,8 @@ function mesclarOrcamento(d, x, bruto, msg, pedras, pediu, env) {
     const p = calcularPrazo(env, /\bcorrid/.test(msg) ? { corridos: dias } : { uteis: dias });
     for (const k of ['prazo_dias', 'prazo_uteis', 'entrega_prevista']) set(k, p[k]);
   }
+  if (!dias && /\b(hoje|hoje mesmo|pronta entrega|agora mesmo|no mesmo dia)\b/.test(msg)) { const p = calcularPrazo(env, { data: dataBahia() }); for (const k of ['prazo_dias', 'prazo_uteis', 'entrega_prevista']) set(k, p[k]); } // v168: entrega hoje
+  { const mh = msg.match(/\b(?:as|às|a partir das|ate as)\s*(\d{1,2})(?:\s*(?:h|:)\s*(\d{2})?|\s*horas?)\b/); if (mh && +mh[1] >= 6 && +mh[1] <= 20) set('hora_entrega', String(+mh[1]).padStart(2, '0') + ':' + (mh[2] || '00')); } // v168
   let pag = x.pagamento === 'vista' || x.pagamento === 'parcelado' ? x.pagamento : '';
   if (!pag) pag = /\bparcelad|\bcartao\b/.test(msg) ? 'parcelado' : /\ba vista\b|\bavista\b/.test(msg) ? 'vista' : '';
   if (pag) set('pagamento', pag);
@@ -3575,7 +3578,7 @@ async function registrarPedidoOrc(env, from, d) {
   const ped = pedidoDoDono(from, {
     cliente: d.cliente, ambiente: d.ambiente, pedra: d.pedra, pecas: d.pecas, acabamento: d.acabamento,
     prazo_dias: d.prazo_dias || cfgOrc.prazo_dias, seguir_agenda: seguirRegra, pagamento: d.pagamento || cfgOrc.pagamento,
-    prazo_uteis: d.prazo_uteis, entrega_prevista: d.entrega_prevista,
+    prazo_uteis: d.prazo_uteis, entrega_prevista: d.entrega_prevista, hora_entrega: d.hora_entrega,
   });
   if (!ped) {
     await enviar(env, from, 'Sr. Hangel, não foi possível registrar o pedido com os dados informados. Por gentileza, confira as medidas e tente novamente.');
@@ -3606,8 +3609,10 @@ async function registrarPedidoOrc(env, from, d) {
     ...linhasRascunho(d),
     seguirRegra
       ? `*Prazo:* conforme a regra do aplicativo (varia com a quantidade de peças)`
+      : d.entrega_prevista && (d.entrega_prevista === hojeP || d.hora_entrega)
+      ? `*Entrega:* ${d.entrega_prevista === hojeP ? '*hoje*' : DIAS_SEMANA[diaSemanaISO(d.entrega_prevista)] + ', ' + dataBR(d.entrega_prevista)}${d.hora_entrega ? ' às ' + d.hora_entrega : ''}${expDia(d.entrega_prevista) && expDia(d.entrega_prevista).tipo === 'meio' ? ` _(meio período: ${expedienteHoras(env, d.entrega_prevista).e}–${expedienteHoras(env, d.entrega_prevista).s})_` : ''}`
       : d.prazo_uteis && d.entrega_prevista
-      ? `*Prazo:* ${d.prazo_uteis} ${d.prazo_uteis === 1 ? 'dia útil' : 'dias úteis'} (entrega prevista: ${dataBR(d.entrega_prevista)})`
+      ? `*Prazo:* ${d.prazo_uteis} ${d.prazo_uteis === 1 ? 'dia útil' : 'dias úteis'} (entrega prevista: ${dataBR(d.entrega_prevista)}${d.hora_entrega ? ' às ' + d.hora_entrega : ''})`
       : `*Prazo:* ${dias} ${dias === 1 ? 'dia' : 'dias'}${d.prazo_dias ? '' : ' (padrão para soleira e peitoril)'}`,
     ...(ferNoPrazo.length ? [`_O prazo já desconta: ${ferNoPrazo.map(f => `${f.nome} (${dataBR(f.iso)})`).join(', ')}._`] : []),
     `*Pagamento:* ${ped.pagamento === 'parcelado' ? 'Parcelado' : 'À vista'}`,
@@ -11575,9 +11580,22 @@ function feriadosAdiante(env, de, dias) {
 }
 // O feriado só atrapalha se cairia num dia em que a marmoraria trabalharia
 function feriadoImpacta(env, f) {
+  { const x = expDia(f.iso); if (x) return x.tipo === 'folga'; } // v168: feriado em que vão trabalhar não desconta
   return f.dow !== 0 && (f.dow !== 6 || String(env.SABADO_UTIL || '') === '1');
 }
+// v168: o que o Sr. Hangel combinou ("sexta meio período, sábado folga") vale para prazos e entregas
+function expDia(iso) { const x = globalThis.__expDias || {}; return x[iso] || null; } // {tipo:'folga'|'meio'|'normal', e, s}
+async function expCarregar(env) {
+  if (globalThis.__expEm && Date.now() - globalThis.__expEm < 3 * 60000) return; globalThis.__expEm = Date.now();
+  const cfg = await pontoCfg(env).catch(() => ({})), m = {};
+  for (const x of (cfg.excBot || [])) if (x && x.data) m[x.data] = { tipo: x.tipo, e: x.e, s: x.s };
+  for (const d of (cfg.trab || [])) if (!m[d]) m[d] = { tipo: 'normal' };
+  for (const d of (cfg.folgasBot || [])) m[d] = { tipo: 'folga' };
+  globalThis.__expDias = m;
+}
+function expedienteHoras(env, iso) { const x = expDia(iso); if (x && x.tipo === 'meio') return { e: x.e || '07:00', s: x.s || '11:00', meio: true }; return { e: env.EXPEDIENTE_INICIO || '07:00', s: diaSemanaISO(iso) === 6 ? (env.EXPEDIENTE_FIM_SABADO || '11:00') : (env.EXPEDIENTE_FIM || '17:00'), meio: false }; }
 function ehDiaUtil(env, iso) {
+  { const x = expDia(iso); if (x) return x.tipo !== 'folga'; } // v168
   const dow = diaSemanaISO(iso);
   if (dow === 0) return false;
   if (dow === 6 && String(env.SABADO_UTIL || '') !== '1') return false;
@@ -11753,7 +11771,8 @@ const FERRAMENTAS = [
         acabamento: { type: 'string', enum: ['sem', '1_lado', '2_lados', '45'] },
         prazo_dias_uteis: { type: 'integer', description: 'prazo de entrega em dias úteis, como o Sr. Hangel disse (uma semana = 5)' },
         data_entrega: { type: 'string', description: 'AAAA-MM-DD, somente se ele disser uma data específica em vez de dias. "Hoje", "hoje mesmo", "agora" ou "pronta entrega" = a data de HOJE (é permitido entregar no mesmo dia).' },
-        manter_feriado: { type: 'boolean', description: 'true só se o Sr. Hangel confirmou entregar num feriado/domingo' },
+        manter_feriado: { type: 'boolean', description: 'true só se o Sr. Hangel confirmou entregar num feriado/domingo/folga' },
+        hora_entrega: { type: 'string', description: 'HH:MM, se ele disser a hora (ex.: "hoje às 15h" → 15:00; "sexta às 10h"). Pode ser no mesmo dia.' },
         pagamento: { type: 'string', enum: ['vista', 'parcelado'], description: 'omita se ele não disser' },
       },
       required: ['cliente', 'ambiente', 'pedra', 'pecas', 'acabamento'],
@@ -12528,12 +12547,22 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const hoje = dataBahia();
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(a.data_entrega || ''))) {
       if (a.data_entrega < hoje) return { erro: true, texto: 'A data de entrega já passou. Confirme com o Sr. Hangel.' }; // v167: hoje é permitido (pronta entrega)
+      { const x = expDia(a.data_entrega); if (x && x.tipo === 'folga' && !a.manter_feriado) { let prox = a.data_entrega; for (let i = 0; i < 10 && !ehDiaUtil(env, prox); i++) prox = isoSomaDias(prox, 1); return { erro: true, texto: `${DIAS_SEMANA[diaSemanaISO(a.data_entrega)]} ${dataBR(a.data_entrega)} é FOLGA da equipe (combinado pelo Sr. Hangel). Pergunte em UMA frase se mantém a entrega nesse dia ou passa para ${dataBR(prox)}.` }; } } // v168
       if (!a.manter_feriado && !ehDiaUtil(env, a.data_entrega)) { const fn = feriadosInfo(env, +a.data_entrega.slice(0, 4)).nomes.get(a.data_entrega); let prox = a.data_entrega; for (let i = 0; i < 10 && !ehDiaUtil(env, prox); i++) prox = isoSomaDias(prox, 1); return { erro: true, texto: `${dataBR(a.data_entrega)} é ${fn ? 'feriado (' + fn + ')' : diaSemanaISO(a.data_entrega) === 0 ? 'domingo' : 'dia sem expediente'}. Pergunte em UMA frase se mantém nesse dia ou passa para ${dataBR(prox)}.` }; }
       prazo = calcularPrazo(env, { data: a.data_entrega });
     } else if (Math.round(Number(a.prazo_dias_uteis)) >= 1) {
       prazo = calcularPrazo(env, { uteis: Math.round(Number(a.prazo_dias_uteis)) });
     }
     if (!prazo) return { erro: true, texto: 'Falta o prazo de entrega. Pergunte ao Sr. Hangel em quantos dias úteis o orçamento deve ser entregue. Não assuma nem use um valor padrão.' };
+    let horaEnt = ''; // v168: hora combinada da entrega
+    { const hm = String(a.hora_entrega || '').trim().replace(/h$/i, '').replace(/^(\d{1,2})h(\d{2})$/i, '$1:$2'); const mh = hm.match(/^(\d{1,2})(?::(\d{2}))?$/);
+      if (mh && +mh[1] < 24) {
+        horaEnt = String(+mh[1]).padStart(2, '0') + ':' + (mh[2] || '00');
+        const dia = prazo.entrega_prevista, ex = expedienteHoras(env, dia), agoraM = agoraBahia().min, hM = +horaEnt.slice(0, 2) * 60 + +horaEnt.slice(3);
+        if (dia === hoje && hM < agoraM + 20 && !a.manter_feriado) return { erro: true, texto: `${horaEnt} de hoje já passou (ou é em menos de 20 minutos). Pergunte em UMA frase qual horário.` };
+        if (!a.manter_feriado && (horaEnt < ex.e || horaEnt > ex.s)) return { erro: true, texto: `Em ${DIAS_SEMANA[diaSemanaISO(dia)]} ${dataBR(dia)} o expediente é das ${ex.e} às ${ex.s}${ex.meio ? ' (meio período combinado)' : ''}, e ${horaEnt} fica fora. Pergunte em UMA frase se mantém esse horário (manter_feriado true) ou outro dentro do expediente.` };
+        prazo.hora_entrega = horaEnt;
+      } }
     if (prazo.prazo_dias > 365) return { erro: true, texto: 'Prazo acima de 365 dias. Confirme com o Sr. Hangel.' };
 
     const d = { cliente, ambiente: amb, pedra, pecas, acabamento: a.acabamento, ...prazo, pagamento: a.pagamento === 'parcelado' ? 'parcelado' : a.pagamento === 'vista' ? 'vista' : undefined };
@@ -12541,7 +12570,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     if (!pedidoDoDono(from, d)) return { erro: true, texto: 'Não foi possível validar o pedido com esses dados. Confira as medidas.' };
     await registrarPedidoOrc(env, from, d);
     return {
-      texto: `Pedido registrado. A confirmação com cliente, pedra, medidas, prazo (${prazo.prazo_uteis} dias úteis, entrega prevista ${dataBR(prazo.entrega_prevista)}) e botão de cancelar já foi enviada ao Sr. Hangel. Responda apenas OK.`,
+      texto: `Pedido registrado. A confirmação com cliente, pedra, medidas, prazo (entrega ${prazo.entrega_prevista === hoje ? 'HOJE' : dataBR(prazo.entrega_prevista)}${horaEnt ? ' às ' + horaEnt : ''}) e botão de cancelar já foi enviada ao Sr. Hangel. Responda apenas OK.`,
       nota: `orçamento ${JSON.stringify({ cliente, ambiente: amb, pedra, pecas: pecas.map(p => [p.qtd, p.comp_cm, p.larg_cm]), acabamento: a.acabamento, prazo_uteis: prazo.prazo_uteis, pagamento: d.pagamento || 'padrão' })}`,
     };
   }
@@ -21849,6 +21878,7 @@ function pedidoDoDono(from, o) {
     prazo_modo: agenda ? 'agenda' : 'manual', prazo_dias: dias,
     prazo_uteis: Math.round(Number(o.prazo_uteis)) || null,
     entrega_prevista: /^\d{4}-\d{2}-\d{2}$/.test(String(o.entrega_prevista || '')) ? o.entrega_prevista : null,
+    hora_entrega: /^\d{2}:\d{2}$/.test(String(o.hora_entrega || '')) ? o.hora_entrega : null, // v168
     pagamento: o.pagamento === 'parcelado' ? 'parcelado' : 'vista',
   };
 }
@@ -30106,6 +30136,7 @@ export default {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
     await googleLinkCarregar(env).catch(() => {}); // v151
     await eqModoCarregar(env).catch(() => {}); // v154
+    await expCarregar(env).catch(() => {}); // v168
     configurarRegras(env); // v27: limite de peças e pingadeira
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
@@ -30153,6 +30184,7 @@ export default {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
     await googleLinkCarregar(env).catch(() => {}); // v151
     await eqModoCarregar(env).catch(() => {}); // v154
+    await expCarregar(env).catch(() => {}); // v168
     configurarRegras(env); // v27: limite de peças e pingadeira
     if (ctx && ctx.waitUntil) try { env._waitUntil = p => ctx.waitUntil(p); } catch (_) {} // v63k: tarefas depois da resposta
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
