@@ -12,7 +12,7 @@
   function dias(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }
   function aviso(t) { if (typeof toast === 'function') toast(t); else alert(t); }
   var MOD = { instalacao: 'Fabricação + instalação', entrega: 'Fabricação (sem instalação)', retirada: 'Fabricação (retirada)' };
-  var SIT = { ativa: ['Ativa', '52,211,153'], vencida: ['Vencida', '154,145,126'], aguardando_entrega: ['Aguardando entrega', '232,201,106'], cancelada: ['Cancelada', '248,113,113'] };
+  var SIT = { ativa: ['Ativa', '52,211,153'], vencida: ['Vencida', '154,145,126'], aguardando_entrega: ['Aguardando entrega', '232,201,106'], aguardando_dados: ['Aguardando nome e CPF', '251,146,60'], cancelada: ['Cancelada', '248,113,113'] };
   var st = { lista: [], filtro: 'todas', q: '' };
 
   var CSS = '#hrGar{position:fixed;inset:0;z-index:9990;background:#0a0908;color:#efe9dc;display:flex;flex-direction:column;font-family:Outfit,inherit;animation:garEntra .3s cubic-bezier(.2,.9,.25,1)}'
@@ -86,13 +86,13 @@
     var v30 = at.filter(function (g) { return dias(h, g.validade) <= 30; }), ch = st.lista.filter(function (g) { return chamados(g).length; });
     document.getElementById('garSub').textContent = st.lista.length + ' garantia(s) guardada(s)';
     document.getElementById('garKpis').innerHTML = '<div class="gar-kpi"><b>' + at.length + '</b><span>Ativas</span></div><div class="gar-kpi"><b>' + v30.length + '</b><span>Vencem em 30d</span></div><div class="gar-kpi"><b>' + ch.length + '</b><span>Com chamado</span></div>';
-    var F = [['todas', 'Todas', st.lista.length], ['ativa', 'Ativas', at.length], ['v30', 'Vencendo', v30.length], ['aguardando_entrega', 'Aguardando entrega', st.lista.filter(function (g) { return g.situacao === 'aguardando_entrega'; }).length], ['vencida', 'Vencidas', st.lista.filter(function (g) { return g.situacao === 'vencida'; }).length], ['ch', 'Chamados', ch.length]];
+    var F = [['todas', 'Todas', st.lista.length], ['ativa', 'Ativas', at.length], ['v30', 'Vencendo', v30.length], ['aguardando_entrega', 'Aguardando entrega', st.lista.filter(function (g) { return g.situacao === 'aguardando_entrega'; }).length], ['aguardando_dados', 'Sem CPF', st.lista.filter(function (g) { return g.situacao === 'aguardando_dados'; }).length], ['vencida', 'Vencidas', st.lista.filter(function (g) { return g.situacao === 'vencida'; }).length], ['ch', 'Chamados', ch.length]];
     document.getElementById('garChips').innerHTML = F.map(function (f) { return '<button class="gar-chip' + (st.filtro === f[0] ? ' on' : '') + '" data-f="' + f[0] + '">' + f[1] + ' · ' + f[2] + '</button>'; }).join('');
     var q = String(st.q || '').toLowerCase().trim(), qd = q.replace(/\D/g, '');
     var lista = st.lista.filter(function (g) {
       if (st.filtro === 'v30' && !(g.situacao === 'ativa' && dias(h, g.validade) <= 30)) return false;
       if (st.filtro === 'ch' && !chamados(g).length) return false;
-      if (['ativa', 'vencida', 'aguardando_entrega'].indexOf(st.filtro) >= 0 && g.situacao !== st.filtro) return false;
+      if (['ativa', 'vencida', 'aguardando_entrega', 'aguardando_dados'].indexOf(st.filtro) >= 0 && g.situacao !== st.filtro) return false;
       if (!q) return true;
       return [g.id, g.cliente, g.servico, g.material, g.orc_num].join(' ').toLowerCase().indexOf(q) >= 0 || (qd.length >= 4 && String(g.num || '').indexOf(qd) >= 0);
     });
