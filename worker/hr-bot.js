@@ -9657,6 +9657,7 @@ async function metaDe(env, funcId, cfgM, hist) { // meta da semana: a do dono ou
   const minimo = fs.includes('fabricacao') ? 18 : fs.some(x => ENT_F.includes(x)) ? 17 : 20; // v158/v181: meta difícil
   const ws = (hist || []).filter(w => w.pts > 0).slice(0, 4);
   const media = ws.length ? ws.reduce((t, w) => t + w.pts, 0) / ws.length : 0, melhor = ws.reduce((m, w) => Math.max(m, w.pts), 0);
+  if (fs.includes('fabricacao')) return { meta: Math.min(26, Math.max(minimo, Math.ceil(media * 1.1))), auto: true, bonus: c.bonus || 0 }; // v204: Hugo fecha ~4 cozinhas/mês (≈1 por semana, 15–20 pts cada): a produção vem em blocos, então a meta segue a média e não pula com uma semana de 2 cozinhas
   return { meta: Math.max(minimo, Math.ceil(media * 1.2), Math.ceil(melhor * 0.95)), auto: true, bonus: c.bonus || 0 }; // v181: sempre acima do que ele já faz
 }
 async function metasSemanas(env, nSem) { // [{ini, fim, por:{id:{pts...}}}] da semana atual para trás
@@ -11637,6 +11638,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v204: meta da fabricação (Hugo) pela média de 4 semanas +10% (mín. 18, máx. 26): ~4 cozinhas/mês = 1 por semana.
 // v203: recorte do cooktop sai do Hugo (vai para o corte, +0,5); Hugo = rebaixo americano, cuba e saia em 45° com polimento.
 // v202: pedido sem ficha (criado pela conversa) conta os serviços do Hugo pela descrição; pedido do Jailton com a ficha do desenho.
 // v200: rota pública /voz-video/<cena> (só a narração do vídeo da equipe, nada mais).
