@@ -1,3 +1,4 @@
+// v166 (19/11/2026): DICA DE FOTOS para a equipe (uma vez para cada um; "dica das fotos" reenvia) e o manual explica as fotos
 // v165 (19/11/2026): FOTO DA EQUIPE não cai mais no atendimento de cliente; sem legenda, o bot pergunta de qual serviço (começou, terminou, entregou ou só guardar)
 // v164 (19/11/2026): PAINEL DE BONIFICAÇÃO (GET /bot/bonus, POST /bot/bonus/pagar) para o app: regras, metas, pontos, faixas, carreira, prêmio e quanto pagar
 // v163 (19/11/2026): GARANTIA SÓ COM NOME COMPLETO E CPF (usa os do contrato/acordo; senão pede ao cliente e emite quando chegar); "pede o CPF da Renata para a garantia"
@@ -6813,6 +6814,7 @@ async function pedirAvaliacoes(env) {
   await esquecidosRotina(env).catch(e => console.log('[ESQ]', e.message)); // v151
   await acdRotina(env).catch(e => console.log('[ACD] rotina:', e.message)); // v152
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
+  await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
@@ -10216,6 +10218,7 @@ function eqManual(nome, fs) {
     ...(faz('corte') ? ['• Terminou um corte: _cortei o da Maria_'] : []),
     ...(faz('acabamento') || faz('fabricacao') || faz('45') ? ['• Terminou acabamento ou fabricação: _terminei o da Maria_ e mande a foto das peças prontas'] : []),
     ...(faz('entrega') || faz('instalacao') ? ['• Entregou ou instalou: _instalei o da Maria, recebi 1500 no pix_ e mande a *foto com todas as peças*'] : []),
+    '• 📸 *Fotos:* mande a foto com a legenda dizendo o que foi (ex.: _iniciando a instalação da Maria_, _terminei a cozinha da Maria_). Sem legenda, eu pergunto de qual serviço é e você só toca na opção.',
     '• Quebrou alguma peça: _quebrou o peitoril da Ana_ (sem problema, é só para controle)',
     '• Sobrou retalho bom: _sobrou Preto São Gabriel 1,20 x 0,40_',
     '• Sua meta: _minha meta_', '',
@@ -10272,6 +10275,7 @@ async function eqModoComando(env, from, msg) {
     await enviar(env, from, `✅ Equipe valendo: as mensagens aos funcionários saem sem o aviso de teste.${out.length ? '\n' + out.map(x => '• ' + x).join('\n') : ''}`); return true;
   }
   if (/^(equipe (em )?teste|modo teste|voltar (o )?teste)$/.test(msg)) { await env.HR_KV.put('cfg:equipe_modo', 'teste'); globalThis.__eqModo = 'teste'; globalThis.__eqModoEm = Date.now(); await enviar(env, from, '🧪 Equipe em teste: as mensagens aos funcionários voltam a sair com "TESTE: IGNORE".'); return true; }
+  if (/^(dica (de |das )?fotos?|ensinar (as )?fotos?|como mandar (as )?fotos?)$/.test(msg)) { const out = await eqDicaFotosRotina(env, true).catch(() => []); await enviar(env, from, out.length ? '📸 Dica das fotos enviada:\n' + out.map(x => '• ' + x).join('\n') : 'Não achei funcionários com telefone no RH.'); return true; } // v166
   if (/^(manual (da )?equipe|reenviar manual)$/.test(msg)) { const out = await eqBoasVindasRotina(env, true).catch(() => []); await enviar(env, from, out.length ? 'Manual reenviado:\n' + out.map(x => '• ' + x).join('\n') : 'Não achei funcionários com telefone no RH.'); return true; }
   return false;
 }
@@ -10591,6 +10595,32 @@ async function prodFotoEscolha(env, f, from, idB, nome) {
   if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('obra:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(() => {});
   try { const up = await subirImagemMeta(env, buf, 'obra-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nome} · andamento de ${ped.nome}` } }).catch(() => {}); } catch (_) {}
   await enviar(env, from, `📷 Foto guardada no pedido de ${ped.nome}. Valeu, ${nome}!`); return true;
+}
+
+// v166: dica de FOTOS para a equipe (uma vez para cada um, em horário de trabalho)
+function eqDicaFotos(nome, fs) {
+  const inst = fs.includes('instalacao') || fs.includes('entrega'), fab = fs.some(x => ['corte', 'fabricacao', '45', 'cuba', 'rebaixo', 'acabamento'].includes(x));
+  return [`📸 *${nome}, como mandar as fotos dos serviços:*`, '',
+    '*Jeito mais rápido:* tire a foto e, antes de enviar, escreva na legenda o que foi:',
+    ...(inst ? ['• Chegou na obra: _iniciando a instalação da Maria_ (foto do local antes)', '• Terminou: _instalei o da Maria_ (foto com *todas* as peças)'] : []),
+    ...(fab ? ['• Terminou na fábrica: _terminei a cozinha da Maria_ (foto das peças prontas)'] : []),
+    '', '*Esqueceu a legenda?* Sem problema: mande só a foto que eu pergunto de qual serviço é. Aparece uma lista e você toca na opção certa (📍 começando, ✅ terminei, 📷 só guardar).', '',
+    '✅ Cada foto conta ponto e protege você: mostra como estava antes e como ficou o seu trabalho. 💪'].join('\n');
+}
+async function eqDicaFotosRotina(env, forcar) {
+  const ag = agoraBahia(); if (!forcar && (ag.dia === 0 || ag.min < 7 * 60 || ag.min > 17 * 60)) return [];
+  if (emTesteEquipe(env)) return [];
+  const { map, cfg } = await funcoesEquipe(env), out = [];
+  for (const f of cfg.funcs) {
+    if (!f.tel || f.inativo) continue; const k = 'eq:dicafoto:' + f.id; if (forcar !== true && await env.HR_KV.get(k)) continue;
+    if (forcar !== true && !(await env.HR_KV.get('eq:bv:' + f.id))) continue; // primeiro o manual
+    const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel), nome = apelidoFunc(cfg, f);
+    const r = await eqEnviar(env, tel, eqDicaFotos(nome, map[f.id] || []), `Oi ${nome}, aqui é a secretária da HR Mármores e Granitos. Tenho uma dica rápida sobre as fotos dos serviços. Responda esta mensagem para ver.`);
+    if (r !== 'falha') await env.HR_KV.put(k, String(Date.now()), { expirationTtl: 400 * 86400 });
+    out.push(`${nome}: ${r === 'ok' ? 'recebeu' : r === 'modelo' ? 'vai receber quando responder' : 'não consegui enviar'}`);
+  }
+  if (out.length && !forcar) await pontoAvisarDono(env, ['📸 Mandei para a equipe como enviar as fotos (com legenda ou escolhendo na lista):', ...out.map(x => '• ' + x)].join('\n')).catch(() => {});
+  return out;
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
