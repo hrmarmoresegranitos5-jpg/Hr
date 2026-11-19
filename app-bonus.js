@@ -77,7 +77,7 @@
       var mes = x.mes || {}, mm = mes.metaMes || mes.somaM || 0;
       h += barra('📅', 'Hoje', sem.ptsHoje || 0, sem.metaDia || 0, '')
         + barra('📆', 'Semana', sem.pts, sem.meta, sem.diasRest ? '~' + pt(sem.porDia) + ' por dia' : '')
-        + barra('🗓️', 'Mês', mes.somaP || 0, mm, '');
+        + barra('🗓️', 'Mês', mes.ptsMes != null ? mes.ptsMes : (mes.somaP || 0), mm, '');
     }
     if (aberto) {
       var P = d.fechado ? x.pagar : x.previsto;
@@ -108,7 +108,7 @@
     h += lista.map(cartaoFunc).join('');
     var R = d.regras;
     h += '<a href="video-equipe.html" target="_blank" rel="noopener" style="display:block;text-align:center;padding:14px;border-radius:14px;margin:10px 0;background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;font-weight:800;text-decoration:none">🎬 Vídeo explicativo com voz (para a equipe)</a>';
-    h += '<div class="bon-sec" style="padding:14px"><div style="font-weight:800;color:#f0d78c;margin-bottom:8px">📖 Como funciona (simples)</div><div class="bon-p" style="font-size:.9rem;line-height:1.55">1️⃣ Cada serviço que a pessoa <b>termina</b> vale pontos. Quanto mais trabalho o serviço dá, mais vale (1 ponto ≈ 2 horas).<br>2️⃣ Meta: <b>' + pt((d.funcionarios.filter(function (x) { return x.semana; })[0] || { semana: { meta: 19 } }).semana.meta) + ' pontos na semana</b> (uns 3,5 por dia).<br>3️⃣ Bateu a meta todas as semanas do mês, sem retrabalho nem quebra demais → <b>prêmio de ' + brl(d.premio.valor) + '</b>' + (d.premio.lider ? ' (+' + brl(d.premio.lider) + ' para quem fizer mais)' : '') + '.</div></div>'
+    h += '<div class="bon-sec" style="padding:14px"><div style="font-weight:800;color:#f0d78c;margin-bottom:8px">📖 Como funciona (simples)</div><div class="bon-p" style="font-size:.9rem;line-height:1.55">1️⃣ Cada serviço que a pessoa <b>termina</b> vale pontos. Quanto mais trabalho o serviço dá, mais vale (1 ponto ≈ 2 horas).<br>2️⃣ Meta: ' + (function () { var f0 = d.funcionarios.filter(function (x) { return x.semana; })[0], mm = f0 && f0.mes && f0.mes.metaMes; return mm === 100 ? '<b>100 pontos no mês</b> (' + pt(f0.semana.metaDia) + ' por dia · ' + pt(f0.semana.meta) + ' nesta semana)' : '<b>' + pt(f0 ? f0.semana.meta : 19) + ' pontos na semana</b> (' + pt(f0 ? f0.semana.metaDia : 3.5) + ' por dia)'; })() + '.<br>3️⃣ Bateu a meta todas as semanas do mês, sem retrabalho nem quebra demais → <b>prêmio de ' + brl(d.premio.valor) + '</b>' + (d.premio.lider ? ' (+' + brl(d.premio.lider) + ' para quem fizer mais)' : '') + '.</div></div>'
       + '<details class="bon-sec"><summary>⚙️ Regras completas (para o Sr. Hangel)</summary><div class="bon-p">' + esc(R.premio) + '</div><div class="bon-p">' + esc(R.meta) + '</div></details>'
       + '<details class="bon-sec"><summary>⭐ Quanto vale cada tarefa</summary>' + rg(R.pontos) + '</details>'
       + '<details class="bon-sec"><summary>💬 Como mudar pelo WhatsApp</summary><div class="bon-p">' + R.comandos.map(esc).join('<br>') + '</div></details>';
