@@ -10835,6 +10835,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v194: desenho técnico do app (rota /bot/desenho): guarda no pedido, troca as peças pelas do desenho e manda a imagem à equipe.
 // v193: mensagens seguidas do dono viram uma só para a IA; resposta curta continua a tarefa; "são 3 peitoris" não relê fotos da cuba; total do dia inclui o lançamento novo; pronúncia Rangel; expediente 20/11 e 21/11 gravado.
 // v192: pedra de retenção nas soleiras (largura configurada no app/WhatsApp, comprimento da soleira): orçamento pelo WhatsApp, peça na produção e nos pontos.
 // v191: previsão inteligente da produção (ritmo aprendido de cada um, fila por entrega, risco de atraso às 7h, gargalo) — comando "previsão da produção", ferramenta da IA e painel.
@@ -11542,6 +11543,31 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v194: DESENHO TÉCNICO do app → produção: guarda o desenho no pedido, pode trocar a lista de peças do pedido pela do desenho
+// (medidas reais: bancadas, frontões, saias, tampo do rebaixo) e manda a imagem para quem faz cada etapa.
+async function desenhoReceber(env, b) {
+  const png = String(b.png || ''); if (png.length < 100 || png.length > 6e6) return { ok: false, erro: 'Imagem inválida.' };
+  const bytes = base64ParaBytes(png), nome = String(b.nome || 'Desenho').slice(0, 60);
+  const ped = b.pid ? await lerPedido(env, String(b.pid)).catch(() => null) : null;
+  if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('desenho:' + (ped ? ped.id : 'avulso'), bytesParaBase64(bytes), 'image/png', Date.now(), 'dono').run().catch(() => {});
+  let trocou = false;
+  if (ped && b.usarPecas && Array.isArray(b.itens) && b.itens.length) {
+    const its = b.itens.slice(0, 10).map(it => ({ ambiente: String(it.ambiente || 'Bancada').slice(0, 40), acabamento: String(it.acabamento || ''), sv: (Array.isArray(it.sv) ? it.sv : []).map(String).slice(0, 20), cuba: String(it.cuba || ''), cubaInst: String(it.cubaInst || ''),
+      pecas: (Array.isArray(it.pecas) ? it.pecas : []).slice(0, 40).map(pc => ({ qtd: Math.max(1, Math.round(+pc.qtd || 1)), comp_cm: Math.round((+pc.comp_cm || 0) * 10) / 10, larg_cm: Math.round((+pc.larg_cm || 0) * 10) / 10, rot: String(pc.rot || '').slice(0, 40), ...(TIPOS_PECA.includes(pc.tipoP) ? { tipoP: pc.tipoP } : {}) })).filter(pc => pc.comp_cm > 0 && pc.larg_cm > 0) })).filter(it => it.pecas.length);
+    if (its.length) { ped.resumoApp = { ...(ped.resumoApp || {}), itens: its }; ped.prog = {}; trocou = true; }
+  }
+  if (ped) { ped.desenhoEm = Date.now(); await salvarPedido(env, ped); }
+  const enviados = [], fora = [];
+  const ids = [...new Set((Array.isArray(b.para) ? b.para : []).map(k => ped && ['fabResp', 'poliResp', 'fab2Resp', 'acabResp', 'entResp'].includes(k) ? ped[k] : k).filter(Boolean).map(String))];
+  if (ids.length) {
+    let mid = null; try { const up = await subirImagemMeta(env, bytes, 'desenho-' + nome); mid = typeof up === 'string' ? up : up && up.id; } catch (e) { return { ok: true, trocou, enviados, fora, erro: 'Desenho guardado, mas não consegui subir a imagem para o WhatsApp: ' + e.message }; }
+    for (const id of ids) { const tel = await respTel(env, id), nm = await respNome(env, id); if (!tel) continue;
+      if (await janela24h(env, tel)) { await postarMsg(env, tel, { type: 'image', image: { id: mid, caption: `📐 Desenho técnico · *${nome}*${ped ? '' : ''}\n${String(b.legenda || 'Medidas em cm. Confira antes de cortar.').slice(0, 300)}` } }).then(() => enviados.push(nm)).catch(() => fora.push(nm)); }
+      else { fora.push(nm); await eqPendAdd(env, tel, { texto: `📐 O Sr. Hangel mandou o desenho técnico de *${nome}*. Peça a ele a imagem ou veja no app.` }).catch(() => {}); } }
+  }
+  return { ok: true, trocou, enviados, fora };
+}
+
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -23239,6 +23265,7 @@ async function rotaBotInterna(req, env, url) {
   if (p.startsWith('/bot/garantias')) { const r = await rotaGarantias(req, env, url); if (r) return r; } // v144
   if (p.startsWith('/bot/bonus')) { const r = await rotaBonus(req, env, url); if (r) return r; } // v164
   if (p === '/bot/retencao') { if (req.method === 'POST') { const b = await req.json().catch(() => ({})); const c = await retencaoCfg(env); if (+b.larg > 0 && +b.larg < 30) c.larg = Math.round(+b.larg * 10) / 10; await env.HR_KV.put('cfg:retencao', JSON.stringify(c)); return jsonR({ ok: true, ...c }); } return jsonR({ ok: true, ...(await retencaoCfg(env)) }); } // v192
+  if (p === '/bot/desenho' && req.method === 'POST') return jsonR(await desenhoReceber(env, await req.json().catch(() => ({})))); // v194
   if (p === '/bot/producao' && req.method === 'GET') return jsonR(await producaoPainel(env)); // v190
   if (p === '/bot/producao/ficha' && req.method === 'POST') return jsonR(await producaoFichaSalvar(env, await req.json().catch(() => ({})))); // v190
   if (p === '/bot/desempenho' && req.method === 'GET') { const d = Math.max(7, Math.min(120, +url.searchParams.get('dias') || 30)); const a = await analiseComTendencia(env, d); for (const x of a.func) x.aumento = avaliarAumento(x); return jsonR({ ok: true, ...a, mult: (await dsmCfg(env)).mult }); } // v179
