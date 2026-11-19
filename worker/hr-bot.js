@@ -7833,15 +7833,25 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   return false;
 }
 async function prodMarcarPronto(env, ped, from, nome) {
+  { const f0 = pontoFuncPorFone(await pontoCfg(env), from), id0 = f0 ? String(f0.id) : ''; // v177: acabamento designado depois do "pronto" (ex.: Lucas no peitoril do Douglas) → o acabador ainda pode terminar
+    if ((ped.fabProntoEm || ped.prontoEm) && !ped.entregueEm && ped.acabResp && !ped.acabEm && id0 && id0 === String(ped.acabResp)) { ped.fabProntoEm = null; ped.prontoEm = null; ped.corteEm = ped.corteEm || Date.now(); } }
   if (ped.fabProntoEm || ped.prontoEm) { await enviar(env, from, `${nome}, o de ${ped.nome} já estava marcado como pronto.`); return true; }
   { // v146: quem cortou; se o serviço passa pelo Hugo (45°/cuba/bancada), o corte libera a fabricação
     const cfg = await pontoCfg(env), f = pontoFuncPorFone(cfg, from), fid = f ? String(f.id) : '';
     ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
+    if (!ped.acabResp && !ped.acabEm && !ped.corteEm && fid && precisaAcab(ped) && !ped.fab2Resp) { // v177: cortou mas ninguém foi escolhido para o acabamento → anota o corte e pergunta (não dá o pedido como pronto)
+      ped.corteEm = Date.now(); ped.corteFeitoPor = fid; ped.prodLog.push({ e: 'corte', por: [fid], ts: Date.now(), ...(ped.cortadas ? { pecas: Math.max(1, nPecasPed(ped) - ped.cortadas) } : {}) }); ped.acabPerguntaEm = Date.now(); await salvarPedido(env, ped);
+      const { map } = await funcoesEquipe(env);
+      const ops = cfg.funcs.filter(x => (map[x.id] || []).includes('acabamento') && !(map[x.id] || []).includes('fabricacao') && !(map[x.id] || []).includes('45') && String(x.id) !== fid && x.tel).slice(0, 2);
+      await enviarComBotoes(env, from, `✂️ Corte de *${ped.nome}* anotado, ${nome}! Falta o *acabamento*. Quem vai fazer?`, [...ops.map(x => ({ id: 'acb|' + ped.id + '|' + x.id, titulo: (apelidoFunc(cfg, x) || x.nome.split(' ')[0]).slice(0, 20) })), { id: 'acb|' + ped.id + '|eu', titulo: 'Eu mesmo' }]).catch(() => {});
+      await pontoAvisarDono(env, `✂️ ${nome} cortou *${ped.nome}* (${resumoPecas(ped)}). Falta o acabamento; perguntei a ele quem faz.`).catch(() => {});
+      await metaChecar(env, fid); return true;
+    }
     if (ped.acabResp && !ped.acabEm) { // v149: etapa de acabamento
       if (!ped.corteEm && fid && fid !== String(ped.acabResp)) { // o cortador terminou → passa para o acabador
         ped.corteEm = Date.now(); ped.corteFeitoPor = ped.corteFeitoPor || fid; ped.prodLog.push({ e: 'corte', por: [fid], ts: Date.now(), ...(ped.cortadas ? { pecas: Math.max(1, nPecasPed(ped) - ped.cortadas) } : {}) }); await salvarPedido(env, ped);
         const ta = await respTel(env, ped.acabResp), na = await respNome(env, ped.acabResp);
-        if (ta) await enviar(env, ta, `${avisoTeste(env)}🪨 ${na}, as peças de *${ped.nome}* (${resumoPecas(ped)}) estão cortadas. Pode fazer o *acabamento*. Quando terminar: _terminei o acabamento da ${String(ped.nome).split(' ')[0]}_.`).catch(() => {});
+        if (ta) await enviar(env, ta, `${avisoTeste(env)}🪨 ${na}, as peças de *${ped.nome}* (${resumoPecas(ped)}) estão cortadas. Pode fazer o *acabamento*. Quando terminar: _terminei o acabamento de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {});
         await enviar(env, from, `Show, ${nome}! Corte de *${ped.nome}* anotado. Passei para o ${na} fazer o acabamento.`);
         await metaChecar(env, fid); return true;
       }
@@ -9763,8 +9773,9 @@ async function prodAcabadorEscolhido(env, f, from, idB, nome) {
   const [, pid, quem] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
   ped.acabResp = quem === 'eu' ? String(f.id) : quem; await salvarPedido(env, ped);
   const an = await respNome(env, ped.acabResp);
+  if (ped.corteEm) { await enviar(env, from, quem === 'eu' ? `Fechado, ${nome}: o acabamento de *${ped.nome}* é com você. Quando terminar: _terminei o acabamento de ${String(ped.nome).split(' ')[0]}_.` : `Fechado! Avisei o ${an} para fazer o acabamento de *${ped.nome}*.`); } else
   await enviar(env, from, quem === 'eu' ? `Fechado, ${nome}: corte e acabamento de *${ped.nome}* com você. Quando terminar tudo: _terminei o da ${String(ped.nome).split(' ')[0]}_.` : `Fechado! Quando você cortar, eu aviso o ${an} para fazer o acabamento de *${ped.nome}*.`);
-  if (quem !== 'eu') { const t = await respTel(env, ped.acabResp); if (t) await enviar(env, t, `${avisoTeste(env)}🪨 ${an}, o acabamento de *${ped.nome}* (${resumoPecas(ped)}) vai ser seu. Te aviso quando o ${nome} terminar o corte.`).catch(() => {}); }
+  if (quem !== 'eu') { const t = await respTel(env, ped.acabResp); if (t) await enviar(env, t, ped.corteEm ? `${avisoTeste(env)}🪨 ${an}, as peças de *${ped.nome}* (${resumoPecas(ped)}) já estão cortadas. Pode fazer o *acabamento*. Quando terminar: _terminei o acabamento de ${String(ped.nome).split(' ')[0]}_.` : `${avisoTeste(env)}🪨 ${an}, o acabamento de *${ped.nome}* (${resumoPecas(ped)}) vai ser seu. Te aviso quando o ${nome} terminar o corte.`).catch(() => {}); } // v177: já cortado → avisa para começar
   return true;
 }
 // v150: o dono passa uma etapa para alguém (ex.: Gibson sem instalação no dia vai acabar a cozinha: 45°, rebaixo americano, cuba, acabamento)
@@ -9775,7 +9786,7 @@ async function prodDesignar(env, ped, ids, _, a, naoAchou, novo) {
   if (antes && String(antes) !== String(id) && ped.fichaEnviadaEm) { const ta = await respTel(env, antes); if (ta) await enviar(env, ta, `${avisoTeste(env)}ℹ️ ${await respNome(env, antes)}, o Sr. Hangel passou ${etapa === 'corte' ? 'o corte' : etapa === 'instalacao' || etapa === 'entrega' ? 'a ' + etapa.replace('instalacao', 'instalação') : 'a fabricação'} de *${ped.nome}* para o ${await respNome(env, id)}. Não precisa fazer esse.`).catch(() => {}); }
   if (etapa === 'corte') { ped.fabResp = id; ped.corteEm = null; }
   else if (final && pedComplexo(ped)) { ped.fab2Resp = id; ped.fab2Avisado = Date.now(); ped.fabProntoEm = null; }
-  else if (final) { ped.acabResp = id; ped.acabEm = null; }
+  else if (final) { ped.acabResp = id; ped.acabEm = null; if ((ped.fabProntoEm || ped.prontoEm) && !ped.entregueEm) { ped.fabProntoEm = null; ped.prontoEm = null; ped.corteEm = ped.corteEm || Date.now(); } } // v177: pronto antes da hora → volta para o acabamento
   else if (etapa === 'instalacao' || etapa === 'entrega') { ped.entResp = id; }
   if (novo) { ped.fichaEnviadaEm = ped.fichaEnviadaEm || Date.now(); if (!ped.corteEm && etapa !== 'corte') ped.corteEm = Date.now(); }
   await salvarPedido(env, ped);
@@ -10657,7 +10668,7 @@ async function prodFotoEscolha1(env, f, from, idB, nome) {
   }
   if (ac === 'ini') { await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 }); await prodInicioInstalacao(env, f, from, 'iniciando a instalação do ' + ped.nome, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return prodFotoRecebida(env, f, from, img, nome); }
   if (ac === 'fim') { await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, texto: '', receb: null, em: Date.now() }), { expirationTtl: 12 * 3600 }); return prodFotoRecebida(env, f, from, img, nome); }
-  if (ac === 'pronto') { await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 }); await prodMarcarPronto(env, ped, from, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return prodFotoRecebida(env, f, from, img, nome); }
+  if (ac === 'pronto') { await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 }); await prodMarcarPronto(env, ped, from, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); if (await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) return prodFotoRecebida(env, f, from, img, nome); } // v177: só o corte (falta acabamento) → a foto fica guardada no pedido
   // só guardar
   let buf = null, tipo = 'image/jpeg'; try { const r = await baixarMidia(env, fp.mid); buf = new Uint8Array(r.buf); tipo = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
   if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('obra:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(() => {});
@@ -10723,6 +10734,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v177: cortador marca pronto sem acabador → anota só o corte e pergunta quem acaba; acabador designado depois do pronto consegue terminar.
 // v176: legenda só com o cliente → lista dele; várias fotos seguidas → uma pergunta; ajudante pode marcar instalação; procura em todos os pedidos; foto sem pedido vai ao dono.
 // v175: poucas peças → o pedido da foto explica como mostrar todas; se não bater, pede OUTRA foto antes de perguntar a quantidade. Muitas: tudo bem não caber.
 // v174: CONFERÊNCIA DA QUANTIDADE na foto da entrega (soleiras/peitoris, poucas peças) — a IA conta; se não bater, o entregador confirma
