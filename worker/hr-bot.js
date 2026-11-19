@@ -9608,7 +9608,7 @@ function ptsEtapa(p, e, ts) {
   if (p && pedComplexo(p) && ((p.resumoApp || {}).itens || []).some(i => (i.pecas || []).length)) { // v188: bancada/cozinha pelas partes reais
     const mu = nivelDif(p).mult;
     if (e === 'polimento') return poliPtsTotal(p) || 0.5;
-    if (e === 'fabricacao') return meio((1 + hugoPtsBase(p)) * mu);
+    if (e === 'fabricacao') return meio(1 + hugoPtsBase(p)); // v206: pelo preço dos serviços (o preço já reflete tamanho e dificuldade)
     if (e === 'corte') { const d = dificuldade(p); return meio(((d ? d.corte : nPecasPed(p)) + ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('reb_a')).length) + 0.5 * ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('cook')).length)) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); } // v203: recorte do cooktop é da equipe do corte
   }
   const d = dificuldade(p), n = nPecasPed(p), mu = d ? nivelDif(p).mult : 1;
@@ -9623,7 +9623,7 @@ function ptsServico(p) { return meio(ptsEtapa(p, 'corte') + (pedComplexo(p) ? pt
 function difTxt(p) { const d = dificuldade(p); if (!d) return ''; const nv = nivelDif(p); return `${nv.ico} nível ${nv.nome}${nv.mult > 1 ? ' (×' + String(nv.mult).replace('.', ',') + ')' : ''}${d.lista.length ? ' · ' + d.lista.join(', ') : ''} · vale até ${vPt(ptsServico(p))} pts`; }
 const nPecasPed = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ pecas: p.pecas || [] }]; return Math.max(1, its.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0)); };
 const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) : '';
-async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
+async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; await precosCarregar(env).catch(() => {}); // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
   const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
   Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
   const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: diaDe(ts), ts: ts || 0 }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
@@ -11478,13 +11478,18 @@ async function nivelComandoDono(env, from, msg) {
 function cubaTipo(it) { const t = normaliza(String(it.cubaInst || '') + ' ' + String(it.cuba || '')); return /esc_mxc/.test(t) ? 'esc3' : /esc_com/.test(t) ? 'esc2' : /esc_sim|esculp/.test(t) ? 'esc1' : /flush/.test(t) ? 'flush' : /embut/.test(t) ? 'embutir' : /sobrep/.test(t) ? 'sobrepor' : ''; }
 const CUBA_HUGO = { sobrepor: [1.5, 'Cuba de sobrepor: recorte, polimento e colar'], embutir: [3, 'Cuba embutida: recorte, polimento e colagem'], flush: [6, 'Cuba flush: recorte profissional e nivelamento'], esc1: [6, 'Cuba esculpida'], esc2: [8, 'Cuba esculpida com detalhe'], esc3: [10, 'Cuba esculpida completa'], '': [2.5, 'Cuba: recorte, polimento e colagem'] };
 const pcEstreita = (pc, it) => ['frontao', 'saia'].includes(tipoDaPeca(pc, it)); // v190: pela ficha (ou pela largura, sem ficha)
+// v206: serviços do Hugo pelo PREÇO do app (sainha 45° por metro linear, rebaixo americano, rebaixo normal): pontos = valor ÷ R$ por ponto (padrão R$ 45)
+const PRECO_PAD = { s_45: 150, reb_a: 430, reb_n: 200 };
+const precoSv = k => { const v = +((globalThis.__precosSv || {})[k]); return v > 0 ? v : PRECO_PAD[k] || 0; };
+const rsPonto = () => +((globalThis.__precosSv || {})._rsPonto) || 45;
+async function precosCarregar(env) { if (globalThis.__precosEm && Date.now() - globalThis.__precosEm < 5 * 60000) return; globalThis.__precosEm = Date.now(); try { globalThis.__precosSv = JSON.parse((await env.HR_KV.get('cfg:precosSv')) || '{}') || {}; } catch (_) { globalThis.__precosSv = {}; } }
 function servicosHugo(it) {
   const sv = it.sv || [], L = [], saiasF = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia'), saiaM = (saiasF.length ? saiasF : (it.pecas || []).filter(pc => pcEstreita(pc, it))).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
-  if (sv.includes('reb_a')) L.push({ nome: 'Rebaixo americano: recorte, polimento e colar o tampo', pts: 4 });
-  if (sv.includes('reb_n')) L.push({ nome: 'Rebaixo: recorte e polimento', pts: 2 });
+  if (sv.includes('reb_a')) L.push({ nome: `Rebaixo americano: recorte, polimento e colar o tampo (R$ ${reais(precoSv('reb_a'))})`, pts: meio(precoSv('reb_a') / rsPonto()) || 1 });
+  if (sv.includes('reb_n')) L.push({ nome: `Rebaixo: recorte e polimento (R$ ${reais(precoSv('reb_n'))})`, pts: meio(precoSv('reb_n') / rsPonto()) || 1 });
   if (sv.includes('cuba_lav') || sv.includes('cuba_coz') || it.cuba) { const c = CUBA_HUGO[cubaTipo(it)]; L.push({ nome: c[1], pts: c[0] }); }
   // v203: recorte do cooktop é rápido, sem acabamento, e quem faz é a equipe do corte (conta no corte, não no Hugo)
-  if (sv.includes('s_45') || it.acabamento === '45') L.push({ nome: 'Saia em 45°: corte, colagem e polimento', pts: Math.min(8, Math.max(3, meio(saiaM * 0.75))) }); // frontões e saias têm a mesma largura no orçamento: estimativa
+  if (sv.includes('s_45') || it.acabamento === '45') { const mm = saiaM > 0 ? saiaM : 2.5; L.push({ nome: `Saia em 45°: corte, colagem e polimento (${String(Math.round(mm * 100) / 100).replace('.', ',')} m × R$ ${reais(precoSv('s_45'))})`, pts: Math.max(1, meio(mm * precoSv('s_45') / rsPonto())) }); }
   // v189: saia reta, boleada e slim são do POLIDOR (acabamento/polimento), não do Hugo
   const furos = sv.filter(k => k === 'forn' || k === 'fralo').length; if (furos) L.push({ nome: `Furos (${furos})`, pts: 0.5 * furos });
   if (!L.length) L.push({ nome: 'Acabamento final', pts: 1 });
@@ -11515,8 +11520,8 @@ function poliPtsTotal(p) { const U = unidadesEtapa(p, 'polimento'); return U ? m
 function hugoPeloTexto(p) {
   const t = normaliza([p.interesse, p.projetoApp, p.desc, p.descricao, p.obs, p.servico, p.ambiente, p.resumo, typeof p.pecas === 'string' ? p.pecas : ''].filter(x => typeof x === 'string').join(' '));
   let v = 0; const nItens = Math.max(1, (t.match(/\b(pia|bancada|balcao|ilha|lavatorio|mesa)\b/g) || []).length);
-  if (/\b45\b|quarenta e cinco|meia esquadria/.test(t)) v += Math.min(8, 3 * Math.min(2, nItens));
-  if (/rebaixo americano|rebaixo/.test(t)) v += 4;
+  if (/\b45\b|quarenta e cinco|meia esquadria/.test(t)) v += meio(2.5 * Math.min(2, nItens) * precoSv('s_45') / rsPonto());
+  if (/rebaixo americano/.test(t)) v += meio(precoSv('reb_a') / rsPonto()); else if (/rebaixo/.test(t)) v += meio(precoSv('reb_n') / rsPonto());
   if (/cuba|bojo/.test(t)) v += /flush/.test(t) ? 6 : /esculp/.test(t) ? 6 : /sobrep/.test(t) ? 1.5 : /embut/.test(t) ? 3 : 2.5;
   return v;
 }
@@ -11669,6 +11674,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v206: serviços do Hugo (sainha 45° por metro, rebaixo americano/normal) pelo preço do app ÷ R$ 45 por ponto; preços vêm do app.
 // v205: RÉGUA DO TEMPO (a partir de 23/11): 1 ponto ≈ 2 h de trabalho padrão em todas as funções; peitoril/soleira e cortes valem pelo tempo real; meta igual para todos (19, proporcional aos dias da semana).
 // v204: meta da fabricação (Hugo) pela média de 4 semanas +10% (mín. 18, máx. 26): ~4 cozinhas/mês = 1 por semana.
 // v203: recorte do cooktop sai do Hugo (vai para o corte, +0,5); Hugo = rebaixo americano, cuba e saia em 45° com polimento.
@@ -11702,6 +11708,14 @@ async function diag205(env) {
     if (p.entregueEm && dentro(p.entregueEm)) out.push({ ...base, et: pedComplexo(p) ? 'instalacao' : 'entrega', por: nome(p.entFeitoPor), pts: ptsEtapa(p, pedComplexo(p) ? 'instalacao' : 'entrega'), minReal: p.instIniEm ? minUteis(env, p.instIniEm, p.entregueEm) : null, minFicha: null });
   }
   await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('tempos', JSON.stringify(out).slice(0, 900000)).run();
+}
+// v206: serviços do Hugo pelo preço do app — avisa o Hugo e o dono do número certo (o Hugo tinha recebido 20,5 antes do ajuste do cooktop)
+async function mig206(env) {
+  if (await env.HR_KV.get('mig:206')) return; if (!(await travaEnvio(env, 'mig:206'))) return; await env.HR_KV.put('mig:206', '1');
+  const cfg = await pontoCfg(env), hugo = cfg.funcs.find(f => /hugo/i.test(f.nome || '')); if (!hugo) return;
+  const ini = semIni(dataBahia()), pts = ((await metasPontos(env, ini, isoSomaDias(ini, 6)))[hugo.id] || {}).pts || 0;
+  await pontoAvisarDono(env, `💰 Os serviços do Hugo agora contam pelo *preço do app*: sainha 45° = metro linear × R$ ${reais(precoSv('s_45'))}, rebaixo americano R$ ${reais(precoSv('reb_a'))}, rebaixo normal R$ ${reais(precoSv('reb_n'))} — cada R$ ${reais(rsPonto())} = 1 ponto (cuba continua pela tabela: sobrepor 1,5 · embutida 3 · flush/esculpida 6). Quando o senhor abrir o app, eu pego os preços que estão lá.\nSemana do Hugo: *${vPt(pts)} pontos* (avisei ele do número certo).`).catch(() => {});
+  if (hugo.tel) await eqTexto(env, hugo.tel, `${avisoTeste(env)}🛠️ Hugo, acertando o número: a sainha em 45°, o rebaixo e a cuba agora contam pelo valor do serviço (o recorte do cooktop ficou com a equipe do corte, porque é rápido). Sua semana está com *${vPt(pts)} pontos*. 💪`).catch(() => {});
 }
 // v203: o cooktop saiu do Hugo — avisa o dono do novo total do Hugo
 async function mig203(env) {
@@ -23521,7 +23535,7 @@ async function rotaBotInterna(req, env, url) {
   if (p === '/bot/producao' && req.method === 'GET') return jsonR(await producaoPainel(env)); // v190
   if (p === '/bot/producao/ficha' && req.method === 'POST') return jsonR(await producaoFichaSalvar(env, await req.json().catch(() => ({})))); // v190
   if (p === '/bot/desempenho' && req.method === 'GET') { const d = Math.max(7, Math.min(120, +url.searchParams.get('dias') || 30)); const a = await analiseComTendencia(env, d); for (const x of a.func) x.aumento = avaliarAumento(x); return jsonR({ ok: true, ...a, mult: (await dsmCfg(env)).mult }); } // v179
-  if (p === '/bot/desempenho/salarios' && req.method === 'POST') { const b = await req.json().catch(() => ({})), s = await salariosLer(env); for (const [k, v] of Object.entries(b.sal || {}).slice(0, 60)) { const n = +v; if (n > 100 && n < 100000) s[String(k).slice(0, 40)] = Math.round(n * 100) / 100; } await env.HR_KV.put('cfg:salarios', JSON.stringify(s)); if (b.adm && typeof b.adm === 'object') { const ad = {}; for (const [k, v] of Object.entries(b.adm).slice(0, 60)) if (/^\d{4}-\d{2}-\d{2}/.test(String(v))) ad[String(k).slice(0, 40)] = String(v).slice(0, 10); await env.HR_KV.put('cfg:admissao', JSON.stringify(ad)); await carreiraPorTempo(env, ad).catch(e => console.log('[CAR] tempo:', e.message)); } /* v198 */ if (+b.mult > 0) { const c = await dsmCfg(env); c.mult = +b.mult; await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); } return jsonR({ ok: true, sal: s }); } // v179
+  if (p === '/bot/desempenho/salarios' && req.method === 'POST') { const b = await req.json().catch(() => ({})), s = await salariosLer(env); for (const [k, v] of Object.entries(b.sal || {}).slice(0, 60)) { const n = +v; if (n > 100 && n < 100000) s[String(k).slice(0, 40)] = Math.round(n * 100) / 100; } await env.HR_KV.put('cfg:salarios', JSON.stringify(s)); if (b.precos && typeof b.precos === 'object') { const pr = {}; for (const [k, v] of Object.entries(b.precos).slice(0, 80)) { const n = +v; if (n > 0 && n < 100000) pr[String(k).slice(0, 30)] = n; } const ant = JSON.parse((await env.HR_KV.get('cfg:precosSv')) || '{}') || {}; if (ant._rsPonto) pr._rsPonto = ant._rsPonto; await env.HR_KV.put('cfg:precosSv', JSON.stringify(pr)); globalThis.__precosEm = 0; } /* v206 */ if (b.adm && typeof b.adm === 'object') { const ad = {}; for (const [k, v] of Object.entries(b.adm).slice(0, 60)) if (/^\d{4}-\d{2}-\d{2}/.test(String(v))) ad[String(k).slice(0, 40)] = String(v).slice(0, 10); await env.HR_KV.put('cfg:admissao', JSON.stringify(ad)); await carreiraPorTempo(env, ad).catch(e => console.log('[CAR] tempo:', e.message)); } /* v198 */ if (+b.mult > 0) { const c = await dsmCfg(env); c.mult = +b.mult; await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); } return jsonR({ ok: true, sal: s }); } // v179
   if (p === '/bot/posvenda1' && req.method === 'POST') { // v142: o app manda as entregas (data real) → o bot agenda e envia sozinho
     const b = await req.json().catch(() => ({})), out = {};
     for (const it of (Array.isArray(b.itens) ? b.itens : []).slice(0, 60)) { const r = await pv1Agendar(env, it).catch(() => null); if (r) out[String(it.id)] = { status: r.status, quando: r.quando, enviadoEm: r.enviadoEm || 0 }; }
@@ -31445,7 +31459,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
-    if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
+    if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).then(() => mig206(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);

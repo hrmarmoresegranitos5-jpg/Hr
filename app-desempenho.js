@@ -138,8 +138,8 @@
     if (ref && ref.nextSibling) sb.insertBefore(b, ref.nextSibling); else sb.appendChild(b);
   }
   function syncRH() { // v2: manda salário e admissão ao bot uma vez por dia (carreira pelo tempo de casa)
-    try { var hoje = new Date().toISOString().slice(0, 10); if (localStorage.getItem('hr_dsm_sync') === hoje) return; var sal = salariosRH(), adm = admissoesRH(); if (!base() || (!sal && !adm)) return;
-      api('/bot/desempenho/salarios', { sal: sal || {}, adm: adm || undefined }).then(function () { try { localStorage.setItem('hr_dsm_sync', hoje); } catch (e) {} }).catch(function () {}); } catch (e) {}
+    try { var hoje = new Date().toISOString().slice(0, 10); if (localStorage.getItem('hr_dsm_sync2') === hoje) return; var sal = salariosRH(), adm = admissoesRH(), pr = null; try { if (window.CFG && CFG.sv) { pr = {}; Object.keys(CFG.sv).forEach(function (k) { var v = parseFloat(CFG.sv[k]); if (v > 0) pr[k] = v; }); } } catch (e) {} if (!base() || (!sal && !adm && !pr)) return;
+      api('/bot/desempenho/salarios', { sal: sal || {}, adm: adm || undefined, precos: pr || undefined }).then(function () { try { localStorage.setItem('hr_dsm_sync2', hoje); } catch (e) {} }).catch(function () {}); } catch (e) {}
   }
   function iniciar() { var sb = document.getElementById('secBody'); if (!sb) return setTimeout(iniciar, 1500); cartaoSec(); new MutationObserver(cartaoSec).observe(sb, { childList: true }); setTimeout(syncRH, 8000); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
