@@ -1,3 +1,4 @@
+// v155 (19/11/2026): contato de funcionário enviado pelo dono → confirma, grava o telefone no RH e manda o manual
 // v154 (19/11/2026): EQUIPE VALENDO ("equipe valendo"/"equipe em teste" no KV; padrão valendo), manual de boas-vindas a cada funcionário, +pontos na hora, resumo do fim do dia 17h30, mural com a foto do serviço entregue
 // v153 (18/11/2026): acordo busca o orçamento pelo nome (orcamento_nome), prévia com [Confirmar e enviar], pede à cliente nome completo, CPF e endereço antes do termo
 // v152 (18/11/2026): ACORDO DE PAGAMENTO (acordo_pagamento: termo em PDF com aceite, instalador sabe quanto receber, diferença vai para a 1ª parcela, Pix em cada vencimento pela cobrança profissional; "acordos", "termo da Maria")
@@ -2315,6 +2316,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^pdg(\||_no$)/.test(id)) return planoBotao(env, from, id); // v151
   if (/^sob_(ok|no)\|/.test(id)) return sobraBotao(env, from, id); // v151
   if (/^acdp_(ok|no)\|/.test(id)) return acdBotaoDono(env, from, id); // v153
+  if (/^eqc_(ok|no)\|/.test(id)) return eqContatoBotao(env, from, id); // v155
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -10077,6 +10079,45 @@ async function eqModoComando(env, from, msg) {
   return false;
 }
 
+// v155: o dono manda o CONTATO de um funcionário → confirma, grava o telefone no RH (bot + app) e manda o manual
+async function eqManualPara(env, fid) {
+  const { map, cfg } = await funcoesEquipe(env), f = cfg.funcs.find(x => String(x.id) === String(fid)); if (!f || !f.tel) return 'falha';
+  const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel), nome = apelidoFunc(cfg, f);
+  const r = await eqEnviar(env, tel, eqManual(nome, map[f.id] || []), `Oi ${nome}, aqui é a secretária da HR Mármores e Granitos. A partir de hoje organizo as tarefas da produção com vocês por aqui. Responda esta mensagem para ver como funciona.`);
+  if (r !== 'falha') await env.HR_KV.put('eq:bv:' + f.id, String(Date.now()), { expirationTtl: 400 * 86400 });
+  return r;
+}
+async function eqContatoDono(env, from, m) {
+  const cfg = await pontoCfg(env), achou = [];
+  for (const c of (m.contacts || [])) {
+    const nm = String((c.name && (c.name.formatted_name || c.name.first_name)) || ''), ph = (c.phones || [])[0] || {}, dig = String(ph.wa_id || ph.phone || '').replace(/\D/g, '');
+    if (!nm || dig.length < 10) continue;
+    const tk = tokensPedra(nm); const f = cfg.funcs.find(x => tk.length && (tokensPedra(x.nome)[0] === tk[0] || normaliza(apelidoFunc(cfg, x) || '') === tk[0]));
+    if (f) achou.push({ f, nm, tel: normalizarBR(dig.length <= 11 ? '55' + dig : dig) });
+  }
+  if (!achou.length) return false;
+  const k = 'eq:ctt:' + Date.now().toString(36);
+  await env.HR_KV.put(k, JSON.stringify({ itens: achou.map(x => ({ fid: x.f.id, tel: x.tel, nm: x.nm })), m }), { expirationTtl: 2 * 86400 });
+  await enviarComBotoes(env, from, achou.length === 1 ? `📇 *${achou[0].nm}* (${fmtNumero(achou[0].tel)}) é o *${apelidoFunc(cfg, achou[0].f)}* da equipe?` : `📇 Esses contatos são da equipe?\n${achou.map(x => `• ${x.nm} (${fmtNumero(x.tel)}) → ${apelidoFunc(cfg, x.f)}`).join('\n')}`,
+    [{ id: 'eqc_ok|' + k, titulo: 'Sim, é da equipe' }, { id: 'eqc_no|' + k, titulo: 'Não, é cliente' }]);
+  return true;
+}
+async function eqContatoBotao(env, from, id) {
+  const [ac, k] = id.split('|'); let d = null; try { d = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (!d) { await enviar(env, from, 'Esse contato expirou. Mande de novo, por favor.'); return true; }
+  await env.HR_KV.delete(k);
+  if (ac === 'eqc_no') { await commsTratarDono(env, from, 'cartão de contato', d.m); return true; }
+  const cfg = await pontoCfg(env), linhas = [];
+  for (const it of d.itens) {
+    const f = cfg.funcs.find(x => String(x.id) === String(it.fid)); if (!f) continue;
+    f.tel = it.tel; await pontoCfgSalvar(env, cfg);
+    await equipeAtualizar(env, { funcionario: f.nome, telefone: it.tel }).catch(() => null); // também vai para o RH do app
+    const r = emTesteEquipe(env) ? 'teste' : await eqManualPara(env, f.id).catch(() => 'falha');
+    linhas.push(`• *${apelidoFunc(cfg, f)}*: ${fmtNumero(it.tel)} gravado no RH · ${r === 'ok' ? 'recebeu o manual' : r === 'modelo' ? 'recebeu o aviso (o manual vai quando ele responder)' : r === 'teste' ? 'equipe em teste: manual não enviado (mande _equipe valendo_)' : 'não consegui mandar o manual'}`);
+  }
+  await enviar(env, from, ['✅ Pronto!', ...linhas, '', 'A partir de agora ele recebe as fichas, a lista do dia, os pontos e o resumo da tarde.'].join('\n'));
+  return true;
+}
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -17058,7 +17099,7 @@ async function tratarMensagemBase(env, m, ctx) {
     }
     dono = false;
   }
-  if (dono && m.type === 'contacts') { await commsTratarDono(env, from, 'cartão de contato', m); return; }
+  if (dono && m.type === 'contacts') { if (await eqContatoDono(env, from, m).catch(e => { console.log('[EQ] contato:', e.message); return false; })) return; await commsTratarDono(env, from, 'cartão de contato', m); return; } // v155
   if (!dono && (m.type === 'text' || m.type === 'interactive' || m.type === 'audio' || m.type === 'button') && await rhAtenderFuncionario(env, from, m, ctx).catch(e => { console.log('[RH] funcionário:', e.message); return false; })) return; // v40
   if (!dono && !atenderClientes(env)) return; // modo só-dono: ignora os demais, sem responder
   ctx.cliente = !dono;
