@@ -1,3 +1,4 @@
+// v159 (19/11/2026): avisar_equipe em ÁUDIO (audio=true) e sempre com a mensagem final escrita (nunca a instrução do dono); áudio guardado para quem estava fora das 24 h
 // v158 (19/11/2026): NÍVEL DO SERVIÇO multiplica pontos (🟢×1 🟡×1,25 🔴×1,5 💎×1,8), META DESAFIADORA (média+15% ou 90% da melhor semana), FAIXAS 🥉🥈🥇💎 comemoradas, CARREIRA (Aprendiz → Lenda) com XP acumulado
 // v157 (19/11/2026): RECEBIMENTO PELO CLIENTE (✅ Tudo certo / ⚠️ problema + nota 1-5 da equipe; nota 5 = +1 ponto), RETRABALHO (−2, registrar_retrabalho), RELATÓRIO "qualidade" (fotos, horário, notas, retrabalhos)
 // v156 (19/11/2026): PONTOS POR DIFICULDADE (tamanho da peça + cuba/esculpida/rebaixo/45°/saia/furos), CORTE PEÇA A PEÇA ("cortei 2 da Maria"), INÍCIO DA INSTALAÇÃO com foto (cliente avisado, duração), FOTO COM LEGENDA
@@ -8381,9 +8382,20 @@ async function expedienteDias(env, a) {
 async function avisarEquipeTool(env, a) {
   const cfg = await pontoCfg(env); if (!cfg.funcs.length) return { erro: true, texto: 'Não há funcionários cadastrados no ponto.' };
   const rec = String(a.texto || '').trim(); if (rec.length < 3) return { erro: true, texto: 'Falta o texto do aviso.' };
+  if (/^(chamando|incentivando|dizendo|falando|pedindo|mandando|avisando|elogiando|cobrando|lembrando)\b/i.test(rec)) return { erro: true, texto: 'Isso é a instrução, não a mensagem. Escreva a MENSAGEM FINAL falando direto com o funcionário, no tom pedido (ex.: "Ô farofinha! Bora que hoje o dia promete..."), e chame de novo.' }; // v159
   const nomes = (Array.isArray(a.funcionarios) ? a.funcionarios : []).join(' ');
   const alvo = nomes ? funcsDoTexto(cfg, normaliza(nomes)) : cfg.funcs.slice();
   if (!alvo.length) return { erro: true, texto: 'Não achei esses funcionários no ponto.' };
+  if (a.audio) { // v159: recado em áudio (voz da secretária)
+    const res = [];
+    for (const f of alvo) {
+      const n = apelidoFunc(cfg, f) || String(f.nome).split(' ')[0]; if (!f.tel) { res.push(`${n}: sem telefone no RH`); continue; }
+      const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel);
+      if (await janela24h(env, tel)) { const ok = await enviarVoz(env, tel, rec).catch(() => false); if (!ok) await enviar(env, tel, rec).catch(() => {}); res.push(`${n}: ${ok ? 'áudio entregue ✅' : 'a voz falhou, mandei em texto'}`); }
+      else { const r = await eqEnviar(env, tel, rec, `Oi ${n}, o Sr. Hangel deixou um recado para você. Responda esta mensagem para ouvir.`); if (r === 'modelo') { const l0 = await eqPendLer(env, tel); l0[l0.length - 1] = { voz: true, texto: rec }; await env.HR_KV.put('eq:pend:' + ultimos8(tel), JSON.stringify({ lista: l0 }), { expirationTtl: 7 * 86400 }); } res.push(`${n}: ${r === 'modelo' ? 'estava fora das 24 h; chamei e o áudio vai quando ele responder' : r === 'ok' ? 'entregue' : 'não consegui enviar'}`); }
+    }
+    return { texto: `Recado em ÁUDIO (o texto falado foi: "${rec.slice(0, 200)}"): ${res.join('; ')}. Diga ao Sr. Hangel, em 1 frase, a quem chegou.` };
+  }
   const res = await recadoEquipe(env, cfg, alvo, rec.charAt(0).toUpperCase() + rec.slice(1));
   return { texto: `Aviso "${rec.slice(0, 200)}" entregue: ${res.join('; ')}. Diga ao Sr. Hangel, em 1 ou 2 frases, a quem chegou (copie a situação de cada um).` };
 }
@@ -10108,7 +10120,7 @@ async function acdComandoDono(env, from, msg) {
 // ═════════════════════════════════════════════════════════════════════════════
 async function eqEnviar(env, tel, texto, curto) { // fora das 24 h usa o modelo aprovado e guarda o texto para quando responder
   if (await janela24h(env, tel)) { await enviar(env, tel, texto); return 'ok'; }
-  try { await postarMsg(env, tel, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto).slice(0, 200) }] }] } }); await env.HR_KV.put('eq:pend:' + ultimos8(tel), texto, { expirationTtl: 7 * 86400 }); return 'modelo'; }
+  try { await postarMsg(env, tel, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto).slice(0, 200) }] }] } }); await eqPendAdd(env, tel, { texto }); return 'modelo'; }
   catch (e) { return 'falha'; }
 }
 function eqManual(nome, fs) {
@@ -10141,7 +10153,12 @@ async function eqBoasVindasRotina(env, forcar) { // forcar: true = reenvia a tod
   return out;
 }
 // resposta do funcionário ao aviso do modelo → manda o texto guardado
-async function eqPendente(env, from) { const k = 'eq:pend:' + ultimos8(from), t = await env.HR_KV.get(k); if (!t) return false; await env.HR_KV.delete(k); await enviar(env, from, t); return true; }
+async function eqPendLer(env, tel) { const t = await env.HR_KV.get('eq:pend:' + ultimos8(tel)); if (!t) return []; try { const o = JSON.parse(t); if (o && Array.isArray(o.lista)) return o.lista; if (o && o.texto) return [o]; } catch (_) {} return [{ texto: t }]; }
+async function eqPendAdd(env, tel, item) { const l = await eqPendLer(env, tel); l.push(item); await env.HR_KV.put('eq:pend:' + ultimos8(tel), JSON.stringify({ lista: l.slice(-5) }), { expirationTtl: 7 * 86400 }); }
+async function eqPendente(env, from) { // v159: entrega tudo que ficou guardado (manual, recados em texto ou áudio)
+  const l = await eqPendLer(env, from); if (!l.length) return false; await env.HR_KV.delete('eq:pend:' + ultimos8(from));
+  for (const o of l) { if (o.voz) { const ok = await enviarVoz(env, from, o.texto).catch(() => false); if (!ok) await enviar(env, from, o.texto); } else await enviar(env, from, o.texto); }
+  return true; }
 // resumo do fim do dia (17h30, seg a sáb)
 async function eqResumoDiaRotina(env) {
   const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 17 * 60 + 30 || ag.min > 19 * 60 || emTesteEquipe(env) || String(env.METAS ?? '1') === '0') return;
@@ -11573,8 +11590,8 @@ const FERRAMENTAS = [
   },
   {
     name: 'avisar_equipe',
-    description: 'ENVIA de verdade um aviso/recado aos funcionários, no WhatsApp privado de cada um. Use SEMPRE que o Sr. Hangel pedir para avisar, comunicar ou falar algo à equipe ("avise os funcionários", "manda pra todo mundo que..."). Escreva o texto pronto para o funcionário ler (2ª pessoa, sem saudação), usando o contexto da conversa (ex.: o expediente que ele acabou de combinar). Nunca diga que avisou sem chamar esta ferramenta. O número oficial do bot NÃO entra em grupos de WhatsApp: se ele falar de grupo, explique isso e use esta ferramenta (manda no privado de cada um).',
-    input_schema: { type: 'object', properties: { texto: { type: 'string' }, funcionarios: { type: 'array', items: { type: 'string' }, description: 'nomes; vazio = todos' } }, required: ['texto'] },
+    description: 'ENVIA de verdade um aviso/recado aos funcionários, no WhatsApp privado de cada um, em TEXTO ou em ÁUDIO (voz da secretária; audio=true quando ele pedir áudio/voz). Use SEMPRE que o Sr. Hangel pedir para avisar, comunicar, mandar mensagem ou áudio à equipe ou a um funcionário ("avise os funcionários", "manda um áudio pro Lucas..."). Em "texto" vai a MENSAGEM FINAL que o funcionário vai ler/ouvir, já escrita por você no tom pedido (descontraído, sério, motivador), falando DIRETO com ele (2ª pessoa), usando apelidos e o contexto; NUNCA a instrução do Sr. Hangel. Ex.: pedido "manda um áudio descontraído pro Lucas chamando de farofinha, incentivando a trabalhar mais e cuidar" → texto: "Ô farofinha! Bora que hoje o dia promete, hein? Capricha no corte, se cuida e mostra pra essa equipe quem manda! Tamo junto!", audio true. Você CONSEGUE mandar áudio: nunca diga que não. Sem saudação inicial (o bot já cumprimenta no texto; no áudio, comece direto). Nunca diga que avisou sem chamar esta ferramenta. O número oficial do bot NÃO entra em grupos de WhatsApp: se ele falar de grupo, explique isso e use esta ferramenta (manda no privado de cada um).',
+    input_schema: { type: 'object', properties: { texto: { type: 'string', description: 'a mensagem final, pronta, falando com o funcionário' }, funcionarios: { type: 'array', items: { type: 'string' }, description: 'nomes; vazio = todos' }, audio: { type: 'boolean', description: 'true = manda em áudio (voz)' } }, required: ['texto'] },
   },
   {
     name: 'expediente_dia',
