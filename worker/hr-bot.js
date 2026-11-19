@@ -1,3 +1,4 @@
+// v165 (19/11/2026): FOTO DA EQUIPE não cai mais no atendimento de cliente; sem legenda, o bot pergunta de qual serviço (começou, terminou, entregou ou só guardar)
 // v164 (19/11/2026): PAINEL DE BONIFICAÇÃO (GET /bot/bonus, POST /bot/bonus/pagar) para o app: regras, metas, pontos, faixas, carreira, prêmio e quanto pagar
 // v163 (19/11/2026): GARANTIA SÓ COM NOME COMPLETO E CPF (usa os do contrato/acordo; senão pede ao cliente e emite quando chegar); "pede o CPF da Renata para a garantia"
 // v162 (19/11/2026): "sim" ao aviso só abre o manual; "sim/ok/tá certo" aprova o relatório; secretária no feminino; pontos fora das 24 h ficam guardados; nota de atendimento sem duplicar e não durante acordo/instalação; pedido de mudança no acordo vai ao dono (acordo_alterar)
@@ -10559,6 +10560,39 @@ async function rotaBonus(req, env, url) {
   return null;
 }
 
+// v165: foto da equipe sem legenda → "de qual serviço?" (lista com as tarefas dele) e o que foi: começou, terminou ou só registro
+async function prodFotoPerguntar(env, f, from, m, nome) {
+  await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 6 * 3600 });
+  const id = String(f.id), l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].includes(id));
+  const linhas = [];
+  for (const p of l.slice(0, 4)) {
+    const pn = String(p.nome || 'cliente').split(' ').slice(0, 2).join(' ');
+    if (p.entResp === id && naEntrega(p)) {
+      if (!p.instIniEm) linhas.push({ id: `fot|${p.id}|ini`, titulo: `📍 ${pn}`.slice(0, 24), descricao: 'Começando a instalação (foto do local)' });
+      linhas.push({ id: `fot|${p.id}|fim`, titulo: `✅ ${pn}`.slice(0, 24), descricao: pedComplexo(p) ? 'Terminei a instalação (foto final)' : 'Entreguei (foto das peças)' });
+    } else if (naFabrica(p)) linhas.push({ id: `fot|${p.id}|pronto`, titulo: `✅ ${pn}`.slice(0, 24), descricao: 'Terminei (peças prontas)' });
+    linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Só guardar a foto no pedido' });
+  }
+  if (!linhas.length) { await enviar(env, from, `📸 Recebi a foto, ${nome}! Não achei serviço aberto com você. Me diga de qual cliente é (ex.: _instalei o da Maria_) que eu guardo no pedido certo.`); return true; }
+  await enviarLista(env, from, `📸 Recebi a foto, ${nome}! É de qual serviço?`, 'Escolher', linhas.slice(0, 10), true);
+  return true;
+}
+async function prodFotoEscolha(env, f, from, idB, nome) {
+  const [, pid, ac] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
+  let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
+  if (!fp || !fp.mid) { await enviar(env, from, 'A foto expirou. Manda de novo, por favor.'); return true; }
+  await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
+  const img = { type: 'image', image: { id: fp.mid } };
+  if (ac === 'ini') { await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 }); await prodInicioInstalacao(env, f, from, 'iniciando a instalação do ' + ped.nome, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return prodFotoRecebida(env, f, from, img, nome); }
+  if (ac === 'fim') { await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, texto: '', receb: null, em: Date.now() }), { expirationTtl: 12 * 3600 }); return prodFotoRecebida(env, f, from, img, nome); }
+  if (ac === 'pronto') { await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 }); await prodMarcarPronto(env, ped, from, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return prodFotoRecebida(env, f, from, img, nome); }
+  // só guardar
+  let buf = null, tipo = 'image/jpeg'; try { const r = await baixarMidia(env, fp.mid); buf = new Uint8Array(r.buf); tipo = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
+  if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('obra:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(() => {});
+  try { const up = await subirImagemMeta(env, buf, 'obra-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nome} · andamento de ${ped.nome}` } }).catch(() => {}); } catch (_) {}
+  await enviar(env, from, `📷 Foto guardada no pedido de ${ped.nome}. Valeu, ${nome}!`); return true;
+}
+
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -17554,7 +17588,7 @@ async function tratarMensagemBase(env, m, ctx) {
     dono = false;
   }
   if (dono && m.type === 'contacts') { if (await eqContatoDono(env, from, m).catch(e => { console.log('[EQ] contato:', e.message); return false; })) return; await commsTratarDono(env, from, 'cartão de contato', m); return; } // v155
-  if (!dono && (m.type === 'text' || m.type === 'interactive' || m.type === 'audio' || m.type === 'button') && await rhAtenderFuncionario(env, from, m, ctx).catch(e => { console.log('[RH] funcionário:', e.message); return false; })) return; // v40
+  if (!dono && (m.type === 'text' || m.type === 'interactive' || m.type === 'audio' || m.type === 'button' || m.type === 'image') && await rhAtenderFuncionario(env, from, m, ctx).catch(e => { console.log('[RH] funcionário:', e.message); return false; })) return; // v40
   if (!dono && !atenderClientes(env)) return; // modo só-dono: ignora os demais, sem responder
   ctx.cliente = !dono;
   // v24: estas três marcas só gravam quando mudaram (antes eram 3 gravações em TODA mensagem de cliente)
@@ -27538,6 +27572,8 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   let texto = m.type === 'text' ? String(m.text?.body || '').trim() : (m._texto || '');
   if (!texto && m.type === 'audio') { try { texto = (await ouvirAudio(env, from, m, false)) || ''; m._texto = texto; } catch (_) {} }
   if (m.type === 'image' && await prodFotoRecebida(env, f, from, m, nome).catch(e => { console.log('[FOTO]', e.message); return false; })) return true; // v146
+  if (m.type === 'image') return prodFotoPerguntar(env, f, from, m, nome); // v165: foto sem legenda e sem pedido aberto → pergunta de qual serviço
+  if (idB && /^fot\|/.test(idB)) return prodFotoEscolha(env, f, from, idB, nome); // v165
   if (!texto && idB && /^(fpr|fen|fgr|fgs|fgn|frs|acb)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
   if (!texto) { await enviar(env, from, `${nome}, por aqui eu só consigo ler texto e áudio sobre o seu ponto, as suas horas e os pedidos.`); return true; }
   if (entregues) return true; // ele escreveu e havia recado guardado: primeiro lê o recado
