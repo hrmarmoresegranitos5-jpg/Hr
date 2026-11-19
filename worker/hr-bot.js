@@ -7803,7 +7803,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     return true;
   }
   if (papel !== 'entrega' && /\bcortei\b/.test(msg) && await prodCorteParcial(env, f, from, texto, nome, msg)) return true; // v156
-  if (papel !== 'fabrica' && /\b(iniciando|comecando|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
+  if (papel !== 'fabrica' && /\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
   if (papel !== 'entrega' && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
     const l0 = await pedidosProducao(env, naFabrica), mine = l0.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].includes(String(f.id))), l = mine.length ? mine : l0;
     let ach = acharPorNome(l, texto); if (!ach.length) ach = await prodPorApelido(env, l, texto); if (!ach.length && mine.length === 1) ach = mine; // v161: apelido do cliente ou a única tarefa dele
@@ -9262,13 +9262,13 @@ async function prodPedirFoto(env, ped, from, nome, texto, receb) {
 async function prodFotoRecebida(env, f, from, m, nome) {
   let pe = null; try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
   const leg = String((m.image && m.image.caption) || '').trim();
-  if (leg && (!pe || /\b(iniciando|comecando|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
+  if (leg && (!pe || /\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
     await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); // v161: a foto espera ele dizer qual é
     await producaoFuncionario(env, f, from, leg, '', nome).catch(e => console.log('[FOTO] legenda:', e.message));
     await env.HR_KV.delete('prod:fotoja:' + ultimos8(from));
     try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
-    if (pe) await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); else { if (await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) await enviar(env, from, '📸 Guardei a foto. Assim que você escolher o cliente, ela vai junto.').catch(() => {}); return true; }
+    if (pe) await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); else { if (await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) return prodFotoPerguntar(env, f, from, m, nome, leg); return true; } // v169: não entendeu a legenda → lista de opções
   }
   let ultimo = null; try { ultimo = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!pe && !(ultimo && Date.now() - ultimo.em < 15 * 60000)) return false;
@@ -10234,6 +10234,7 @@ function eqManual(nome, fs) {
 async function eqBoasVindasRotina(env, forcar) { // forcar: true = reenvia a todos; 'cmd' = agora, só a quem ainda não recebeu
   const ag = agoraBahia(); if (!forcar && (ag.dia === 0 || ag.min < 7 * 60 || ag.min > 17 * 60)) return [];
   if (emTesteEquipe(env)) return [];
+  if (!forcar) { if (await env.HR_KV.get('eq:bv:rodou')) return []; if (!(await travaEnvio(env, 'eqbv'))) return []; await env.HR_KV.put('eq:bv:rodou', '1', { expirationTtl: 3600 }); } // v169
   const { map, cfg } = await funcoesEquipe(env), out = [];
   for (const f of cfg.funcs) {
     if (!f.tel || f.inativo) continue; const k = 'eq:bv:' + f.id; if (forcar !== true && await env.HR_KV.get(k)) continue;
@@ -10571,9 +10572,10 @@ async function rotaBonus(req, env, url) {
 }
 
 // v165: foto da equipe sem legenda → "de qual serviço?" (lista com as tarefas dele) e o que foi: começou, terminou ou só registro
-async function prodFotoPerguntar(env, f, from, m, nome) {
+async function prodFotoPerguntar(env, f, from, m, nome, leg) {
   await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 6 * 3600 });
-  const id = String(f.id), l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].includes(id));
+  const id = String(f.id); let l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].includes(id));
+  if (leg) { const ach = acharPorNome(l, leg); if (ach.length) l = [...ach, ...l.filter(p => !ach.includes(p))]; } // v169: o cliente da legenda vem primeiro
   const linhas = [];
   for (const p of l.slice(0, 4)) {
     const pn = String(p.nome || 'cliente').split(' ').slice(0, 2).join(' ');
@@ -10616,6 +10618,7 @@ function eqDicaFotos(nome, fs) {
 async function eqDicaFotosRotina(env, forcar) {
   const ag = agoraBahia(); if (!forcar && (ag.dia === 0 || ag.min < 7 * 60 || ag.min > 17 * 60)) return [];
   if (emTesteEquipe(env)) return [];
+  if (!forcar) { if (await env.HR_KV.get('eq:dicafoto:rodou')) return []; if (!(await travaEnvio(env, 'eqdicafoto'))) return []; await env.HR_KV.put('eq:dicafoto:rodou', '1', { expirationTtl: 3 * 3600 }); } // v169: uma rodada por vez
   const { map, cfg } = await funcoesEquipe(env), out = [];
   for (const f of cfg.funcs) {
     if (!f.tel || f.inativo) continue; const k = 'eq:dicafoto:' + f.id; if (forcar !== true && await env.HR_KV.get(k)) continue;
