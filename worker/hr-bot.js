@@ -6859,6 +6859,7 @@ async function pedirAvaliacoes(env) {
   await mig195Garantia(env).catch(e => console.log('[MIG195]', e.message)); // v195
   await mig197Renata(env).catch(e => console.log('[MIG197]', e.message)); // v197
   await mig198Ajudante(env).catch(e => console.log('[MIG198]', e.message)); // v198
+  await mig199Narracao(env).catch(e => console.log('[MIG199]', e.message)); // v199
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -11625,6 +11626,27 @@ async function mig193Expediente(env) {
   const dias = []; if (!tem('2026-11-20')) dias.push({ data: '2026-11-20', tipo: 'meio', periodo: 'manha' }); if (!tem('2026-11-21')) dias.push({ data: '2026-11-21', tipo: 'folga' });
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
+}
+// v199: narração do vídeo "pontos, metas e prêmio" — gera a voz de cada cena (mesma voz do bot) e guarda no D1 (tabela tmp_voz) para o vídeo
+const NARR199 = {
+  titulo: 'Oi, equipe! Neste vídeo eu explico como funcionam os pontos, as metas e o prêmio do mês. É rapidinho.',
+  pontos: 'Cada tarefa que você termina vale pontos: o corte das peças, o acabamento, a fabricação, a instalação e a entrega. Mandou foto do serviço? Ganha mais um ponto. Entregou no prazo? Mais um. E serviço maior e mais difícil vale mais.',
+  semana: 'Toda semana, de segunda a sábado, você tem uma meta de pontos. Por exemplo, dezessete pontos. A barra vai enchendo a cada tarefa. E a meta acompanha você: quanto mais você produz, mais ela sobe.',
+  dia: 'A meta do dia é a meta da semana dividida pelos seis dias, com dez por cento a mais. Com meta de dezessete, dá três pontos e meio por dia. Para ganhar o prêmio do mês, você precisa bater a meta do dia em pelo menos sessenta por cento dos dias.',
+  faixas: 'Passou da meta? Você sobe de faixa. Oitenta por cento é bronze. Cem por cento é prata, que é bater a meta. Cento e vinte e cinco é ouro. E cento e cinquenta é diamante! Ouro e diamante são anunciados para toda a equipe.',
+  cartao: 'Este é o seu cartão. Em cima, o seu nível. Do lado, quanto você ganha se o mês terminar hoje. Depois, se você está no caminho do prêmio. Aqui, seus pontos da semana e a sua colocação. A barra das faixas. Quanto falta, e quantos pontos por dia. As semanas do mês. E em ver detalhes, cada tarefa com os pontos.',
+  premio: 'O prêmio do mês é de cento e cinquenta reais. Para ganhar, precisa de tudo isto: bater a meta em todas as semanas, e uma semana abaixo é perdoada se o mês compensar. Bater a meta do dia em sessenta por cento dos dias. No máximo um retrabalho e uma quebra. E nota dos clientes quatro e meio ou mais. E quem for o líder do mês ganha mais cinquenta reais!',
+  dicas: 'Dicas para ganhar mais pontos: mande foto de cada etapa, porque vale ponto e protege o seu trabalho. Ajudou numa instalação? Mande foto do serviço e ganhe a parte de ajudante. O seu nível começa pelo seu tempo de casa. E a qualquer hora, pergunte ao bot: quantos pontos eu tenho?',
+  fim: 'Bora bater a meta, equipe!',
+};
+async function mig199Narracao(env) {
+  if (await env.HR_KV.get('mig:199')) return; if (!(await travaEnvio(env, 'mig:199'))) return; await env.HR_KV.put('mig:199', '1');
+  if (!env.HR_DB) return; await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_voz (k TEXT PRIMARY KEY, b64 TEXT, via TEXT, n INTEGER)').run();
+  await vozEscolhaCarregar(env).catch(() => {});
+  for (const [k, fala] of Object.entries(NARR199)) {
+    try { const r = await gerarVoz(env, fala, globalThis.__voz || ''); const b = new Uint8Array(r.audio); await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_voz (k, b64, via, n) VALUES (?, ?, ?, ?)').bind(k, bytesParaBase64(b), r.via, b.length).run(); }
+    catch (e) { await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_voz (k, b64, via, n) VALUES (?, ?, ?, ?)').bind(k, '', 'erro: ' + String(e.message).slice(0, 200), 0).run(); }
+  }
 }
 // v198: o Jefferson instalou a cozinha da Renata junto com o Gibson (mandou fotos 09:17 e 15:33) e ficou sem ponto
 async function mig198Ajudante(env) {
