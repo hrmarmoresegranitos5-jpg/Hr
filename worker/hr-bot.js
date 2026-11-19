@@ -10626,8 +10626,9 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
     const rec = await pedidosProducao(env, p => p.status !== 'recusado' && (leg ? (!p.entregueEm || Date.now() - p.entregueEm < 20 * 86400000) && Date.now() - (p.criado || p.id || 0) < 120 * 86400000 : (p.fichaEnviadaEm || p.fechDono || p.origem === 'manual' || p.origem === 'acordo') && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000)));
     let ach = leg ? (temNome(rec) || []) : []; if (leg && !ach.length) { const ap = await prodPorApelido(env, rec, leg).catch(() => []); ach = ap; }
     if (leg && ach.length) { l = ach.slice(0, 4); } else { const outros = rec.sort((a, b) => (b.atualizado || b.criado || 0) - (a.atualizado || a.criado || 0)).filter(p => !ach.includes(p) && !l.includes(p));
-    l = [...ach, ...l, ...outros].slice(0, 4); }
+    l = [...ach, ...l, ...outros]; }
   }
+  l = l.filter((p, i, a) => a.findIndex(x => String(x.id) === String(p.id)) === i).slice(0, 4); // v178: sem pedido repetido na lista
   const linhas = [];
   for (const p of l.slice(0, 4)) {
     const pn = String(p.nome || 'cliente').split(' ').slice(0, 2).join(' ');
