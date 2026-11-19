@@ -9576,7 +9576,33 @@ function dificuldade(p) {
 const NIVEIS_DIF = [{ min: 0, nome: 'simples', ico: '🟢', mult: 1 }, { min: 6, nome: 'médio', ico: '🟡', mult: 1.25 }, { min: 14, nome: 'alto', ico: '🔴', mult: 1.5 }, { min: 25, nome: 'obra de arte', ico: '💎', mult: 1.8 }];
 function nivelDif(p) { const d = dificuldade(p); const sc = d ? d.corte + d.det : nPecasPed(p); return [...NIVEIS_DIF].reverse().find(x => sc >= x.min) || NIVEIS_DIF[0]; }
 // pontos base de cada etapa (sem prazo e foto)
-function ptsEtapa(p, e) {
+// v205: RÉGUA DO TEMPO — 1 ponto ≈ 2 horas de trabalho padrão em QUALQUER função (a partir de 23/11/2026).
+// Assim quem se esforça mais ganha mais, seja corte, acabamento, instalação ou a fabricação do Hugo (1 cozinha ≈ 1 semana ≈ 18 pts).
+const REGUA_INI = '2026-11-23', REGUA_H = 2;
+const reguaAtiva = ts => (ts ? diaDe(ts) : dataBahia()) >= REGUA_INI;
+function hCortePeca(c, l) { const a = (+c || 0) * (+l || 0) / 10000; let h = a < 0.15 ? 0.15 : a < 0.5 ? 0.25 : a < 1 ? 0.4 : a < 2 ? 0.6 : 0.8; if (Math.max(+c || 0, +l || 0) > 200) h += 0.15; return h; }
+function hAcabPeca(c, l) { const a = (+c || 0) * (+l || 0) / 10000; return a < 0.15 ? 0.35 : a < 0.5 ? 0.6 : a < 1 ? 1 : 1.5; }
+function itensPecas(p) { return ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length); }
+function hSaiasItem(it) { // acabamento das saias que é do polidor (45° é do Hugo)
+  const sv = it.sv || [], m = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia').reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
+  if (sv.includes('s_45') || it.acabamento === '45') return 0; return sv.includes('s_boleada') ? m * 0.8 : sv.includes('s_reta') ? m * 0.5 : sv.includes('s_slim') ? m * 0.3 : 0;
+}
+function horasRegua(p, e) {
+  const its = itensPecas(p), n = nPecasPed(p), cx = pedComplexo(p);
+  if (e === 'corte') { if (!its.length) return n * 0.3; let h = 0; for (const it of its) { for (const pc of it.pecas) h += hCortePeca(pc.comp_cm, pc.larg_cm) * Math.min(+pc.qtd || 1, 50); if ((it.sv || []).includes('reb_a')) h += 0.25; if ((it.sv || []).includes('cook')) h += 0.3; } return h; }
+  if (e === 'acabamento' || e === 'polimento') {
+    if (!its.length) return cx ? 1.5 : n * 0.5;
+    let h = 0; for (const it of its) { for (const pc of it.pecas) { const q = Math.min(+pc.qtd || 1, 50); if (cx) { if (pcEstreita(pc, it)) h += (0.25 + 0.25 * (+pc.comp_cm || 0) / 100) * q; } else h += hAcabPeca(pc.comp_cm, pc.larg_cm) * q; } h += hSaiasItem(it); }
+    return h;
+  }
+  if (e === 'instalacao') { const est = 3 + 1.5 * Math.max(0, its.length - 1); if (p.instIniEm && p.entregueEm && p.entregueEm > p.instIniEm) { const med = minUteis(globalThis.__envRegua || {}, p.instIniEm, p.entregueEm) / 60; return Math.min(est * 1.5, Math.max(est * 0.6, med)); } return est; }
+  if (e === 'entrega') return 0.75 + 0.1 * n;
+  return 0;
+}
+const q4 = v => Math.max(0.25, Math.round(v * 4) / 4);
+function ptsRegua(p, e) { return q4(horasRegua(p, e) / REGUA_H); }
+function ptsEtapa(p, e, ts) {
+  if (e !== 'fabricacao' && ['corte', 'acabamento', 'polimento', 'instalacao', 'entrega'].includes(e) && reguaAtiva(ts) && p && !p.__item) return ptsRegua(p, e); // v205
   { const its = p && !p.__item && p.resumoApp && p.resumoApp.itens; // v182: vários itens → cada item vale como um serviço (soma)
     if (its && its.length > 1 && ['acabamento', 'polimento', 'fabricacao'].includes(e) && !pedComplexo(p)) return meio(its.reduce((t, it) => t + ptsEtapa(ptsItemPed(p, it), e), 0)); }
   if (p && pedComplexo(p) && ((p.resumoApp || {}).itens || []).some(i => (i.pecas || []).length)) { // v188: bancada/cozinha pelas partes reais
@@ -9597,7 +9623,7 @@ function ptsServico(p) { return meio(ptsEtapa(p, 'corte') + (pedComplexo(p) ? pt
 function difTxt(p) { const d = dificuldade(p); if (!d) return ''; const nv = nivelDif(p); return `${nv.ico} nível ${nv.nome}${nv.mult > 1 ? ' (×' + String(nv.mult).replace('.', ',') + ')' : ''}${d.lista.length ? ' · ' + d.lista.join(', ') : ''} · vale até ${vPt(ptsServico(p))} pts`; }
 const nPecasPed = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ pecas: p.pecas || [] }]; return Math.max(1, its.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0)); };
 const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) : '';
-async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
+async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
   const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
   Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
   const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: diaDe(ts), ts: ts || 0 }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
@@ -9612,11 +9638,13 @@ async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (p
       if (x.e === 'avaliacao' || x.e === 'retrabalho') { for (const id of x.por) add(String(id), +x.pts || 0, x.e === 'avaliacao' ? `⭐ cliente deu ${x.nota}` : `🔁 retrabalho${x.motivo ? ' (' + String(x.motivo).slice(0, 30) + ')' : ''}`, p, x.ts, null); continue; } // v157
       let pts = 0, ex = null;
       const fx = x.frac != null ? +x.frac : x.pecas ? x.pecas / n : 1; // v182: parte do serviço (itens/peças)
-      if (x.e === 'corte') pts = fx < 1 ? meio(ptsEtapa(p, 'corte') * fx) || 0.5 : ptsEtapa(p, 'corte'); // v156: dificuldade e corte por peça
-      else if (x.e === 'acabamento' || x.e === 'polimento') pts = fx < 1 ? meio(ptsEtapa(p, x.e) * fx) || 0.5 : ptsEtapa(p, x.e);
+      const rg = reguaAtiva(x.ts), bn = rg ? 0.5 : 1; // v205: régua do tempo (bônus de foto/prazo também na escala nova)
+      const parte = v => rg ? q4(v * fx) : meio(v * fx) || 0.5;
+      if (x.e === 'corte') pts = fx < 1 ? parte(ptsEtapa(p, 'corte', x.ts)) : ptsEtapa(p, 'corte', x.ts); // v156: dificuldade e corte por peça
+      else if (x.e === 'acabamento' || x.e === 'polimento') pts = fx < 1 ? parte(ptsEtapa(p, x.e, x.ts)) : ptsEtapa(p, x.e, x.ts);
       else if (x.e === 'fabricacao' && fx < 1) pts = meio(ptsEtapa(p, 'fabricacao') * fx) || 0.5;
-      else if (x.e === 'fabricacao') { pts = ptsEtapa(p, 'fabricacao'); const no = p.prontoPrevisto ? x.ts <= p.prontoPrevisto.ts + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; ex = { no }; }
-      else if (x.e === 'entrega' || x.e === 'instalacao') { pts = ptsEtapa(p, x.e) + (x.e === 'instalacao' && p.instIniFotoEm ? 1 : 0); const no = p.janela ? x.ts <= p.janela.fim + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; if (p.fotoEntregaEm) pts += 1; ex = { no, foto: !!p.fotoEntregaEm }; }
+      else if (x.e === 'fabricacao') { pts = ptsEtapa(p, 'fabricacao', x.ts); const no = p.prontoPrevisto ? x.ts <= p.prontoPrevisto.ts + 30 * 60000 : null; if (no === true) pts += bn; if (no === false) pts -= bn; ex = { no }; }
+      else if (x.e === 'entrega' || x.e === 'instalacao') { pts = ptsEtapa(p, x.e, x.ts) + (x.e === 'instalacao' && p.instIniFotoEm ? bn : 0); const no = p.janela ? x.ts <= p.janela.fim + 30 * 60000 : null; if (no === true) pts += bn; if (no === false) pts -= bn; if (p.fotoEntregaEm) pts += bn; ex = { no, foto: !!p.fotoEntregaEm }; }
       else continue;
       if (!x.dono && !p.fotoProntoEm && x.ts < Date.now() - 24 * 3600000 && (x.e === 'fabricacao' || (x.e === 'acabamento' && !cx))) pts = meio(pts / 2) || 0.5; // v181: sem foto das peças prontas vale metade
       const cada = Math.round(pts / x.por.length * 10) / 10;
@@ -9650,9 +9678,12 @@ async function xpIniciar(env) { // 1ª vez: a carreira começa com o que já foi
   for (const w of sems.slice(1)) await env.HR_KV.put('xp:fech:' + w.ini, '1', { expirationTtl: 40 * 86400 });
 }
 async function metasCfg(env) { try { return JSON.parse((await env.HR_KV.get('metas:cfg')) || '{}') || {}; } catch (_) { return {}; } }
-async function metaDe(env, funcId, cfgM, hist) { // meta da semana: a do dono ou automática (média das 4 últimas semanas com produção + 10%)
+const REGUA_META = 19; // v205: semana cheia de trabalho (~37 h de trabalho efetivo ÷ 2 h por ponto) — bate quem trabalha o tempo todo
+function diasSemanaFator(env, ini) { let f = 0; for (let i = 0; i < 6; i++) { const d = isoSomaDias(ini, i), x = expDia(d); if (x && x.tipo === 'folga') continue; if (x && x.tipo === 'meio') { f += 0.5; continue; } if (diaSemanaISO(d) !== 6 && feriadosDoAno(env, +d.slice(0, 4)).has(d)) continue; f += 1; } return f; }
+async function metaDe(env, funcId, cfgM, hist, iniSem) { // meta da semana: a do dono ou automática (média das 4 últimas semanas com produção + 10%)
   const c = (cfgM || await metasCfg(env))[funcId] || {};
   if (c.pontos > 0) return { meta: c.pontos, auto: false, bonus: c.bonus || 0 };
+  { const ini = iniSem || ((hist || []).length ? isoSomaDias(hist[0].ini, 7) : semIni(dataBahia())); if (ini >= REGUA_INI) return { meta: Math.max(3, Math.round(REGUA_META * diasSemanaFator(env, ini) / 6 * 2) / 2), auto: true, bonus: c.bonus || 0 }; } // v205: régua do tempo — mesma meta para todos (o esforço é que diferencia), proporcional aos dias de trabalho da semana
   const { map } = await funcoesEquipe(env), fs = map[funcId] || [];
   const minimo = fs.includes('fabricacao') ? 18 : fs.some(x => ENT_F.includes(x)) ? 17 : 20; // v158/v181: meta difícil
   const ws = (hist || []).filter(w => w.pts > 0).slice(0, 4);
@@ -9670,7 +9701,7 @@ async function metaPainel(env, funcId) {
   const hist = sems.slice(1).map(w => ({ ini: w.ini, pts: (w.por[funcId] || {}).pts || 0 }));
   const m = await metaDe(env, funcId, cfgM, hist), atual = sems[0].por[funcId] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 };
   // sequência: semanas seguidas (anteriores) batendo a meta
-  let seq = 0; for (const w of hist) { const mw = await metaDe(env, funcId, cfgM, hist.filter(x => x.ini < w.ini)); if (w.pts >= mw.meta) seq++; else break; }
+  let seq = 0; for (const w of hist) { const mw = await metaDe(env, funcId, cfgM, hist.filter(x => x.ini < w.ini), w.ini); if (w.pts >= mw.meta) seq++; else break; }
   const rank = cfg.funcs.map(f => ({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], pts: (sems[0].por[f.id] || {}).pts || 0 })).filter(x => x.pts > 0 || x.id === String(funcId)).sort((a, b) => b.pts - a.pts);
   const medalhas = [];
   if (atual.pts >= m.meta) medalhas.push({ i: '🎯', t: 'Meta batida' });
@@ -9792,7 +9823,7 @@ async function premioMes(env, mes) {
     for (const ini of sems) {
       if (ini > semAtual) { ws.push({ ini, futura: true }); continue; }
       const hist = []; for (let k = 1; k <= 4; k++) { const a = isoSomaDias(ini, -7 * k); hist.push({ ini: a, pts: ((await pontosSem(a))[f.id] || {}).pts || 0 }); }
-      const m = await metaDe(env, f.id, cfgM, hist), ps = (await pontosSem(ini))[f.id] || {}, pts = ps.pts || 0, tarefasDia = {}; for (const t of ps.tarefas || []) tarefasDia[t.dia] = (tarefasDia[t.dia] || 0) + t.pts; // v181
+      const m = await metaDe(env, f.id, cfgM, hist, ini), ps = (await pontosSem(ini))[f.id] || {}, pts = ps.pts || 0, tarefasDia = {}; for (const t of ps.tarefas || []) tarefasDia[t.dia] = (tarefasDia[t.dia] || 0) + t.pts; // v181
       ws.push({ ini, pts, meta: m.meta, bateu: pts >= m.meta, atual: ini === semAtual && isoSomaDias(ini, 5) >= hoje, tarefasDia });
     }
     const feitas = ws.filter(w => !w.futura && !w.atual), abaixo = feitas.filter(w => !w.bateu);
@@ -10710,11 +10741,11 @@ async function bonusPainel(env, mes) {
   const tot = { pagar: func.reduce((t, x) => t + x.pagar.total, 0), previsto: func.reduce((t, x) => t + x.previsto.total, 0), maximo: func.filter(x => x.mes.st !== 'sem').length * pm.valor + (pm.lider || 0) };
   return { ok: true, mes, hoje, fechado: !!pm.fechado, pago, semanas: pm.sems, premio: { valor: pm.valor, lider: pm.lider, liderTexto: pm.liderTexto, coringa: pm.coringa, liderId: pm.liderId }, totais: tot, funcionarios: func,
     regras: {
-      pontos: [['✂️ Corte (por peça)', '1 a 4,5 pontos pelo tamanho da peça (+0,5 se passar de 2 m)'], ['🔧 Fabricação', '2 + detalhes + metade do corte'], ['💎 Detalhes', 'cuba 1 · esculpida 3, 5 ou 8 · rebaixo 1,5 · rebaixo americano 2,5 · 45° 2 · saia 1 a 2 · cooktop 1,5 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🛠️ Instalação', '3 + metade do corte'], ['🚚 Entrega', '2'], ['⏱️ No prazo', '+1 (atraso −1)'], ['📸 Foto na entrega', '+1'], ['📍 Fotos de início e fim da instalação', '+1'], ['🌟 Cliente deu nota 5', '+1 (nota 1 ou 2: −1)'], ['🔁 Retrabalho', '−2'], ['👥 Em dupla', 'os pontos são divididos']],
+      pontos: reguaAtiva() ? [['⚖️ Régua', '1 ponto ≈ 2 horas de trabalho padrão, igual para todas as funções'], ['✂️ Corte', 'peitoril/soleira 0,15 h · peça até 0,5 m² 0,25 h · até 1 m² 0,4 h · até 2 m² 0,6 h · maior 0,8 h (+0,15 h acima de 2 m) · tampo do rebaixo 0,25 h · recorte do cooktop 0,3 h'], ['🪨 Acabamento', 'peitoril/soleira 0,35 h · peça até 0,5 m² 0,6 h · até 1 m² 1 h · maior 1,5 h · saia reta 0,5 h/m · boleada 0,8 h/m · slim 0,3 h/m'], ['✨ Polimento (cozinha)', 'frontão/saia 0,25 h + 0,25 h por metro'], ['🔧 Hugo (fabricação)', 'rebaixo americano 4 · cuba 1,5 a 6 (sobrepor/embutida/flush/esculpida) · saia 45° 3 a 8 · ×nível do serviço (1 cozinha ≈ 1 semana)'], ['🛠️ Instalação', '3 h por cozinha (+1,5 h por item) ou o tempo real entre as fotos de início e fim (entre 60% e 150% disso)'], ['🚚 Entrega', '0,75 h + 0,1 h por peça'], ['⏱️ No prazo', '+0,5 (atraso −0,5)'], ['📸 Foto na entrega / início da instalação', '+0,5 cada'], ['🤝 Ajudante da instalação', 'metade dos pontos da instalação'], ['🌟 Cliente deu nota 5', '+1 (nota 1 ou 2: −1)'], ['🔁 Retrabalho', '−2'], ['👥 Em dupla', 'os pontos são divididos']] : [['✂️ Corte (por peça)', '1 a 4,5 pontos pelo tamanho da peça (+0,5 se passar de 2 m)'], ['🔧 Fabricação', '2 + detalhes + metade do corte'], ['💎 Detalhes', 'cuba 1 · esculpida 3, 5 ou 8 · rebaixo 1,5 · rebaixo americano 2,5 · 45° 2 · saia 1 a 2 · cooktop 1,5 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🛠️ Instalação', '3 + metade do corte'], ['🚚 Entrega', '2'], ['⏱️ No prazo', '+1 (atraso −1)'], ['📸 Foto na entrega', '+1'], ['📍 Fotos de início e fim da instalação', '+1'], ['🌟 Cliente deu nota 5', '+1 (nota 1 ou 2: −1)'], ['🔁 Retrabalho', '−2'], ['👥 Em dupla', 'os pontos são divididos']],
       niveis: NIVEIS_DIF.map(n => [n.ico + ' ' + n.nome, '×' + String(n.mult).replace('.', ',')]),
       faixas: FAIXAS.map(x => [x.ico + ' ' + x.nome, x.pct + '% da meta']),
       carreira: CARREIRA.map(x => [x.ico + ' ' + x.nome, x.xp + ' pontos']),
-      meta: 'Meta da semana (segunda a sábado): a que o senhor fixou, ou a automática = a maior entre a média das últimas 4 semanas + 20%, 95% da melhor semana e o mínimo da função (corte/acabamento 20, fabricação 18, instalação/entrega 17). Meta do dia = meta da semana ÷ 6 + 10%. Blindagem: cada etapa conta uma vez por pedido; corte por peça não passa do total; etapa final da fábrica sem foto das peças prontas vale metade depois de 24 h; quebra/perda −1; retrabalho −2 e trava a faixa da semana na Prata; o senhor pode anular pontos ("anula o corte da Maria do Fabrício"); auditoria diária às 17:40.',
+      meta: reguaAtiva() ? 'Meta da semana (segunda a sábado): 19 pontos para todos (≈ 37 h de trabalho efetivo na régua de 2 h por ponto), proporcional aos dias de trabalho da semana (meio período conta metade, folga e feriado não contam); ou a que o senhor fixou. Quem se esforça mais passa da meta e sobe de faixa. Meta do dia = meta da semana ÷ 6 + 10%. Blindagem: cada etapa conta uma vez por pedido; corte por peça não passa do total; etapa final da fábrica sem foto das peças prontas vale metade depois de 24 h; quebra/perda −1; retrabalho −2 e trava a faixa da semana na Prata; o senhor pode anular pontos; auditoria diária às 17:40.' : 'Meta da semana (segunda a sábado): a que o senhor fixou, ou a automática = a maior entre a média das últimas 4 semanas + 20%, 95% da melhor semana e o mínimo da função (corte/acabamento 20, fabricação 18, instalação/entrega 17). Meta do dia = meta da semana ÷ 6 + 10%. Blindagem: cada etapa conta uma vez por pedido; corte por peça não passa do total; etapa final da fábrica sem foto das peças prontas vale metade depois de 24 h; quebra/perda −1; retrabalho −2 e trava a faixa da semana na Prata; o senhor pode anular pontos ("anula o corte da Maria do Fabrício"); auditoria diária às 17:40.',
       premio: `Prêmio do mês: R$ ${reais(pm.valor)} para quem bater a meta em TODAS as semanas do mês, bater a meta do dia em pelo menos 60% dos dias e tiver no máximo 1 retrabalho, 1 quebra e nota média 4,5${pm.coringa ? ' (1 semana abaixo é perdoada — coringa — se o total do mês compensar)' : ''}. ${pm.lider ? `Líder do mês (maior % entre os ganhadores): +R$ ${reais(pm.lider)}${pm.liderTexto ? ' e ' + pm.liderTexto : ''}.` : ''} Bônus semanal (se o senhor definiu para alguém): pago a cada semana com a meta batida.`,
       comandos: ['"meta do Fabrício 20 pontos, bônus 50" (meta e bônus semanal)', '"prêmio 200, líder 80" (valor do prêmio do mês)', '"prêmio do mês" (situação no WhatsApp)', '"desempenho" · "qualidade"'] } };
 }
@@ -11638,6 +11669,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v205: RÉGUA DO TEMPO (a partir de 23/11): 1 ponto ≈ 2 h de trabalho padrão em todas as funções; peitoril/soleira e cortes valem pelo tempo real; meta igual para todos (19, proporcional aos dias da semana).
 // v204: meta da fabricação (Hugo) pela média de 4 semanas +10% (mín. 18, máx. 26): ~4 cozinhas/mês = 1 por semana.
 // v203: recorte do cooktop sai do Hugo (vai para o corte, +0,5); Hugo = rebaixo americano, cuba e saia em 45° com polimento.
 // v202: pedido sem ficha (criado pela conversa) conta os serviços do Hugo pela descrição; pedido do Jailton com a ficha do desenho.
