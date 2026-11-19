@@ -9579,6 +9579,12 @@ function nivelDif(p) { const d = dificuldade(p); const sc = d ? d.corte + d.det 
 // v205: RÉGUA DO TEMPO — 1 ponto ≈ 2 horas de trabalho padrão em QUALQUER função (a partir de 23/11/2026).
 // Assim quem se esforça mais ganha mais, seja corte, acabamento, instalação ou a fabricação do Hugo (1 cozinha ≈ 1 semana ≈ 18 pts).
 const REGUA_INI = '2026-11-23', REGUA_H = 2;
+// v209: a partir de 1º/12/2026 a meta é 100 pontos no MÊS (dia = 100 ÷ dias de trabalho do mês; semana = soma dos dias); 1 ponto ≈ 1,6 h
+const MES100_INI = '2026-12-01', MES100 = 100;
+const reguaH = ts => ((ts ? diaDe(ts) : dataBahia()) >= MES100_INI ? 1.6 : REGUA_H);
+function fatorDiaTrab(env, d) { const x = expDia(d); if (x && x.tipo === 'folga') return 0; if (x && x.tipo === 'meio') return 0.5; const w = diaSemanaISO(d); if (w === 0) return 0; if (feriadosDoAno(env, +d.slice(0, 4)).has(d)) return 0; return w === 6 ? 0.5 : 1; } // sábado vai até 11h: meio dia
+function diasMesFator(env, ym) { let f = 0; for (let d = ym + '-01'; d.slice(0, 7) === ym; d = isoSomaDias(d, 1)) f += fatorDiaTrab(env, d); return f || 1; }
+function metaDiaData(env, d) { return Math.round(MES100 * fatorDiaTrab(env, d) / diasMesFator(env, d.slice(0, 7)) * 100) / 100; }
 const reguaAtiva = ts => (ts ? diaDe(ts) : dataBahia()) >= REGUA_INI;
 function hCortePeca(c, l) { const a = (+c || 0) * (+l || 0) / 10000; let h = a < 0.15 ? 0.15 : a < 0.5 ? 0.25 : a < 1 ? 0.4 : a < 2 ? 0.6 : 0.8; if (Math.max(+c || 0, +l || 0) > 200) h += 0.15; return h; }
 function hAcabPeca(c, l) { const a = (+c || 0) * (+l || 0) / 10000; return a < 0.15 ? 0.35 : a < 0.5 ? 0.6 : a < 1 ? 1 : 1.5; }
@@ -9600,9 +9606,9 @@ function horasRegua(p, e) {
   return 0;
 }
 const q4 = v => Math.max(0.25, Math.round(v * 4) / 4);
-function ptsRegua(p, e) { return q4(horasRegua(p, e) / REGUA_H); }
+function ptsRegua(p, e, ts) { return q4(horasRegua(p, e) / reguaH(ts)); }
 function ptsEtapa(p, e, ts) {
-  if (e !== 'fabricacao' && ['corte', 'acabamento', 'polimento', 'instalacao', 'entrega'].includes(e) && reguaAtiva(ts) && p && !p.__item) return ptsRegua(p, e); // v205
+  if (e !== 'fabricacao' && ['corte', 'acabamento', 'polimento', 'instalacao', 'entrega'].includes(e) && reguaAtiva(ts) && p && !p.__item) return ptsRegua(p, e, ts); // v205/v209
   { const its = p && !p.__item && p.resumoApp && p.resumoApp.itens; // v182: vários itens → cada item vale como um serviço (soma)
     if (its && its.length > 1 && ['acabamento', 'polimento', 'fabricacao'].includes(e) && !pedComplexo(p)) return meio(its.reduce((t, it) => t + ptsEtapa(ptsItemPed(p, it), e), 0)); }
   if (p && pedComplexo(p) && ((p.resumoApp || {}).itens || []).some(i => (i.pecas || []).length)) { // v188: bancada/cozinha pelas partes reais
@@ -9683,7 +9689,9 @@ function diasSemanaFator(env, ini) { let f = 0; for (let i = 0; i < 6; i++) { co
 async function metaDe(env, funcId, cfgM, hist, iniSem) { // meta da semana: a do dono ou automática (média das 4 últimas semanas com produção + 10%)
   const c = (cfgM || await metasCfg(env))[funcId] || {};
   if (c.pontos > 0) return { meta: c.pontos, auto: false, bonus: c.bonus || 0 };
-  { const ini = iniSem || ((hist || []).length ? isoSomaDias(hist[0].ini, 7) : semIni(dataBahia())); if (ini >= REGUA_INI) return { meta: Math.max(3, Math.round(REGUA_META * diasSemanaFator(env, ini) / 6 * 2) / 2), auto: true, bonus: c.bonus || 0 }; } // v205: régua do tempo — mesma meta para todos (o esforço é que diferencia), proporcional aos dias de trabalho da semana
+  { const ini = iniSem || ((hist || []).length ? isoSomaDias(hist[0].ini, 7) : semIni(dataBahia()));
+    if (isoSomaDias(ini, 5) >= MES100_INI) { let m = 0; for (let i = 0; i < 6; i++) { const d = isoSomaDias(ini, i); if (d >= MES100_INI) m += metaDiaData(env, d); else { const x = expDia(d); if (!(x && x.tipo === 'folga') && diaSemanaISO(d) !== 0 && !feriadosDoAno(env, +d.slice(0, 4)).has(d)) m += REGUA_META / 6 * (x && x.tipo === 'meio' ? 0.5 : 1); } } return { meta: Math.round(m * 10) / 10, auto: true, bonus: c.bonus || 0 }; } // v209: soma das metas dos dias
+    if (ini >= REGUA_INI) return { meta: Math.max(3, Math.round(REGUA_META * diasSemanaFator(env, ini) / 6 * 2) / 2), auto: true, bonus: c.bonus || 0 }; } // v205: régua do tempo — mesma meta para todos (o esforço é que diferencia), proporcional aos dias de trabalho da semana
   const { map } = await funcoesEquipe(env), fs = map[funcId] || [];
   const minimo = fs.includes('fabricacao') ? 18 : fs.some(x => ENT_F.includes(x)) ? 17 : 20; // v158/v181: meta difícil
   const ws = (hist || []).filter(w => w.pts > 0).slice(0, 4);
@@ -9714,9 +9722,10 @@ async function metaPainel(env, funcId) {
   const falta = Math.max(0, m.meta - atual.pts);
   const teto = (atual.tarefas || []).some(t => /retrabalho/.test(t.tipo)) ? 100 : 999; // v181: retrabalho na semana trava a faixa na Prata
   const pctR = Math.min(atual.pts / m.meta * 100, teto), faixa = [...FAIXAS].reverse().find(x => pctR >= x.pct) || null, prox = teto < 999 && pctR >= 100 ? null : FAIXAS.find(x => pctR < x.pct) || null; // v158
-  const metaDia = metaDoDia(m.meta), ptsHoje = meio((atual.tarefas || []).filter(t => t.dia === hojeD).reduce((t, x) => t + x.pts, 0)); // v181
+  const metaDia = hojeD >= MES100_INI ? metaDiaData(env, hojeD) : metaDoDia(m.meta), ptsHoje = Math.round((atual.tarefas || []).filter(t => t.dia === hojeD).reduce((t, x) => t + x.pts, 0) * 10) / 10; // v209 // v181
   const xp = await xpDe(env, funcId, atual.pts), car = carreira(xp);
-  return { ok: true, teto, metaDia, ptsHoje, faixa, prox: prox ? { ...prox, faltam: meio(Math.max(0, m.meta * prox.pct / 100 - atual.pts)) } : null, xp, carreira: car, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
+  let ptsMes = null; if (hojeD >= MES100_INI) { try { ptsMes = ((await metasPontos(env, hojeD.slice(0, 7) + '-01', hojeD))[funcId] || {}).pts || 0; } catch (_) {} } // v209
+  return { ok: true, teto, metaDia, ptsHoje, ptsMes, metaMes: ptsMes != null ? MES100 : null, faixa, prox: prox ? { ...prox, faltam: meio(Math.max(0, m.meta * prox.pct / 100 - atual.pts)) } : null, xp, carreira: car, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
     porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: (atual.tarefas || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 12), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
     hist: hist.slice(0, 6).reverse(), regras: [['🎚️ Nível do serviço', '🟢 ×1 · 🟡 ×1,25 · 🔴 ×1,5 · 💎 ×1,8'], ['🏅 Faixas da semana', '🥉 80% · 🥈 100% · 🥇 125% · 💎 150%'], ['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['🌟 Cliente deu nota 5', '+1'], ['🔁 Retrabalho', '−2'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
 }
@@ -9736,7 +9745,7 @@ async function metaChecar(env, funcId) {
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
       if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
         const cruzou = FAIXAS.some(x => pctQ(pn) >= x.pct && !ja.includes('|' + x.pct));
-        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅' : ''}\n📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}`).catch(() => {}); } // v207: simples — hoje e semana
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅' : ''}\n📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}${pn.ptsMes != null ? `\n🗓️ Mês: *${vPt(pn.ptsMes)} de ${pn.metaMes}*` : ''}`).catch(() => {}); } // v207/v209: simples — hoje, semana e mês
     }
     // v158: cada faixa alcançada é comemorada (e a equipe fica sabendo do Ouro e do Diamante)
     const pctR = pctQ(pn), nova = [...FAIXAS].reverse().find(x => x.pct === 100 && pctR >= x.pct && !ja.includes('|' + x.pct)); // v207: só comemora a meta batida (simples)
@@ -10453,7 +10462,7 @@ async function eqResumoDiaRotina(env) {
     if (!f.tel || emFeriasHoje(eqd, f.id, hoje)) continue;
     const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) continue; const d = pts[f.id]; const dTxt = `📅 Meta do dia: *${vPt(pn.metaDia)}* · você fez *${vPt(pn.ptsHoje || 0)}* ${(pn.ptsHoje || 0) >= pn.metaDia ? '✅' : '❌'}`; // v181
     const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel); if (!(await janela24h(env, tel))) continue; // só quem está conversando (sem modelo pago todo dia)
-    await enviar(env, tel, [`🌇 *Fim do dia, ${apelidoFunc(cfg, f)}!*`, '', d && d.tarefas.length ? `Hoje: ${d.tarefas.map(t => `${t.tipo} ${t.nome.split(' ')[0]} (+${t.pts})`).join(' · ')}\n*+${d.pts} pontos hoje*` : 'Hoje não registrei tarefa sua. Se fez alguma, me conte (ex.: _terminei o da Maria_ ou _instalei o da Maria_).', `📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}* ${(pn.ptsHoje || 0) >= pn.metaDia ? '✅' : '❌'}`, `📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}`, '', 'Descanse! Amanhã cedo mando a sua lista. 💪'].join('\n')).catch(() => {});
+    await enviar(env, tel, [`🌇 *Fim do dia, ${apelidoFunc(cfg, f)}!*`, '', d && d.tarefas.length ? `Hoje: ${d.tarefas.map(t => `${t.tipo} ${t.nome.split(' ')[0]} (+${t.pts})`).join(' · ')}\n*+${d.pts} pontos hoje*` : 'Hoje não registrei tarefa sua. Se fez alguma, me conte (ex.: _terminei o da Maria_ ou _instalei o da Maria_).', `📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}* ${(pn.ptsHoje || 0) >= pn.metaDia ? '✅' : '❌'}`, `📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}${pn.ptsMes != null ? `\n🗓️ Mês: *${vPt(pn.ptsMes)} de ${pn.metaMes}*` : ''}`, '', 'Descanse! Amanhã cedo mando a sua lista. 💪'].join('\n')).catch(() => {});
   }
 }
 // mural: serviço entregue com foto → a equipe vê o resultado do trabalho
@@ -10721,6 +10730,7 @@ async function bonusPainel(env, mes) {
   const cfg = await pontoCfg(env), cfgM = await metasCfg(env), pm = await premioMes(env, mes), { map } = await funcoesEquipe(env);
   let pago = null; try { pago = JSON.parse((await env.HR_KV.get('premio:pago:' + mes)) || 'null'); } catch (_) {}
   const atualMes = mes === hoje.slice(0, 7), func = [];
+  const mIni = pm.mes + '-01', mFim = isoSomaDias(isoSomaDias(mIni, 32).slice(0, 7) + '-01', -1), ptsMesCal = await metasPontos(env, mIni, mFim).catch(() => ({})); // v209: pontos do mês do calendário
   for (const f of cfg.funcs) {
     const r = pm.lista.find(x => x.id === String(f.id)) || { semanas: [], st: 'sem', txt: '' }, c = cfgM[f.id] || {};
     const pn = atualMes ? await metaPainel(env, f.id).catch(() => null) : null;
@@ -10733,7 +10743,7 @@ async function bonusPainel(env, mes) {
       metaFixa: +c.pontos || 0, bonusSemana: bonusSem,
       semana: pn ? { pts: pn.pts, meta: pn.meta, ptsHoje: pn.ptsHoje || 0, metaDia: pn.metaDia || 0, pct: pn.pct, falta: pn.falta, faixa: pn.faixa, prox: pn.prox, pos: pn.pos, porDia: pn.porDia, diasRest: pn.diasRest, tarefas: pn.tarefas.slice(0, 10), medalhas: pn.medalhas, auto: pn.auto } : null,
       carreira: { ...car, xp },
-      mes: { semanas: r.semanas, st: r.st, txt: r.txt, falta: r.falta || 0, pct: r.pct || 0, somaP: r.somaP || 0, somaM: r.somaM || 0, metaMes: r.metaMes || 0, ganhou: !!r.ganhou, lider },
+      mes: { semanas: r.semanas, st: r.st, txt: r.txt, falta: r.falta || 0, pct: r.pct || 0, somaP: r.somaP || 0, somaM: r.somaM || 0, metaMes: mIni >= MES100_INI ? MES100 : (r.metaMes || 0), ptsMes: mIni >= MES100_INI ? ((ptsMesCal[f.id] || {}).pts || 0) : (r.somaP || 0), ganhou: !!r.ganhou, lider },
       pagar: { premio, lider: r.ganhou ? liderV : 0, bonusSemanas: bonusSem * semBatidas, total: premio + (r.ganhou ? liderV : 0) + bonusSem * semBatidas },
       previsto: { premio: pm.fechado ? premio : premioPrev, lider: liderV && (pm.fechado ? r.ganhou : premioPrev) ? liderV : 0, bonusSemanas: bonusSem * semBatidasAteAgora } });
   }
@@ -11254,8 +11264,8 @@ async function auditoriaRotina(env) {
 // prêmio do mês: além das semanas, constância diária e qualidade
 async function premioExigencias(env, fid, mes, ws) {
   const hoje = dataBahia(), dias = {}; let uteis = 0, bateu = 0;
-  for (const w of ws) { if (w.futura || !w.meta) continue; const md = metaDoDia(w.meta);
-    for (let k = 0; k < 6; k++) { const d = isoSomaDias(w.ini, k); if (d.slice(0, 7) !== mes || d > hoje || !dsmDiaTrab(env, d)) continue; const pd = (w.tarefasDia || {})[d] || 0; if (d === hoje && pd < md) continue; uteis++; if (pd >= md) bateu++; dias[d] = pd; } }
+  for (const w of ws) { if (w.futura || !w.meta) continue; const md0 = metaDoDia(w.meta);
+    for (let k = 0; k < 6; k++) { const d = isoSomaDias(w.ini, k); if (d.slice(0, 7) !== mes || d > hoje || !dsmDiaTrab(env, d)) continue; const md = d >= MES100_INI ? metaDiaData(env, d) : md0; if (!(md > 0)) continue; const pd = (w.tarefasDia || {})[d] || 0; if (d === hoje && pd < md) continue; uteis++; if (pd >= md) bateu++; dias[d] = pd; } }
   let retrab = 0, perdas = 0, notas = []; const de = mes + '-01', ate = isoSomaDias(isoSomaDias(de, 32).slice(0, 7) + '-01', -1);
   for (const p of await pedidosProducao(env, () => true)) for (const x of (p.prodLog || [])) { const d = diaDe(x.ts); if (d < de || d > ate || !(x.por || []).map(String).includes(String(fid))) continue; if (x.e === 'retrabalho') retrab++; if (x.e === 'avaliacao' && x.nota) notas.push(+x.nota); }
   try { if (env.HR_DB) { const r = await env.HR_DB.prepare('SELECT COUNT(*) n FROM perda WHERE func = ? AND dia BETWEEN ? AND ?').bind(String(fid), de, ate).first(); perdas = +(r && r.n) || 0; } } catch (_) {}
@@ -11424,7 +11434,7 @@ async function eqExplicarPontos(env, f, from, texto, nome) {
   const pergunta = /\?|\b(por ?que|pq|o que|oque|quanto|quantos|quantas|como|significa|quer dizer|entendi nao|nao entendi|explica|me fala|cade)\b/.test(msg);
   if (!tema || !pergunta) return false;
   const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) return false;
-  const L = [`${nome}, é simples:`, '', `1️⃣ Cada serviço que você *termina* vale pontos. Serviço que dá mais trabalho vale mais (1 ponto ≈ 2 horas de trabalho). Mande foto de cada etapa.`, `2️⃣ A meta é *${vPt(pn.meta)} pontos na semana* (uns *${vPt(pn.metaDia)} por dia*).`, `3️⃣ Bateu a meta todas as semanas do mês, sem retrabalho nem quebra demais → *prêmio do mês*.`, '', `📅 Hoje você está com *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}*. 📆 Na semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` (faltam ${vPt(pn.falta)})` : ' 🎯'}.`]; // v207: explicação curta
+  const L = [`${nome}, é simples:`, '', `1️⃣ Cada serviço que você *termina* vale pontos. Serviço que dá mais trabalho vale mais (1 ponto ≈ 2 horas de trabalho). Mande foto de cada etapa.`, (pn.metaMes ? `2️⃣ A meta é *${pn.metaMes} pontos no mês* (*${vPt(pn.metaDia)} por dia*, ${vPt(pn.meta)} nesta semana).` : `2️⃣ A meta é *${vPt(pn.meta)} pontos na semana* (uns *${vPt(pn.metaDia)} por dia*).`), `3️⃣ Bateu a meta todas as semanas do mês, sem retrabalho nem quebra demais → *prêmio do mês*.`, '', `📅 Hoje você está com *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}*. 📆 Na semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` (faltam ${vPt(pn.falta)})` : ' 🎯'}.`]; // v207: explicação curta
   if (/\b(aprendiz|ajudante|profissional|especialista|mestre|nivel|niveis|carreira|largada|ritmo|destaque|craque|lenda)\b/.test(msg)) L.push('', 'O nível que aparece no app é só um selo dos pontos que você já juntou. Não é cargo, não mexe no salário nem no prêmio.');
   L.push('', 'Quer ver tudo? Mande _minhas tarefas_ ou _meus pontos_.');
   await enviar(env, from, L.join('\n'));
@@ -11471,7 +11481,7 @@ const pcEstreita = (pc, it) => ['frontao', 'saia'].includes(tipoDaPeca(pc, it));
 // v206: serviços do Hugo pelo PREÇO do app (sainha 45° por metro linear, rebaixo americano, rebaixo normal): pontos = valor ÷ R$ por ponto (padrão R$ 45)
 const PRECO_PAD = { s_45: 150, reb_a: 430, reb_n: 200 };
 const precoSv = k => { const v = +((globalThis.__precosSv || {})[k]); return v > 0 ? v : PRECO_PAD[k] || 0; };
-const rsPonto = () => +((globalThis.__precosSv || {})._rsPonto) || 45;
+const rsPonto = () => +((globalThis.__precosSv || {})._rsPonto) || (dataBahia() >= MES100_INI ? 36 : 45); // v209: com a meta de 100/mês, cada ponto vale R$ 36 de serviço
 async function precosCarregar(env) { if (globalThis.__precosEm && Date.now() - globalThis.__precosEm < 5 * 60000) return; globalThis.__precosEm = Date.now(); try { globalThis.__precosSv = JSON.parse((await env.HR_KV.get('cfg:precosSv')) || '{}') || {}; } catch (_) { globalThis.__precosSv = {}; } }
 function servicosHugo(it) {
   const sv = it.sv || [], L = [], saiasF = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia'), saiaM = (saiasF.length ? saiasF : (it.pecas || []).filter(pc => pcEstreita(pc, it))).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
@@ -11664,6 +11674,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v209: META DE 100 PONTOS NO MÊS (a partir de 1º/12): dia = 100 ÷ dias de trabalho (sábado meio dia), semana = soma dos dias; 1 ponto ≈ 1,6 h (Hugo: R$ 36 de serviço por ponto).
 // v207: pontos SIMPLES para a equipe: mensagens só com "hoje X de Y" e "semana X de Y"; comemora só a meta batida; sem avisos de faixa/nível/lugar.
 // v206: serviços do Hugo (sainha 45° por metro, rebaixo americano/normal) pelo preço do app ÷ R$ 45 por ponto; preços vêm do app.
 // v205: RÉGUA DO TEMPO (a partir de 23/11): 1 ponto ≈ 2 h de trabalho padrão em todas as funções; peitoril/soleira e cortes valem pelo tempo real; meta igual para todos (19, proporcional aos dias da semana).
