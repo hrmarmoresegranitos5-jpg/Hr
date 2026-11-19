@@ -6822,6 +6822,7 @@ async function pedirAvaliacoes(env) {
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
+  await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -10640,6 +10641,8 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
     } else if (naFabrica(p)) linhas.push({ id: `fot|${p.id}|pronto`, titulo: `✅ ${pn}`.slice(0, 24), descricao: 'Terminei (peças prontas)' });
     linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Só guardar a foto no pedido' });
   }
+  { const n = normaliza(leg || ''), quer = /\b(cortad[oa]s?|pront[oa]s?|acabad[oa]s?|terminad[oa]s?|fabricad[oa]s?)\b/.test(n) ? 'pronto' : /\b(instalad[oa]s?|entregue?s?|finalizad[oa]s?|montad[oa]s?)\b/.test(n) ? 'fim' : /\b(chegand[oa]|chegamos|cheguei|comecand[oa]|inicio|antes)\b/.test(n) ? 'ini' : ''; // v178: a legenda ("peitoril cortado") põe a opção certa em primeiro
+    if (quer) linhas.sort((a, b) => (b.id.endsWith('|' + quer) ? 1 : 0) - (a.id.endsWith('|' + quer) ? 1 : 0)); }
   if (!linhas.length) { // v176: não acha o pedido → a foto não se perde: vai para o dono
     try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: m.image.id, caption: `📷 Foto do ${nome}${leg ? ` ("${leg}")` : ''}. Não achei o pedido no sistema; confira de qual cliente é.` } }); } catch (_) {}
     await enviar(env, from, `📸 Recebi a foto, ${nome}!${leg ? ` Não achei o pedido de *${leg.replace(/^(servi[cç]os?|foto|fotos)\s+(d[aoe]s?\s+)?/i, '')}* no sistema.` : ' Não achei serviço aberto com você.'} Guardei e mandei para o Sr. Hangel conferir. Se quiser, me diga o nome do cliente (ex.: _instalei o da Maria_).`); return true; }
@@ -10734,6 +10737,31 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v178: PENDÊNCIAS DE FOTO — lembra uma vez: foto que falta para dar baixa (1h30), foto sem serviço escolhido (1h), instalação começada e não terminada (6h)
+async function pendFotosRotina(env) {
+  const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 17 * 60 + 30) return;
+  if (Date.now() - (globalThis.__pendFotos || 0) < 20 * 60000) return; globalThis.__pendFotos = Date.now();
+  if (!(await travaEnvio(env, 'pfoto:' + dataBahia() + ':' + Math.floor(ag.min / 20)))) return;
+  const cfg = await pontoCfg(env), telDe = k8 => { const f = cfg.funcs.find(x => x.tel && ultimos8(x.tel) === k8); return f ? { tel: f.tel, nome: (apelidoFunc(cfg, f) || f.nome.split(' ')[0]) } : null; };
+  for (const [pref, idade, txt] of [['prod:fotoesp:', 90 * 60000, async (v, f) => { const p = await lerPedido(env, v.pid).catch(() => null); return p && !p.entregueEm ? `📸 ${f.nome}, ainda falta a *foto* de *${p.nome}* para eu dar baixa. Manda quando puder.` : ''; }],
+                                     ['prod:fotopend:', 60 * 60000, async (v, f) => `📸 ${f.nome}, a foto que você mandou às ${horaTs(v.em)} ainda está sem serviço. Toque na lista que mandei ou escreva o nome do cliente (ex.: _instalei o da Maria_).`]]) {
+    const l = await env.HR_KV.list({ prefix: pref }).catch(() => ({ keys: [] }));
+    for (const k of l.keys || []) {
+      let v = null; try { v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+      if (!v || v.lembrado || !v.em || Date.now() - v.em < idade) continue;
+      const f = telDe(k.name.slice(pref.length)); if (!f) continue;
+      const t = await txt(v, f); await env.HR_KV.put(k.name, JSON.stringify({ ...v, lembrado: Date.now() }), { expirationTtl: 6 * 3600 });
+      if (t) await enviar(env, f.tel, avisoTeste(env) + t).catch(() => {});
+    }
+  }
+  const inst = await pedidosProducao(env, p => p.instIniEm && !p.entregueEm && !p.instLembEm && Date.now() - p.instIniEm > 6 * 3600000 && Date.now() - p.instIniEm < 3 * 86400000);
+  for (const p of inst) {
+    p.instLembEm = Date.now(); await salvarPedido(env, p);
+    const t = await respTel(env, p.instIniPor || p.entResp), nm = await respNome(env, p.instIniPor || p.entResp);
+    if (t) await enviar(env, t, `${avisoTeste(env)}🔧 ${nm}, a instalação de *${p.nome}* começou às ${horaTs(p.instIniEm)}. Já terminou? Quando acabar: _instalei o da ${String(p.nome).split(' ')[0]}_ e a foto com tudo instalado.`).catch(() => {});
+  }
+}
+// v178: lembretes de foto pendente (uma vez) e a legenda escolhe a opção certa da lista.
 // v177: cortador marca pronto sem acabador → anota só o corte e pergunta quem acaba; acabador designado depois do pronto consegue terminar.
 // v176: legenda só com o cliente → lista dele; várias fotos seguidas → uma pergunta; ajudante pode marcar instalação; procura em todos os pedidos; foto sem pedido vai ao dono.
 // v175: poucas peças → o pedido da foto explica como mostrar todas; se não bater, pede OUTRA foto antes de perguntar a quantidade. Muitas: tudo bem não caber.
