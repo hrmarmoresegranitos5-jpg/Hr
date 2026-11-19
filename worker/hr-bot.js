@@ -9557,7 +9557,7 @@ async function grvResposta(env, from, m) {
 // ═════════════════════════════════════════════════════════════════════════════
 const semIni = iso => { const d = diaSemanaISO(iso); return isoSomaDias(iso, d === 0 ? -6 : 1 - d); }; // segunda
 // v156: PONTOS POR DIFICULDADE — peça maior e com mais detalhes vale mais
-const SV_PTS = { cuba_lav: 1, cuba_coz: 1.5, cook: 1.5, reb_n: 1.5, reb_a: 2.5, s_45: 2, s_reta: 1, s_boleada: 1.5, s_slim: 1, frontao: 0.5, frontao_chf: 1, forn: 0.5, fralo: 0.5, peit_ping: 1, peit_col: 1.5, peit_portal: 0.5, sol2: 0.5, sol_45: 2, rodape: 0.5, cant: 0.5, tubo: 0.5 };
+const SV_PTS = { cuba_lav: 1, cuba_coz: 1.5, cook: 0.5, reb_n: 1.5, reb_a: 2.5, s_45: 2, s_reta: 1, s_boleada: 1.5, s_slim: 1, frontao: 0.5, frontao_chf: 1, forn: 0.5, fralo: 0.5, peit_ping: 1, peit_col: 1.5, peit_portal: 0.5, sol2: 0.5, sol_45: 2, rodape: 0.5, cant: 0.5, tubo: 0.5 };
 const SV_NOME = { cuba_lav: 'cuba', cuba_coz: 'cuba', cook: 'cooktop', reb_n: 'rebaixo', reb_a: 'rebaixo americano', s_45: 'saia 45°', s_reta: 'saia', s_boleada: 'saia boleada', s_slim: 'saia slim', frontao: 'frontão', frontao_chf: 'frontão chanfrado', forn: 'furo torneira', fralo: 'furo ralo', peit_ping: 'pingadeira', peit_col: 'pedra colada', sol_45: '45°', rodape: 'rodapé', sol2: '2 lados' };
 const meio = v => Math.round(v * 2) / 2;
 const vPt = v => String(Math.round((+v || 0) * 10) / 10).replace('.', ',');
@@ -9583,7 +9583,7 @@ function ptsEtapa(p, e) {
     const mu = nivelDif(p).mult;
     if (e === 'polimento') return poliPtsTotal(p) || 0.5;
     if (e === 'fabricacao') return meio((1 + hugoPtsBase(p)) * mu);
-    if (e === 'corte') { const d = dificuldade(p); return meio(((d ? d.corte : nPecasPed(p)) + ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('reb_a')).length)) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); }
+    if (e === 'corte') { const d = dificuldade(p); return meio(((d ? d.corte : nPecasPed(p)) + ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('reb_a')).length) + 0.5 * ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('cook')).length)) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); } // v203: recorte do cooktop é da equipe do corte
   }
   const d = dificuldade(p), n = nPecasPed(p), mu = d ? nivelDif(p).mult : 1;
   if (e === 'fabricacao' && !d && p && pedComplexo(p)) { const tx = hugoPeloTexto(p); if (tx > 0) return meio(Math.max(3 + n, 1 + tx)); } // v202: pedido sem ficha: lê o que o serviço tem pela descrição // corte pesa menos o nível (o difícil é a fabricação)
@@ -11451,8 +11451,8 @@ function servicosHugo(it) {
   if (sv.includes('reb_a')) L.push({ nome: 'Rebaixo americano: recorte, polimento e colar o tampo', pts: 4 });
   if (sv.includes('reb_n')) L.push({ nome: 'Rebaixo: recorte e polimento', pts: 2 });
   if (sv.includes('cuba_lav') || sv.includes('cuba_coz') || it.cuba) { const c = CUBA_HUGO[cubaTipo(it)]; L.push({ nome: c[1], pts: c[0] }); }
-  if (sv.includes('cook')) L.push({ nome: 'Recorte do cooktop', pts: 1.5 });
-  if (sv.includes('s_45') || it.acabamento === '45') L.push({ nome: 'Saia em 45°: corte, colagem e acabamento', pts: Math.min(8, Math.max(3, meio(saiaM * 0.75))) }); // frontões e saias têm a mesma largura no orçamento: estimativa
+  // v203: recorte do cooktop é rápido, sem acabamento, e quem faz é a equipe do corte (conta no corte, não no Hugo)
+  if (sv.includes('s_45') || it.acabamento === '45') L.push({ nome: 'Saia em 45°: corte, colagem e polimento', pts: Math.min(8, Math.max(3, meio(saiaM * 0.75))) }); // frontões e saias têm a mesma largura no orçamento: estimativa
   // v189: saia reta, boleada e slim são do POLIDOR (acabamento/polimento), não do Hugo
   const furos = sv.filter(k => k === 'forn' || k === 'fralo').length; if (furos) L.push({ nome: `Furos (${furos})`, pts: 0.5 * furos });
   if (!L.length) L.push({ nome: 'Acabamento final', pts: 1 });
@@ -11486,7 +11486,6 @@ function hugoPeloTexto(p) {
   if (/\b45\b|quarenta e cinco|meia esquadria/.test(t)) v += Math.min(8, 3 * Math.min(2, nItens));
   if (/rebaixo americano|rebaixo/.test(t)) v += 4;
   if (/cuba|bojo/.test(t)) v += /flush/.test(t) ? 6 : /esculp/.test(t) ? 6 : /sobrep/.test(t) ? 1.5 : /embut/.test(t) ? 3 : 2.5;
-  if (/cooktop|cook top|fogao/.test(t)) v += 1.5;
   return v;
 }
 function hugoPtsBase(p) { return ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length).reduce((t, it) => t + servicosHugo(it).reduce((a, s) => a + s.pts, 0), 0); }
@@ -11638,6 +11637,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v203: recorte do cooktop sai do Hugo (vai para o corte, +0,5); Hugo = rebaixo americano, cuba e saia em 45° com polimento.
 // v202: pedido sem ficha (criado pela conversa) conta os serviços do Hugo pela descrição; pedido do Jailton com a ficha do desenho.
 // v200: rota pública /voz-video/<cena> (só a narração do vídeo da equipe, nada mais).
 // v199: narração do vídeo "pontos, metas e prêmio" — gera a voz de cada cena (mesma voz do bot) e guarda no D1 (tabela tmp_voz) para o vídeo
@@ -11652,6 +11652,13 @@ const NARR199 = {
   dicas: 'Dicas para ganhar mais pontos: mande foto de cada etapa, porque vale ponto e protege o seu trabalho. Ajudou numa instalação? Mande foto do serviço e ganhe a parte de ajudante. O seu nível começa pelo seu tempo de casa. E a qualquer hora, pergunte ao bot: quantos pontos eu tenho?',
   fim: 'Bora bater a meta, equipe!',
 };
+// v203: o cooktop saiu do Hugo — avisa o dono do novo total do Hugo
+async function mig203(env) {
+  if (await env.HR_KV.get('mig:203')) return; if (!(await travaEnvio(env, 'mig:203'))) return; await env.HR_KV.put('mig:203', '1');
+  const cfg = await pontoCfg(env), hugo = cfg.funcs.find(f => /hugo/i.test(f.nome || '')); if (!hugo) return;
+  const ini = semIni(dataBahia()), pts = ((await metasPontos(env, ini, isoSomaDias(ini, 6)))[hugo.id] || {}).pts || 0;
+  await pontoAvisarDono(env, `🛠️ Ajustei como o senhor explicou: o *recorte do cooktop* (rápido, sem acabamento) agora conta para quem faz o corte, não para o Hugo. O Hugo fica com: *rebaixo americano* (recorte, polimento e colar o tampo), *cuba* (recorte e polimento) e *saia em 45°* (corte, colagem e polimento da saia). Semana do Hugo agora: *${vPt(pts)} pontos*.`).catch(() => {});
+}
 // v202: o pedido do Jailton (papinha) foi criado pela conversa, sem peças: o Hugo ganhou 4 pontos (serviço simples). Ficha pelo desenho do Sr. Hangel.
 async function mig202Jailton(env) {
   if (await env.HR_KV.get('mig:202')) return; if (!(await travaEnvio(env, 'mig:202'))) return; await env.HR_KV.put('mig:202', '1');
@@ -31386,7 +31393,7 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
-    if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).catch(e => console.log('[MIG202]', e.message))); } // v202
+    if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
