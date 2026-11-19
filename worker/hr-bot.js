@@ -1,3 +1,4 @@
+// v156 (19/11/2026): PONTOS POR DIFICULDADE (tamanho da peça + cuba/esculpida/rebaixo/45°/saia/furos), CORTE PEÇA A PEÇA ("cortei 2 da Maria"), INÍCIO DA INSTALAÇÃO com foto (cliente avisado, duração), FOTO COM LEGENDA
 // v155 (19/11/2026): contato de funcionário enviado pelo dono → confirma, grava o telefone no RH e manda o manual
 // v154 (19/11/2026): EQUIPE VALENDO ("equipe valendo"/"equipe em teste" no KV; padrão valendo), manual de boas-vindas a cada funcionário, +pontos na hora, resumo do fim do dia 17h30, mural com a foto do serviço entregue
 // v153 (18/11/2026): acordo busca o orçamento pelo nome (orcamento_nome), prévia com [Confirmar e enviar], pede à cliente nome completo, CPF e endereço antes do termo
@@ -899,7 +900,7 @@ async function orcPdfLer(env, orcNum, qId) {
 }
 function resumoLimpo(rs) { // v134: pedra e peças do orçamento do app (para a ficha de corte)
   if (!rs || typeof rs !== 'object' || !Array.isArray(rs.itens)) return null;
-  const itens = rs.itens.slice(0, 8).map(it => ({ ambiente: String(it.ambiente || '').slice(0, 20), acabamento: String(it.acabamento || '').slice(0, 12),
+  const itens = rs.itens.slice(0, 8).map(it => ({ ambiente: String(it.ambiente || '').slice(0, 20), acabamento: String(it.acabamento || '').slice(0, 12), sv: (Array.isArray(it.sv) ? it.sv : []).slice(0, 20).map(x => String(x).slice(0, 16)), cuba: String(it.cuba || '').slice(0, 30), // v156
     pecas: (Array.isArray(it.pecas) ? it.pecas : []).slice(0, 30).map(x => ({ qtd: Math.max(1, Math.round(Number(x.qtd)) || 1), comp_cm: Number(x.comp_cm) || 0, larg_cm: Number(x.larg_cm) || 0 })).filter(x => x.comp_cm > 0 && x.larg_cm > 0) })).filter(it => it.pecas.length);
   return itens.length ? { pedra: String(rs.pedra || '').slice(0, 60), itens } : null;
 }
@@ -7749,9 +7750,11 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     const acabMeu = p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm && naFabrica(p);
     const l = await pedidosProducao(env, p => meu(p) && (acabMeu(p) || (papel !== 'entrega' && naFabrica(p) && (p.fabResp === String(f.id) ? !p.corteEm || !p.fab2Resp : p.fab2Resp === String(f.id) || !p.fabResp)) || (papel !== 'fabrica' && naEntrega(p))));
     if (!l.length) { await enviar(env, from, `${nome}, não tem nada pendente para você agora. 👍`); return true; }
-    await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : l.some(p => naFabrica(p) && [p.fab2Resp, p.fabResp].includes(String(f.id))) && (papel === 'fabrica' || l.every(p => naFabrica(p))) ? `Quando terminar um, me diga: _${l.some(p => p.fab2Resp === String(f.id)) ? 'terminei' : 'cortei'} o da Maria_.` : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
+    await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${difTxt(p) ? '\n   ' + difTxt(p) : ''}${p.cortadas && !p.corteEm ? `\n   ✂️ ${p.cortadas} de ${nPecasPed(p)} cortadas` : ''}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : l.some(p => naFabrica(p) && [p.fab2Resp, p.fabResp].includes(String(f.id))) && (papel === 'fabrica' || l.every(p => naFabrica(p))) ? `Quando terminar um, me diga: _${l.some(p => p.fab2Resp === String(f.id)) ? 'terminei' : 'cortei'} o da Maria_.` : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
     return true;
   }
+  if (papel !== 'entrega' && /\bcortei\b/.test(msg) && await prodCorteParcial(env, f, from, texto, nome, msg)) return true; // v156
+  if (papel !== 'fabrica' && /\b(iniciando|comecando|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
   if (papel !== 'entrega' && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
     const l0 = await pedidosProducao(env, naFabrica), mine = l0.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].includes(String(f.id))), l = mine.length ? mine : l0, ach = acharPorNome(l, texto);
     if (!ach.length) { await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei ficha pendente. Se for de um pedido novo, avise o Sr. Hangel.`); return !!l.length || true; }
@@ -7782,7 +7785,7 @@ async function prodMarcarPronto(env, ped, from, nome) {
     ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
     if (ped.acabResp && !ped.acabEm) { // v149: etapa de acabamento
       if (!ped.corteEm && fid && fid !== String(ped.acabResp)) { // o cortador terminou → passa para o acabador
-        ped.corteEm = Date.now(); ped.corteFeitoPor = fid; ped.prodLog.push({ e: 'corte', por: [fid], ts: Date.now() }); await salvarPedido(env, ped);
+        ped.corteEm = Date.now(); ped.corteFeitoPor = ped.corteFeitoPor || fid; ped.prodLog.push({ e: 'corte', por: [fid], ts: Date.now(), ...(ped.cortadas ? { pecas: Math.max(1, nPecasPed(ped) - ped.cortadas) } : {}) }); await salvarPedido(env, ped);
         const ta = await respTel(env, ped.acabResp), na = await respNome(env, ped.acabResp);
         if (ta) await enviar(env, ta, `${avisoTeste(env)}🪨 ${na}, as peças de *${ped.nome}* (${resumoPecas(ped)}) estão cortadas. Pode fazer o *acabamento*. Quando terminar: _terminei o acabamento da ${String(ped.nome).split(' ')[0]}_.`).catch(() => {});
         await enviar(env, from, `Show, ${nome}! Corte de *${ped.nome}* anotado. Passei para o ${na} fazer o acabamento.`);
@@ -7838,6 +7841,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await salvarPedido(env, ped);
   if (!jaEntregue && ped.numero) await garDoPedido(env, ped).catch(e => console.log('[GAR] entrega:', e.message)); // v144
   if (!jaEntregue) await metaChecar(env, ped.entFeitoPor); // v147
+  if (!jaEntregue && ped.instIniEm) { const min = Math.round((ped.entregueEm - ped.instIniEm) / 60000); await pontoAvisarDono(env, `⏱️ Instalação de *${ped.nome}*: ${horaTs(ped.instIniEm)} → ${horaTs(ped.entregueEm)} (${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')})${ped.instIniFotoEm ? ' · fotos de início e fim ✅' : ' · sem foto do início'}.`).catch(() => {}); } // v156
   if (!jaEntregue) await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, entrega: dataBahia() }, 'entregue');
   const cobrar = cobrarNaEntrega(ped);
   const tn = normaliza(texto || '');
@@ -9178,14 +9182,26 @@ let fotoTabOk = false;
 async function fotoTabela(env) { if (fotoTabOk || !env.HR_DB) return !!env.HR_DB; await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS foto_entrega (id INTEGER PRIMARY KEY AUTOINCREMENT, ref TEXT, b64 TEXT, mime TEXT, ts INTEGER, por TEXT)').run(); await env.HR_DB.prepare('CREATE INDEX IF NOT EXISTS foto_entrega_ref ON foto_entrega (ref)').run(); fotoTabOk = true; return true; }
 async function prodPedirFoto(env, ped, from, nome, texto, receb) {
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, texto: texto || '', receb: receb || null, em: Date.now() }), { expirationTtl: 12 * 3600 });
+  if (await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return true; // v156: a foto já veio junto
   await enviar(env, from, `📸 ${nome}, antes de dar baixa: me manda uma *foto mostrando todas as peças* de *${ped.nome}*${String(ped.entrega) === 'retirada' ? '' : ' (de preferência já no lugar)'}. É o comprovante da entrega.`);
   return true;
 }
 async function prodFotoRecebida(env, f, from, m, nome) {
   let pe = null; try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
+  const leg = String((m.image && m.image.caption) || '').trim();
+  if (leg && (!pe || /\b(iniciando|comecando|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
+    await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
+    await producaoFuncionario(env, f, from, leg, '', nome).catch(e => console.log('[FOTO] legenda:', e.message));
+    await env.HR_KV.delete('prod:fotoja:' + ultimos8(from));
+    try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
+  }
   let ultimo = null; try { ultimo = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!pe && !(ultimo && Date.now() - ultimo.em < 15 * 60000)) return false;
   const pid = pe ? pe.pid : ultimo.pid, ped = await lerPedido(env, pid).catch(() => null); if (!ped) return false;
+  if (pe && pe.tipo === 'inicio') { // v156: foto do início da instalação
+    let bf = null, tp = 'image/jpeg'; try { const r = await baixarMidia(env, m.image.id); bf = new Uint8Array(r.buf); tp = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
+    await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)); await prodFotoInicio(env, f, from, ped, bf, tp, nome); return true;
+  }
   if (pe && pe.tipo === 'pronto') { // v151: foto das peças prontas (não trava nada)
     let bf = null, tp = 'image/jpeg'; try { const r = await baixarMidia(env, m.image.id); bf = new Uint8Array(r.buf); tp = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
     if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('pronto:' + ped.id, bytesParaBase64(bf), tp, Date.now(), String(f.id)).run().catch(e => console.log('[FOTO]', e.message));
@@ -9336,6 +9352,33 @@ async function grvResposta(env, from, m) {
 //   Pontos: corte 1/peça · fabricação 3 + 1/peça · entrega 2 · instalação 5 · no prazo +1 · foto +1 · atraso −1
 // ═════════════════════════════════════════════════════════════════════════════
 const semIni = iso => { const d = diaSemanaISO(iso); return isoSomaDias(iso, d === 0 ? -6 : 1 - d); }; // segunda
+// v156: PONTOS POR DIFICULDADE — peça maior e com mais detalhes vale mais
+const SV_PTS = { cuba_lav: 1, cuba_coz: 1.5, cook: 1.5, reb_n: 1.5, reb_a: 2.5, s_45: 2, s_reta: 1, s_boleada: 1.5, s_slim: 1, frontao: 0.5, frontao_chf: 1, forn: 0.5, fralo: 0.5, peit_ping: 1, peit_col: 1.5, peit_portal: 0.5, sol2: 0.5, sol_45: 2, rodape: 0.5, cant: 0.5, tubo: 0.5 };
+const SV_NOME = { cuba_lav: 'cuba', cuba_coz: 'cuba', cook: 'cooktop', reb_n: 'rebaixo', reb_a: 'rebaixo americano', s_45: 'saia 45°', s_reta: 'saia', s_boleada: 'saia boleada', s_slim: 'saia slim', frontao: 'frontão', frontao_chf: 'frontão chanfrado', forn: 'furo torneira', fralo: 'furo ralo', peit_ping: 'pingadeira', peit_col: 'pedra colada', sol_45: '45°', rodape: 'rodapé', sol2: '2 lados' };
+const meio = v => Math.round(v * 2) / 2;
+const vPt = v => String(Math.round((+v || 0) * 10) / 10).replace('.', ',');
+function ptsBasePeca(c, l) { const a = (+c || 0) * (+l || 0) / 10000; let p = a < 0.15 ? 1 : a < 0.5 ? 1.5 : a < 1 ? 2 : a < 2 ? 3 : 4; if (Math.max(+c || 0, +l || 0) > 200) p += 0.5; return p; }
+function dificuldade(p) {
+  const its = ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length); if (!its.length) return null;
+  let corte = 0, det = 0; const lista = [];
+  for (const it of its) {
+    for (const pc of it.pecas) corte += ptsBasePeca(pc.comp_cm, pc.larg_cm) * (+pc.qtd || 1);
+    for (const k of (it.sv || [])) { let v = SV_PTS[k] || 0; if (k === 'cuba_lav' || k === 'cuba_coz') { const cid = String(it.cuba || ''); if (/esc_mxc/.test(cid)) v = 8; else if (/esc_com/.test(cid)) v = 5; else if (/esc_sim|esculp/i.test(cid)) v = 3; } if (v) { det += v; lista.push(/esc_/.test(String(it.cuba || '')) && /^cuba/.test(k) ? 'cuba esculpida' : (SV_NOME[k] || k)); } }
+    if (it.acabamento === '45' && !(it.sv || []).includes('sol_45')) { det += 2; lista.push('45°'); } else if (it.acabamento === '2_lados' && !(it.sv || []).includes('sol2')) det += 0.5;
+  }
+  return { corte: meio(corte), det: meio(det), lista: [...new Set(lista)] };
+}
+// pontos base de cada etapa (sem prazo e foto)
+function ptsEtapa(p, e) {
+  const d = dificuldade(p), n = nPecasPed(p);
+  if (e === 'corte') return d ? d.corte : n;
+  if (e === 'fabricacao') return d ? meio(2 + d.det + d.corte * 0.5) : 3 + n;
+  if (e === 'acabamento') return d ? meio(1 + d.det * 0.5) : 1;
+  if (e === 'instalacao') return d ? meio(3 + d.corte * 0.5) : 5;
+  if (e === 'entrega') return 2;
+  return 0;
+}
+function difTxt(p) { const d = dificuldade(p); if (!d) return ''; return `nível ${d.corte + d.det >= 14 ? '🔴 alto' : d.corte + d.det >= 6 ? '🟡 médio' : '🟢 simples'}${d.lista.length ? ' · ' + d.lista.join(', ') : ''}`; }
 const nPecasPed = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ pecas: p.pecas || [] }]; return Math.max(1, its.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0)); };
 const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) : '';
 async function metasPontos(env, de, ate) { // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
@@ -9344,18 +9387,19 @@ async function metasPontos(env, de, ate) { // v149: registro de etapas (prodLog)
   for (const p of await pedidosProducao(env, () => true)) {
     const n = nPecasPed(p), cx = pedComplexo(p), log = Array.isArray(p.prodLog) ? p.prodLog.slice() : [], tipos = new Set(log.map(x => x.e));
     if (!tipos.has('corte') && p.corteFeitoPor && p.corteEm) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm });
+    else if (tipos.has('corte') && p.corteEm && p.corteFeitoPor && log.filter(x => x.e === 'corte').every(x => x.pecas)) { const feitas = log.filter(x => x.e === 'corte').reduce((t, x) => t + x.pecas, 0); if (n - feitas > 0) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm, pecas: n - feitas }); } // v156: o resto do corte parcial
     if (!tipos.has('fabricacao') && p.fabFeitoPor && p.fabProntoEm && p.fabFeitoPor !== p.corteFeitoPor) log.push({ e: 'fabricacao', por: [p.fabFeitoPor], ts: p.fabProntoEm });
     if (!tipos.has('entrega') && !tipos.has('instalacao') && p.entFeitoPor && p.entregueEm) log.push({ e: cx ? 'instalacao' : 'entrega', por: [p.entFeitoPor], ts: p.entregueEm });
     for (const x of log) {
       if (!dentro(x.ts) || !Array.isArray(x.por) || !x.por.length || x.e === 'inicio') continue;
       let pts = 0, ex = null;
-      if (x.e === 'corte') pts = n;
-      else if (x.e === 'acabamento') pts = 1;
-      else if (x.e === 'fabricacao') { pts = 3 + n; const no = p.prontoPrevisto ? x.ts <= p.prontoPrevisto.ts + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; ex = { no }; }
-      else if (x.e === 'entrega' || x.e === 'instalacao') { pts = x.e === 'instalacao' ? 5 : 2; const no = p.janela ? x.ts <= p.janela.fim + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; if (p.fotoEntregaEm) pts += 1; ex = { no, foto: !!p.fotoEntregaEm }; }
+      if (x.e === 'corte') pts = x.pecas ? meio(ptsEtapa(p, 'corte') * x.pecas / n) || 0.5 : ptsEtapa(p, 'corte'); // v156: dificuldade e corte por peça
+      else if (x.e === 'acabamento') pts = ptsEtapa(p, 'acabamento');
+      else if (x.e === 'fabricacao') { pts = ptsEtapa(p, 'fabricacao'); const no = p.prontoPrevisto ? x.ts <= p.prontoPrevisto.ts + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; ex = { no }; }
+      else if (x.e === 'entrega' || x.e === 'instalacao') { pts = ptsEtapa(p, x.e) + (x.e === 'instalacao' && p.instIniFotoEm ? 1 : 0); const no = p.janela ? x.ts <= p.janela.fim + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; if (p.fotoEntregaEm) pts += 1; ex = { no, foto: !!p.fotoEntregaEm }; }
       else continue;
       const cada = Math.round(pts / x.por.length * 10) / 10;
-      for (const id of x.por) add(String(id), cada, ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : ''), p, x.ts, ex);
+      for (const id of x.por) add(String(id), cada, (x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : ''), p, x.ts, ex);
     }
   }
   return out;
@@ -9393,7 +9437,7 @@ async function metaPainel(env, funcId) {
   const falta = Math.max(0, m.meta - atual.pts);
   return { ok: true, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
     porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: atual.tarefas.slice(-12).reverse(), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
-    hist: hist.slice(0, 6).reverse(), regras: [['✂️ Corte', '1 ponto por peça'], ['🔧 Fabricação (45°, cuba, bancada)', '3 + 1 por peça'], ['🪨 Acabamento', '+1'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '5 pontos'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
+    hist: hist.slice(0, 6).reverse(), regras: [['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
 }
 // avisos de progresso no WhatsApp (chamado quando alguém conclui uma tarefa)
 async function metaChecar(env, funcId) {
@@ -9405,10 +9449,10 @@ async function metaChecar(env, funcId) {
     { // v154: avisa cada ponto ganho, na hora
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
       if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
-        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !(pn.pct >= 50 && !ja.includes('50')) && !(pn.pct >= 100 && !ja.includes('100'))) await enviar(env, tel, `${avisoTeste(env)}⭐ *+${Math.round((pn.pts - antes) * 10) / 10} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${pn.pts} de ${pn.meta}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${pn.falta}` : ' · meta batida 🎯'}`).catch(() => {}); }
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !(pn.pct >= 50 && !ja.includes('50')) && !(pn.pct >= 100 && !ja.includes('100'))) await enviar(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}`).catch(() => {}); }
     }
     if (pn.pct >= 100 && !ja.includes('100')) { await env.HR_KV.put(k, ja + '100', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}🎯🎉 *${nome}, META BATIDA!* ${pn.pts} de ${pn.meta} pontos nesta semana.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}* garantido!` : ''} Cada ponto a mais conta para o ranking. 💪`).catch(() => {}); await pontoAvisarDono(env, `🎯 *${nome}* bateu a meta da semana (${pn.pts}/${pn.meta} pts)${pn.bonus ? ` · bônus R$ ${reais(pn.bonus)}` : ''}.`).catch(() => {}); }
-    else if (pn.pct >= 50 && !ja.includes('50')) { await env.HR_KV.put(k, ja + '50', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}💪 ${nome}, metade da meta da semana! ${pn.pts} de ${pn.meta} pontos. Faltam ${pn.falta}.`).catch(() => {}); }
+    else if (pn.pct >= 50 && !ja.includes('50')) { await env.HR_KV.put(k, ja + '50', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}💪 ${nome}, ${pn.pct >= 85 ? 'quase lá' : 'metade da meta da semana'}! ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos. Faltam ${vPt(pn.falta)}.`).catch(() => {}); }
   } catch (e) { console.log('[META] checar:', e.message); }
 }
 async function metasRotina(env) {
@@ -9715,7 +9759,7 @@ async function sobraFuncionario(env, f, from, texto, nome) {
 
 // ── 3) foto das peças prontas ──
 async function prodPedirFotoPronto(env, ped, from, nome) {
-  if (String(env.FOTO_PRONTO ?? '1') === '0' || !from || ehDono(env, from)) return;
+  if (String(env.FOTO_PRONTO ?? '1') === '0' || !from || ehDono(env, from) || await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return;
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, tipo: 'pronto', em: Date.now() }), { expirationTtl: 6 * 3600 });
   await enviar(env, from, `📸 ${nome}, me manda uma *foto das peças prontas* de *${ped.nome}*? Fica guardada no pedido.`).catch(() => {});
 }
@@ -10118,6 +10162,47 @@ async function eqContatoBotao(env, from, id) {
   await enviar(env, from, ['✅ Pronto!', ...linhas, '', 'A partir de agora ele recebe as fichas, a lista do dia, os pontos e o resumo da tarde.'].join('\n'));
   return true;
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v156: CORTE PEÇA A PEÇA · INÍCIO DA INSTALAÇÃO COM FOTO · FOTO COM LEGENDA
+// ═════════════════════════════════════════════════════════════════════════════
+const NUM_TXT = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9, dez: 10 };
+async function prodCorteParcial(env, f, from, texto, nome, msg) {
+  const mm = msg.match(/\bcortei (?:mais )?(\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)\b/); if (!mm) return false;
+  const qtd = /^\d+$/.test(mm[1]) ? +mm[1] : NUM_TXT[mm[1]] || 0; if (!qtd) return false;
+  const l0 = await pedidosProducao(env, p => naFabrica(p) && !p.corteEm), mine = l0.filter(p => [p.fabResp, p.acabResp].includes(String(f.id))), l = mine.length ? mine : l0, ach = acharPorNome(l, texto);
+  if (ach.length !== 1) return false; // sem nome claro: o fluxo normal pergunta
+  const ped = ach[0], total = nPecasPed(ped), ja = +ped.cortadas || 0, resta = total - ja;
+  if (total <= 1 || qtd >= resta) { // terminou o corte: segue o fluxo normal (o resto conta no fechamento)
+    return false;
+  }
+  ped.cortadas = ja + qtd; ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : []; ped.prodLog.push({ e: 'corte', por: [String(f.id)], ts: Date.now(), pecas: qtd });
+  ped.corteFeitoPor = ped.corteFeitoPor || String(f.id); await salvarPedido(env, ped);
+  const pts = meio(ptsEtapa(ped, 'corte') * qtd / total) || 0.5;
+  await enviar(env, from, `✂️ Anotado, ${nome}: *${ped.cortadas} de ${total}* peças de *${ped.nome}* cortadas (+${String(pts).replace('.', ',')} pts). Faltam ${total - ped.cortadas}. Quando cortar mais, me diga: _cortei mais ${total - ped.cortadas > 1 ? 'uma' : 'a última'} da ${String(ped.nome).split(' ')[0]}_.`);
+  await metaChecar(env, String(f.id));
+  return true;
+}
+async function prodInicioInstalacao(env, f, from, texto, nome) {
+  const l0 = await pedidosProducao(env, p => naEntrega(p) && !p.instIniEm), mine = l0.filter(p => p.entResp === String(f.id)), l = mine.length ? mine : l0;
+  const falaInst = /instala|montagem|montar/.test(normaliza(texto));
+  let ach = acharPorNome(l, texto); if (!ach.length && falaInst && mine.length === 1) ach = mine;
+  if (!ach.length) { if (!falaInst) return false; await enviar(env, from, l.length ? `${nome}, vai começar qual? ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei instalação pendente. Avise o Sr. Hangel.`); return true; }
+  if (ach.length > 1) { await enviar(env, from, `${nome}, qual delas? ${ach.map(p => p.nome).join(', ')}.`); return true; }
+  const ped = ach[0]; ped.instIniEm = Date.now(); ped.instIniPor = String(f.id); ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : []; ped.prodLog.push({ e: 'inicio_inst', por: [String(f.id)], ts: Date.now() }); await salvarPedido(env, ped);
+  const fotoJa = await env.HR_KV.get('prod:fotoja:' + ultimos8(from));
+  await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, tipo: 'inicio', em: Date.now() }), { expirationTtl: 3 * 3600 });
+  if (!fotoJa) await enviar(env, from, `🔧 Boa, ${nome}! Início da instalação de *${ped.nome}* às ${horaTs(Date.now())}. Me manda uma *foto do local antes de começar* (mostra como estava). Ela protege você e a empresa.`);
+  await pontoAvisarDono(env, `🔧 *${nome}* começou a instalação de *${ped.nome}* às ${horaTs(Date.now())}${ped.entrega && ped.entrega.endereco ? ' · ' + ped.entrega.endereco : ''}.`).catch(() => {});
+  if (ped.numero && await janela24h(env, ped.numero)) await enviar(env, ped.numero, `${nomeDeTratamento(ped.nome) || 'Olá'}, nossa equipe chegou e começou a instalação. 😊 Qualquer coisa, é só falar comigo por aqui.`).catch(() => {});
+  return true;
+}
+async function prodFotoInicio(env, f, from, ped, buf, tipo, nome) {
+  if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('inicio:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(e => console.log('[FOTO]', e.message));
+  ped.instIniFotoEm = Date.now(); await salvarPedido(env, ped);
+  try { const up = await subirImagemMeta(env, buf, 'inicio-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📍 Início da instalação · ${ped.nome} · ${nome} · ${horaTs(Date.now())}` } }).catch(() => {}); } catch (_) {}
+  await enviar(env, from, `📸 Foto do início guardada. Bom trabalho! Quando terminar: _instalei o da ${String(ped.nome).split(' ')[0]}_ e a foto com todas as peças instaladas.`);
+}
+
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');

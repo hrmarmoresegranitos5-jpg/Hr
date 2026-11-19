@@ -16,7 +16,7 @@
     try {
       var itens = (q.ambSnap || []).map(function (a) {
         var acb = ''; Object.keys(a.svState || {}).forEach(function (k) { if (ACB_DE[k]) acb = ACB_DE[k]; });
-        return { ambiente: String(a.tipo || ''), acabamento: acb, pecas: (a.pecas || []).map(function (p) { return { qtd: +p.q || 1, comp_cm: +p.w || 0, larg_cm: +p.h || 0 }; }).filter(function (p) { return p.comp_cm > 0 && p.larg_cm > 0; }) };
+        return { ambiente: String(a.tipo || ''), acabamento: acb, sv: Object.keys(a.svState || {}), cuba: a.selCuba ? String(a.selCuba.id || '') : '', pecas: (a.pecas || []).map(function (p) { return { qtd: +p.q || 1, comp_cm: +p.w || 0, larg_cm: +p.h || 0 }; }).filter(function (p) { return p.comp_cm > 0 && p.larg_cm > 0; }) };
       }).filter(function (it) { return it.pecas.length; });
       return itens.length ? { pedra: q.mat || '', itens: itens } : null;
     } catch (e) { return null; }
