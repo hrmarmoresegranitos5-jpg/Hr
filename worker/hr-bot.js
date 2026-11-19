@@ -6852,6 +6852,7 @@ async function pedirAvaliacoes(env) {
   await mig182Reabrir(env).catch(e => console.log('[MIG182]', e.message)); // v182
   await mig185Garantias(env).catch(e => console.log('[MIG185]', e.message)); // v185
   await mig188Etapas(env).catch(e => console.log('[MIG188]', e.message)); // v188
+  await previsaoRotina(env).catch(e => console.log('[PREV]', e.message)); // v191
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -10832,6 +10833,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v191: previsão inteligente da produção (ritmo aprendido de cada um, fila por entrega, risco de atraso às 7h, gargalo) — comando "previsão da produção", ferramenta da IA e painel.
 // v190: ficha de produção no app (tipo de cada peça, saia, cuba, rebaixo, cooktop e responsáveis) usada nas etapas e pontos; o app manda o nome das peças do orçamento.
 // v189: saia reta/boleada (acabamento) e slim (polimento) passam para o polidor; saia 45° continua com o Hugo.
 // v188: etapas reais da bancada (corte com tampo do rebaixo, polimento de frontões/saias, Hugo: rebaixo americano, cuba sobrepor/embutida/flush/esculpida, saia 45°, cooktop, furos); "a cuba da Maria é flush".
@@ -11028,6 +11030,7 @@ async function aumentoTexto(env) {
   return L.join('\n');
 }
 async function desempComandoDono(env, from, msg, bruto) {
+  if (/^(previsao( da)? producao|vai dar tempo\??|quando fica pronto\??|fila( da producao)?|gargalo|previsao dos pedidos)$/.test(msg)) { await enviar(env, from, await previsaoTextoProd(env, false)); return true; } // v191
   if (await cubaTipoComando(env, from, msg)) return true; // v188
   { const mg = msg.match(/^(?:reenvia|reenviar|manda de novo|mande de novo|envia|enviar|manda) (?:o certificado d[ae] |a )?garantia d[aoe] ([a-z ]{3,40})$/); // v185
     if (mg && await garTabela(env)) { const tk = tokensPedra(mg[1]); const r = (await env.HR_DB.prepare("SELECT * FROM garantia WHERE status = 'ativa' ORDER BY criado DESC LIMIT 300").all()).results || []; const g = r.find(x => tk.every(w => tokensPedra(x.cliente || '').includes(w)));
@@ -11435,6 +11438,7 @@ async function producaoPainel(env) {
         return { e, pts: ptsEtapa(p, e), partes: U.map(u => ({ nome: u.nome, pts: meio(ptsEtapa(p, e) * u.frac) || 0.5, feito: done || ok.has(u.i) })) }; }),
       total: ptsServico(p), nivel: (() => { const n = nivelDif(p); return n.ico + ' ' + n.nome; })() };
   });
+  try { const pv = await previsaoProducao(env); for (const x of peds) { const y = pv.pedidos.find(z => z.id === x.id); if (y) x.previsao = { fim: y.fim, risco: y.risco, folgaH: y.folgaH }; } } catch (_) {} // v191
   return { ok: true, pedidos: peds, equipe: cfg.funcs.map(f => ({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], funcoes: map[f.id] || [] })) };
 }
 async function producaoFichaSalvar(env, b) {
@@ -11451,6 +11455,61 @@ async function producaoFichaSalvar(env, b) {
   for (const k of ['fabResp', 'poliResp', 'fab2Resp', 'acabResp', 'entResp']) if (b.resp && k in b.resp && ok(b.resp[k])) ped[k] = b.resp[k] || null;
   ped.fichaConferidaEm = Date.now(); await salvarPedido(env, ped);
   return { ok: true, pedido: (await producaoPainel(env)).pedidos.find(x => x.id === String(ped.id)) || null };
+}
+
+// v191: PREVISÃO INTELIGENTE DA PRODUÇÃO — aprende o ritmo de cada um (minutos por ponto, por etapa, dos últimos 60 dias),
+// monta a fila de cada pessoa por data de entrega e calcula quando cada pedido fica pronto. Avisa o dono do risco de atraso
+// antes de acontecer e diz onde está o gargalo. Sem IA: só conta.
+const RITMO_PADRAO = { corte: 20, polimento: 25, acabamento: 25, fabricacao: 30 }; // min por ponto até ter histórico
+function somaMinTrab(env, ts, min) { // ts + min minutos de expediente
+  let d = diaDe(ts), resto = min, ini = dsmMinDia(ts);
+  for (let i = 0; i < 90; i++) {
+    if (dsmDiaTrab(env, d)) { const ex = expedienteHoras(env, d), e = dsmHm(ex.e), s = dsmHm(ex.s); let a = Math.max(e, ini);
+      const blocos = s > 13 * 60 ? [[a, Math.max(a, 12 * 60)], [Math.max(a, 13 * 60), s]] : [[a, s]];
+      for (const [x, y] of blocos) { const cab = Math.max(0, y - x); if (resto <= cab) return Date.parse(d + 'T00:00:00-03:00') + (x + resto) * 60000; resto -= cab; } }
+    d = isoSomaDias(d, 1); ini = 0;
+  }
+  return ts + min * 60000;
+}
+async function previsaoProducao(env) {
+  const peds = await pedidosProducao(env, () => true), ag = Date.now();
+  let ritmo = {}; try { const a = await analiseEquipe(env, dataBahia(-60), dataBahia(), { peds, semPonto: true }); for (const x of a.func) { ritmo[x.id] = {}; for (const [et, t] of Object.entries(x.tempos)) if (t.n >= 3 && t.minPt > 0) ritmo[x.id][et === 'instalacao' ? 'inst' : et] = Math.min(120, Math.max(5, t.minPt)); } } catch (_) {}
+  const abertos = peds.filter(p => !p.entregueEm && p.status !== 'recusado' && (p.fichaEnviadaEm || p.fechDono) && !(p.fabProntoEm || p.prontoEm)).sort((a, b) => String(a.entrega_prevista || '9999').localeCompare(String(b.entrega_prevista || '9999')) || (a.criado || 0) - (b.criado || 0));
+  const cursor = {}, carga = {}, out = [];
+  const resta = (p, et) => { const feito = et === 'corte' ? p.corteEm : et === 'polimento' ? p.poliEm : et === 'acabamento' ? p.acabEm : p.fabProntoEm; if (feito) return 0; const U = unidadesPed(p, et), ok = new Set((p.prog || {})[et] || []); const fr = U.length > 1 ? U.filter(u => !ok.has(u.i)).reduce((t, u) => t + u.frac, 0) : 1; return ptsEtapa(p, et) * fr; };
+  const agenda = (quem, desde, pts, et) => { const min = pts * ((ritmo[quem] || {})[et] || RITMO_PADRAO[et] || 25); const k = quem || '?'; const ini = Math.max(cursor[k] || 0, desde); cursor[k] = ini + min; carga[k] = (carga[k] || 0) + min; return { fim: ini + min, min, espera: ini - desde }; };
+  for (const p of abertos) {
+    const cx = pedComplexo(p), passos = []; let fimCorte = 0;
+    const c = resta(p, 'corte'); if (c > 0) { const r = agenda(String(p.fabResp || ''), 0, c, 'corte'); fimCorte = r.fim; passos.push({ et: 'corte', quem: p.fabResp, ...r }); }
+    let fim = fimCorte;
+    if (cx) { const po = resta(p, 'polimento'); if (po > 0 && (unidadesEtapa(p, 'polimento') || []).length) { const r = agenda(String(p.poliResp || p.acabResp || ''), fimCorte, po, 'polimento'); fim = Math.max(fim, r.fim); passos.push({ et: 'polimento', quem: p.poliResp || p.acabResp, ...r }); }
+      const fa = resta(p, 'fabricacao'); if (fa > 0) { const r = agenda(String(p.fab2Resp || ''), fimCorte, fa, 'fabricacao'); fim = Math.max(fim, r.fim); passos.push({ et: 'fabricacao', quem: p.fab2Resp, ...r }); } }
+    else if (precisaAcab(p)) { const ac = resta(p, 'acabamento'); if (ac > 0) { const r = agenda(String(p.acabResp || ''), fimCorte, ac, 'acabamento'); fim = Math.max(fim, r.fim); passos.push({ et: 'acabamento', quem: p.acabResp, ...r }); } }
+    const fimTs = somaMinTrab(env, ag, fim), limite = p.entrega_prevista ? Date.parse(p.entrega_prevista + 'T' + (expedienteHoras(env, p.entrega_prevista).s || '17:00') + ':00-03:00') - (cx && String(p.entrega || '') !== 'retirada' ? 3 * 3600000 : 0) : null;
+    const gargalo = passos.slice().sort((a, b) => (b.espera + b.min) - (a.espera + a.min))[0] || null;
+    out.push({ id: String(p.id), nome: p.nome, entrega: p.entrega_prevista || null, fim: fimTs, risco: limite != null && fimTs > limite, folgaH: limite != null ? Math.round((limite - fimTs) / 3600000) : null, passos, gargalo });
+  }
+  return { pedidos: out, carga, ritmo };
+}
+async function previsaoTextoProd(env, soRisco) {
+  const pv = await previsaoProducao(env), cfg = await pontoCfg(env), nm = id => { const f = cfg.funcs.find(x => String(x.id) === String(id)); return f ? apelidoFunc(cfg, f) : 'sem responsável'; };
+  const dia = ts => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'short', day: '2-digit', month: '2-digit' }).format(new Date(ts)) + ' ' + horaTs(ts);
+  const ris = pv.pedidos.filter(x => x.risco); if (soRisco && !ris.length) return '';
+  const L = [soRisco ? `⚠️ *Risco de atraso na produção* (${ris.length})` : `🔮 *Previsão da produção* (${pv.pedidos.length} pedido(s))`, ''];
+  for (const x of (soRisco ? ris : pv.pedidos).slice(0, 15)) {
+    L.push(`${x.risco ? '🔴' : x.entrega ? '🟢' : '⚪'} *${x.nome}* — pronto ${dia(x.fim)}${x.entrega ? ` · entrega ${dataBR(x.entrega).slice(0, 5)}${x.risco ? ` (*${Math.abs(x.folgaH)} h além*)` : ''}` : ''}`);
+    if (x.risco && x.gargalo) L.push(`   gargalo: ${({ corte: 'corte', polimento: 'polimento', fabricacao: 'fabricação', acabamento: 'acabamento' })[x.gargalo.et]} com ${nm(x.gargalo.quem)} (${vPt(Math.round(x.gargalo.espera / 60 * 10) / 10)} h de fila + ${vPt(Math.round(x.gargalo.min / 60 * 10) / 10)} h de serviço)`);
+  }
+  const cg = Object.entries(pv.carga).filter(([k]) => k && k !== '?').sort((a, b) => b[1] - a[1]);
+  if (cg.length) L.push('', '*Fila de cada um:* ' + cg.map(([k, m]) => `${nm(k)} ${vPt(Math.round(m / 60 * 10) / 10)} h`).join(' · '));
+  if (soRisco) L.push('', '_Dá para: passar uma etapa para outro ("hoje o Gibson faz a saia 45 da Maria"), avisar o cliente ou mudar a ordem._');
+  else L.push('', '_O ritmo de cada um vem dos últimos 60 dias (minutos por ponto); sem histórico uso um ritmo padrão._');
+  return L.join('\n');
+}
+async function previsaoRotina(env) {
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 7 * 60 + 10 || ag.min > 9 * 60) return;
+  const k = 'prevprod:' + hoje; if (await env.HR_KV.get(k)) return; if (!(await travaEnvio(env, k))) return; await env.HR_KV.put(k, '1', { expirationTtl: 2 * 86400 });
+  const t = await previsaoTextoProd(env, true); if (t) await pontoAvisarDono(env, t);
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -12777,6 +12836,11 @@ const FERRAMENTAS = [
       motivo: { type: 'string', description: 'ex.: hora extra no sábado' } }, required: ['funcionarios'] },
   },
   {
+    name: 'previsao_producao',
+    description: 'PREVISÃO DA PRODUÇÃO: quando cada pedido fica pronto (pelo ritmo real de cada funcionário e a fila de cada um), quais estão em risco de atrasar e onde está o gargalo. Use para "vai dar tempo de entregar a Maria sexta?", "quando fica pronta a cozinha do João?", "quem está sobrecarregado?".',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'pedido_reabrir_entrega',
     description: 'REABRE uma entrega/instalação marcada por engano (ex.: "o Cássio não foi entregue, foi só uma etapa", "reabre a entrega do Jailton"). O pedido volta a NÃO entregue e os pontos da entrega saem. tambem_inicio=true se o início da instalação também foi marcado por engano.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, motivo: { type: 'string' }, tambem_inicio: { type: 'boolean' } }, required: ['cliente'] },
@@ -13246,6 +13310,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   }
   if (nome === 'pontos_anular') return await pontosAnularTool(env, a); // v181
   if (nome === 'pedido_reabrir_entrega') return await pedidoReabrirTool(env, a); // v182
+  if (nome === 'previsao_producao') return { texto: (await previsaoTextoProd(env, false)) + '\nResponda à pergunta do Sr. Hangel com estes números, em poucas linhas.' }; // v191
   if (nome === 'desempenho_equipe') { const t = a.aumento && !a.funcionario ? await aumentoTexto(env) : await desempenhoEquipeTexto(env, a.dias || (a.funcionario ? 30 : 30), a.funcionario || ''); return { texto: t + '\n\nRepasse ao Sr. Hangel este relatório como está (pode resumir se ele pediu algo específico). Não invente números.' }; } // v179
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b

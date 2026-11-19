@@ -1,4 +1,4 @@
-// app-producao.js — v1: 🏭 Ficha de produção (dados no bot: /bot/producao)
+// app-producao.js — v2 (previsão de pronto): 🏭 Ficha de produção (dados no bot: /bot/producao)
 // Secretária → "Produção": cada pedido em produção com as etapas (corte, polimento, Hugo, acabamento), as partes e os pontos.
 // Na ficha o Sr. Hangel confere o tipo de cada peça (bancada, frontão, saia, tampo), a saia, a cuba, o rebaixo, o cooktop e quem faz cada etapa.
 (function () {
@@ -48,7 +48,7 @@
   function sel(nome, val, ops) { return '<select data-k="' + nome + '">' + ops.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>'; }
   function cartao(p) {
     var ab = st.aberto === p.id;
-    var h = '<div class="prd-card"><div class="prd-l1" data-p="' + esc(p.id) + '"><div><div class="prd-nm">' + esc(p.nome) + '</div><div class="prd-fn">' + esc(p.pedra) + ' · ' + esc(p.nivel) + (p.entrega ? ' · entrega ' + p.entrega.split('-').reverse().slice(0, 2).join('/') : '') + '</div></div><div class="prd-pt"><b>' + n1(p.total) + '</b><span>pts no serviço</span></div></div>';
+    var h = '<div class="prd-card"><div class="prd-l1" data-p="' + esc(p.id) + '"><div><div class="prd-nm">' + esc(p.nome) + '</div><div class="prd-fn">' + esc(p.pedra) + ' · ' + esc(p.nivel) + (p.entrega ? ' · entrega ' + p.entrega.split('-').reverse().slice(0, 2).join('/') : '') + (p.previsao ? ' · <span style="color:' + (p.previsao.risco ? '#f87171' : '#7ee2a8') + '">' + (p.previsao.risco ? '⚠️ ' : '🔮 ') + 'pronto ' + new Date(p.previsao.fim).toLocaleString('pt-BR', { timeZone: 'America/Bahia', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '</span>' : '') + '</div></div><div class="prd-pt"><b>' + n1(p.total) + '</b><span>pts no serviço</span></div></div>';
     h += '<div class="prd-et">' + p.etapas.map(function (e) { var f = e.partes.filter(function (x) { return x.feito; }).length, t = e.partes.length || 1; return '<div class="' + (f >= t ? 'ok' : f ? 'meio' : '') + '">' + (ET[e.e] || e.e).split(' ')[0] + '<br>' + f + '/' + t + '</div>'; }).join('') + '</div>';
     if (ab) {
       h += '<div class="prd-det">';
