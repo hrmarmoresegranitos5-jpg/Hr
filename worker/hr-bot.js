@@ -1,3 +1,4 @@
+// v161 (19/11/2026): foto com legenda sem cliente reconhecido fica guardada até ele escolher (botões); a única tarefa dele vale; apelidos de clientes ("Papinha é a Maria Souza")
 // v160 (19/11/2026): VOZ MAIS NATURAL (vozes brasileiras da ElevenLabs quando houver chave, instrução de conversa de WhatsApp, texto limpo para fala) e "voz" para ouvir amostras e escolher
 // v159 (19/11/2026): avisar_equipe em ÁUDIO (audio=true) e sempre com a mensagem final escrita (nunca a instrução do dono); áudio guardado para quem estava fora das 24 h
 // v158 (19/11/2026): NÍVEL DO SERVIÇO multiplica pontos (🟢×1 🟡×1,25 🔴×1,5 💎×1,8), META DESAFIADORA (média+15% ou 90% da melhor semana), FAIXAS 🥉🥈🥇💎 comemoradas, CARREIRA (Aprendiz → Lenda) com XP acumulado
@@ -7787,8 +7788,9 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   if (papel !== 'entrega' && /\bcortei\b/.test(msg) && await prodCorteParcial(env, f, from, texto, nome, msg)) return true; // v156
   if (papel !== 'fabrica' && /\b(iniciando|comecando|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
   if (papel !== 'entrega' && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
-    const l0 = await pedidosProducao(env, naFabrica), mine = l0.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].includes(String(f.id))), l = mine.length ? mine : l0, ach = acharPorNome(l, texto);
-    if (!ach.length) { await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei ficha pendente. Se for de um pedido novo, avise o Sr. Hangel.`); return !!l.length || true; }
+    const l0 = await pedidosProducao(env, naFabrica), mine = l0.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].includes(String(f.id))), l = mine.length ? mine : l0;
+    let ach = acharPorNome(l, texto); if (!ach.length) ach = await prodPorApelido(env, l, texto); if (!ach.length && mine.length === 1) ach = mine; // v161: apelido do cliente ou a única tarefa dele
+    if (!ach.length) { if (l.length) await enviarComBotoes(env, from, `${nome}, de qual cliente é?`, l.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); else await enviar(env, from, `${nome}, não achei ficha pendente. Se for de um pedido novo, avise o Sr. Hangel.`); return true; }
     if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, qual ficha ficou pronta?`, ach.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
     return prodMarcarPronto(env, ach[0], from, nome);
   }
@@ -9234,9 +9236,11 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   const leg = String((m.image && m.image.caption) || '').trim();
   if (leg && (!pe || /\b(iniciando|comecando|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
+    await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); // v161: a foto espera ele dizer qual é
     await producaoFuncionario(env, f, from, leg, '', nome).catch(e => console.log('[FOTO] legenda:', e.message));
     await env.HR_KV.delete('prod:fotoja:' + ultimos8(from));
     try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
+    if (pe) await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); else { if (await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) await enviar(env, from, '📸 Guardei a foto. Assim que você escolher o cliente, ela vai junto.').catch(() => {}); return true; }
   }
   let ultimo = null; try { ultimo = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!pe && !(ultimo && Date.now() - ultimo.em < 15 * 60000)) return false;
@@ -9850,8 +9854,11 @@ async function sobraFuncionario(env, f, from, texto, nome) {
 
 // ── 3) foto das peças prontas ──
 async function prodPedirFotoPronto(env, ped, from, nome) {
-  if (String(env.FOTO_PRONTO ?? '1') === '0' || !from || ehDono(env, from) || await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return;
+  if (String(env.FOTO_PRONTO ?? '1') === '0' || !from || ehDono(env, from)) return;
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, tipo: 'pronto', em: Date.now() }), { expirationTtl: 6 * 3600 });
+  if (await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return; // a foto veio junto: quem chamou já guarda
+  let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
+  if (fp && fp.mid) { await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); const cfg = await pontoCfg(env), f = pontoFuncPorFone(cfg, from); if (f) { await prodFotoRecebida(env, f, from, { type: 'image', image: { id: fp.mid } }, nome).catch(e => console.log('[FOTO] guardada:', e.message)); return; } } // v161
   await enviar(env, from, `📸 ${nome}, me manda uma *foto das peças prontas* de *${ped.nome}*? Fica guardada no pedido.`).catch(() => {});
 }
 
@@ -10371,6 +10378,25 @@ async function qualidadeTexto(env, dias) {
     `⭐ Nota média da equipe: *${media}*${notas.length ? ` (${notas.length} nota${notas.length > 1 ? 's' : ''})` : ''}`,
     `🔁 Retrabalhos: *${retr.length}*${linF.length ? ' · ' + linF.join(' · ') : ''}`,
     ...retr.slice(-5).map(r => `  • ${r.nome}: ${String(r.etapa).replace('instalacao', 'instalação').replace('fabricacao', 'fabricação')}${r.motivo ? ' — ' + r.motivo : ''}`)].join('\n');
+}
+
+// v161: apelidos de clientes usados pela equipe ("a cozinha de Papinha") — o dono ensina: "Papinha é a Maria Souza"
+async function prodPorApelido(env, l, texto) {
+  let ap = {}; try { ap = JSON.parse((await env.HR_KV.get('cli:apelidos')) || '{}') || {}; } catch (_) {}
+  const t = ' ' + normaliza(texto) + ' ';
+  for (const [k, nomeReal] of Object.entries(ap)) if (t.includes(' ' + k + ' ')) { const tk = tokensPedra(nomeReal); const r = l.filter(p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w))); if (r.length) return r; }
+  return [];
+}
+async function apelidoClienteComando(env, from, msg, bruto) {
+  const m = String(bruto || '').match(/^\s*(?:o |a )?([A-Za-zÀ-ú][\wÀ-ú ]{1,25}?)\s+(?:é|e)\s+(?:o apelido d[ao] |o |a )?(?:cliente |client[ae] )?([A-Za-zÀ-ú][\wÀ-ú ]{3,60})\s*$/i);
+  if (!m || !/\b(apelido|cliente|e a|e o)\b/.test(normaliza(bruto)) || /\?/.test(bruto)) return false;
+  const apl = normaliza(m[1]).trim(), real = m[2].trim();
+  const cfg = await pontoCfg(env); if (funcsDoTexto(cfg, apl).length) return false; // é apelido de funcionário, não de cliente
+  const tk = tokensPedra(real), achou = (await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)))).length;
+  if (!achou) return false;
+  let ap = {}; try { ap = JSON.parse((await env.HR_KV.get('cli:apelidos')) || '{}') || {}; } catch (_) {}
+  ap[apl] = real; await env.HR_KV.put('cli:apelidos', JSON.stringify(ap));
+  await enviar(env, from, `Anotado: quando a equipe falar "${m[1].trim()}", é o serviço de *${real}*. 👍`); return true;
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -17478,6 +17504,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await apelidoClienteComando(env, from, msg, bruto).catch(() => false)) return; // v161
     if (await vozComando(env, from, msg).catch(e => { console.log('[VOZ] comando:', e.message); return false; })) return; // v160
     if (await eqModoComando(env, from, msg).catch(e => { console.log('[EQ] modo:', e.message); return false; })) return; // v154
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
