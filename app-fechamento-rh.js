@@ -157,10 +157,10 @@ var HR_FECHAMENTO = (function () {
     while (d <= per.df && d <= hoje && guard++ < 40) {
       var esp = 0; try { esp = HR_IMPORT._jornadaEsperada(d, l.f.id) || 0; } catch (e) {}
       var r = porDia[d];
-      if (esp > 0 && (!r || (!(parseFloat(r.horas) > 0) && r.tipo !== 'abonado'))) vazios.push(_dm(d));
+      if (esp > 0 && (!r || (!(parseFloat(r.horas) > 0) && r.tipo !== 'abonado' && r.tipo !== 'falta'))) vazios.push(_dm(d));
       d = _proxDia(d);
     }
-    if (vazios.length) out.push({ t: 'Dia sem ponto: ' + vazios.join(', ') + '. Conta como falta. Se a pessoa trabalhou, corrija o ponto antes de pagar.', grave: true });
+    if (vazios.length) out.push({ t: 'Dia sem ponto: ' + vazios.join(', ') + '. Resolva no dia a dia abaixo: trabalhou, faltou ou atestado.', grave: true });
     if (l.semSaida > 0) out.push({ t: l.semSaida + ' dia(s) com entrada e sem saída.', grave: true });
     if (l.antPend > 0.01) out.push({ t: 'Pode haver ' + _m(l.antPend) + ' em aberto do mês passado (' + l.antLbl + '). NÃO está somado aqui — toque em "Ver ficha" para conferir.', grave: false });
     return out;
@@ -182,15 +182,22 @@ var HR_FECHAMENTO = (function () {
       var futuro = d > hoje, dif = trab - esp, cor = futuro ? T3 : (!r || (!trab && r.tipo !== 'abonado')) ? RED : dif > 0 ? GREEN : dif < 0 ? AMBER : T2;
       var txtDif = futuro ? '—' : (!r && esp) ? 'sem ponto' : (r && r.tipo === 'abonado') ? 'abonado' : (dif === 0 ? 'certo' : (dif > 0 ? '+' : '−') + _hm(dif));
       var horario = r && r.entrada ? r.entrada + '–' + (r.saida || '?') : '—';
+      var semP = !futuro && esp > 0 && (!r || (!trab && r.tipo !== 'abonado' && r.tipo !== 'falta'));
+      if (r && r.tipo === 'falta') txtDif = 'faltou';
+      var acoes = semP ? '<div style="display:flex;gap:5px;margin:2px 0 6px 68px;flex-wrap:wrap;">' +
+        _btnP('✓ Trabalhou', "HR_FECHAMENTO.diaTrabalhou('" + l.f.id + "','" + d + "'," + esp + ")", GREEN) +
+        _btnP('✗ Faltou', "HR_FECHAMENTO.diaMarcar('" + l.f.id + "','" + d + "','falta')", RED) +
+        _btnP('🩺 Atestado', "HR_FECHAMENTO.diaMarcar('" + l.f.id + "','" + d + "','abonado')", AMBER) + '</div>' : '';
       rows += '<div style="display:grid;grid-template-columns:62px 1fr 52px 70px;gap:6px;padding:5px 0;border-top:1px solid ' + BD2 + ';font-size:.72rem;align-items:center;">' +
         '<span style="color:' + T2 + ';">' + _dm(d) + ' <span style="color:' + T3 + ';font-size:.6rem;">' + nomes[dow] + '</span></span>' +
         '<span style="color:' + T3 + ';">' + horario + (esp && esp < 480 && dow !== 6 ? ' <span style="font-size:.58rem;">(meio período)</span>' : '') + '</span>' +
         '<span style="color:' + T2 + ';text-align:right;">' + (trab ? _hm(trab) : '') + '</span>' +
-        '<b style="color:' + cor + ';text-align:right;">' + txtDif + '</b></div>';
+        '<b style="color:' + cor + ';text-align:right;">' + txtDif + '</b></div>' + acoes;
       d = _proxDia(d);
     }
     return '<div style="margin-top:10px;"><div style="font-size:.6rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Dia a dia</div>' + rows + '</div>';
   }
+  function _btnP(t, on, cor) { return '<button onclick="' + on + '" style="padding:5px 9px;border-radius:7px;border:1px solid ' + cor + '55;background:' + cor + '14;color:' + cor + ';font-family:Outfit,sans-serif;font-size:.66rem;font-weight:700;cursor:pointer;">' + t + '</button>'; }
   function _ultimoPag(f) {
     var ps = Object.values(HR_FUNC.getPagamentos()).filter(function (p) { return p.funcionarioId === f.id && (p.tipo === 'decendio' || !p.tipo); }).sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
     return ps[0] || null;
@@ -237,12 +244,12 @@ var HR_FECHAMENTO = (function () {
       var botoes = '';
       if (l.status === 'pagar') botoes += _btn('💳 Pagar ' + _m(l.valor), 'HR_FECHAMENTO.pagarUm(' + i + ')', GREEN, 'rgba(92,184,92,.1)', 'rgba(92,184,92,.45)');
       if (f.pix) botoes += _btn('📋 Copiar Pix', 'HR_FECHAMENTO.copiarPix(' + i + ')', GOLD, 'rgba(201,168,76,.07)', GOLDB);
-      if (grave) botoes += _btn('🛠 Corrigir ponto', 'HR_FECHAMENTO.corrigir(' + i + ')', AMBER, 'rgba(224,184,112,.07)', 'rgba(224,184,112,.35)');
-      if (l.status === 'pagar' || l.status === 'pago') botoes += _btn('💬 ' + (l.status === 'pago' ? 'Avisar que pagou' : 'Mandar a conta') + enviado, 'HR_FECHAMENTO.avisar(' + i + ')', '#25d366', 'rgba(37,211,102,.07)', 'rgba(37,211,102,.35)');
-      botoes += _btn('📄 PDF', 'HR_FECHAMENTO.relatorio(' + i + ')') + _btn('👤 Ficha', 'HR_FECHAMENTO.detalhes(' + i + ')');
-      var chk = l.status === 'pagar' ? '<label style="display:flex;align-items:center;gap:7px;font-size:.72rem;color:' + T2 + ';cursor:pointer;margin-top:9px;"><input type="checkbox" ' + (_st.sel[k] ? 'checked' : '') + ' onchange="HR_FECHAMENTO.toggle(' + i + ',this.checked)" style="width:20px;height:20px;accent-color:#5cb85c;">entra no "pagar todos"</label>' : '';
+      if (l.status === 'pagar' || l.status === 'pago') botoes += _btn('💬 ' + (l.status === 'pago' ? 'Mandar comprovante' : 'Mandar a conta pra ele') + enviado, 'HR_FECHAMENTO.avisar(' + i + ')', '#25d366', 'rgba(37,211,102,.07)', 'rgba(37,211,102,.35)');
+
+      var chk = '';
       corpo = '<div style="margin-top:12px;padding:9px 11px;background:rgba(0,0,0,.25);border-radius:10px;">' + conta + '</div>' + confHtml +
-        _diaADia(l, l.regsF || []) + chk + '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;">' + botoes + '</div>';
+        _diaADia(l, l.regsF || []) + '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;">' + botoes + '</div>' +
+        '<div style="margin-top:9px;font-size:.66rem;"><a onclick="HR_FECHAMENTO.detalhes(' + i + ')" style="color:' + T3 + ';text-decoration:underline;cursor:pointer;">abrir ficha completa</a></div>';
     } else if (grave || alertaVar) {
       corpo = '<div style="font-size:.68rem;color:' + (grave ? '#e29a9a' : AMBER) + ';margin-top:7px;line-height:1.4;">' + _esc((conf.find(function (c) { return c.grave; }) || { t: alertaVar }).t) + '</div>';
     }
@@ -267,7 +274,7 @@ var HR_FECHAMENTO = (function () {
     });
     var aPagar = linhas.filter(function (l) { return l.status === 'pagar'; });
     var totAPagar = aPagar.reduce(function (s, l) { return s + l.valor; }, 0);
-    var sel = aPagar.filter(function (l) { return _st.sel[_chave(l)]; });
+    var sel = aPagar.filter(function (l) { return !(l.conf || []).some(function (c) { return c.grave; }) && !l.erro; });
     var totSel = sel.reduce(function (s, l) { return s + l.valor; }, 0);
     var nGrave = linhas.filter(function (l) { return (l.conf || []).some(function (c) { return c.grave; }); }).length;
     var nPagos = linhas.filter(function (l) { return l.status === 'pago'; }).length;
@@ -298,15 +305,15 @@ var HR_FECHAMENTO = (function () {
           '<div style="font-size:1.7rem;font-weight:800;color:' + (totAPagar > 0.5 ? GOLD : GREEN) + ';line-height:1.15;">' + (totAPagar > 0.5 ? _m(totAPagar) : '✅ Tudo pago') + '</div>' +
           (totAPagar > 0.5 ? '<div style="font-size:.72rem;color:' + T2 + ';margin-top:4px;">' + aPagar.length + (aPagar.length === 1 ? ' pessoa' : ' pessoas') + ' · salários ' + _m(somaFixo) + ' + extras ' + _m(somaExt) + (somaDesc > 0.01 ? ' − descontos ' + _m(somaDesc) : '') + '</div>' : '') +
           (nPagos ? '<div style="font-size:.66rem;color:' + GREEN + ';margin-top:3px;">' + nPagos + ' já pago' + (nPagos > 1 ? 's' : '') + '</div>' : '') +
-          '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' + _btn('📥 Importar ponto do relógio', 'HR_FECHAMENTO.importar()', GREEN, 'rgba(92,184,92,.07)', 'rgba(92,184,92,.35)') + _btn('↻ Atualizar', 'HR_FECHAMENTO.atualizar()') + '</div>' +
         '</div>' +
         (totAPagar > 0.5 ? '<div style="font-size:.7rem;color:' + T3 + ';margin:0 2px 10px;">Toque no nome para ver a conta e o dia a dia.</div>' : '') +
-        (nGrave ? '<div style="background:rgba(200,92,92,.08);border:1px solid rgba(200,92,92,.35);border-radius:11px;padding:10px 13px;margin-bottom:12px;font-size:.76rem;color:#e29a9a;line-height:1.5;">⛔ ' + nGrave + (nGrave === 1 ? ' pessoa tem' : ' pessoas têm') + ' ponto faltando — o valor delas pode estar errado. Corrija antes de pagar (ficaram fora do "pagar todos").</div>' : '') +
+        (nGrave ? '<div style="background:rgba(200,92,92,.08);border:1px solid rgba(200,92,92,.35);border-radius:11px;padding:10px 13px;margin-bottom:12px;font-size:.76rem;color:#e29a9a;line-height:1.5;">⛔ ' + nGrave + (nGrave === 1 ? ' pessoa tem' : ' pessoas têm') + ' ponto faltando — o valor delas pode estar errado. Resolva antes de pagar — ficaram fora do "pagar todos".</div>' : '') +
         (linhas.length === 0 ? '<div style="text-align:center;padding:40px 20px;color:' + T3 + ';font-size:.84rem;">Nenhum funcionário ativo para pagar.</div>'
           : '<div class="fech-grid" style="display:flex;flex-direction:column;gap:10px;">' + linhas.map(function (l, i) { return _htmlLinha(l, i, av); }).join('') + '</div>') +
         '<div style="position:sticky;bottom:0;margin-top:14px;padding:12px 0 6px;background:linear-gradient(180deg,rgba(8,7,4,0),rgba(8,7,4,.97) 30%);">' +
           (aPagar.length ? '<button onclick="HR_FECHAMENTO.pagarSelecionados()" ' + (sel.length ? '' : 'disabled ') + 'style="width:100%;padding:15px;border-radius:12px;background:linear-gradient(135deg,#091a09,#040d04);border:1.5px solid rgba(92,184,92,' + (sel.length ? '.6' : '.2') + ');color:' + (sel.length ? GREEN : T3) + ';font-family:Outfit,sans-serif;font-size:.95rem;font-weight:800;cursor:' + (sel.length ? 'pointer' : 'default') + ';">' +
-            (sel.length ? '💳 Pagar todos que estão certos (' + sel.length + ') · ' + _m(totSel) : 'Marque quem vai pagar') + '</button>' : '') +
+            (sel.length ? '💳 Pagar os ' + sel.length + ' que estão prontos · ' + _m(totSel) : 'Resolva os avisos para pagar') + '</button>' : '') +
+          '<div style="text-align:center;margin-top:10px;font-size:.68rem;"><a onclick="HR_FECHAMENTO.importar()" style="color:' + T3 + ';text-decoration:underline;cursor:pointer;">tem dia no relógio de ponto? importar aqui</a></div>' +
           '<button onclick="HR_FECHAMENTO.fechar()" style="width:100%;margin-top:8px;padding:11px;border-radius:11px;background:transparent;border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Fechar</button>' +
         '</div>' +
       '</div>';
@@ -349,6 +356,11 @@ var HR_FECHAMENTO = (function () {
   }
   function avisar(i) {
     var l = _st.linhas[i]; if (!l) return;
+    _toast('Mandando para ' + l.f.nome.split(' ')[0] + ' pelo bot…');
+    _mandarPeloBot(l).then(function () { _avisoSet(_chave(l) + '|' + (l.status === 'pago' ? 'pago' : 'valor')); _toast('✅ Conta enviada no WhatsApp de ' + l.f.nome.split(' ')[0]); _render(); })
+      .catch(function () { _avisarWa(l); });
+  }
+  function _avisarWa(l) {
     var tel = String(l.f.telefone || '').replace(/\D/g, '');
     if (tel.length < 10) { _toast('Sem telefone cadastrado para ' + l.f.nome.split(' ')[0]); return; }
     window.open('https://wa.me/55' + tel + '?text=' + encodeURIComponent(_msg(l)), '_blank');
@@ -371,14 +383,54 @@ var HR_FECHAMENTO = (function () {
     HR_IMPORT.abrirImportacao();
   }
 
+
+  // ── v5: resolver dia sem ponto aqui mesmo ──
+  function _hm2min(t) { var m = /^(\d{1,2})[:h]?(\d{2})?$/.exec(String(t || '').trim()); return m ? (+m[1]) * 60 + (+(m[2] || 0)) : NaN; }
+  function _min2hm(x) { return _p2(Math.floor(x / 60)) + ':' + _p2(x % 60); }
+  function _gravarDia(fid, d, campos) {
+    var regs = HR_FUNC.getRegistros(), existe = null;
+    Object.keys(regs).some(function (k) { var g = regs[k]; if (g && String(g.funcionarioId) === String(fid) && g.data === d) { existe = g; return true; } });
+    var reg = existe || { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), funcionarioId: fid, data: d, destinoExtra: 'pagar', producao: '', instalacao: '', ieo: '', origem: 'manual', loteId: 'fech_' + d, criadoEm: new Date().toISOString() };
+    Object.keys(campos).forEach(function (k) { reg[k] = campos[k]; });
+    reg.atualizadoEm = new Date().toISOString();
+    regs[reg.id] = reg;
+    try { localStorage.setItem('hr_registros', JSON.stringify(regs)); } catch (e) { _toast('Não consegui salvar: ' + e.message); return false; }
+    return true;
+  }
+  function diaTrabalhou(fid, d, esp) {
+    var sug = esp <= 300 ? '07:00-11:00' : '07:00-17:00';
+    var t = prompt('Que horas entrou e saiu em ' + _dm(d) + '?\n(ex.: ' + sug + ' — em dia cheio desconto 1h20 de almoço)', sug);
+    if (t == null) return;
+    var p = String(t).replace(/\s/g, '').split(/[-–a]+/), e = _hm2min(p[0]), sa = _hm2min(p[1]);
+    if (!(e >= 0) || !(sa > e)) { _toast('Horário não entendi. Use assim: ' + sug); return; }
+    var alm = (sa - e) > 360 ? 80 : 0, c = (typeof HR_IMPORT !== 'undefined' && HR_IMPORT._calcDia) ? HR_IMPORT._calcDia(e, sa, d, alm, fid) : { trab: sa - e - alm, extra: 0 };
+    var campos = { entrada: _min2hm(e), saida: _min2hm(sa), saidaAlmoco: alm ? '12:00' : '', voltaAlmoco: alm ? _min2hm(720 + alm) : '', semAlmocoConfirmado: !alm, horas: +(c.trab / 60).toFixed(4), extra: +((c.extra || 0) / 60).toFixed(4), tipo: 'normal', tipoExtra: 'normal', observacao: 'Lançado no fechamento (trabalhou, sem ponto)' };
+    if (_gravarDia(fid, d, campos)) { _toast('✓ ' + _dm(d) + ' lançado: ' + campos.entrada + '–' + campos.saida); _render(); }
+  }
+  function diaMarcar(fid, d, tipo) {
+    var txt = tipo === 'falta' ? 'Confirmar FALTA em ' + _dm(d) + '? (desconta o dia)' : 'Marcar ' + _dm(d) + ' como ATESTADO? (não desconta)';
+    if (!confirm(txt)) return;
+    var campos = { tipo: tipo, entrada: '', saida: '', saidaAlmoco: '', voltaAlmoco: '', horas: 0, extra: 0, tipoExtra: 'normal', observacao: tipo === 'falta' ? 'Falta confirmada no fechamento' : 'Atestado (fechamento)' };
+    if (tipo === 'abonado') campos.motivoAbono = 'atestado';
+    if (_gravarDia(fid, d, campos)) { _toast('✓ ' + _dm(d) + (tipo === 'falta' ? ': falta confirmada' : ': atestado lançado')); _render(); }
+  }
+  // "Mandar a conta": pelo bot, já com o PDF do ponto (cai no WhatsApp dele); sem bot, abre o WhatsApp com o texto
+  function _mandarPeloBot(l) {
+    if (!window.HRPonto || !HRPonto.enviarPdfsBot) return Promise.reject(new Error('sem bot'));
+    var qual = _hojeISO() <= l.pv.per.df ? 'atual' : 'anterior';
+    return HRPonto.enviarPdfsBot({ forcar: true, qual: qual, funcId: l.f.id }).then(function (res) {
+      var r = res && res[l.f.id]; if (!r || /^erro|sem registros/.test(r)) throw new Error(r || 'não enviou'); return r;
+    });
+  }
+
   // ── pagamento (com confirmação) ─────────────────────────────
   function pagarUm(i) {
     var l = _st.linhas[i]; if (!l || l.status !== 'pagar') return;
     _confirmar([l]);
   }
   function pagarSelecionados() {
-    var itens = _st.linhas.filter(function (l) { return l.status === 'pagar' && _st.sel[_chave(l)]; });
-    if (!itens.length) { _toast('Marque quem você quer pagar'); return; }
+    var itens = _st.linhas.filter(function (l) { return l.status === 'pagar' && !(l.conf || []).some(function (c) { return c.grave; }) && !l.erro; });
+    if (!itens.length) { _toast('Ninguém pronto para pagar'); return; }
     _confirmar(itens);
   }
   function _confirmar(itens) {
@@ -403,6 +455,7 @@ var HR_FECHAMENTO = (function () {
         '<div style="margin:12px 0 14px;"><label style="font-size:.62rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.08em;">Forma de pagamento</label>' +
         '<select id="fechForma" style="width:100%;margin-top:5px;padding:11px;border-radius:10px;border:1px solid ' + BD + ';background:#1a1006;color:' + T1 + ';font-family:Outfit,sans-serif;font-size:.88rem;">' +
           '<option value="pix">📱 PIX</option><option value="dinheiro">💵 Dinheiro</option><option value="ted">🏦 TED</option></select></div>' +
+        '<label style="display:flex;gap:8px;align-items:center;font-size:.76rem;color:' + T2 + ';margin:-4px 0 12px;cursor:pointer;"><input id="fechAvisar" type="checkbox" checked style="width:19px;height:19px;accent-color:#25d366;">Mandar a conta no WhatsApp de cada um (pelo bot)</label>' +
         '<button id="fechOk" onclick="HR_FECHAMENTO._executar([' + ids.join(',') + '])" style="width:100%;padding:13px;border-radius:11px;background:linear-gradient(135deg,#091a09,#040d04);border:1.5px solid rgba(92,184,92,.5);color:' + GREEN + ';font-family:Outfit,sans-serif;font-size:.92rem;font-weight:800;cursor:pointer;margin-bottom:8px;">✅ Confirmar pagamento</button>' +
         '<button onclick="document.getElementById(\'' + OV_CONF + '\').remove()" style="width:100%;padding:11px;border-radius:11px;background:transparent;border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Cancelar</button>' +
       '</div>';
@@ -413,6 +466,7 @@ var HR_FECHAMENTO = (function () {
     if (_st.ocupado) return;
     _st.ocupado = true;
     var forma = (document.getElementById('fechForma') || {}).value || 'pix';
+    var avisarBot = !!(document.getElementById('fechAvisar') || {}).checked, pagos = [];
     var regs = Object.values(HR_FUNC.getRegistros());
     var ok = 0, pulados = 0, erros = [], total = 0;
     idx.forEach(function (i) {
@@ -426,7 +480,7 @@ var HR_FECHAMENTO = (function () {
         funcionarioId: l.f.id, data: l.pv.due, valor: valor, tipo: 'decendio', forma: forma,
         obs: 'Fechamento ' + per.label + ' (' + _dm(per.di) + ' a ' + _dm(per.df) + ')', notificar: false
       });
-      if (r && r.ok) { ok++; total += valor; delete _st.sel[_chave(l)]; }
+      if (r && r.ok) { ok++; total += valor; delete _st.sel[_chave(l)]; pagos.push(l); }
       else erros.push(l.f.nome.split(' ')[0] + ': ' + ((r && r.erro) || 'falhou'));
     });
     _st.ocupado = false;
@@ -437,6 +491,11 @@ var HR_FECHAMENTO = (function () {
     if (pulados) msg += ' · ' + pulados + ' já estava(m) pago(s)';
     if (erros.length) msg += ' · ⚠️ ' + erros.join('; ');
     _toast(msg);
+    if (avisarBot && pagos.length) { // um de cada vez (o PDF é gerado aqui no celular)
+      var seq = Promise.resolve(), env = 0;
+      pagos.forEach(function (l) { seq = seq.then(function () { return _mandarPeloBot(l).then(function () { env++; _avisoSet(_chave(l) + '|pago'); }).catch(function () {}); }); });
+      seq.then(function () { _toast('💬 Conta enviada para ' + env + ' de ' + pagos.length + ' no WhatsApp' + (env < pagos.length ? ' — os outros: use "Mandar comprovante"' : '')); _render(); });
+    }
   }
 
   // Quando o usuário volta do relatório / importação / histórico, atualiza a lista
@@ -454,7 +513,7 @@ var HR_FECHAMENTO = (function () {
   } catch (e) {}
 
   return {
-    abrir: abrir, atualizar: atualizar, abreFecha: abreFecha, copiarPix: copiarPix, fechar: fechar, setCorte: setCorte, toggle: toggle,
+    abrir: abrir, atualizar: atualizar, abreFecha: abreFecha, copiarPix: copiarPix, diaTrabalhou: diaTrabalhou, diaMarcar: diaMarcar, fechar: fechar, setCorte: setCorte, toggle: toggle,
     relatorio: relatorio, avisar: avisar, corrigir: corrigir, detalhes: detalhes, importar: importar,
     pagarUm: pagarUm, pagarSelecionados: pagarSelecionados, _executar: _executar
   };

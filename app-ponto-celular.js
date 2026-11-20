@@ -687,5 +687,5 @@
   window.HRPontoPrevias = enviarPrevias;
   setInterval(function () { if (!document.hidden) sincronizarAuto(false); }, 10 * 60000);
 
-  window.HRPonto = { pedirLemb: pedirLemb, corrigir: corrigir, pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
+  window.HRPonto = { enviarPdfsBot: function (o) { return enviarResumo(true).then(function () { return enviarPdfs(o); }); }, pedirLemb: pedirLemb, corrigir: corrigir, pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
 })();
