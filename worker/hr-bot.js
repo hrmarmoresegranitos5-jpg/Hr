@@ -10744,6 +10744,7 @@ async function eqContatoBotao(env, from, id) {
   for (const it of d.itens) {
     const f = cfg.funcs.find(x => String(x.id) === String(it.fid)); if (!f) continue;
     f.tel = it.tel; await pontoCfgSalvar(env, cfg);
+    { let tf = {}; try { tf = JSON.parse((await env.HR_KV.get('eq:telfix')) || '{}') || {}; } catch (_) {} tf[f.id] = it.tel; await env.HR_KV.put('eq:telfix', JSON.stringify(tf)); } // v226
     await equipeAtualizar(env, { funcionario: f.nome, telefone: it.tel }).catch(() => null); // também vai para o RH do app
     const r = emTesteEquipe(env) ? 'teste' : await eqManualPara(env, f.id).catch(() => 'falha');
     linhas.push(`• *${apelidoFunc(cfg, f)}*: ${fmtNumero(it.tel)} gravado no RH · ${r === 'ok' ? 'recebeu o manual' : r === 'modelo' ? 'recebeu o aviso (o manual vai quando ele responder)' : r === 'teste' ? 'equipe em teste: manual não enviado (mande _equipe valendo_)' : 'não consegui mandar o manual'}`);
@@ -28684,6 +28685,8 @@ async function pontoCfg(env) {
   if (typeof r.facial !== 'boolean') r.facial = true; // v36: exige rosto cadastrado e conferido em toda batida
   let t2 = {}; try { t2 = JSON.parse((await env.HR_KV.get('eq:tels2')) || '{}') || {}; } catch (_) {}
   Object.defineProperty(r, '_tel2', { value: t2, enumerable: false });
+  let tf = {}; try { tf = JSON.parse((await env.HR_KV.get('eq:telfix')) || '{}') || {}; } catch (_) {} // v226: cadastrado pelo bot/dono, nunca se perde
+  for (const f of r.funcs) if (!f.tel && tf[f.id]) f.tel = tf[f.id];
   for (const f of r.funcs) if (!f.tel) { const u = Object.keys(t2).find(k => !/^n:/.test(k) && String(t2[k]) === String(f.id)); if (u && t2['n:' + u]) f.tel = t2['n:' + u]; } // v223 // v218: outro número do funcionário (ex.: o do Gibson de entrega), aprendido sozinho
   return r;
 }
@@ -28976,6 +28979,7 @@ async function eqCadastrarConfirmado(env, f, num, from, opt) {
   opt = opt || {};
   const cfg = await pontoCfg(env), cf = cfg.funcs.find(x => String(x.id) === String(f.id)) || f; num = normalizarBR(num);
   cf.tel = num; await pontoCfgSalvar(env, cfg);
+  { let tf = {}; try { tf = JSON.parse((await env.HR_KV.get('eq:telfix')) || '{}') || {}; } catch (_) {} tf[cf.id] = num; await env.HR_KV.put('eq:telfix', JSON.stringify(tf)); }
   await equipeAtualizar(env, { funcionario: cf.nome, telefone: num }).catch(() => null);
   const t2 = Object.assign({}, cfg._tel2 || {}), u = ultimos8(num); t2[u] = String(cf.id); t2['n:' + u] = num; await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
   if (!opt.porDono) await env.HR_KV.put('ponto:ultzap:' + cf.id, String(Date.now()), { expirationTtl: 2 * 86400 });
@@ -29040,7 +29044,19 @@ async function eqContatosHistorico(env) {
     const perto = rows.filter(x => x.tipo === 'text' && +x.ts > +r.ts && +x.ts < ate).map(x => x.texto); // só o que ele escreveu logo depois deste contato
     for (const c of cs) { let nm = c.nm; if (!eqFuncPorNomeTexto(cfg0, nm) && cs.length === 1) { const t = perto.find(x => eqFuncPorNomeTexto(cfg0, x)); if (t) nm = nm + ' ' + t; } itens.push({ nm, tel: c.tel }); }
   });
-  const ult = new Map(); for (const it of itens) ult.set(ultimos8(it.tel), it); // o mais recente vence
+  try { // v226: o dono não fica no CRM; os cartões que ele mandou ficam salvos como contato
+    let cur; do { const l = await env.HR_KV.list({ prefix: 'comms:contato:', cursor: cur, limit: 1000 }); cur = l.list_complete ? null : l.cursor;
+      for (const k of l.keys) { let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (c && c.numero) itens.unshift({ nm: c.nome || '', tel: normalizarBR(String(c.numero).replace(/\D/g, '')) }); }
+    } while (cur);
+    // confirmações antigas que o app apagou: o bot avisou o dono "• Hugo: (74) 99979-1161 gravado no RH"
+    let cw; do { const lw = await env.HR_KV.list({ prefix: 'wo:', cursor: cw, limit: 1000 }); cw = lw.list_complete ? null : lw.cursor;
+      for (const k of lw.keys) { const t = String((await env.HR_KV.get(k.name)) || ''); if (!/gravado no RH/.test(t)) continue;
+        for (const mm of t.matchAll(/\*?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ ]{1,30}?)\*?:\s*\(?(\d{2})\)?\s*(\d{4,5})-?(\d{4})\s*gravado no RH/g)) itens.unshift({ nm: mm[1], tel: normalizarBR("55" + mm[2] + mm[3] + mm[4]) }); }
+    } while (cw);
+    const l2 = await env.HR_KV.list({ prefix: 'eq:ctt:', limit: 200 });
+    for (const k of l2.keys) { let d = null; try { d = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} for (const it of (d && d.itens) || []) { const f = cfg0.funcs.find(x => String(x.id) === String(it.fid)); if (f) itens.push({ nm: f.nome + ' ' + (it.nm || ''), tel: it.tel }); } }
+  } catch (e) { console.log('[EQ] contatos salvos:', e.message); }
+  const ult = new Map(); for (const it of itens) if (!ult.has(ultimos8(it.tel))) ult.set(ultimos8(it.tel), it); // o confirmado pelo dono vem primeiro
   const falta = new Set(cfg0.funcs.filter(f => !f.tel).map(f => String(f.id)));
   const alvo = [...ult.values()].filter(it => { const f = eqFuncPorNomeTexto(cfg0, it.nm); return f && falta.has(String(f.id)); });
   return alvo.length ? eqRegistrarContatos(env, alvo) : { feitos: [], sobra: [], cfg: cfg0 };
@@ -30253,7 +30269,7 @@ async function pontoRotina(env) {
   await pontoLembretes(env, cfg).catch(e => console.log('lembrete ponto', e && e.message)); // v35
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
   await eqFichaRotina(env).catch(e => console.log('ficha equipe', e && e.message)); // v223
-  if (await umaVez(env, 'eqctth:v225', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
+  if (await umaVez(env, 'eqctth:v226', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
   await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
   await rhAvisos(env).catch(e => console.log('rh avisos', e && e.message)); // v81
   await pvRotina(env).catch(e => console.log('pós-venda', e && e.message)); // v46
@@ -30292,7 +30308,7 @@ async function rotaBotPonto(req, env, url) {
   if (p === '/bot/ponto/config' && req.method === 'GET') return jsonR({ ok: true, cfg: { funcs: cfg.funcs, ips: cfg.ips, lat: cfg.lat, lng: cfg.lng, raio: cfg.raio, aviso: cfg.aviso, lemb: cfg.lemb, facial: cfg.facial, relAuto: cfg.relAuto !== false, apelidos: cfg.apelidos || {}, excBot: cfg.excBot || [] }, link: (await urlDoWorker(env).catch(() => '')) + '/ponto' });
   if (p === '/bot/ponto/config' && req.method === 'POST') {
     const b = await req.json().catch(() => ({}));
-    if (Array.isArray(b.funcs)) cfg.funcs = b.funcs.filter(f => f && f.id != null && f.nome).map(f => ({ id: String(f.id).slice(0, 40), nome: String(f.nome).slice(0, 60), tel: String(f.tel || '').replace(/\D/g, '').slice(0, 13) })).slice(0, 60);
+    if (Array.isArray(b.funcs)) { const antes = new Map((cfg.funcs || []).map(f => [String(f.id), f])); cfg.funcs = b.funcs.filter(f => f && f.id != null && f.nome).map(f => ({ id: String(f.id).slice(0, 40), nome: String(f.nome).slice(0, 60), tel: String(f.tel || '').replace(/\D/g, '').slice(0, 13) || String((antes.get(String(f.id)) || {}).tel || '') })).slice(0, 60); } // v226: o app sem telefone não apaga o que o bot cadastrou
     if (b.lat != null && b.lng != null && isFinite(+b.lat) && isFinite(+b.lng)) { cfg.lat = +(+b.lat).toFixed(6); cfg.lng = +(+b.lng).toFixed(6); }
     if (b.raio) cfg.raio = Math.max(50, Math.min(1000, Math.round(+b.raio) || 150));
     if (b.aviso && /^\d{2}:\d{2}$/.test(b.aviso)) cfg.aviso = b.aviso;
