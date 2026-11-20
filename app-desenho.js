@@ -92,9 +92,10 @@
     if (rebNormal(pc)) {
       var rr = recortes(pc, { A: A, p: p, main: main }).filter(function (r) { return r.t === 'reb'; })[0];
       if (rr) {
-        var pts = [], cp = function (k, x0, x1, z0, z1) { if (x1 - x0 > 0.5) pts.push({ k: k, g: 'slab', x0: x0, x1: x1, y0: main.y0, y1: main.y1, z0: z0, z1: z1 }); };
+        var pts = [], cp = function (k, x0, x1, z0, z1, y0) { if (x1 - x0 > 0.5) pts.push({ k: k, g: 'slab', x0: x0, x1: x1, y0: y0 == null ? main.y0 : y0, y1: y0 == null ? main.y1 : y0 === main.y0 ? main.y0 + 2 : main.y1, z0: z0, z1: z1 }); };
         rebZ = T - REB_DESCE;
-        cp('tE', main.x0, rr.x0, 0, T); cp('rebN', rr.x0, rr.x1, 0, Math.max(1, T - REB_DESCE)); rebZ = Math.max(1, T - REB_DESCE); cp('tD', rr.x1, main.x1, 0, T); // a sainha embaixo continua alinhada; só o tampo fica 2 cm mais baixo
+        cp('tE', main.x0, rr.x0, 0, T); cp('rebN', rr.x0, rr.x1, 0, Math.max(1, T - REB_DESCE)); cp('rebF', rr.x0, rr.x1, 0, T, main.y0); rebZ = Math.max(1, T - REB_DESCE); cp('tD', rr.x1, main.x1, 0, T);
+        // a sainha da frente da área molhada fica na altura toda (alinhada com a pia); o tampo da área molhada desce 2 cm atrás dela
         bx.splice.apply(bx, [0, 1].concat(pts));
         var fF = bx.filter(function (b) { return b.k === 'frF'; })[0];
         if (fF) { // frontão dividido na área molhada, com 2 cm a mais lá
@@ -257,7 +258,7 @@
     var grp = function (gg) { return g.boxes.filter(function (b) { return b.g === gg; }); };
     ordenar(grp('pe'), c).forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); });
     var zR = function (r) { var rn = R.filter(function (o) { return o.n; })[0]; return rn && r.t !== 'cook' && r.x0 >= rn.x0 - 1 && r.x1 <= rn.x1 + 1 ? g.rebZ : g.T; };
-    var lajes = ordenar(grp('slab'), c); lajes.sort(function (a, b) { return (a.k === 'rebN' ? 0 : 1) - (b.k === 'rebN' ? 0 : 1); }); // a pedra do rebaixo (mais baixa) primeiro
+    var lajes = ordenar(grp('slab'), c); lajes.sort(function (a, b) { var o = { rebN: 0, rebF: 1 }; return (o[a.k] != null ? o[a.k] : 2) - (o[b.k] != null ? o[b.k] : 2); }); // a pedra do rebaixo (mais baixa) primeiro
     lajes.forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); if (b.k === 'main') R.forEach(function (r) { h += recorteSvg(r, P, s, ox, oy, g.T, sw * 0.85); }); });
     if (g.rebZ !== g.T) R.forEach(function (r) { if (!r.n) h += recorteSvg(r, P, s, ox, oy, zR(r), sw * 0.85); });
     ordenar(grp('fr'), c).forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); });
@@ -455,6 +456,7 @@
     if (pc.tipo === 'placa') { add(nomePeca(pc), 'outro', num(pc.A), num(pc.H)); return L; }
     var g = geo(pc), nm = nomePeca(pc);
     g.boxes.forEach(function (b) {
+      if (b.k === 'rebF') return;
       if (b.g === 'slab') add(b.k === 'rebN' ? 'Pedra do rebaixo' : b.k === 'tE' ? 'Tampo à esquerda do rebaixo' : b.k === 'tD' ? 'Tampo à direita do rebaixo' : pc.tipo === 'L' ? (b.k === 'main' ? 'Bancada (parte maior)' : 'Bancada (perna do L)') : nm, 'bancada', b.x1 - b.x0, b.y1 - b.y0);
       if (b.g === 'fr') add(b.k === 'frM' ? 'Frontão da área molhada' : 'Frontão', 'frontao', Math.max(b.x1 - b.x0, b.y1 - b.y0), b.z1 - b.z0);
       if (b.g === 'pe') add('Pé estrutural', 'outro', b.z1 - b.z0, b.y1 - b.y0);
@@ -466,7 +468,7 @@
         add(nmS, 'saia', A2 - pB, sa); add(nmS, 'saia', pB, sa); add(nmS, 'saia', B - p, sa);
         if (dir ? !pc.frE : !pc.frD) add(nmS, 'saia', p, sa);
         if (dir ? !pc.frD : !pc.frE) add(nmS, 'saia', B, sa);
-      } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (rn0) { if (rn0.x0 > 0.5) add(nmS, 'saia', rn0.x0, sa); add(nmS + ' (área molhada)', 'saia', rn0.x1 - rn0.x0, Math.max(1, sa - REB_DESCE)); if (A2 - rn0.x1 > 0.5) add(nmS, 'saia', A2 - rn0.x1, sa); } else add(nmS, 'saia', A2, sa); if (!pc.frE) add(nmS, 'saia', p, sa); if (!pc.frD) add(nmS, 'saia', p, sa); }
+      } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (rn0) { if (rn0.x0 > 0.5) add(nmS, 'saia', rn0.x0, sa); add(nmS + ' (área molhada)', 'saia', rn0.x1 - rn0.x0, sa); if (A2 - rn0.x1 > 0.5) add(nmS, 'saia', A2 - rn0.x1, sa); } else add(nmS, 'saia', A2, sa); if (!pc.frE) add(nmS, 'saia', p, sa); if (!pc.frD) add(nmS, 'saia', p, sa); }
     }
     if (pc.reb && pc.reb.on && !rebNormal(pc)) add('Tampo do rebaixo americano', 'tampo', num(pc.reb.c), num(pc.reb.l));
     return L;
