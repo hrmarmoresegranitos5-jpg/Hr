@@ -273,7 +273,7 @@
   function mod(t, f) { return function () { var p = novaPeca(t); f && f(p); return p; }; }
   var MODS = [
     { n: 'Pia reta', f: mod('bancada', function (p) { p.A = 180; }) },
-    { n: 'Pia com rebaixo americano', f: mod('bancada', function (p) { p.A = 200; p.saia = '45'; p.reb.on = true; }) },
+    { n: 'Pia com rebaixo americano', f: mod('bancada', function (p) { p.A = 200; p.saia = '45'; p.saiaAlt = 6; p.reb.on = true; }) },
     { n: 'Pia com cooktop', f: mod('bancada', function (p) { p.A = 240; p.cuba.x = 170; p.cook.on = true; p.cook.x = 55; }) },
     { n: 'Cozinha em L (perna direita)', f: mod('L', function (p) { p.perna = 'dir'; p.cuba.x = 110; }) },
     { n: 'Cozinha em L (perna esquerda)', f: mod('L', function (p) { p.perna = 'esq'; p.frD = false; p.frE = true; p.cuba.ref = 'dir'; p.cuba.x = 110; }) },
@@ -335,7 +335,7 @@
         else n.push('Cuba ' + (cb.f === 'redonda' ? 'redonda Ø ' + f1(cb.x1 - cb.x0) : 'oval ' + f1(cb.x1 - cb.x0) + 'x' + f1(cb.y1 - cb.y0)) + (c.inst === 'sobrepor' ? ' de sobrepor' : ''));
       }
       if (ck) n.push('Cooktop ' + f1(ck.x1 - ck.x0) + 'x' + f1(ck.y1 - ck.y0) + ', centro a ' + f1(ck.cx) + ' do canto esquerdo');
-      if (pc.saia === 'slim') n.push('Acabamento slim (só a espessura da pedra)');
+      if (pc.saia === 'slim') n.push('Acabamento slim (2 cm, só a espessura da pedra)');
       if (temSaia(pc)) n.push('Sainha ' + ({ reta: 'reta', slim: 'slim', '45': 'em 45°', boleada: 'boleada' }[pc.saia]) + ' de ' + f1(num(pc.saiaAlt)) + 'cm');
       if (num(pc.fr) > 0 && (pc.frF || pc.frE || pc.frD) && pc.tipo !== 'prateleira') n.push('Frontão de ' + f1(num(pc.fr)) + 'cm');
       if (pc.pe !== 'nenhum') n.push('Pé estrutural de ' + f1(num(pc.peAlt)) + 'cm no lado ' + (pc.pe === 'dir' ? 'direito' : 'esquerdo'));
@@ -478,7 +478,7 @@
           if (/oval/.test(c)) { pc.cuba.tipo = 'oval'; pc.cuba.w = 48; pc.cuba.h = 36; }
           if (/sobrepor/.test(c)) pc.cuba.inst = 'sobrepor'; if (/embut/.test(c)) pc.cuba.inst = 'embutida'; if (/flush/.test(c)) pc.cuba.inst = 'flush';
         }
-        if (/saia|sainha/.test(c) || ctx === 'saia') { if (/45/.test(c)) pc.saia = '45'; else if (/slim/.test(c)) pc.saia = 'slim'; else if (/bolead/.test(c)) pc.saia = 'boleada'; else if (/reta/.test(c)) pc.saia = 'reta'; }
+        if (/saia|sainha/.test(c) || ctx === 'saia') { if (/45/.test(c)) { pc.saia = '45'; if (num(pc.saiaAlt) === 4) pc.saiaAlt = 6; } else if (/slim/.test(c)) pc.saia = 'slim'; else if (/bolead/.test(c)) pc.saia = 'boleada'; else if (/reta/.test(c)) pc.saia = 'reta'; }
         if (/perna|lado da perna|l (pra|para)/.test(c) || (tp === 'L' && /^(pra |para )?(a )?(esquerda|direita)$/.test(c))) { if (/esquerd/.test(c)) pc.perna = 'esq'; if (/direit/.test(c)) pc.perna = 'dir'; usou = true; }
         if (/canto (na|da|fica na) perna/.test(c)) { pc.emenda = 'perna'; usou = true; } if (/canto (no|do|fica no) fundo/.test(c)) { pc.emenda = 'principal'; usou = true; }
         if (/vista|fundo p/.test(c)) { if (/esquerd/.test(c)) pc.vista = -1; if (/direit/.test(c)) pc.vista = 1; usou = true; }
@@ -666,8 +666,8 @@
       if (pc.tipo === 'L') h += '<div class="des-g4">' + campo('A', 'Fundo', pc.A, true) + campo('B', 'Perna', pc.B, true) + campo('p', 'Largura', pc.p, true) + campo('qtd', 'Qtd.', pc.qtd, true) + '</div>' + chips('perna', pc.perna, [['esq', '⌙ Perna à esquerda'], ['dir', '⌐ Perna à direita']]);
       else h += '<div class="des-g">' + campo('A', 'Comprimento', pc.A, true) + campo('p', 'Largura', pc.p, true) + campo('qtd', 'Qtd.', pc.qtd, true) + '</div>';
       h += '<span class="des-l" style="margin-top:10px">Acabamento</span>' + chips('saia', pc.saia, SAIAS);
-      if (pc.saia === 'slim') h += '<div class="des-dica">Slim: só a espessura da pedra, sem sainha.</div>';
-      else if (pc.saia !== 'nenhuma') h += '<div class="des-g" style="grid-template-columns:1fr 2fr">' + campo('saiaAlt', 'Altura da sainha', pc.saiaAlt, true) + '<div></div></div>';
+      if (pc.saia === 'slim') h += '<div class="des-dica">Slim: só a espessura da pedra (2 cm), sem sainha.</div>';
+      else if (pc.saia !== 'nenhuma') h += '<div class="des-g" style="grid-template-columns:1fr 2fr">' + campo('saiaAlt', 'Altura da sainha', pc.saiaAlt, true) + '<div class="des-dica" style="align-self:end">' + (pc.saia === '45' ? 'Padrão da 45°: 6 cm' : 'Pode mudar a altura') + '</div></div>';
       if (pc.tipo !== 'prateleira') {
         var c = pc.cuba || {}, tem = c.tipo && c.tipo !== 'nenhuma';
         h += '<span class="des-l" style="margin-top:10px">Detalhes</span><div class="des-ch">' + '<button type="button" data-cubaon="1" class="' + (tem ? 'on' : '') + '">' + (tem ? '✓ ' : '') + 'Cuba</button>' + lig('reb.on', pc.reb && pc.reb.on, 'Rebaixo americano') + lig('cook.on', pc.cook && pc.cook.on, 'Cooktop') + '</div>';
@@ -831,7 +831,7 @@
       var dm = e.target.closest('[data-dim]'); if (dm) { tocarDim(dm.getAttribute('data-dim')); return; }
       var co = e.target.closest('[data-cubaon]'); if (co) { var pcc = pcDe(co), cc = pcc.cuba = pcc.cuba || {}; if (cc.tipo && cc.tipo !== 'nenhuma') cc.tipo = 'nenhuma'; else { cc.inst = cc.inst || 'embutida'; cc.ref = cc.ref || 'esq'; if (pcc.tipo === 'lavatorio') { cc.tipo = 'redonda'; cc.w = 40; cc.h = 40; } else { cc.tipo = 'retangular'; cc.w = 56; cc.h = 34; } } desenharCv(); atualizarPainel(); return; }
       var pcs1 = e.target.closest('[data-pcsel]'); if (pcs1 && !e.target.closest('[data-acao]')) { var ni = +pcs1.getAttribute('data-pcsel'); if (ni !== st.sel) { st.sel = ni; desenharCv(); atualizarPainel(); } return; }
-      if (ch) { var pc = pcDe(ch), k = ch.getAttribute('data-ch'), vv = ch.getAttribute('data-v'); if (k === 'vista') vv = +vv; setK(pc, k, vv); if (k === 'cuba.tipo') { var cb = pc.cuba; if (vv === 'redonda') { cb.w = pc.tipo === 'lavatorio' ? 40 : 45; cb.h = cb.w; } else if (vv === 'oval') { cb.w = 48; cb.h = 36; } else if (/esculp|rampada/.test(vv)) { cb.w = 50; cb.h = 35; } else if (vv === 'retangular') { cb.w = pc.tipo === 'lavatorio' ? 45 : 56; cb.h = pc.tipo === 'lavatorio' ? 30 : 34; } } desenharCv(); atualizarPainel(); return; }
+      if (ch) { var pc = pcDe(ch), k = ch.getAttribute('data-ch'), vv = ch.getAttribute('data-v'); if (k === 'vista') vv = +vv; setK(pc, k, vv); if (k === 'saia') { var sa0 = num(pc.saiaAlt); if (vv === '45' && (sa0 === 4 || !sa0)) pc.saiaAlt = 6; else if ((vv === 'reta' || vv === 'boleada') && (sa0 === 6 || !sa0)) pc.saiaAlt = pc.tipo === 'lavatorio' ? 10 : 4; } if (k === 'cuba.tipo') { var cb = pc.cuba; if (vv === 'redonda') { cb.w = pc.tipo === 'lavatorio' ? 40 : 45; cb.h = cb.w; } else if (vv === 'oval') { cb.w = 48; cb.h = 36; } else if (/esculp|rampada/.test(vv)) { cb.w = 50; cb.h = 35; } else if (vv === 'retangular') { cb.w = pc.tipo === 'lavatorio' ? 45 : 56; cb.h = pc.tipo === 'lavatorio' ? 30 : 34; } } desenharCv(); atualizarPainel(); return; }
       if (tg) { var pc2 = pcDe(tg), k2 = tg.getAttribute('data-tg'); setK(pc2, k2, !getK(pc2, k2)); desenharCv(); atualizarPainel(); return; }
       if (ad) { d.pecas.push(novaPeca(ad.getAttribute('data-addpc'))); st.aberta = d.pecas.length - 1; st.sel = st.aberta; desenharCv(); atualizarPainel(); var u = document.querySelector('[data-pc="' + st.aberta + '"]'); if (u) u.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       if (rm) { if (!confirm('Remover esta peça?')) return; d.pecas.splice(+rm.getAttribute('data-rmpc'), 1); st.aberta = -1; desenharCv(); atualizarPainel(); return; }
