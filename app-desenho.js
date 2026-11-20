@@ -171,7 +171,7 @@
     return { x0: Math.min.apply(0, xs), x1: Math.max.apply(0, xs), y0: Math.min.apply(0, ys), y1: Math.max.apply(0, ys) };
   }
   function bboxPeca(pc) {
-    if (oblq(pc)) { var b = bboxOb(pc); return { w: b.x1 - b.x0, h: b.y1 - b.y0, mL: 78, mR: 78, mT: pc.reb && pc.reb.on && pc.tipo !== 'prateleira' ? 135 : 78, mB: pc.tipo === 'L' || num(pc.qtd) > 1 ? 70 : 24 }; }
+    if (oblq(pc)) { var b = bboxOb(pc); return { w: b.x1 - b.x0, h: b.y1 - b.y0, mL: 110, mR: 110, mT: pc.reb && pc.reb.on && pc.tipo !== 'prateleira' ? 135 : 78, mB: pc.tipo === 'L' || num(pc.qtd) > 1 ? 70 : 24 }; }
     var A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H));
     return pc.tipo === 'nicho' ? { w: A + 16, h: H + 16, mL: 20, mR: 50, mT: 20, mB: 20 } : { w: A, h: H, mL: 20, mR: 70, mT: 20, mB: 50 };
   }
@@ -280,14 +280,14 @@
     var fora = function (a, b, sx) { var vx = b[0] - a[0], vy = b[1] - a[1], L0 = Math.hypot(vx, vy) || 1, n0 = [vy / L0, -vx / L0]; if (n0[0] * sx < 0) n0 = [-n0[0], -n0[1]]; return n0; };
     if (pc.tipo === 'L') {
       var dir = pc.perna !== 'esq', xo = dir ? g.A : 0, a1 = S(xo, 0, 0), a2 = S(xo, g.Ymax - g.p, 0);
-      h += cota(a1, a2, fora(a1, a2, dir ? 1 : -1), 30, f1(num(pc.B)), fs, it && idx + '|B');
+      h += cota(a1, a2, [dir ? 1 : -1, 0], num(pc.fr) > 0 && (dir ? pc.frD : pc.frE) ? 34 + num(pc.fr) * s * 0.75 : 42, f1(num(pc.B)), fs, it && idx + '|B');
       var xe = dir ? 0 : g.A, b1 = S(xe, g.Ymax - g.p, 0), b2 = S(xe, g.Ymax, 0);
-      h += cota(b1, b2, fora(b1, b2, dir ? -1 : 1), 30, f1(g.p), fs2, it && idx + '|p');
+      h += cota(b1, b2, [dir ? -1 : 1, 0], num(pc.fr) > 0 && (dir ? pc.frE : pc.frD) ? 34 + num(pc.fr) * s * 0.75 : 42, f1(g.p), fs2, it && idx + '|p');
       var pB = Math.min(g.A - 5, num(pc.pB, g.p)), f0 = S(dir ? g.A - pB : 0, 0, 0), f2 = S(dir ? g.A : pB, 0, 0);
       h += cota(f0, f2, [0, 1], 30, f1(pB), fs2, it && idx + '|pB');
     } else {
       var esq = sentido(pc) > 0, xl = esq ? 0 : g.A, e1 = S(xl, 0, 0), e2 = S(xl, g.p, 0);
-      h += cota(e1, e2, fora(e1, e2, esq ? -1 : 1), 30, f1(g.p), fs2, it && idx + '|p');
+      var frLado = num(pc.fr) > 0 && (esq ? pc.frE : pc.frD) && pc.tipo !== 'prateleira'; h += cota(e1, e2, [esq ? -1 : 1, 0], frLado ? 34 + num(pc.fr) * s * 0.75 : 42, f1(g.p), fs2, it && idx + '|p');
     }
     if (frH && !MINI) { var xf = sentido(pc) > 0 ? g.A : 0, h1 = S(xf, g.Ymax, g.T), h2 = S(xf, g.Ymax, zTop); h += cota(h1, h2, [sentido(pc) > 0 ? 1 : -1, 0], 26, f1(frH), 24, it && idx + '|fr'); }
     if (num(pc.qtd) > 1 && !MINI) { var q1 = S(g.A / 2, 0, 0); h += txt(q1[0], q1[1] + 48, num(pc.qtd) + 'x', fs2, 'middle', COR.vd, ' font-weight="700"'); }
