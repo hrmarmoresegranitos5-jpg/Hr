@@ -92,10 +92,10 @@
     if (rebNormal(pc)) {
       var rr = recortes(pc, { A: A, p: p, main: main }).filter(function (r) { return r.t === 'reb'; })[0];
       if (rr) {
-        var pts = [], cp = function (k, x0, x1, z0, z1, y0) { if (x1 - x0 > 0.5) pts.push({ k: k, g: 'slab', x0: x0, x1: x1, y0: y0 == null ? main.y0 : y0, y1: y0 == null ? main.y1 : y0 === main.y0 ? main.y0 + 2 : main.y1, z0: z0, z1: z1 }); };
+        var pts = [], cp = function (k, x0, x1, z0, z1, y0) { if (x1 - x0 > 0.5) pts.push({ k: k, g: 'slab', x0: x0, x1: x1, y0: y0 == null ? main.y0 : y0, y1: y0 == null ? main.y1 : y0 === main.y0 ? main.y0 + 3 : main.y1, z0: z0, z1: z1 }); };
         rebZ = T - REB_DESCE;
-        cp('tE', main.x0, rr.x0, 0, T); cp('rebN', rr.x0, rr.x1, 0, Math.max(1, T - REB_DESCE)); rebZ = Math.max(1, T - REB_DESCE); cp('tD', rr.x1, main.x1, 0, T);
-        // a sainha fica alinhada embaixo; a área molhada (tampo e sainha) fica 2 cm mais baixa em cima; no corte dos lados só aparece o degrau
+        cp('tE', main.x0, rr.x0, 0, T); cp('rebN', rr.x0, rr.x1, 0, Math.max(1, T - REB_DESCE)); cp('rebF', rr.x0, rr.x1, 0, T, main.y0); rebZ = Math.max(1, T - REB_DESCE); cp('tD', rr.x1, main.x1, 0, T);
+        // a sainha da área molhada fica na altura toda (borda na frente); o tampo da área molhada desce 2 cm atrás dela; no corte dos lados só aparece o degrau
         pts.forEach(function (b) { if (b.k === 'tE' || b.k === 'tD') b.zs = rebZ; });
         bx.splice.apply(bx, [0, 1].concat(pts));
         var fF = bx.filter(function (b) { return b.k === 'frF'; })[0];
@@ -252,7 +252,7 @@
     return h;
   }
   function pecaSvg(pc, s, cx0, cy0, idx) { // cx0/cy0: canto sup. esq. da área útil da peça (sem margens)
-    var g = geo(pc), P = proj(pc, g), c = KC * sentido(pc), bb = bboxOb(pc), ox = cx0 - bb.x0 * s, oy = cy0 - bb.y0 * s, sw = MINI ? 4 : Math.max(1.6, Math.min(3, s * 0.55)), h = '';
+    var g = geo(pc), P = proj(pc, g), c = KC * sentido(pc), bb = bboxOb(pc), ox = cx0 - bb.x0 * s, oy = cy0 - bb.y0 * s, sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '';
     var S = function (x, y, z) { var q = P(x, y, z); return [ox + q[0] * s, oy + q[1] * s]; };
     var R = recortes(pc, g), it = INTER && idx >= 0, W0 = (bb.x1 - bb.x0) * s, H0 = (bb.y1 - bb.y0) * s;
     if (it) { st.lay[idx] = { s: s }; h += '<g data-pcsel="' + idx + '"><rect x="' + (cx0 - 30) + '" y="' + (cy0 - 30) + '" width="' + (W0 + 60) + '" height="' + (H0 + 60) + '" rx="18" fill="#fff" fill-opacity="0"' + (st.sel === idx ? ' stroke="#c9a84c" stroke-width="3" stroke-dasharray="12 8"' : '') + '/>'; }
@@ -303,7 +303,7 @@
     return h;
   }
   function frenteSvg(pc, s, x0, y0, idx) { // nicho e placas: vista de frente
-    var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(1.6, Math.min(3, s * 0.55)), h = '', st = 'fill="#fff" stroke="' + COR.tr + '" stroke-width="' + sw + '"';
+    var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', st = 'fill="#fff" stroke="' + COR.tr + '" stroke-width="' + sw + '"';
     if (pc.tipo === 'nicho') {
       var m = 8, pr = Math.max(4, num(pc.prof, 10)), X = x0 + m * s, Y = y0 + m * s, W = A * s, Hh = H * s, d = Math.min(pr * 0.45, A * 0.2) * s, b = Math.min(pr * 0.45, H * 0.2) * s;
       h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + ((A + 2 * m) * s) + '" height="' + ((H + 2 * m) * s) + '" ' + st + '/>';
@@ -469,7 +469,7 @@
         add(nmS, 'saia', A2 - pB, sa); add(nmS, 'saia', pB, sa); add(nmS, 'saia', B - p, sa);
         if (dir ? !pc.frE : !pc.frD) add(nmS, 'saia', p, sa);
         if (dir ? !pc.frD : !pc.frE) add(nmS, 'saia', B, sa);
-      } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (rn0) { if (rn0.x0 > 0.5) add(nmS, 'saia', rn0.x0, sa); add(nmS + ' (área molhada)', 'saia', rn0.x1 - rn0.x0, Math.max(1, sa - REB_DESCE)); if (A2 - rn0.x1 > 0.5) add(nmS, 'saia', A2 - rn0.x1, sa); } else add(nmS, 'saia', A2, sa); if (!pc.frE) add(nmS, 'saia', p, sa); if (!pc.frD) add(nmS, 'saia', p, sa); }
+      } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (rn0) { if (rn0.x0 > 0.5) add(nmS, 'saia', rn0.x0, sa); add(nmS + ' (área molhada)', 'saia', rn0.x1 - rn0.x0, sa); if (A2 - rn0.x1 > 0.5) add(nmS, 'saia', A2 - rn0.x1, sa); } else add(nmS, 'saia', A2, sa); if (!pc.frE) add(nmS, 'saia', p, sa); if (!pc.frD) add(nmS, 'saia', p, sa); }
     }
     if (pc.reb && pc.reb.on && !rebNormal(pc)) add('Tampo do rebaixo americano', 'tampo', num(pc.reb.c), num(pc.reb.l));
     return L;
