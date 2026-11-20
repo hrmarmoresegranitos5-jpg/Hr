@@ -506,6 +506,13 @@
           if (!x.n) return;
           var nome = (nomes[fid] || fid).split(' ')[0];
           if (x.pend) { r.incompletos.push(nome + ' ' + d.slice(8) + '/' + d.slice(5, 7) + ': batida aguardando o senhor'); return; }
+          // v18: só entrada + "saída almoço" e o dia acabou (meio período, feriado, foi embora no almoço): a 2ª batida é a SAÍDA.
+          // Antes o dia ficava de fora e aparecia como falta de 4h/8h (ex.: sexta 20/11, meio período).
+          if (x.ent && !x.sai && x.aI && !x.aF) {
+            var excD = null; try { var ex0 = lerJ('hr_excecoes'); Object.keys(ex0).some(function (k) { var e0 = ex0[k]; if (e0 && e0.data === d) { excD = e0; return true; } }); } catch (e) {}
+            var hAgora = new Date().getHours(), meio = !!(excD && excD.tipo === 'feriado' && excD.meioperiodo);
+            if (d < hoje() || meio || hAgora >= 17) { if (!meio && !excD) r.incompletos.push(nome + ' ' + d.slice(8) + '/' + d.slice(5, 7) + ': só entrada e saída do almoço — lancei ' + x.aI + ' como saída'); x.sai = x.aI; x.aI = ''; }
+          }
           if (!x.ent || !x.sai) { if (d < hoje()) r.incompletos.push(nome + ' ' + d.slice(8) + '/' + d.slice(5, 7) + ': falta ' + (x.ent ? 'a saída' : 'a entrada')); return; }
           if ((x.aI && !x.aF) || (!x.aI && x.aF)) { if (d < hoje()) r.incompletos.push(nome + ' ' + d.slice(8) + '/' + d.slice(5, 7) + ': almoço com uma batida só'); return; }
           if (!funcs[fid]) return; // funcionário não existe mais no RH
