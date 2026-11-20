@@ -221,12 +221,14 @@
   var TP_OPT = [['entrada', 'Entrada'], ['saida_almoco', 'Saída almoço'], ['volta_almoco', 'Volta almoço'], ['saida', 'Saída']];
   function corrigir(funcId, data) {
     var inp = 'padding:9px;border-radius:9px;border:1px solid ' + BD + ';background:#14141c;color:#fff;box-sizing:border-box;font-family:Outfit,sans-serif;';
-    var fs = (estado.funcs && estado.funcs.length ? estado.funcs : ((estado.cfg && estado.cfg.funcs) || []));
+    var fs = (estado.funcs && estado.funcs.length ? estado.funcs : ((estado.cfg && estado.cfg.funcs && estado.cfg.funcs.length) ? estado.cfg.funcs : funcsRH()));
     var opts = fs.map(function (f) { return '<option value="' + f.id + '"' + (String(f.id) === String(funcId) ? ' selected' : '') + '>' + esc(f.nome) + '</option>'; }).join('');
     var d = document.createElement('div'); d.id = 'hpCorr'; d.style.cssText = 'position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;justify-content:center;';
     d.innerHTML = '<div style="width:100%;max-width:480px;max-height:92vh;overflow:auto;background:#0d0d14;border-radius:16px 16px 0 0;padding:16px;color:#fff;font-family:Outfit,sans-serif;">'
       + '<b style="color:' + GOLD + ';">✏️ Corrigir horários do ponto</b><div style="font-size:.72rem;color:' + T3 + ';margin:4px 0 10px;line-height:1.5;">Para quando o funcionário esqueceu de bater ou bateu errado. O horário original e o motivo ficam guardados no registro.</div>'
       + '<div style="display:flex;gap:8px;margin-bottom:10px;"><select id="crF" style="' + inp + 'flex:1.3;">' + opts + '</select><input id="crD" type="date" value="' + (data || hoje()) + '" max="' + hoje() + '" style="' + inp + 'flex:1;"></div>'
+      + '<div id="crP" style="margin-bottom:10px;"></div>'
+      + '<div id="crAv" style="font-size:.72rem;color:#f59e0b;margin-bottom:6px;line-height:1.45;"></div>'
       + '<div id="crL" style="font-size:.8rem;color:' + T3 + ';">Carregando…</div>'
       + '<button id="crAdd" style="width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px dashed ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;">+ Acrescentar batida</button>'
       + '<input id="crM" placeholder="Motivo (ex.: esqueceu de bater a saída)" style="' + inp + 'width:100%;margin-bottom:10px;">'
@@ -237,24 +239,78 @@
     function desenhar() {
       var L = d.querySelector('#crL');
       var vis = linhas.filter(function (x) { return !x.remover; });
+      setTimeout(avisoAoVivo, 0);
       if (!vis.length) { L.innerHTML = '<div style="padding:8px 0;">Nenhuma batida nesse dia. Use "Acrescentar batida".</div>'; return; }
       L.innerHTML = linhas.map(function (x, i) {
         if (x.remover) return '';
         return '<div data-i="' + i + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' + sel(x.tipo) + '<input data-k="hora" type="time" value="' + esc(x.hora) + '" style="' + inp + 'flex:1;">'
           + '<button data-rm="' + i + '" title="Apagar" style="padding:9px 11px;border-radius:9px;border:1px solid rgba(248,113,113,.5);background:none;color:#f87171;">🗑</button></div>'
-          + (x.status === 'pendente' ? '<div style="font-size:.66rem;color:#f59e0b;margin:-3px 0 6px;">aguardando: ao salvar fica confirmada</div>' : '') + (x.horaOriginal ? '<div style="font-size:.66rem;color:' + T3 + ';margin:-3px 0 6px;">já corrigida antes (original ' + esc(x.horaOriginal) + ')</div>' : '');
+          + (x.sugestao ? '<div style="font-size:.66rem;color:' + GOLD + ';margin:-3px 0 6px;">sugerido pelo horário de costume — confira</div>' : '') + (x.status === 'pendente' ? '<div style="font-size:.66rem;color:#f59e0b;margin:-3px 0 6px;">aguardando: ao salvar fica confirmada</div>' : '') + (x.horaOriginal ? '<div style="font-size:.66rem;color:' + T3 + ';margin:-3px 0 6px;">já corrigida antes (original ' + esc(x.horaOriginal) + ')</div>' : '');
       }).join('');
     }
+    // v23: erros do funcionário nos últimos 12 dias, com a correção já sugerida (horário de costume dele)
+    var mn = function (h) { var m = /^(\d{1,2}):(\d{2})/.exec(h || ''); return m ? (+m[1]) * 60 + (+m[2]) : NaN; };
+    var hh = function (x) { x = Math.max(0, Math.min(1439, Math.round(x))); return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'); };
+    var costume = { e: 420, ai: 720, af: 800, s: 1020 }, problemas = [];
+    function analisar(l, dt) { // l = batidas válidas do dia → { txt, sug: [{tipo,hora}], troca: {id: tipo}, mot }
+      var v = l.filter(function (b) { return b.status !== 'recusada'; }).sort(function (a, b) { return mn(a.hora) - mn(b.hora); });
+      var por = function (t) { return v.filter(function (b) { return b.tipo === t; })[0]; };
+      var e = por('entrada'), ai = por('saida_almoco'), af = por('volta_almoco'), sa = por('saida'), dow = new Date(dt + 'T12:00:00').getDay(), passado = dt < hoje();
+      var sabOuMeio = dow === 6 || (sa && e && mn(sa.hora) - mn(e.hora) <= 330 && !ai && !af);
+      if (!v.length) return null;
+      if (v.some(function (b) { return b.status === 'pendente'; })) return { txt: 'batida aguardando sua confirmação', sug: [], troca: {}, mot: 'Conferido pelo responsável' };
+      if (e && !ai && !af && mn(e.hora) >= 735 && mn(e.hora) <= 885 && dow !== 6) { var t = {}; t[e.id] = 'volta_almoco'; return { txt: 'esqueceu a manhã: ' + e.hora + ' é a volta do almoço', sug: [{ tipo: 'entrada', hora: hh(costume.e) }, { tipo: 'saida_almoco', hora: hh(Math.min(costume.ai, mn(e.hora) - 30)) }], troca: t, mot: 'Esqueceu de bater a entrada e a saída do almoço' }; }
+      if (af && !e && !ai) return { txt: 'sem entrada e sem saída do almoço', sug: [{ tipo: 'entrada', hora: hh(costume.e) }, { tipo: 'saida_almoco', hora: hh(Math.min(costume.ai, mn(af.hora) - 30)) }], troca: {}, mot: 'Esqueceu de bater a entrada e a saída do almoço' };
+      if (e && !sa && passado) { var ss = [{ tipo: 'saida', hora: hh(costume.s) }]; if (ai && !af) { var t2 = {}; t2[ai.id] = 'saida'; return { txt: 'só entrada e saída do almoço (foi embora no almoço?)', sug: [], troca: t2, mot: 'Saiu no horário do almoço' }; } return { txt: 'entrada sem saída', sug: ss, troca: {}, mot: 'Esqueceu de bater a saída' }; }
+      if (ai && !af && sa) return { txt: 'sem volta do almoço', sug: [{ tipo: 'volta_almoco', hora: hh(mn(ai.hora) + (costume.af - costume.ai)) }], troca: {}, mot: 'Esqueceu de bater a volta do almoço' };
+      if (af && !ai && e) return { txt: 'sem saída para o almoço', sug: [{ tipo: 'saida_almoco', hora: hh(mn(af.hora) - (costume.af - costume.ai)) }], troca: {}, mot: 'Esqueceu de bater a saída do almoço' };
+      if (e && sa && !ai && !af && !sabOuMeio) return { txt: 'sem batida do almoço', sug: [{ tipo: 'saida_almoco', hora: hh(costume.ai) }, { tipo: 'volta_almoco', hora: hh(costume.af) }], troca: {}, mot: 'Esqueceu de bater o almoço' };
+      for (var i = 1; i < v.length; i++) { var ord = ['entrada', 'saida_almoco', 'volta_almoco', 'saida']; if (ord.indexOf(v[i].tipo) < ord.indexOf(v[i - 1].tipo)) return { txt: 'batidas fora de ordem (' + v.map(function (b) { return b.hora; }).join(', ') + ')', sug: [], troca: {}, mot: 'Batidas em ordem' }; }
+      return null;
+    }
+    function carregarProblemas() {
+      var f = d.querySelector('#crF').value, P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.7rem;color:' + T3 + ';">Procurando erros dos últimos 12 dias…</div>';
+      api('/bot/ponto/registros?de=' + diaMenos(12) + '&ate=' + hoje()).then(function (j) {
+        var col = { e: [], ai: [], af: [], s: [] };
+        Object.keys(j.dias || {}).forEach(function (dt) { var l = (j.dias[dt][f] || []).filter(function (b) { return b.status === 'ok'; }); l.forEach(function (b) { var m = mn(b.hora); if (b.tipo === 'entrada' && m < 600) col.e.push(m); else if (b.tipo === 'saida_almoco' && m >= 600 && m <= 810) col.ai.push(m); else if (b.tipo === 'volta_almoco' && m >= 660 && m <= 900) col.af.push(m); else if (b.tipo === 'saida' && m >= 900) col.s.push(m); }); });
+        ['e', 'ai', 'af', 's'].forEach(function (k) { var a = col[k].sort(function (x, y) { return x - y; }); if (a.length >= 2) costume[k] = a[Math.floor(a.length / 2)]; });
+        problemas = [];
+        Object.keys(j.dias || {}).sort().forEach(function (dt) { var r = analisar(j.dias[dt][f] || [], dt); if (r) { r.data = dt; problemas.push(r); } });
+        if (!problemas.length) { P.innerHTML = '<div style="font-size:.72rem;color:#4ade80;padding:6px 0;">✓ Nenhum erro de ponto nos últimos 12 dias.</div>'; return; }
+        P.innerHTML = '<div style="font-size:.66rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Erros encontrados · toque para corrigir</div>' + problemas.map(function (r, i) {
+          return '<button data-pb="' + i + '" style="display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;margin-bottom:6px;padding:9px 10px;border-radius:10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.78rem;"><span><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b> · ' + esc(r.txt) + '</span><span style="color:' + GOLD + ';font-weight:700;white-space:nowrap;">Corrigir ›</span></button>';
+        }).join('');
+      }).catch(function () { P.innerHTML = ''; });
+    }
+    function aplicarSugestao(r) {
+      d.querySelector('#crD').value = r.data;
+      carregar(function () {
+        linhas.forEach(function (x) { if (x.id && r.troca[x.id]) x.tipo = r.troca[x.id]; });
+        r.sug.forEach(function (sg) { linhas.push({ tipo: sg.tipo, hora: sg.hora, sugestao: true }); });
+        linhas.sort(function (a, b) { return (mn(a.hora) || 9999) - (mn(b.hora) || 9999); });
+        desenhar();
+        if (!d.querySelector('#crM').value) d.querySelector('#crM').value = r.mot;
+        d.querySelector('#crL').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+    function avisoAoVivo() {
+      var dt = d.querySelector('#crD').value, v = linhas.filter(function (x) { return !x.remover && x.hora; }).map(function (x) { return { id: x.id || 'n', tipo: x.tipo, hora: x.hora, status: 'ok' }; });
+      var r = v.length ? analisar(v, dt) : null, AV = d.querySelector('#crAv');
+      AV.textContent = r && r.txt.indexOf('aguardando') < 0 ? '⚠️ Ainda: ' + r.txt + (r.sug.length || Object.keys(r.troca).length ? ' — toque em "Sugerir" para completar.' : '') : (v.length ? '' : '');
+      if (r && (r.sug.length || Object.keys(r.troca).length)) { var b = document.createElement('button'); b.textContent = 'Sugerir'; b.style.cssText = 'margin-left:8px;padding:4px 10px;border-radius:8px;border:1px solid ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;'; b.onclick = function () { lerCampos(); r.data = dt; Object.keys(r.troca).forEach(function (id) { linhas.forEach(function (x) { if (x.id === id) x.tipo = r.troca[id]; }); }); r.sug.forEach(function (sg) { linhas.push({ tipo: sg.tipo, hora: sg.hora, sugestao: true }); }); linhas.sort(function (a, c) { return (mn(a.hora) || 9999) - (mn(c.hora) || 9999); }); desenhar(); if (!d.querySelector('#crM').value) d.querySelector('#crM').value = r.mot; }; AV.appendChild(b); }
+    }
     function lerCampos() { d.querySelectorAll('#crL [data-i]').forEach(function (row) { var x = linhas[+row.getAttribute('data-i')]; x.tipo = row.querySelector('[data-k=tipo]').value; x.hora = row.querySelector('[data-k=hora]').value; }); }
-    function carregar() {
+    function carregar(cb) {
       var f = d.querySelector('#crF').value, dt = d.querySelector('#crD').value; d.querySelector('#crL').textContent = 'Carregando…';
       api('/bot/ponto/registros?de=' + dt + '&ate=' + dt).then(function (j) {
         var l = ((j.dias || {})[dt] || {})[f] || [];
         linhas = l.filter(function (b) { return b.status !== 'recusada'; }).map(function (b) { return { id: b.id, tipo: b.tipo, hora: b.hora, tipo0: b.tipo, hora0: b.hora, status: b.status, horaOriginal: b.horaOriginal }; });
-        desenhar();
+        desenhar(); if (typeof cb === 'function') cb();
       }).catch(function (e) { d.querySelector('#crL').textContent = e.message; });
     }
-    d.querySelector('#crF').onchange = carregar; d.querySelector('#crD').onchange = carregar;
+    d.querySelector('#crF').onchange = function () { carregar(); carregarProblemas(); }; d.querySelector('#crD').onchange = function () { carregar(); };
+    d.querySelector('#crP').onclick = function (ev) { var b = ev.target.closest('[data-pb]'); if (b) aplicarSugestao(problemas[+b.getAttribute('data-pb')]); };
+    d.querySelector('#crL').addEventListener('change', function () { lerCampos(); avisoAoVivo(); });
     d.querySelector('#crL').onclick = function (ev) { var b = ev.target.closest('[data-rm]'); if (!b) return; lerCampos(); var x = linhas[+b.getAttribute('data-rm')]; if (x.id) x.remover = true; else linhas.splice(+b.getAttribute('data-rm'), 1); desenhar(); };
     d.querySelector('#crAdd').onclick = function () { lerCampos(); var tem = linhas.filter(function (x) { return !x.remover; }).map(function (x) { return x.tipo; }); var prox = TP_OPT.map(function (o) { return o[0]; }).filter(function (t) { return tem.indexOf(t) < 0; })[0] || 'saida'; linhas.push({ tipo: prox, hora: '' }); desenhar(); };
     d.querySelector('#crC').onclick = function () { d.remove(); };
@@ -273,10 +329,10 @@
       if (!mot) { toastP('Escreva o motivo da correção'); d.querySelector('#crM').focus(); return; }
       var bt = d.querySelector('#crOk'); bt.disabled = true; bt.textContent = 'Salvando…';
       ops.reduce(function (p, o) { return p.then(function () { return api('/bot/ponto/ajuste', o); }); }, Promise.resolve())
-        .then(function () { d.remove(); toastP('✓ ' + ops.length + ' correção(ões) salva(s)'); recarregar(); try { sincronizarAuto && sincronizarAuto(true); } catch (e) {} })
+        .then(function () { toastP('✓ ' + ops.length + ' correção(ões) salva(s)'); bt.disabled = false; bt.textContent = 'Salvar correções'; d.querySelector('#crM').value = ''; carregar(); carregarProblemas(); recarregar(); try { sincronizarAuto && sincronizarAuto(true); } catch (e) {} })
         .catch(function (e) { bt.disabled = false; bt.textContent = 'Salvar correções'; toastP(e.message); });
     };
-    carregar();
+    carregar(); carregarProblemas();
   }
   function ajuste() {
     var opts = estado.funcs.map(function (f) { return '<option value="' + f.id + '">' + esc(f.nome) + '</option>'; }).join('');
