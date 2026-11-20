@@ -127,7 +127,7 @@
       if (c.tipo === 'redonda') h = w;
       cx = !vazio(c.x) ? xRef(num(c.x), c.ref) : rebR ? (rebR.x0 + rebR.x1) / 2 : meioX;
       var cy = !vazio(c.fy) ? m.y0 + num(c.fy) : rebR ? (rebR.y0 + rebR.y1) / 2 : (m.y0 + m.y1) / 2;
-      L.push({ t: 'cuba', f: c.tipo, inst: c.inst, x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2, cx: cx, cy: cy });
+      L.push({ t: 'cuba', f: c.tipo, inst: c.inst, x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2, cx: cx, cy: cy, apoio: c.inst === 'sobrepor' && pc.tipo === 'lavatorio' && !/esculp|rampada/.test(c.tipo), yT: Math.min(cy + h / 2 + 6, m.y1 - 5) });
     }
     if (ck.on && pc.tipo !== 'prateleira') {
       var kw = Math.max(10, num(ck.w, 56)), kh = Math.max(10, num(ck.h, 49)), kx = !vazio(ck.x) ? num(ck.x) : m.x0 + 20 + kw / 2;
@@ -242,6 +242,11 @@
       h += poly(ret, ln);
       var bw = (r.x1 - r.x0), bh = (r.y1 - r.y0);
       [[0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]].forEach(function (k) { h += poly(circ(r.x0 + bw * k[0], r.y0 + bh * k[1], bw * 0.12, bw * 0.12), ln); });
+    } else if (r.t === 'cuba' && r.apoio) { // lavatório com cuba de sobrepor: só o furo do ralo e o da torneira; a cuba fica em cima (tracejada)
+      var tr = 'fill="none" stroke="' + COR.tr + '" stroke-width="' + (sw * 0.6) + '" stroke-dasharray="7 6"';
+      if (r.f === 'redonda' || r.f === 'oval') h += poly(circ(r.cx, r.cy, (r.x1 - r.x0) / 2, (r.y1 - r.y0) / 2), tr);
+      else h += poly([S(r.x0, r.y0), S(r.x1, r.y0), S(r.x1, r.y1), S(r.x0, r.y1)], tr);
+      h += poly(circ(r.cx, r.cy, 2.5, 2.5), ln) + poly(circ(r.cx, r.yT, 2, 2), ln);
     } else if (r.t === 'cuba') {
       if (r.f === 'redonda' || r.f === 'oval') {
         var rx = (r.x1 - r.x0) / 2, ry = (r.y1 - r.y0) / 2;
@@ -388,7 +393,8 @@
         var dsq = c.ref === 'dir' ? g.A - cb.cx : cb.cx, lado = c.ref === 'dir' ? 'direito' : 'esquerdo';
         if (rb && vazio(c.x)) n.push('Cuba no centro do rebaixo');
         else if (!vazio(c.x) || pc.tipo === 'L' || g.A > 100) n.push('Centro da cuba: ' + f1(dsq) + ' do canto ' + lado);
-        if (cb.f !== 'redonda' && cb.f !== 'oval') n.push('Cuba ' + f1(cb.x1 - cb.x0) + 'x' + f1(cb.y1 - cb.y0) + (cb.f === 'rampada' ? ' esculpida rampada' : cb.f === 'esculpida' ? ' esculpida' : c.inst === 'flush' ? ' flush' : c.inst === 'sobrepor' ? ' de sobrepor' : ''));
+        if (cb.apoio) n.push('Cuba de sobrepor: só furo do ralo e furo da torneira (sem recorte)');
+        else if (cb.f !== 'redonda' && cb.f !== 'oval') n.push('Cuba ' + f1(cb.x1 - cb.x0) + 'x' + f1(cb.y1 - cb.y0) + (cb.f === 'rampada' ? ' esculpida rampada' : cb.f === 'esculpida' ? ' esculpida' : c.inst === 'flush' ? ' flush' : c.inst === 'sobrepor' ? ' de sobrepor' : ''));
         else n.push('Cuba ' + (cb.f === 'redonda' ? 'redonda Ø ' + f1(cb.x1 - cb.x0) : 'oval ' + f1(cb.x1 - cb.x0) + 'x' + f1(cb.y1 - cb.y0)) + (c.inst === 'sobrepor' ? ' de sobrepor' : ''));
       }
       if (ck) n.push('Cooktop ' + f1(ck.x1 - ck.x0) + 'x' + f1(ck.y1 - ck.y0) + ', centro a ' + f1(ck.cx) + ' do canto esquerdo');
