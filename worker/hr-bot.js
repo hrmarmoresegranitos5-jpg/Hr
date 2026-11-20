@@ -6773,6 +6773,8 @@ async function avisarInicioConversa(env, m) {
 const AVAL_OCIOSO_MS = 40 * 60 * 1000, AVAL_JANELA_MS = 20 * 3600 * 1000;
 const AVAL_RETOMADA_MS = 60 * 60 * 1000; // atendimento começado e parado há 1 h: uma única mensagem retomando de onde parou
 // trava contra envio duplicado quando vários gatilhos rodam ao mesmo tempo (grava um selo, espera e confere se o selo ainda é o seu)
+// v213: rotinas de 1x por dia/mês: a travaEnvio só segura 2 min (o aviso da fila saía a cada rodada do cron, 07:41, 07:43, 08:00...)
+async function umaVez(env, chave, dias) { const k = 'uv:' + chave; if (await env.HR_KV.get(k)) return false; if (!(await travaEnvio(env, chave))) return false; await env.HR_KV.put(k, '1', { expirationTtl: Math.max(1, dias || 1) * 86400 + 3600 }); return true; }
 async function travaEnvio(env, chave) {
   const k = 'trava:' + chave;
   globalThis.__travas = globalThis.__travas || {};
@@ -9963,9 +9965,16 @@ async function producaoStatusTool(env, a) {
   const cfg = await pontoCfg(env), ids = [], naoAchou = [];
   for (const nmF of (Array.isArray(a.funcionarios) ? a.funcionarios : [])) { const tk = tokensPedra(String(nmF)); const f = cfg.funcs.find(x => tk.length && tokensPedra(x.nome)[0] === tk[0]) || cfg.funcs.find(x => normaliza(apelidoFunc(cfg, x) || '') === normaliza(nmF)); if (f) ids.push(String(f.id)); else naoAchou.push(nmF); }
   if (!ids.length && etapa !== 'finalizado') return { erro: true, texto: `Não achei ${naoAchou.join(', ') || 'os funcionários'} na equipe.` };
+  if (!a.vai_fazer && env._agBruto) { // v213: quem não aparece na mensagem de agora não tem etapa marcada como feita; "vai iniciar" = designar
+    const bn = ' ' + normaliza(env._agBruto) + ' ', nms0 = (a.funcionarios || []).map(x => normaliza(String(x)).split(' ')[0]).filter(Boolean);
+    const frs = normaliza(env._agBruto).split(/[,.;!?\n]| mas | so que /).filter(c => nms0.some(n => (' ' + c + ' ').includes(' ' + n + ' ')));
+    const fut2 = /\b(vai|vao|iniciar|comecar|terminar|cortar|colar|abrir|fazer|acabar|instalar|montar|entregar|amanha|hoje vai|esta|estao|\w+ando|\w+endo) /;
+    if (etapa !== 'finalizado' && nms0.length && !nms0.some(n => bn.includes(' ' + n + ' '))) return { erro: true, texto: `Não registrei nada: nesta mensagem o Sr. Hangel não falou de ${(a.funcionarios || []).join(', ')}. Não marque etapa como feita por conta de mensagens anteriores; se ele disse que a pessoa VAI fazer, use vai_fazer=true.` };
+    if (etapa === 'inicio' && frs.some(c => fut2.test(c + ' '))) { a.vai_fazer = true; const fr = frs.join(' '); a.etapa = /instala|montag|monta/.test(fr) ? 'instalacao' : /cort/.test(fr) && !/(colar|sainha|recorte|cuba|acab|polir|rebaixo)/.test(fr) ? 'corte' : 'fabricacao'; }
+  }
   if (!a.vai_fazer && etapa !== 'inicio' && env._agBruto) { // v180: "Fabrício terminou de cortar, FALTA o Lucas terminar o acabamento" → o do Lucas ainda não foi feito
     const fr = normaliza(env._agBruto).split(/[,.;!?\n]| mas | so que /), nms = (a.funcionarios || []).map(x => normaliza(String(x)).split(' ')[0]).filter(Boolean);
-    const fut = /\b(falta|faltando|faltou|ainda (nao|vai|tem|precisa|esta)|vai|vao|precisa|tem que|amanha|depois|esta fazendo|estao fazendo|comecou|comecaram|comecando)\b/;
+    const fut = /\b(falta|faltando|faltou|ainda (nao|vai|tem|precisa|esta)|vai|vao|precisa|tem que|amanha|depois|esta fazendo|estao fazendo|comecou|comecaram|comecando|iniciar|terminar|cortar|colar|instalar|acabar|\w+ando|\w+endo)\b/; // v213: infinitivo/gerúndio = ainda não fez
     if (fr.some(c => nms.some(n => (' ' + c + ' ').includes(' ' + n + ' ')) && fut.test(c))) a.vai_fazer = true;
   }
   const tk = tokensPedra(String(a.cliente || '')), item = normaliza(a.item || '');
@@ -11522,7 +11531,7 @@ async function reguaBotao(env, from, id) {
 }
 async function reguaRotina(env) { // dia 1º de cada mês, às 9h
   const hoje = dataBahia(), ag = agoraBahia(); if (hoje.slice(8) !== '01' || ag.min < 9 * 60) return;
-  if (!(await travaEnvio(env, 'regua:' + hoje.slice(0, 7)))) return;
+  if (!(await umaVez(env, 'regua:' + hoje.slice(0, 7), 32))) return;
   const t = await reguaTexto(env); if (t.bts.length) await enviarComBotoes(env, numeroDono(env), t.texto, t.bts.slice(0, 3)).catch(() => {}); else await pontoAvisarDono(env, t.texto).catch(() => {});
 }
 // 2) FILA DO DIA: quanto cada um tem de serviço na fila × a meta do dia
@@ -11543,7 +11552,7 @@ async function filaFuncionarios(env) {
 }
 async function filaRotina(env) { // dias de trabalho, 7h40
   const hoje = dataBahia(), ag = agoraBahia(); if (ag.min < 7 * 60 + 40 || ag.min > 11 * 60 || !dsmDiaTrab(env, hoje)) return;
-  if (!(await travaEnvio(env, 'fila:' + hoje))) return;
+  if (!(await umaVez(env, 'fila:' + hoje, 1))) return;
   const l = await filaFuncionarios(env), baixo = [];
   for (const x of l) { const pn = await metaPainel(env, x.id).catch(() => null); if (!pn || !(pn.metaDia > 0)) continue; if (x.pts < pn.metaDia) baixo.push(`• *${x.nome}*: ${vPt(x.pts)} de ${vPt(pn.metaDia)} pontos na fila${x.itens.length ? ' — ' + x.itens.slice(0, 3).join(', ') : ' — *nada na fila*'}`); }
   if (baixo.length) await pontoAvisarDono(env, [`📋 *Fila de hoje abaixo da meta do dia:*`, ...baixo, '', 'Sem serviço na fila a pessoa não bate a meta. Dá para passar uma tarefa para eles? (ex.: _o Lucas faz o acabamento da Maria_)'].join('\n')).catch(() => {});
@@ -11574,10 +11583,10 @@ async function resumoSextaTexto(env) {
   L.push('', `💰 Entradas lançadas pelo bot na semana: *R$ ${reais(ent)}*`, `📒 Falta receber (livro de entregas): *R$ ${reais(receber)}* de ${nRec} cliente(s)`);
   return L.join('\n');
 }
-async function resumoSextaRotina(env) { const hoje = dataBahia(), ag = agoraBahia(); if (diaSemanaISO(hoje) !== 5 || ag.min < 17 * 60 + 20) return; if (!(await travaEnvio(env, 'sexta:' + hoje))) return; await pontoAvisarDono(env, await resumoSextaTexto(env)).catch(() => {}); }
+async function resumoSextaRotina(env) { const hoje = dataBahia(), ag = agoraBahia(); if (diaSemanaISO(hoje) !== 5 || ag.min < 17 * 60 + 20) return; if (!(await umaVez(env, 'sexta:' + hoje, 1))) return; await pontoAvisarDono(env, await resumoSextaTexto(env)).catch(() => {}); }
 // 6) CORTE JUNTO: pedidos esperando corte com o mesmo material saem juntos (aproveita a chapa)
 async function corteJuntoRotina(env) {
-  const hoje = dataBahia(), ag = agoraBahia(); if (ag.min < 7 * 60 + 30 || ag.min > 11 * 60 || !dsmDiaTrab(env, hoje)) return; if (!(await travaEnvio(env, 'cjunto:' + hoje))) return;
+  const hoje = dataBahia(), ag = agoraBahia(); if (ag.min < 7 * 60 + 30 || ag.min > 11 * 60 || !dsmDiaTrab(env, hoje)) return; if (!(await umaVez(env, 'cjunto:' + hoje, 1))) return;
   const l = (await pedidosProducao(env, p => !p.entregueEm && !p.corteEm && (p.fichaEnviadaEm || p.fechDono) && p.status !== 'recusado')).filter(p => pedraDe(p) && pecasDe(p).length), grupos = [];
   for (const p of l) { const g = grupos.find(x => mesmaPedra(x.pedra, pedraDe(p))); if (g) g.peds.push(p); else grupos.push({ pedra: pedraDe(p), peds: [p] }); }
   const jun = grupos.filter(g => g.peds.length >= 2); if (!jun.length) return;
