@@ -188,7 +188,7 @@
   function cota(a, b, n, d, t, fs, key, semIniExt, semFimExt) { // a,b: pontos na tela; n: direção para fora; d: afastamento
     if (MINI) return '';
     var o1 = [a[0] + n[0] * d, a[1] + n[1] * d], o2 = [b[0] + n[0] * d, b[1] + n[1] * d], ln = 'stroke="' + COR.tr + '" stroke-width="1.3" fill="none"', h = '';
-    var ext = function (p, o) { return '<line x1="' + (p[0] + n[0] * 6).toFixed(1) + '" y1="' + (p[1] + n[1] * 6).toFixed(1) + '" x2="' + (o[0] + n[0] * 8).toFixed(1) + '" y2="' + (o[1] + n[1] * 8).toFixed(1) + '" ' + ln + '/>'; };
+    var ext = function (p, o) { return '<line x1="' + (p[0] + n[0] * 2).toFixed(1) + '" y1="' + (p[1] + n[1] * 2).toFixed(1) + '" x2="' + (o[0] + n[0] * 8).toFixed(1) + '" y2="' + (o[1] + n[1] * 8).toFixed(1) + '" ' + ln + '/>'; };
     if (!semIniExt) h += ext(a, o1); if (!semFimExt) h += ext(b, o2);
     var vx = o2[0] - o1[0], vy = o2[1] - o1[1], L0 = Math.hypot(vx, vy) || 1, u = [vx / L0, vy / L0];
     h += '<line x1="' + (o1[0] - u[0] * 8).toFixed(1) + '" y1="' + (o1[1] - u[1] * 8).toFixed(1) + '" x2="' + (o2[0] + u[0] * 8).toFixed(1) + '" y2="' + (o2[1] + u[1] * 8).toFixed(1) + '" ' + ln + '/>';
@@ -279,15 +279,15 @@
     h += cota(S(0, g.Ymax, zTop), S(g.A, g.Ymax, zTop), [0, -1], d2, f1(g.A), fs, it && idx + '|A');
     var fora = function (a, b, sx) { var vx = b[0] - a[0], vy = b[1] - a[1], L0 = Math.hypot(vx, vy) || 1, n0 = [vy / L0, -vx / L0]; if (n0[0] * sx < 0) n0 = [-n0[0], -n0[1]]; return n0; };
     if (pc.tipo === 'L') {
-      var dir = pc.perna !== 'esq', xo = dir ? g.A : 0, a1 = S(xo, 0, 0), a2 = S(xo, g.Ymax - g.p, 0);
-      h += cota(a1, a2, [dir ? 1 : -1, 0], num(pc.fr) > 0 && (dir ? pc.frD : pc.frE) ? 34 + num(pc.fr) * s * 0.75 : 42, f1(num(pc.B)), fs, it && idx + '|B');
-      var xe = dir ? 0 : g.A, b1 = S(xe, g.Ymax - g.p, 0), b2 = S(xe, g.Ymax, 0);
-      h += cota(b1, b2, [dir ? -1 : 1, 0], num(pc.fr) > 0 && (dir ? pc.frE : pc.frD) ? 34 + num(pc.fr) * s * 0.75 : 42, f1(g.p), fs2, it && idx + '|p');
+      var dir = pc.perna !== 'esq', xo = dir ? g.A : 0, zo = g.T + (num(pc.fr) > 0 && (dir ? pc.frD : pc.frE) ? num(pc.fr) : 0), a1 = S(xo, 0, zo), a2 = S(xo, g.Ymax - g.p, zo);
+      h += cota(a1, a2, [dir ? 1 : -1, 0], 22, f1(num(pc.B)), fs, it && idx + '|B');
+      var xe = dir ? 0 : g.A, ze = g.T + (num(pc.fr) > 0 && (dir ? pc.frE : pc.frD) ? num(pc.fr) : 0), b1 = S(xe, g.Ymax - g.p, ze), b2 = S(xe, g.Ymax, ze);
+      h += cota(b1, b2, [dir ? -1 : 1, 0], 22, f1(g.p), fs2, it && idx + '|p');
       var pB = Math.min(g.A - 5, num(pc.pB, g.p)), f0 = S(dir ? g.A - pB : 0, 0, 0), f2 = S(dir ? g.A : pB, 0, 0);
       h += cota(f0, f2, [0, 1], 30, f1(pB), fs2, it && idx + '|pB');
     } else {
-      var esq = sentido(pc) > 0, xl = esq ? 0 : g.A, e1 = S(xl, 0, 0), e2 = S(xl, g.p, 0);
-      var frLado = num(pc.fr) > 0 && (esq ? pc.frE : pc.frD) && pc.tipo !== 'prateleira'; h += cota(e1, e2, [esq ? -1 : 1, 0], frLado ? 34 + num(pc.fr) * s * 0.75 : 42, f1(g.p), fs2, it && idx + '|p');
+      var esq = sentido(pc) > 0, xl = esq ? 0 : g.A, frL = num(pc.fr) > 0 && (esq ? pc.frE : pc.frD) && pc.tipo !== 'prateleira' ? num(pc.fr) : 0, e1 = S(xl, 0, g.T + frL), e2 = S(xl, g.p, g.T + frL);
+      h += cota(e1, e2, [esq ? -1 : 1, 0], 22, f1(g.p), fs2, it && idx + '|p');
     }
     if (frH && !MINI) { var xf = sentido(pc) > 0 ? g.A : 0, h1 = S(xf, g.Ymax, g.T), h2 = S(xf, g.Ymax, zTop); h += cota(h1, h2, [sentido(pc) > 0 ? 1 : -1, 0], 26, f1(frH), 24, it && idx + '|fr'); }
     if (num(pc.qtd) > 1 && !MINI) { var q1 = S(g.A / 2, 0, 0); h += txt(q1[0], q1[1] + 48, num(pc.qtd) + 'x', fs2, 'middle', COR.vd, ' font-weight="700"'); }
