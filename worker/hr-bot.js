@@ -8035,7 +8035,18 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     const negP = /\b(nao|ainda nao|nem)\b[^.!?]{0,20}\b(pront[oa]s?|termin\w*|acab\w*|finaliz\w*)\b|^(so )?falta\w*\b|\bfalta\w* (terminar|acabar|pouco|so)\b|\bcontinu\w* amanha\b|\bfica (pra|para) amanha\b|\bamanha (eu )?(termino|acabo|continuo)\b/.test(msg) && !/\b(terminei|acabei|finalizei)\b/.test(msg);
     const forte = /\b(terminei|acabei|finalizei|conclui|terminamos|acabamos|ficou pront\w*|(ta|esta|estao|tao|ja) pront\w*|ta feito|esta feito)\b/.test(msg);
     const iniP = /\b(iniciei|iniciando|inicio|comecei|comecando|comecamos|vou comecar|vou iniciar|to comecando|estou comecando|peguei)\b/.test(msg);
-    if (negP) { await enviar(env, from, papel === 'entrega' ? `Certo, ${nome}: anotado que ainda não terminou. Quando acabar: _instalei o da (cliente)_ e a foto com tudo instalado.` : `Certo, ${nome}: anotado que ainda não terminou. Quando terminar, me diga: _terminei o de (cliente)_.`); return true; }
+    if (negP) { // v219: se o bot tinha acabado de dar como pronto (por engano), desfaz na hora
+      const tkN = tokensPedra(texto), t12 = Date.now() - 12 * 3600000;
+      let rec = await pedidosProducao(env, p => !p.entregueEm && (p.fabProntoEm || p.prontoEm || p.acabEm) && ((p.prodLog || []).some(x => x.ts >= t12 && ['fabricacao', 'acabamento'].includes(x.e) && (x.por || []).map(String).includes(String(f.id))) || (String(p.fabFeitoPor) === String(f.id) && (p.fabProntoEm || p.prontoEm || 0) >= t12)));
+      if (rec.length > 1) { const nm = nomeMelhores(rec, tkN); if (nm.length) rec = nm; }
+      if (rec.length === 1) { const p = rec[0];
+        p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : []; if (p.prodLog.some(x => ['fabricacao', 'acabamento'].includes(x.e))) p.prodLog.push({ e: 'anulado', alvo: pedComplexo(p) ? 'fabricacao' : 'acabamento', quem: String(f.id), ate: Date.now(), ts: Date.now(), motivo: 'funcionário disse que não estava pronto' }); p.fabFeitoPor = null;
+        const tinhaEnt = !!p.entregaEnviadaEm; p.fabProntoEm = null; p.prontoEm = null; p.acabEm = null; p.entregaEnviadaEm = null; await salvarPedido(env, p);
+        if (tinhaEnt) { const tEnt = await numEquipe(env, 'entrega', p).catch(() => ''); if (tEnt && ultimos8(tEnt) !== ultimos8(from)) await enviar(env, tEnt, `${avisoTeste(env)}⚠️ A entrega de *${p.nome}* foi cancelada por enquanto: as peças ainda não estão prontas. Eu aviso quando ficar pronto.`).catch(() => {}); }
+        await enviar(env, from, `Entendi, ${nome}: desfiz o "pronto" de *${p.nome}*. Continua com você; quando terminar de verdade, me diga: _terminei o de ${String(p.nome).split(' ')[0]}_.`);
+        await pontoAvisarDono(env, `↩️ *${nome}* avisou que *${p.nome}* ainda NÃO está pronto. Desfiz o pronto${tinhaEnt ? ' e cancelei a entrega' : ''}; os pontos daquele pronto foram tirados.`).catch(() => {});
+        return true; }
+      await enviar(env, from, papel === 'entrega' ? `Certo, ${nome}: anotado que ainda não terminou. Quando acabar: _instalei o da (cliente)_ e a foto com tudo instalado.` : `Certo, ${nome}: anotado que ainda não terminou. Quando terminar, me diga: _terminei o de (cliente)_.`); return true; }
     if (iniP && !forte) {
       const l0 = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), tkT = tokensPedra(texto);
       const ach = nomeMelhores(l0, tkT);
