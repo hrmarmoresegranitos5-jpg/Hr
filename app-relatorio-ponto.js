@@ -660,7 +660,7 @@ var HR_RELATORIO_PONTO = (function () {
     var rows = [];
     rows.push({ label: 'Salário do período', valor: fin.decValor, sinal: '', cor: NEUTRO });
     if ((info.e50Min + info.e200Min) > 0) {
-      rows.push({ label: 'Horas extras (' + _fmtMin(info.e50Min + info.e200Min) + ')', valor: info.v50 + info.v200, sinal: '+', cor: VERDE });
+      rows.push({ label: 'Horas extras (' + _hmC(info.e50Min + info.e200Min) + ')', valor: info.v50 + info.v200, sinal: '+', cor: VERDE });
       if (info.e50Min > 0)  rows.push({ sub: true, label: 'dobradas (×2): ' + _fmtMin(info.e50Min),   valor: info.v50 });
       if (info.e200Min > 0) rows.push({ sub: true, label: 'triplicadas (×3): ' + _fmtMin(info.e200Min), valor: info.v200 });
     }
@@ -668,7 +668,7 @@ var HR_RELATORIO_PONTO = (function () {
     // (extras brutas − extras líquidas) + a parte que sobrou e saiu do salário.
     var valorNegativas = Math.max(0, (info.v50 + info.v200) - info.valorExtraLiq) + (fin.totalDeficitValor || 0);
     if (info.deficitBrutoMin > 0 && valorNegativas > 0.005) {
-      rows.push({ label: 'Horas negativas (' + _fmtMin(info.deficitBrutoMin) + ')', valor: valorNegativas, sinal: '-', cor: VERM });
+      rows.push({ label: 'Horas faltando (' + _hmC(info.deficitBrutoMin) + ')', valor: valorNegativas, sinal: '-', cor: VERM });
       var nota = 'As horas negativas são descontadas primeiro das horas extras dobradas (×2); as triplicadas (×3) só entram se as dobradas não bastarem.';
       if ((fin.totalDeficitValor || 0) > 0.005) nota += ' O que as extras não cobriram foi descontado do salário.';
       rows.push({ nota: nota });
@@ -832,219 +832,87 @@ var HR_RELATORIO_PONTO = (function () {
 
     var y = 0;
 
-    // ── CABEÇALHO ────────────────────────────────────────────────────────────
-    doc.setFillColor.apply(doc, COR_HEADER);
-    doc.rect(0, 0, pW, 20, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(255, 255, 255);
-    doc.text('RELATÓRIO DE PONTO', pW / 2, 9, { align: 'center' });
-    doc.setFontSize(9.5);
-    doc.setFont('helvetica', 'normal');
-    doc.text(f.nome || '', pW / 2, 15.5, { align: 'center' });
-    doc.setFontSize(7.5);
-    doc.setTextColor(200, 215, 240);
-    doc.text(_mesExtenso(di, df) + '  ·  ' + fin.decNum + 'º período (' + _fmtData(di) + ' a ' + _fmtData(df) + ')', pW / 2, 19, { align: 'center' });
-
-    y = 25;
-
-    // ── VALOR A RECEBER — a primeira (e principal) informação do documento ──
-    var diasTrabalhados = linhas.filter(function (l) { return l.trabMin > 0; }).length;
-    var corStatus = fin.status === 'pago' ? COR_VERDE : COR_HEADER;
-    y = 27;
-    var relanceH = 22;
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor.apply(doc, corStatus);
-    doc.setLineWidth(0.6);
-    doc.roundedRect(mL, y, cW, relanceH, 2, 2, 'FD');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(110, 110, 110);
-    doc.text(fin.status === 'pago' ? 'Já recebido (quitado)' : 'Você vai receber', mL + 5, y + 7);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(19);
-    doc.setTextColor.apply(doc, corStatus);
-    doc.text(_fmtMoeda(fin.status === 'pago' && fin.totalPago > 0 ? fin.totalPago : Math.abs(fin.saldoFinal)), mL + 5, y + 17);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(90, 90, 90);
-    doc.text('Trabalhou ' + diasTrabalhados + (diasTrabalhados === 1 ? ' dia' : ' dias'), pW - mR - 5, y + 16.5, { align: 'right' });
-    y += relanceH + 5;
-
-    // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ──────────────────
+    // ── v14: layout limpo — nome, valor com a conta, 3 números, tabela de 3 colunas ──
     var resumo = _linhasResumoFin(fin, {
       extraBrutoMin: extraBrutoMin, deficitBrutoMin: deficitBrutoMin, deficitAbatidoMin: deficitAbatidoMin,
       e50Min: e50Bruto, e200Min: e200Bruto, v50: v50Bruto, v200: v200Bruto,
       valorExtraLiq: totalValorExtra, totalDeficitMin: totalDeficitMin
     });
-    var resumoRows = resumo.rows;
-    doc.setFont('helvetica', 'italic');
+    var pago = fin.status === 'pago', corP = pago ? COR_VERDE : COR_HEADER;
+    var y = 14;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(140, 140, 140);
+    doc.text('RELATÓRIO DE PONTO', mL, y);
+    doc.text(_fmtData(di) + ' a ' + _fmtData(df), pW - mR, y, { align: 'right' });
+    y += 7;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor.apply(doc, COR_HEADER);
+    doc.text(f.nome || '', mL, y);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(150, 150, 150);
+    doc.text(_mesExtenso(di, df), pW - mR, y, { align: 'right' });
+    y += 3; doc.setDrawColor.apply(doc, COR_HEADER); doc.setLineWidth(0.8); doc.line(mL, y, pW - mR, y);
+    y += 6;
+    // cartão do valor + a conta
+    var contaRows = resumo.rows.filter(function (r) { return !r.sub && !r.nota; });
+    var notaRows = resumo.rows.filter(function (r) { return r.nota; });
     doc.setFontSize(7.5);
-    var boxH = 9 + 15 + (resumo.horas.length ? resumo.horas.length * 6 + 10.5 : 0);
-    resumoRows.forEach(function (r) {
-      if (r.nota) { r.notaLinhas = doc.splitTextToSize(r.nota, cW - 12); boxH += r.notaLinhas.length * 3.6 + 1.5; }
-      else if (r.sub) boxH += 4.8;
-      else boxH += 6;
+    notaRows.forEach(function (r) { r.ls = doc.splitTextToSize(r.nota, cW - 12); });
+    var cardH = 22 + contaRows.length * 6.4 + notaRows.reduce(function (t, r) { return t + r.ls.length * 3.4 + 1; }, 0) + 2;
+    doc.setDrawColor.apply(doc, corP); doc.setLineWidth(0.6); doc.setFillColor(255, 255, 255);
+    doc.roundedRect(mL, y, cW, cardH, 2.5, 2.5, 'FD');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
+    doc.text(pago ? 'Já recebido · quitado' : 'Você vai receber', mL + 6, y + 7);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor.apply(doc, corP);
+    doc.text(_fmtMoeda(pago && fin.totalPago > 0 ? fin.totalPago : Math.abs(fin.saldoFinal)), mL + 6, y + 17);
+    var fy = y + 22;
+    contaRows.forEach(function (r) {
+      doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.2); doc.line(mL + 6, fy, pW - mR - 6, fy);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(70, 70, 70);
+      doc.text(r.label, mL + 6, fy + 4.6);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor.apply(doc, r.cor || [30, 30, 30]);
+      doc.text((r.sinal ? r.sinal + ' ' : '') + _fmtMoeda(r.valor), pW - mR - 6, fy + 4.6, { align: 'right' });
+      fy += 6.4;
     });
-
-    doc.setFillColor(fin.status === 'pago' ? 236 : 250, fin.status === 'pago' ? 246 : 244, fin.status === 'pago' ? 238 : 224);
-    doc.setDrawColor.apply(doc, fin.status === 'pago' ? COR_VERDE : COR_GOLD);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(mL, y, cW, boxH, 2, 2, 'FD');
-
-    var fy = y + 6.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor.apply(doc, COR_HEADER);
-    if (resumo.horas.length) {
-      doc.text('Horas do período', mL + 5, fy);
-      fy += 6.5;
-      resumo.horas.forEach(function (h) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(9);
-        doc.setTextColor(60, 60, 60);
-        doc.text(h.label, mL + 6, fy);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor.apply(doc, h.cor);
-        doc.text(h.texto, pW - mR - 5, fy, { align: 'right' });
-        fy += 6;
-      });
-      fy += 4;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor.apply(doc, COR_HEADER);
-    }
-    doc.text('Como chegamos nesse valor', mL + 5, fy);
-    fy += 6.5;
-
-    resumoRows.forEach(function (r) {
-      if (r.nota) {
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(7.5);
-        doc.setTextColor(120, 120, 120);
-        r.notaLinhas.forEach(function (t) { doc.text(t, mL + 6, fy - 1); fy += 3.6; });
-        fy += 1.5;
-        return;
-      }
-      if (r.sub) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(120, 120, 120);
-        doc.text('· ' + r.label, mL + 11, fy - 1);
-        doc.text(_fmtMoeda(r.valor), pW - mR - 5, fy - 1, { align: 'right' });
-        fy += 4.8;
-        return;
-      }
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(60, 60, 60);
-      doc.text(r.label, mL + 6, fy);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor.apply(doc, r.cor);
-      doc.text((r.sinal ? r.sinal + ' ' : '') + _fmtMoeda(r.valor), pW - mR - 5, fy, { align: 'right' });
-      fy += 6;
+    notaRows.forEach(function (r) { doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130); fy += 1; r.ls.forEach(function (t) { fy += 3.4; doc.text(t, mL + 6, fy); }); });
+    y += cardH + 4;
+    // três números
+    var conta = _contaRelatorio(linhas), tw = (cW - 8) / 3;
+    [[String(conta.dias), conta.dias === 1 ? 'dia trabalhado' : 'dias trabalhados', COR_HEADER], [conta.extra ? '+' + _hmC(conta.extra) : '0h00', 'horas extras', COR_VERDE], [conta.falta ? _hmC(conta.falta) : '0h00', 'horas faltando', conta.falta ? COR_VERM : [150, 150, 150]]].forEach(function (t, i) {
+      var tx = mL + i * (tw + 4);
+      doc.setFillColor(245, 247, 250); doc.roundedRect(tx, y, tw, 15, 2, 2, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor.apply(doc, t[2]); doc.text(t[0], tx + tw / 2, y + 7.5, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(110, 110, 110); doc.text(t[1], tx + tw / 2, y + 12.3, { align: 'center' });
     });
+    y += 20;
 
-    fy += 1.5;
-    doc.setFillColor(fin.status === 'pago' ? 42 : 26, fin.status === 'pago' ? 130 : 54, fin.status === 'pago' ? 70 : 93);
-    doc.roundedRect(mL + 3, fy - 4.5, cW - 6, 9, 1.5, 1.5, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text(fin.status === 'pago' ? 'QUITADO' : 'TOTAL A RECEBER', mL + 7, fy + 1.2);
-    doc.setFontSize(12);
-    doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), pW - mR - 7, fy + 1.4, { align: 'right' });
-
-    y += boxH + 5;
-
-    y += 2;
-
-    // Colunas de almoço sempre aparecem — aqui na HR todo mundo bate o
-    // ponto do almoço (mesmo comendo na empresa), então esconder a coluna
-    // quando um dia vem sem essa batida passaria a impressão errada de
-    // jornada contínua. Dias sem a batida mostram "Batida direta" (ver
-    // cells abaixo) em vez de sumir a coluna inteira.
-    var temAlmoco = true;
-
-    // ── TABELA DE PONTO (v13: igual à da tela — 4 colunas, resultado por extenso) ──
-    var cols = [
-      { header: 'Dia',           w: 34, align: 'left' },
-      { header: 'Entrada e saída', w: 62, align: 'left' },
-      { header: 'Trabalhou',     w: 26, align: 'center' },
-      { header: 'Resultado',     w: 46, align: 'right' },
-    ];
-    var totalW = cols.reduce(function(s, c){ return s + c.w; }, 0);
-    cols[cols.length - 1].w += (cW - totalW);
-    var colX = []; var cx = mL; cols.forEach(function(c){ colX.push(cx); cx += c.w; });
-    var rowH = 10.2, thH = 7.5;
-    function _hm(min) { var abs = Math.abs(Math.round(min || 0)); return Math.floor(abs/60) + 'h' + String(abs%60).padStart(2,'0'); }
-    function _tx(i, txt, yy) { var c = cols[i]; var x = c.align === 'left' ? colX[i] + 2.5 : c.align === 'right' ? colX[i] + c.w - 2.5 : colX[i] + c.w / 2; doc.text(txt, x, yy, { align: c.align === 'left' ? 'left' : c.align }); }
+    // ── TABELA (3 colunas) ──
+    var cols = [{ header: 'Dia', w: 40, align: 'left' }, { header: 'Horário', w: 100, align: 'left' }, { header: 'Resultado', w: 0, align: 'right' }];
+    cols[2].w = cW - cols[0].w - cols[1].w;
+    var colX = [mL, mL + cols[0].w, mL + cols[0].w + cols[1].w];
+    var rowH = 10.4, thH = 7;
+    function _tx(i, txt, yy) { var c = cols[i]; var x = c.align === 'left' ? colX[i] + 2.5 : colX[i] + c.w - 2.5; doc.text(txt, x, yy, { align: c.align }); }
     function _headerTabela() {
-      doc.setFillColor.apply(doc, COR_TH_BG); doc.rect(mL, y, cW, thH, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(30, 50, 90);
-      cols.forEach(function(c, i) { _tx(i, c.header, y + 5); });
+      doc.setFillColor(238, 242, 248); doc.rect(mL, y, cW, thH, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor.apply(doc, COR_HEADER);
+      cols.forEach(function (c, i) { _tx(i, c.header, y + 4.8); });
       y += thH;
     }
     _headerTabela();
-    linhas.forEach(function (l, idx) {
-      if (y + rowH > pH - 18) { doc.addPage(); y = 12; _headerTabela(); }
-      var semPonto = (!l.trabMin && l.esperadoMin > 0 && l.tipo !== 'abonado');
-      var res, cor = [136, 136, 136], bg = null;
-      if (l.tipo === 'abonado' || /abonad/.test(l.obs || '')) { res = 'atestado'; cor = [90, 127, 168]; bg = [238, 244, 251]; }
-      else if (semPonto) { res = 'sem ponto · faltou ' + _hm(l.esperadoMin); cor = [180, 60, 60]; bg = [255, 240, 240]; }
-      else if (l.extraMin > 0 && !l.destinoBanco) { res = '+' + _hm(l.extraMin) + ' a mais' + (l.extra200Min > 0 ? ' (' + _hm(l.extra200Min) + ' ×3)' : ''); cor = [42, 138, 70]; bg = [241, 251, 243]; }
-      else if (l.saldoMin < -5) { res = 'faltou ' + _hm(l.saldoMin); cor = [180, 60, 60]; bg = [255, 244, 244]; }
-      else res = 'certo';
-      if ((l.tipo === 'feriado' || l.tipo === 'acordo') && !l.trabMin && !l.esperadoMin) { res = 'folga/feriado'; cor = [90, 127, 168]; bg = [238, 244, 251]; }
-      if (bg) { doc.setFillColor.apply(doc, bg); doc.rect(mL, y, cW, rowH, 'F'); }
-      doc.setDrawColor(220, 225, 232); doc.setLineWidth(0.15); doc.line(mL, y + rowH, mL + cW, y + rowH);
-      var y1 = y + 4.6, y2 = y + 8.4;
-      // Dia
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
-      _tx(0, _fmtData(l.data), y1);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130);
-      var meio = l.esperadoMin > 0 && l.esperadoMin < 480 && l.diaTxt !== 'Sáb';
-      _tx(0, l.diaTxt + (meio ? ' · meio período' : ''), y2);
-      // Entrou → Saiu
-      var almoco = l.almocoDireta ? 'sem batida de almoço' : (l.almocoDiretoConf ? 'sem almoço' : (l.saidaAlm && l.saidaAlm !== '—' ? 'almoço ' + l.saidaAlm + '–' + l.voltaAlm : ''));
-      if (l.entrada && l.entrada !== '—') {
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
-        _tx(1, l.entrada + ' às ' + (l.saida || '—'), y1);
-        if (almoco) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130); _tx(1, almoco, y2); }
-      } else { doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(170, 170, 170); _tx(1, '—', y1); }
-      // Trabalhou
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
-      _tx(2, l.trabMin ? _hm(l.trabMin) : '—', y1 + 1.6);
-      // Resultado
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.6); doc.setTextColor.apply(doc, cor);
-      _tx(3, res, y1 + 1.6);
+    linhas.forEach(function (l) {
+      if (y + rowH > pH - 22) { doc.addPage(); y = 12; _headerTabela(); }
+      var v = _linhaVisual(l);
+      if (v.bg) { doc.setFillColor.apply(doc, v.bg); doc.rect(mL, y, cW, rowH, 'F'); }
+      doc.setDrawColor(225, 229, 236); doc.setLineWidth(0.15); doc.line(mL, y + rowH, mL + cW, y + rowH);
+      var y1 = y + 4.7, y2 = y + 8.6;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(35, 35, 35); _tx(0, v.dia, y1);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130); _tx(0, v.sem + (v.marca ? ' · ' + v.marca : ''), y2);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(35, 35, 35); _tx(1, v.horario || '—', y1);
+      if (v.detalhe) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130); _tx(1, v.detalhe, y2); }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor.apply(doc, v.cor); _tx(2, v.res, y + 6.2);
       y += rowH;
     });
-
-    // Observações
-    y += 2;
-    var obsLinhas = [];
-    linhas.forEach(function(l) {
-      if (l.tipo === 'feriado') {
-        obsLinhas.push('•' + _fmtData(l.data) + ': feriado' + (l.obs && l.obs.indexOf('meio') !== -1 ? ' meio período' : '') + (l.excDescricao ? ' (' + l.excDescricao + ')' : ''));
-      } else if (l.tipo === 'acordo') {
-        obsLinhas.push('•' + _fmtData(l.data) + ': acordo' + (l.excDescricao ? ' (' + l.excDescricao + ')' : ''));
-      } else if (l.autoComp) {
-        obsLinhas.push('•' + _fmtData(l.data) + ': horário incompleto');
-      }
-    });
-    if (obsLinhas.length > 0) {
-      if (y + 6 > pH - 15) { doc.addPage(); y = 15; }
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(6.5);
-      doc.setTextColor(80, 80, 80);
-      doc.text('Observações: ' + obsLinhas.join(' | '), mL, y, { maxWidth: cW });
-      y += 5;
-    }
-
-    y += 2;
-
-    y += 4;
+    y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 130, 130);
+    doc.text('Hora extra paga em dobro; em triplo no domingo, feriado, sábado depois das 12h e antes das 7h ou depois das 18h.', mL, y, { maxWidth: cW });
+    y += 8;
 
     doc.setTextColor(150, 150, 150);
     doc.setFontSize(6);
@@ -1095,6 +963,36 @@ var HR_RELATORIO_PONTO = (function () {
     _abrirOverlayPonto(htmlPreview, pdfBlobFn, fileName, f.nome || 'Funcionário', mesRef, telFunc, valorMsg, fin.status === 'pago');
   }
 
+
+  // ─── v14: visual único do relatório (tela e PDF) — 3 colunas, frases curtas ──
+  var _SEMANA = { '2ª': 'seg', '3ª': 'ter', '4ª': 'qua', '5ª': 'qui', '6ª': 'sex', 'Sáb': 'sáb', 'Dom': 'dom' };
+  function _hmC(min) { var abs = Math.abs(Math.round(min || 0)); return Math.floor(abs / 60) + 'h' + String(abs % 60).padStart(2, '0'); }
+  function _linhaVisual(l) {
+    var v = { dia: l.data.slice(8, 10) + '/' + l.data.slice(5, 7), sem: _SEMANA[l.diaTxt] || l.diaTxt || '', marca: '', horario: '', detalhe: '', res: '', cor: [120, 120, 120], bg: null };
+    var meio = l.esperadoMin > 0 && l.esperadoMin < 480 && l.diaTxt !== 'Sáb';
+    if (l.tipo === 'feriado') v.marca = meio ? 'meio feriado' : 'feriado'; else if (l.tipo === 'acordo') v.marca = 'acordo'; else if (meio) v.marca = 'meio período';
+    var temHora = l.entrada && l.entrada !== '—';
+    if (temHora) {
+      v.horario = l.entrada + ' às ' + (l.saida && l.saida !== '—' ? l.saida : '?');
+      var alm = l.almocoDireta ? 'sem batida do almoço' : (l.almocoDiretoConf ? 'sem almoço' : (l.saidaAlm && l.saidaAlm !== '—' ? 'almoço ' + l.saidaAlm + '–' + l.voltaAlm : ''));
+      v.detalhe = [alm, l.trabMin ? 'trabalhou ' + _hmC(l.trabMin) : ''].filter(Boolean).join(' · ');
+    }
+    var semPonto = (!l.trabMin && l.esperadoMin > 0 && l.tipo !== 'abonado');
+    if (l.tipo === 'abonado' || /abonad/.test(l.obs || '')) { v.res = 'atestado'; v.cor = [70, 110, 160]; v.bg = [238, 244, 251]; }
+    else if (semPonto) { v.res = 'faltou ' + _hmC(l.esperadoMin); v.cor = [180, 50, 50]; v.bg = [255, 240, 240]; v.horario = v.horario || 'sem ponto'; }
+    else if (l.extraMin > 0 && !l.destinoBanco) { v.res = '+' + _hmC(l.extraMin) + ' extra'; v.cor = [30, 130, 60]; }
+    else if (l.saldoMin < -5) { v.res = 'faltou ' + _hmC(l.saldoMin); v.cor = [180, 50, 50]; v.bg = [255, 244, 244]; }
+    else if (l.trabMin) { v.res = 'completo'; v.cor = [120, 120, 120]; }
+    if ((l.tipo === 'feriado' || l.tipo === 'acordo' || !l.esperadoMin) && !l.trabMin && !semPonto) { v.res = 'folga'; v.cor = [70, 110, 160]; v.bg = [244, 247, 252]; v.horario = v.horario || '—'; }
+    if (l.autoComp) v.detalhe = (v.detalhe ? v.detalhe + ' · ' : '') + 'horário incompleto';
+    return v;
+  }
+  function _contaRelatorio(linhas) {
+    var c = { dias: 0, extra: 0, falta: 0 };
+    linhas.forEach(function (l) { if (l.trabMin > 0) c.dias++; if (l.extraMin > 0 && !l.destinoBanco) c.extra += l.extraMin; if (l.tipo !== 'abonado') { if (!l.trabMin && l.esperadoMin > 0) c.falta += l.esperadoMin; else if (l.saldoMin < -5) c.falta += -l.saldoMin; } });
+    return c;
+  }
+
   // ─── Gerador HTML do relatório (para preview via html2canvas) ────────────────
 
   function _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
@@ -1126,128 +1024,48 @@ var HR_RELATORIO_PONTO = (function () {
     function fmtData(iso) { return iso.slice(8,10)+'/'+iso.slice(5,7); }
     function fmtMoeda(v) { return 'R$ '+parseFloat(v||0).toFixed(2).replace('.',','); }
 
-    // v2: tabela fácil de ler — 4 colunas, letra maior, resultado escrito por extenso
-    function hm(min) { var abs = Math.abs(Math.round(min)); return Math.floor(abs/60)+'h'+String(abs%60).padStart(2,'0'); }
-    var rowsHtml = '';
-    linhas.forEach(function(l, idx) {
-      var semPonto = (!l.trabMin && l.esperadoMin > 0 && l.tipo !== 'abonado');
-      var bg = '#fff', res, cor;
-      if (l.tipo === 'abonado' || /abonad/.test(l.obs || '')) { res = 'atestado'; cor = '#5a7fa8'; bg = '#eef4fb'; }
-      else if (semPonto) { res = l.esperadoMin ? 'sem ponto · faltou ' + hm(l.esperadoMin) : 'sem ponto'; cor = '#b43c3c'; bg = '#fff0f0'; }
-      else if (l.extraMin > 0 && !l.destinoBanco) { res = '+' + hm(l.extraMin) + ' a mais' + (l.extra200Min > 0 ? ' <span style="font-size:11px;">(' + hm(l.extra200Min) + ' ×3)</span>' : ''); cor = '#2a8a46'; bg = '#f1fbf3'; }
-      else if (l.saldoMin < -5) { res = 'faltou ' + hm(l.saldoMin); cor = '#b43c3c'; bg = '#fff4f4'; }
-      else { res = 'certo'; cor = '#888'; }
-      if ((l.tipo === 'feriado' || l.tipo === 'acordo') && !l.trabMin && !l.esperadoMin) { res = 'folga/feriado'; cor = '#5a7fa8'; bg = '#eef4fb'; }
-      var almoco = l.almocoDireta ? 'sem batida de almoço' : (l.almocoDiretoConf ? 'sem almoço' : (l.saidaAlm && l.saidaAlm !== '—' ? 'almoço ' + l.saidaAlm + '–' + l.voltaAlm : ''));
-      var meio = l.esperadoMin > 0 && l.esperadoMin < 480 && l.diaTxt !== 'Sáb' ? ' <span style="font-size:11px;color:#5a7fa8;">(meio período)</span>' : '';
-      var horario = l.entrada && l.entrada !== '—' ? '<b>' + l.entrada + '</b> → <b>' + l.saida + '</b>' + (almoco ? '<div style="font-size:11.5px;color:#888;margin-top:2px;">' + almoco + '</div>' : '') : '<span style="color:#aaa;">—</span>';
-      rowsHtml +=
-        '<tr style="background:'+bg+';border-bottom:1px solid #e3e8ee;">'+
-        '<td style="padding:9px 6px;font-size:15px;white-space:nowrap;"><b>'+fmtData(l.data)+'</b> <span style="font-size:12px;color:#888;">'+l.diaTxt+'</span>'+meio+'</td>'+
-        '<td style="padding:9px 6px;font-size:15px;">'+horario+'</td>'+
-        '<td style="padding:9px 6px;font-size:15px;text-align:center;">'+(l.trabMin ? hm(l.trabMin) : '—')+'</td>'+
-        '<td style="padding:9px 6px;font-size:15px;text-align:right;color:'+cor+';font-weight:700;">'+res+'</td>'+
-        '</tr>';
-    });
+    var conta = _contaRelatorio(linhas);
+    var rgbC = function (c) { return 'rgb(' + c.join(',') + ')'; };
+    var rowsHtml = linhas.map(function (l) {
+      var v = _linhaVisual(l);
+      return '<tr style="background:' + (v.bg ? rgbC(v.bg) : '#fff') + ';border-bottom:1px solid #e6eaf0;">' +
+        '<td style="padding:10px 8px;width:118px;vertical-align:top;"><div style="font-size:17px;font-weight:700;color:#222;">' + v.dia + '</div><div style="font-size:12.5px;color:#888;">' + v.sem + (v.marca ? ' · <span style="color:#3d6aa0;">' + v.marca + '</span>' : '') + '</div></td>' +
+        '<td style="padding:10px 8px;vertical-align:top;"><div style="font-size:17px;font-weight:700;color:#222;">' + _esc(v.horario || '—') + '</div>' + (v.detalhe ? '<div style="font-size:12.5px;color:#888;margin-top:2px;">' + _esc(v.detalhe) + '</div>' : '') + '</td>' +
+        '<td style="padding:10px 8px;text-align:right;vertical-align:top;font-size:16px;font-weight:700;color:' + rgbC(v.cor) + ';white-space:nowrap;">' + _esc(v.res) + '</td></tr>';
+    }).join('');
 
-    var obsHtml = '';
-    linhas.forEach(function(l){
-      if (l.tipo==='feriado') {
-        var isMeio = l.obs&&l.obs.indexOf('meio')!==-1;
-        obsHtml += '•'+fmtData(l.data)+': feriado'+(isMeio?' meio período':'')+(l.excDescricao?' ('+l.excDescricao+')':'')+' ';
-      } else if (l.tipo==='acordo') {
-        obsHtml += '•'+fmtData(l.data)+': acordo'+(l.excDescricao?' ('+l.excDescricao+')':'')+' ';
-      } else if (l.autoComp) {
-        obsHtml += '•'+fmtData(l.data)+': horário incompleto ';
-      }
-    });
+    var conta1 = resumo.rows.filter(function (r) { return !r.sub && !r.nota; }).map(function (r) {
+      return '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:15.5px;border-top:1px solid rgba(0,0,0,.07);"><span style="color:#444;">' + _esc(r.label) + '</span><span style="font-weight:700;color:' + rgbC(r.cor || [30, 30, 30]) + ';">' + (r.sinal ? r.sinal + ' ' : '') + fmtMoeda(r.valor) + '</span></div>';
+    }).join('');
+    var notas = resumo.rows.filter(function (r) { return r.nota; }).map(function (r) { return '<div style="font-size:12px;color:#888;margin-top:6px;">' + _esc(r.nota) + '</div>'; }).join('');
 
     var agora = new Date();
-    var dtGer = agora.toLocaleDateString('pt-BR')+' '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    var dtGer = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    var pago = fin.status === 'pago', cor = pago ? '#2a8a46' : '#1a3660';
+    var valorGrande = pago && fin.totalPago > 0 ? fin.totalPago : Math.abs(fin.saldoFinal);
+    var tile = function (n, t, c) { return '<div style="flex:1;background:#f5f7fa;border-radius:8px;padding:10px 8px;text-align:center;"><div style="font-size:22px;font-weight:800;color:' + c + ';">' + n + '</div><div style="font-size:12.5px;color:#666;margin-top:2px;">' + t + '</div></div>'; };
 
-    var statusCorBg  = fin.status === 'pago' ? '#eaf7ee' : '#fdf7e6';
-    var statusCorBd  = fin.status === 'pago' ? '#8fcf9f' : '#e8c877';
-    var faixaCor     = fin.status === 'pago' ? '#2a8a46' : '#1a3660';
-
-    var horasHtml = '';
-    if (resumo.horas.length) {
-      horasHtml = '<div style="font-size:15px;font-weight:700;color:#1a3660;margin-bottom:6px;">Horas do período</div>'+
-        resumo.horas.map(function (h) {
-          return '<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
-            '<span style="color:#444;">'+_esc(h.label)+'</span>'+
-            '<span style="font-weight:700;color:rgb('+h.cor.join(',')+');">'+_esc(h.texto)+'</span></div>';
-        }).join('')+
-        '<div style="height:12px;"></div>';
-    }
-    var linhasResumo = '';
-    resumo.rows.forEach(function (r) {
-      if (r.nota) {
-        linhasResumo += '<div style="padding:0 0 8px;font-size:13px;color:#888;font-style:italic;line-height:1.4;">'+_esc(r.nota)+'</div>';
-        return;
-      }
-      if (r.sub) {
-        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:0 0 6px 16px;font-size:13px;color:#888;">'+
-          '<span>· '+_esc(r.label)+'</span><span>'+fmtMoeda(r.valor)+'</span></div>';
-        return;
-      }
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:8px 0 6px;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
-        '<span style="color:#444;">'+_esc(r.label)+'</span>'+
-        '<span style="font-weight:700;color:rgb('+r.cor.join(',')+');">'+(r.sinal ? r.sinal+' ' : '')+fmtMoeda(r.valor)+'</span></div>';
-    });
-
-    // Colunas da tabela — Saída/Volta Almoço só entram se alguém realmente bate almoço
-    var colsHead =
-      '<th style="padding:9px 6px;font-size:13px;text-align:left;">Dia</th>'+
-      '<th style="padding:9px 6px;font-size:13px;text-align:left;">Entrou → Saiu</th>'+
-      '<th style="padding:9px 6px;font-size:13px;text-align:center;">Trabalhou</th>'+
-      '<th style="padding:9px 6px;font-size:13px;text-align:right;">Resultado</th>';
-
-    // Rodapé técnico — só o essencial (déficit, se houver), sem jargão.
-    // O resto (valor hora, ×2, ×3) já está explicado no card do topo.
-    var rodapeTecnico = '';
-
-    return '<div style="font-family:Arial,sans-serif;background:#fff;padding:16px 20px;color:#111;width:754px;box-sizing:border-box;">'+
-
-      // Cabeçalho
-      '<div style="background:#1a3660;color:#fff;text-align:center;padding:12px 0 8px;border-radius:6px 6px 0 0;">'+
-        '<div style="font-size:18px;font-weight:700;letter-spacing:1px;">RELATÓRIO DE PONTO</div>'+
-        '<div style="font-size:13px;margin-top:3px;">'+_esc(f.nome||'')+'</div>'+
-        '<div style="font-size:11px;opacity:.85;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º período ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
-      '</div>'+
-
-      // ── VALOR A RECEBER — a primeira (e principal) informação ───────────────
-      '<div style="background:#fff;border:2px solid '+faixaCor+';border-radius:8px;padding:14px 18px;margin-top:14px;display:flex;justify-content:space-between;align-items:flex-end;">'+
-        '<div>'+
-          '<div style="font-size:14px;color:#777;">'+(fin.status==='pago'?'Já recebido (quitado)':'Você vai receber')+'</div>'+
-          '<div style="font-size:30px;font-weight:800;color:'+faixaCor+';">'+fmtMoeda(fin.status==='pago'&&fin.totalPago>0?fin.totalPago:Math.abs(fin.saldoFinal))+'</div>'+
-        '</div>'+
-        '<div style="font-size:15px;color:#555;">Trabalhou '+diasTrabalhados+(diasTrabalhados===1?' dia':' dias')+'</div>'+
-      '</div>'+
-
-      // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ─────────────────
-      '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:14px 18px;margin-top:12px;">'+
-        horasHtml+
-        '<div style="font-size:15px;font-weight:700;color:#1a3660;margin-bottom:6px;">Como chegamos nesse valor</div>'+
-        linhasResumo+
-        '<div style="background:'+faixaCor+';border-radius:6px;padding:12px 16px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'+
-          '<span style="color:#fff;font-size:16px;font-weight:700;">'+(fin.status==='pago'?'QUITADO':'TOTAL A RECEBER')+'</span>'+
-          '<span style="color:#fff;font-size:22px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
-        '</div>'+
-      '</div>'+
-
-      // Tabela — só o ponto, limpo
-      '<div style="font-size:14px;font-weight:700;color:#1a3660;margin-top:16px;margin-bottom:6px;">Registro de ponto</div>'+
-      '<table style="width:100%;border-collapse:collapse;">'+
-        '<thead><tr style="background:#eaf0f8;color:#1a3660;">'+colsHead+'</tr></thead>'+
-        '<tbody>'+rowsHtml+'</tbody>'+
-      '</table>'+
-
-      (obsHtml ? '<div style="font-size:11.5px;color:#555;font-style:italic;margin-top:8px;">Observações: '+obsHtml+'</div>' : '')+
-
-      rodapeTecnico+
-
-      '<div style="text-align:center;font-size:9px;color:#aaa;margin-top:12px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
-      (WPP_CONTATO_RH ? '<div style="text-align:center;margin-top:10px;"><a href="https://wa.me/55'+WPP_CONTATO_RH+'?text='+encodeURIComponent('Olá! Sobre meu relatório de ponto ('+(f.nome||'')+', '+mesRef+'): tenho uma dúvida ou algo não bate.')+'" style="display:inline-block;background:#e6f6ea;border:1px solid #78be8c;border-radius:6px;padding:8px 14px;font-size:13px;color:#146e37;font-weight:700;text-decoration:none;">Dúvida ou algo não bate? Toque aqui e fale com o RH</a></div>' : '')+
+    return '<div style="font-family:Arial,sans-serif;background:#fff;padding:18px 22px;color:#111;width:754px;box-sizing:border-box;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #1a3660;padding-bottom:10px;">' +
+        '<div><div style="font-size:13px;color:#888;letter-spacing:1px;">RELATÓRIO DE PONTO</div><div style="font-size:24px;font-weight:800;color:#1a3660;">' + _esc(f.nome || '') + '</div></div>' +
+        '<div style="text-align:right;font-size:14px;color:#555;">' + fmtData(di) + ' a ' + fmtData(df) + '<br><span style="font-size:12px;color:#999;">' + mesRef + '</span></div>' +
+      '</div>' +
+      '<div style="border:2px solid ' + cor + ';border-radius:10px;padding:14px 18px;margin-top:14px;">' +
+        '<div style="font-size:14px;color:#777;">' + (pago ? 'Já recebido · quitado' : 'Você vai receber') + '</div>' +
+        '<div style="font-size:34px;font-weight:800;color:' + cor + ';margin-bottom:6px;">' + fmtMoeda(valorGrande) + '</div>' +
+        conta1 + notas +
+      '</div>' +
+      '<div style="display:flex;gap:10px;margin-top:12px;">' +
+        tile(conta.dias, conta.dias === 1 ? 'dia trabalhado' : 'dias trabalhados', '#1a3660') +
+        tile(conta.extra ? '+' + _hmC(conta.extra) : '0h00', 'horas extras', '#2a8a46') +
+        tile(conta.falta ? _hmC(conta.falta) : '0h00', 'horas faltando', conta.falta ? '#b43232' : '#999') +
+      '</div>' +
+      '<table style="width:100%;border-collapse:collapse;margin-top:14px;">' +
+        '<thead><tr style="background:#eef2f8;color:#1a3660;font-size:13px;"><th style="padding:8px;text-align:left;">Dia</th><th style="padding:8px;text-align:left;">Horário</th><th style="padding:8px;text-align:right;">Resultado</th></tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody></table>' +
+      '<div style="font-size:12px;color:#888;margin-top:8px;">Hora extra paga em dobro; em triplo no domingo, feriado, sábado depois das 12h e antes das 7h ou depois das 18h.</div>' +
+      '<div style="text-align:center;font-size:9px;color:#aaa;margin-top:12px;">Gerado em ' + dtGer + ' · HR Mármores e Granitos</div>' +
+      (WPP_CONTATO_RH ? '<div style="text-align:center;margin-top:10px;"><a href="https://wa.me/55' + WPP_CONTATO_RH + '?text=' + encodeURIComponent('Olá! Sobre meu relatório de ponto (' + (f.nome || '') + ', ' + mesRef + '): tenho uma dúvida ou algo não bate.') + '" style="display:inline-block;background:#e6f6ea;border:1px solid #78be8c;border-radius:6px;padding:8px 14px;font-size:13px;color:#146e37;font-weight:700;text-decoration:none;">Dúvida ou algo não bate? Fale com o RH</a></div>' : '') +
     '</div>';
   }
 
