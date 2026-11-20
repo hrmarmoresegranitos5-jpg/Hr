@@ -2335,6 +2335,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^acdm_no\|/.test(id)) { const a = await acdLer(env, id.split('|')[1]); if (a && await janela24h(env, a.num)) await enviar(env, a.num, `${nomeDeTratamento(a.nome) || 'Olá'}, falei com o Sr. Hangel e o acordo continua como combinado: ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' e ')}. Qualquer dúvida, estou aqui. 😊`).catch(() => {}); await enviar(env, from, 'Certo, mantive o acordo e avisei a cliente.'); return true; } // v162
   if (/^eqc_(ok|no)\|/.test(id)) return eqContatoBotao(env, from, id); // v155
   if (/^eqd_(ok|no)\|/.test(id)) return eqDescobrirBotao(env, from, id); // v223
+  if (/^rela_(ok|no)\|/.test(id)) return relAutBotao(env, from, id); // v229
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -28914,7 +28915,7 @@ async function eqDescobrirBotao(env, from, id) {
     const t2 = Object.assign({}, cfg._tel2 || {}), u = ultimos8(it.tel); t2[u] = String(f.id); t2['n:' + u] = it.tel; await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
     await env.HR_KV.delete('ca:' + it.tel).catch(() => {});
     // relatório que ficou parado por falta do número
-    let rel = ''; try { const per = await eqRelParado(env, f.id); if (per) { const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }); rel = v ? ' · relatório enviado' : ''; } } catch (_) {} // v228
+    let rel = ''; try { const per = await eqRelParado(env, f.id); if (per && await relPedirAutorizacao(env, cfg, f, per)) rel = ' · relatório aguardando sua autorização'; } catch (_) {} // v229
     await eqFichaPedir(env, f).catch(() => {});
     linhas.push(`• ${apelidoFunc(cfg, f)}: ${fmtNumero(it.tel)} gravado${rel} · pedi a ficha`);
   }
@@ -28980,6 +28981,25 @@ async function eqAutoCadastroRotina(env, forcar) { // procura e convida quem est
   return feitos;
 }
 
+
+// v229: relatório que o BOT quer mandar fora da hora (cadastro novo, reenvio do que ficou parado) só sai com a autorização do dono
+async function relPedirAutorizacao(env, cfg, f, per) {
+  const k = `${f.id}~${per.df}`, ja = await env.HR_KV.get('ponto:relaut:' + k); if (ja) return false;
+  await env.HR_KV.put('ponto:relaut:' + k, JSON.stringify(per), { expirationTtl: 15 * 86400 });
+  const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null), val = pdf ? (pdf.status === 'pago' ? 'já quitado' : brl(pdf.valor)) : '';
+  await enviarComBotoes(env, numeroDono(env), `Relatório de ponto do ${per.label} (${String(per.di || '').slice(8, 10)}/${String(per.di || '').slice(5, 7)} a ${String(per.df).slice(8, 10)}/${String(per.df).slice(5, 7)}) de ${apelidoFunc(cfg, f)}${val ? ' · ' + val : ''}. Posso mandar para ele?`, [{ id: 'rela_ok|' + k, titulo: 'Pode mandar' }, { id: 'rela_no|' + k, titulo: 'Não mandar' }]);
+  return true;
+}
+async function relAutBotao(env, from, id) {
+  const [ac, k] = id.split('|'); let per = null; try { per = JSON.parse((await env.HR_KV.get('ponto:relaut:' + k)) || 'null'); } catch (_) {}
+  if (!per) { await enviar(env, from, 'Esse pedido expirou.'); return true; }
+  await env.HR_KV.delete('ponto:relaut:' + k);
+  const cfg = await pontoCfg(env), f = cfg.funcs.find(x => String(x.id) === k.split('~')[0]); if (!f) { await enviar(env, from, 'Não achei o funcionário.'); return true; }
+  if (ac === 'rela_no') { await enviar(env, from, `Certo, não mandei o relatório para ${apelidoFunc(cfg, f)}.`); return true; }
+  const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }).catch(() => null);
+  await enviar(env, from, v ? `Mandei o relatório do ${per.label} para ${apelidoFunc(cfg, f)}.` : `Não consegui mandar para ${apelidoFunc(cfg, f)} agora.`);
+  return true;
+}
 // v228: qual relatório está parado para o funcionário: o mais recente com PDF que ainda não chegou nem foi aprovado
 async function eqRelParado(env, fid) {
   const cands = [];
@@ -29004,10 +29024,10 @@ async function eqCadastrarConfirmado(env, f, num, from, opt) {
   await env.HR_KV.delete('ca:' + num).catch(() => {}); await env.HR_KV.delete('eq:conv:' + u).catch(() => {});
   const nome = apelidoFunc(cfg, cf) || String(cf.nome).split(' ')[0];
   if (!opt.porDono) await enviar(env, num, `Pronto, ${nome}! Você está cadastrado na equipe da HR ✅`);
-  let rel = false; try { const per = await eqRelParado(env, cf.id); if (per) { rel = !!(await pontoRelEnviar(env, cfg, cf, per, { reenvio: true })); if (rel) { await env.HR_KV.delete('ponto:relfalhaper:' + cf.id); await env.HR_KV.delete('ponto:relpend:' + cf.id); } } } catch (_) {} // v228: o relatório que ficou parado (não o antigo)
+  let rel = false; try { const per = await eqRelParado(env, cf.id); if (per) rel = await relPedirAutorizacao(env, cfg, cf, per); } catch (_) {} // v229: só manda com autorização do dono
   await eqFichaPedir(env, cf).catch(() => {});
   if (opt.porDono) return { rel };
-  await pontoAvisarDono(env, `✅ *${cf.nome}* confirmou que é da equipe e foi cadastrado com o WhatsApp ${fmtNumero(num)}.${rel ? ' Mandei o relatório de ponto que estava parado.' : ''} Pedi a ficha dele (nome completo, nascimento, CPF e Pix).`).catch(() => {});
+  await pontoAvisarDono(env, `✅ *${cf.nome}* confirmou que é da equipe e foi cadastrado com o WhatsApp ${fmtNumero(num)}.${rel ? ' O relatório dele está esperando a sua autorização (mensagem abaixo).' : ''} Pedi a ficha dele (nome completo, nascimento, CPF e Pix).`).catch(() => {});
 }
 
 
@@ -29058,7 +29078,7 @@ async function eqRegistrarContatos(env, itens, textoJunto) { // itens [{nm, tel}
   return { feitos, sobra, cfg };
 }
 function eqResumoCadastro(cfg, feitos) {
-  return feitos.map(x => `• *${apelidoFunc(cfg, x.f)}*: ${fmtNumero(x.tel)}${x.ja ? ' (já estava)' : ' cadastrado' + (x.rel ? ' · relatório enviado' : '') + ' · pedi a ficha'}`).join('\n');
+  return feitos.map(x => `• *${apelidoFunc(cfg, x.f)}*: ${fmtNumero(x.tel)}${x.ja ? ' (já estava)' : ' cadastrado' + (x.rel ? ' · relatório aguardando sua autorização' : '') + ' · pedi a ficha'}`).join('\n');
 }
 // procura no histórico do WhatsApp do dono os contatos que ele já mandou (e o que ele escreveu perto deles)
 async function eqContatosHistorico(env) {
@@ -29704,7 +29724,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
 Responda em português simples, curto e educado (no máximo 5 linhas), chamando-o de ${nome}.
 Use SÓ os dados abaixo, que são do próprio ${nome}. Nunca fale de outros funcionários. Valores em dinheiro: só os do relatório dele (abaixo); não invente nem prometa outros valores.
 Como as horas são contadas: feito = saída − entrada − almoço. Esperado = jornada do dia no RH (domingo e feriado = 0). Extra = o que passou do esperado no dia, conforme as regras do RH. As batidas são do relógio ou do app HR Ponto, com hora do servidor.
-Se ele disser que um horário está errado, faltou dia, ou pedir correção: peça o que faltar entre (dia, horário certo, motivo) e, quando tiver, diga que vai passar para o responsável conferir e marque "escalar": true. Não prometa que vai mudar.
+Se ele disser que um horário está errado, faltou dia, ou pedir correção: peça UMA vez o que faltar entre (dia, horário certo, motivo). Se no histórico você já pediu e ele não soube dizer, insistiu ou reclamou de novo, NÃO pergunte de novo: diga que vai passar para o Sr. Hangel conferir com ele e marque "escalar": true, com resumo_para_dono explicando a reclamação dele em uma frase. Quando tiver os dados, também escale. Não prometa que vai mudar.
 Se ele disser que está tudo certo / aprovado, marque "aprovou": true.
 Assunto que não for ponto, horas ou relatório: diga que vai passar o recado ao responsável e marque "escalar": true.
 RELATÓRIO ENVIADO${rel ? ` (${rel.label}, ${rel.di} a ${rel.df}, situação: ${rel.status})` : ''}:
@@ -30302,11 +30322,7 @@ async function pontoRotina(env) {
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
   await eqFichaRotina(env).catch(e => console.log('ficha equipe', e && e.message)); // v223
   if (await umaVez(env, 'eqctth:v226', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
-  if (agoraBahia().min < 21 * 60 && await umaVez(env, 'relparado:v228', 30)) { // v228: manda o relatório atual a quem foi cadastrado agora
-    const cfgR = await pontoCfg(env), ignR = await eqIgnorados(env), env2 = [];
-    for (const f of cfgR.funcs) { if (!f.tel || ignR.has(String(f.id))) continue; const per = await eqRelParado(env, f.id).catch(() => null); if (per && await pontoRelEnviar(env, cfgR, f, per, { reenvio: true }).catch(() => null)) env2.push(apelidoFunc(cfgR, f)); }
-    if (env2.length) await pontoAvisarDono(env, `📋 Mandei o relatório de ponto atual para: ${env2.join(', ')}.`).catch(() => {});
-  }
+
   await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
   await rhAvisos(env).catch(e => console.log('rh avisos', e && e.message)); // v81
   await pvRotina(env).catch(e => console.log('pós-venda', e && e.message)); // v46
