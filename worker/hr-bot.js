@@ -10718,20 +10718,22 @@ async function eqManualPara(env, fid) {
   if (r !== 'falha') await env.HR_KV.put('eq:bv:' + f.id, String(Date.now()), { expirationTtl: 400 * 86400 });
   return r;
 }
-async function eqContatoDono(env, from, m) {
-  const cfg = await pontoCfg(env), achou = [];
-  for (const c of (m.contacts || [])) {
-    const nm = String((c.name && (c.name.formatted_name || c.name.first_name)) || ''), ph = (c.phones || [])[0] || {}, dig = String(ph.wa_id || ph.phone || '').replace(/\D/g, '');
-    if (!nm || dig.length < 10) continue;
-    const tk = tokensPedra(nm); const f = cfg.funcs.find(x => tk.length && (tokensPedra(x.nome)[0] === tk[0] || normaliza(apelidoFunc(cfg, x) || '') === tk[0]));
-    if (f) achou.push({ f, nm, tel: normalizarBR(dig.length <= 11 ? '55' + dig : dig) });
+async function eqContatoDono(env, from, m) { // v225: cadastra direto, sem botão de confirmação
+  const itens = eqContatosDe(m); if (!itens.length) return false;
+  const cfg0 = await pontoCfg(env);
+  const algum = itens.some(it => eqFuncPorNomeTexto(cfg0, it.nm));
+  const legenda = String(m._legenda || '');
+  if (!algum && !(legenda && eqFuncPorNomeTexto(cfg0, legenda))) {
+    // nome do contato não é de ninguém da equipe: guarda 30 min; se o dono disser "esse é o Lucas", cadastra
+    if (!cfg0.funcs.some(f => !f.tel)) return false;
+    await env.HR_KV.put('eq:cttpend', JSON.stringify({ itens, em: Date.now() }), { expirationTtl: 1800 });
+    return false; // segue o fluxo normal do contato
   }
-  if (!achou.length) return false;
-  const k = 'eq:ctt:' + Date.now().toString(36);
-  await env.HR_KV.put(k, JSON.stringify({ itens: achou.map(x => ({ fid: x.f.id, tel: x.tel, nm: x.nm })), m }), { expirationTtl: 2 * 86400 });
-  await enviarComBotoes(env, from, achou.length === 1 ? `📇 *${achou[0].nm}* (${fmtNumero(achou[0].tel)}) é o *${apelidoFunc(cfg, achou[0].f)}* da equipe?` : `📇 Esses contatos são da equipe?\n${achou.map(x => `• ${x.nm} (${fmtNumero(x.tel)}) → ${apelidoFunc(cfg, x.f)}`).join('\n')}`,
-    [{ id: 'eqc_ok|' + k, titulo: 'Sim, é da equipe' }, { id: 'eqc_no|' + k, titulo: 'Não, é cliente' }]);
-  return true;
+  const r = await eqRegistrarContatos(env, itens, legenda);
+  if (r.sobra.length) await env.HR_KV.put('eq:cttpend', JSON.stringify({ itens: r.sobra, em: Date.now() }), { expirationTtl: 1800 });
+  const linhas = [r.feitos.length ? `✅ Cadastrei na equipe:\n${eqResumoCadastro(r.cfg, r.feitos)}` : '', r.sobra.length ? `Não sei de quem é: ${r.sobra.map(x => `${x.nm || 'sem nome'} ${fmtNumero(x.tel)}`).join(', ')}. Se for da equipe, me diga o nome (ex.: _esse é o Lucas_).` : ''].filter(Boolean);
+  if (linhas.length) await enviar(env, from, linhas.join('\n\n'));
+  return r.feitos.length > 0;
 }
 async function eqContatoBotao(env, from, id) {
   const [ac, k] = id.split('|'); let d = null; try { d = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
@@ -19489,8 +19491,9 @@ async function tratarMensagemBase(env, m, ctx) {
         if (!ult || !/\?\s*$|\?[^?]{0,80}$/.test(String(ult.content || '').slice(-200))) { await enviar(env, from, '👍'); return; }
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
+      if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
       { const mq = normaliza(bruto); // v223
-        if (/\b(ach\w*|descobr\w*|cadastr\w*|busc\w*|busq\w*|procur\w*|peg\w*|encontr\w*|salv\w*|grav\w*|atualiz\w*)\b.*\b(numero|whatsapp|zap|contato|telefone|celular)s?\b.*\b(equipe|funcionarios?|time|pessoal)\b|\b(cadastr\w*) (a |os )?(equipe|funcionarios)\b/.test(mq)) { const fe = await eqAutoCadastroRotina(env, true), cfgD = await pontoCfg(env), sem = cfgD.funcs.filter(x => !x.tel && !fe.some(y => y.f.id === x.id)); await enviar(env, from, [fe.length ? `Mandei para cada um confirmar que é da equipe: ${fe.map(y => `${apelidoFunc(cfgD, y.f)} ${fmtNumero(y.tel)}`).join(', ')}. Quando confirmarem, cadastro sozinho, mando o relatório e peço a ficha.` : (cfgD.funcs.some(x => !x.tel) ? 'Não achei número novo nas conversas.' : 'Toda a equipe já está cadastrada.'), sem.length ? `Sem número ainda: ${sem.map(x => apelidoFunc(cfgD, x)).join(', ')}. Quando eles escreverem para o bot, eu reconheço pelo nome e pergunto; ou mande o contato deles aqui.` : ''].filter(Boolean).join('\n\n')); return; }
+        if (/\b(ach\w*|descobr\w*|cadastr\w*|busc\w*|busq\w*|procur\w*|peg\w*|encontr\w*|salv\w*|grav\w*|atualiz\w*)\b.*\b(numero|whatsapp|zap|contato|telefone|celular)s?\b.*\b(equipe|funcionarios?|time|pessoal)\b|\b(cadastr\w*) (a |os )?(equipe|funcionarios)\b/.test(mq)) { const fe = await eqAutoCadastroRotina(env, true), cfgD = await pontoCfg(env), sem = cfgD.funcs.filter(x => !x.tel && !fe.some(y => y.f.id === x.id)); await enviar(env, from, [fe.length ? `Mandei para cada um confirmar que é da equipe: ${fe.map(y => `${apelidoFunc(cfgD, y.f)} ${fmtNumero(y.tel)}`).join(', ')}. Quando confirmarem, cadastro sozinho, mando o relatório e peço a ficha.` : (cfgD.funcs.some(x => !x.tel) ? '' : 'Toda a equipe já está cadastrada.'), sem.length ? `Ainda sem número: ${sem.map(x => apelidoFunc(cfgD, x)).join(', ')}. Mande o contato aqui e me diga quem é, que eu cadastro na hora.` : ''].filter(Boolean).join('\n\n')); return; }
         if (/\b(peg\w*|ped\w*|peca|colet\w*|complet\w*|busc\w*|busq\w*|atualiz\w*)\b.*\b(ficha|dados|cadastro|informac\w*|detalhes)s?\b.*\b(equipe|funcionarios?)\b/.test(mq)) { const cfgF = await pontoCfg(env), com = cfgF.funcs.filter(x => x.tel); for (const x of com) await eqFichaPedir(env, x).catch(() => {}); await enviar(env, from, com.length ? `Pedi a ficha (nome completo, nascimento, CPF e Pix) para: ${com.map(x => apelidoFunc(cfgF, x)).join(', ')}. Quando responderem, gravo no RH e te aviso.${cfgF.funcs.length > com.length ? ' Sem WhatsApp: ' + cfgF.funcs.filter(x => !x.tel).map(x => apelidoFunc(cfgF, x)).join(', ') + ' — mande *achar números da equipe*.' : ''}` : 'Ninguém da equipe tem WhatsApp cadastrado ainda. Mande: *achar números da equipe*.'); return; } }
       if (await donoPlanoEquipe(env, from, bruto).catch(e => { console.log('[PLANO] dono:', e.message); return false; })) return; // v216
       { const junto = await juntarMsgsDono(env, bruto); if (junto === null) return; await responderAgente(env, from, junto, F, voz); } // v193: mensagens seguidas viram uma só
@@ -28964,22 +28967,102 @@ async function eqConvidar(env, f, num, nomePerfil) {
 async function eqAutoCadastroRotina(env, forcar) { // procura e convida quem está sem telefone (1x por dia, horário comercial)
   const ag = agoraBahia(); if (!forcar && (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 18 * 60)) return [];
   if (!forcar && !(await umaVez(env, 'eqauto:' + dataBahia(), 1))) return [];
+  await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('[EQ] hist:', e.message)); // v225
   const achou = await eqDescobrirNumeros(env), feitos = [];
   for (const a of achou) { const via = await eqConvidar(env, a.f, a.tel, a.nome).catch(() => ''); if (via) feitos.push({ f: a.f, tel: a.tel, via }); }
   return feitos;
 }
-async function eqCadastrarConfirmado(env, f, num, from) {
+async function eqCadastrarConfirmado(env, f, num, from, opt) {
+  opt = opt || {};
   const cfg = await pontoCfg(env), cf = cfg.funcs.find(x => String(x.id) === String(f.id)) || f; num = normalizarBR(num);
   cf.tel = num; await pontoCfgSalvar(env, cfg);
   await equipeAtualizar(env, { funcionario: cf.nome, telefone: num }).catch(() => null);
   const t2 = Object.assign({}, cfg._tel2 || {}), u = ultimos8(num); t2[u] = String(cf.id); t2['n:' + u] = num; await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
-  await env.HR_KV.put('ponto:ultzap:' + cf.id, String(Date.now()), { expirationTtl: 2 * 86400 });
+  if (!opt.porDono) await env.HR_KV.put('ponto:ultzap:' + cf.id, String(Date.now()), { expirationTtl: 2 * 86400 });
   await env.HR_KV.delete('ca:' + num).catch(() => {}); await env.HR_KV.delete('eq:conv:' + u).catch(() => {});
   const nome = apelidoFunc(cfg, cf) || String(cf.nome).split(' ')[0];
-  await enviar(env, num, `Pronto, ${nome}! Você está cadastrado na equipe da HR ✅`);
+  if (!opt.porDono) await enviar(env, num, `Pronto, ${nome}! Você está cadastrado na equipe da HR ✅`);
   let rel = false; try { const per = JSON.parse((await env.HR_KV.get('ponto:resant:' + cf.id)) || 'null'); if (per && await pontoRelPdf(env, cf.id, per.df) && !(await pontoRelUltimo(env, cf.id) || {}).via) rel = !!(await pontoRelEnviar(env, cfg, cf, per, { reenvio: true })); } catch (_) {}
   await eqFichaPedir(env, cf).catch(() => {});
+  if (opt.porDono) return { rel };
   await pontoAvisarDono(env, `✅ *${cf.nome}* confirmou que é da equipe e foi cadastrado com o WhatsApp ${fmtNumero(num)}.${rel ? ' Mandei o relatório de ponto que estava parado.' : ''} Pedi a ficha dele (nome completo, nascimento, CPF e Pix).`).catch(() => {});
+}
+
+// v225: CONTATOS QUE O DONO MANDOU — cadastra direto, sem perguntar a ninguém.
+// Acha o funcionário pelo nome do contato; se o nome do contato não bate, usa o que o dono escreveu junto ("esse é o Lucas").
+function eqFuncPorNomeTexto(cfg, txt, lista) {
+  const tk = tokensPedra(txt || ''); if (!tk.length) return null;
+  const nota = f => { const tf = tokensPedra(f.nome || ''), ap = tokensPedra(apelidoFunc(cfg, f) || '');
+    const pref = (t, w) => t && w && t.length >= 3 && w.length >= 4 && (w.startsWith(t) || t.startsWith(w)) && !NOME_COMUM.has(t); // "jeff" = Jefferson, "farofa" ~ Farofinha
+    const pri = tf[0] && tk.some(t => t === tf[0] || tkCasa(t, tf[0]) > 0 || pref(t, tf[0])), apl = ap[0] && tk.some(t => t === ap[0] || pref(t.slice(0, 5), ap[0]) || tkCasa(t, ap[0]) > 0);
+    if (!pri && !apl) return 0; const sob = tf.slice(1).some(w => w.length >= 3 && tk.some(t => t === w || tkCasa(t, w) > 0)); return sob ? 2 : 1; };
+  const sc = (lista || cfg.funcs).map(f => ({ f, n: nota(f) })).filter(x => x.n), mx = Math.max(0, ...sc.map(x => x.n)), top = sc.filter(x => x.n === mx);
+  return top.length === 1 ? top[0].f : null;
+}
+function eqContatosDe(m) { // [{nm, tel}]
+  const out = [];
+  for (const c of (m.contacts || [])) { const nm = String((c.name && (c.name.formatted_name || c.name.first_name)) || ''), ph = (c.phones || [])[0] || {}, dig = String(ph.wa_id || ph.phone || '').replace(/\D/g, ''); if (dig.length >= 10) out.push({ nm, tel: normalizarBR(dig.length <= 11 ? '55' + dig : dig) }); }
+  return out;
+}
+function eqContatosDeTexto(txt) { // texto gravado no CRM: "Nome +55 74 98800-1111" por linha
+  const out = [];
+  for (const l of String(txt || '').split('\n')) { const mm = l.match(/^(.*?)(\+?[\d][\d\s().-]{8,})\s*$/); if (!mm) continue; const dig = mm[2].replace(/\D/g, ''); if (dig.length >= 10) out.push({ nm: mm[1].trim(), tel: normalizarBR(dig.length <= 11 ? '55' + dig : dig) }); }
+  return out;
+}
+async function eqRegistrarContatos(env, itens, textoJunto) { // itens [{nm, tel}] → cadastra quem casar
+  const cfg = await pontoCfg(env), feitos = [], sobra = [];
+  const usados = new Set(cfg.funcs.filter(f => f.tel).map(f => ultimos8(f.tel)));
+  for (const it of itens) {
+    if (ultimos8(it.tel) === ultimos8(numeroDono(env) || '')) continue;
+    let f = eqFuncPorNomeTexto(cfg, it.nm);
+    if (!f && textoJunto && itens.length === 1) f = eqFuncPorNomeTexto(cfg, textoJunto);
+    if (!f || feitos.some(x => x.f.id === f.id)) { sobra.push(it); continue; }
+    if (f.tel && ultimos8(f.tel) === ultimos8(it.tel)) { feitos.push({ f, tel: it.tel, ja: true }); continue; }
+    if (usados.has(ultimos8(it.tel)) && !(f.tel && ultimos8(f.tel) === ultimos8(it.tel))) { const dono = cfg.funcs.find(x => x.tel && ultimos8(x.tel) === ultimos8(it.tel)); if (dono && dono.id !== f.id) { sobra.push(it); continue; } }
+    const r = await eqCadastrarConfirmado(env, f, it.tel, null, { porDono: true }).catch(e => { console.log('[EQ] cad dono:', e.message); return null; });
+    if (r) { feitos.push({ f, tel: it.tel, rel: r.rel }); usados.add(ultimos8(it.tel)); }
+  }
+  return { feitos, sobra, cfg };
+}
+function eqResumoCadastro(cfg, feitos) {
+  return feitos.map(x => `• *${apelidoFunc(cfg, x.f)}*: ${fmtNumero(x.tel)}${x.ja ? ' (já estava)' : ' cadastrado' + (x.rel ? ' · relatório enviado' : '') + ' · pedi a ficha'}`).join('\n');
+}
+// procura no histórico do WhatsApp do dono os contatos que ele já mandou (e o que ele escreveu perto deles)
+async function eqContatosHistorico(env) {
+  const cfg0 = await pontoCfg(env); if (!cfg0.funcs.some(f => !f.tel) || !env.HR_DB) return { feitos: [], sobra: [], cfg: cfg0 };
+  const u = ultimos8(numeroDono(env) || ''); if (!u) return { feitos: [], sobra: [], cfg: cfg0 };
+  let rows = []; try { await crmTabela(env); rows = ((await env.HR_DB.prepare("SELECT ts, tipo, texto FROM crm_msg WHERE num LIKE ? AND q = 'c' AND ts > ? ORDER BY ts").bind('%' + u, Date.now() - 120 * 86400000).all()).results || []); } catch (e) { console.log('[EQ] hist:', e.message); }
+  const itens = [];
+  rows.forEach((r, i) => {
+    if (r.tipo !== 'contacts') return;
+    const cs = eqContatosDeTexto(r.texto);
+    const prox = rows.slice(i + 1).find(x => x.tipo === 'contacts'), ate = Math.min(+r.ts + 15 * 60000, prox ? +prox.ts : Infinity);
+    const perto = rows.filter(x => x.tipo === 'text' && +x.ts > +r.ts && +x.ts < ate).map(x => x.texto); // só o que ele escreveu logo depois deste contato
+    for (const c of cs) { let nm = c.nm; if (!eqFuncPorNomeTexto(cfg0, nm) && cs.length === 1) { const t = perto.find(x => eqFuncPorNomeTexto(cfg0, x)); if (t) nm = nm + ' ' + t; } itens.push({ nm, tel: c.tel }); }
+  });
+  const ult = new Map(); for (const it of itens) ult.set(ultimos8(it.tel), it); // o mais recente vence
+  const falta = new Set(cfg0.funcs.filter(f => !f.tel).map(f => String(f.id)));
+  const alvo = [...ult.values()].filter(it => { const f = eqFuncPorNomeTexto(cfg0, it.nm); return f && falta.has(String(f.id)); });
+  return alvo.length ? eqRegistrarContatos(env, alvo) : { feitos: [], sobra: [], cfg: cfg0 };
+}
+// dono escreveu depois de mandar contato sem nome reconhecível: "esse é o Lucas"
+async function eqContatoPendTexto(env, from, bruto) {
+  let pend = null; try { pend = JSON.parse((await env.HR_KV.get('eq:cttpend')) || 'null'); } catch (_) {}
+  if (!pend || !pend.itens || !pend.itens.length) return false;
+  const cfg = await pontoCfg(env);
+  if (pend.itens.length === 1) {
+    const f = eqFuncPorNomeTexto(cfg, bruto); if (!f) return false;
+    await env.HR_KV.delete('eq:cttpend');
+    const r = await eqRegistrarContatos(env, [{ nm: pend.itens[0].nm + ' ' + bruto, tel: pend.itens[0].tel }]);
+    if (!r.feitos.length) return false;
+    await enviar(env, from, `Pronto, cadastrei:\n${eqResumoCadastro(r.cfg, r.feitos)}`); return true;
+  }
+  // vários contatos: nomes na mesma ordem ("Lucas, Fabrício e Jefferson")
+  const partes = String(bruto).split(/,|\be\b|\n|;/).map(x => x.trim()).filter(Boolean), fs = partes.map(p => eqFuncPorNomeTexto(cfg, p)).filter(Boolean);
+  if (fs.length !== pend.itens.length) return false;
+  await env.HR_KV.delete('eq:cttpend');
+  const r = await eqRegistrarContatos(env, pend.itens.map((it, i) => ({ nm: it.nm + ' ' + fs[i].nome, tel: it.tel })));
+  await enviar(env, from, `Pronto, cadastrei:\n${eqResumoCadastro(r.cfg, r.feitos)}`); return true;
 }
 // mensagem de número desconhecido: convite pendente / perfil com nome de quem está sem telefone
 async function eqAutoReconhecer(env, from, m) {
@@ -30170,6 +30253,7 @@ async function pontoRotina(env) {
   await pontoLembretes(env, cfg).catch(e => console.log('lembrete ponto', e && e.message)); // v35
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
   await eqFichaRotina(env).catch(e => console.log('ficha equipe', e && e.message)); // v223
+  if (await umaVez(env, 'eqctth:v225', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
   await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
   await rhAvisos(env).catch(e => console.log('rh avisos', e && e.message)); // v81
   await pvRotina(env).catch(e => console.log('pós-venda', e && e.message)); // v46
