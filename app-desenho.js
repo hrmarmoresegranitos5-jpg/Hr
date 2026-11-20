@@ -534,9 +534,10 @@
         if (ctx === 'cuba' || /cuba/.test(c)) {
           if (/redond/.test(c)) { pc.cuba.tipo = 'redonda'; pc.cuba.w = pc.cuba.h = pc.tipo === 'lavatorio' ? 40 : 45; }
           if (/oval/.test(c)) { pc.cuba.tipo = 'oval'; pc.cuba.w = 48; pc.cuba.h = 36; }
+          if (/retang|quadrad/.test(c)) { pc.cuba.tipo = 'retangular'; if (pc.tipo === 'lavatorio') { pc.cuba.w = 45; pc.cuba.h = 30; } }
           if (/sobrepor/.test(c)) pc.cuba.inst = 'sobrepor'; if (/embut/.test(c)) pc.cuba.inst = 'embutida'; if (/flush/.test(c)) pc.cuba.inst = 'flush';
         }
-        if (/saia|sainha/.test(c) || ctx === 'saia') { if (/45/.test(c)) { pc.saia = '45'; if (num(pc.saiaAlt) === 4) pc.saiaAlt = 6; } else if (/slim/.test(c)) pc.saia = 'slim'; else if (/bolead/.test(c)) pc.saia = 'boleada'; else if (/reta/.test(c)) pc.saia = 'reta'; }
+        if (/saia|sainha/.test(c) || ctx === 'saia') { if (/45/.test(c)) { pc.saia = '45'; if (num(pc.saiaAlt) === 4 || num(pc.saiaAlt) === 10) pc.saiaAlt = 6; } else if (/slim/.test(c)) pc.saia = 'slim'; else if (/bolead/.test(c)) pc.saia = 'boleada'; else if (/reta/.test(c)) pc.saia = 'reta'; }
         if (/perna|lado da perna|l (pra|para)/.test(c) || (tp === 'L' && /^(pra |para )?(a )?(esquerda|direita)$/.test(c))) { if (/esquerd/.test(c)) pc.perna = 'esq'; if (/direit/.test(c)) pc.perna = 'dir'; usou = true; }
         if (/canto (na|da|fica na) perna/.test(c)) { pc.emenda = 'perna'; usou = true; } if (/canto (no|do|fica no) fundo/.test(c)) { pc.emenda = 'principal'; usou = true; }
         if (/vista|fundo p/.test(c)) { if (/esquerd/.test(c)) pc.vista = -1; if (/direit/.test(c)) pc.vista = 1; usou = true; }
@@ -620,18 +621,45 @@
     var L = [];
     (q.ambSnap || []).forEach(function (a) {
       var t = semAc(a.tipo || ''), sv = Object.keys(a.svState || {}), pcs = (a.pecas || []).filter(function (p) { return +p.w > 0 && +p.h > 0; }); if (!pcs.length) return;
+      var lavC = /lavat|banheir|lavabo/.test(t) || sv.indexOf('cuba_lav') >= 0 || (a.selCuba && a.selCuba.tipo === 'lav');
+      if (lavC) { sv = sv.filter(function (k) { return !/^reb_|^cook/.test(k); }); if (!/lavat|banheir|lavabo/.test(t)) t = 'lavatorio ' + t; }
       var ex = []; if (sv.indexOf('s_45') >= 0) ex.push('sainha 45'); else if (sv.indexOf('s_reta') >= 0) ex.push('sainha reta'); else if (sv.indexOf('s_slim') >= 0) ex.push('sainha slim'); else if (sv.indexOf('s_boleada') >= 0) ex.push('sainha boleada');
       if (sv.indexOf('frontao') >= 0 || sv.indexOf('frontao_chf') >= 0) ex.push('frontão 10'); if (sv.indexOf('reb_a') >= 0) ex.push('rebaixo americano'); else if (sv.indexOf('reb_n') >= 0) ex.push('rebaixo normal');
       if (sv.indexOf('cook') >= 0) ex.push('cooktop');
       var ci = ''; [a, a.selCuba || {}].forEach(function (o) { Object.keys(o || {}).forEach(function (k) { var v = o[k]; if (typeof v === 'string' && /^(sobrepor|embutir|embutida|flush)$/i.test(v)) ci = v.toLowerCase(); }); });
-      if (a.selCuba) ex.push('cuba' + (/sobrep/.test(ci) ? ' de sobrepor' : /flush/.test(ci) ? ' flush' : ' embutida'));
+      if (a.selCuba) { var cat = null; try { cat = ((a.selCuba.tipo === 'lav' ? (window.CFG || {}).lav : (window.CFG || {}).coz) || []).filter(function (x) { return x.id === a.selCuba.id; })[0]; } catch (e) {}
+        var ct = semAc([ci, a.selCuba.nm, cat && cat.tipo, cat && cat.nm].join(' ')), forma = /esculp/.test(ct) ? 'esculpida' : /redond/.test(ct) ? 'redonda' : /oval/.test(ct) ? 'oval' : 'retangular', dm = cat && /(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)/.exec(String(cat.dim || ''));
+        ex.push('cuba ' + (forma === 'esculpida' ? 'esculpida' : forma + (/sobrep|apoio/.test(ct) ? ' de sobrepor' : /flush/.test(ct) ? ' flush' : ' embutida')) + (dm ? ' ' + dm[1] + 'x' + dm[2] : '')); }
       if (/soleira|peitoril|filete|rodape|degrau/.test(t)) { var nm = /soleira/.test(t) ? 'soleira' : /peitoril/.test(t) ? 'peitoril' : 'placa'; pcs.forEach(function (p) { L.push((+p.q > 1 ? (+p.q) + ' ' + nm + (nm === 'peitoril' ? 'is' : 's') : nm) + ' ' + f1(+p.w) + ' x ' + f1(+p.h)); }); return; }
-      var grandes = pcs.filter(function (p) { return Math.min(+p.w, +p.h) >= 30; }).sort(function (x, y) { return y.w * y.h - x.w * x.h; }), m = grandes[0] || pcs[0], lav = /lavat|banheiro|lavabo/.test(t);
+      var grandes = pcs.filter(function (p) { return Math.min(+p.w, +p.h) >= 30; }).sort(function (x, y) { return y.w * y.h - x.w * x.h; }), m = grandes[0] || pcs[0], lav = lavC;
       if (!lav && grandes.length >= 2 && /cozinha|pia|bancada|gourmet/.test(t)) { var a2 = grandes[1]; L.push('Cozinha em L ' + f1(Math.max(+m.w, +m.h)) + ' x ' + f1(Math.max(+a2.w, +a2.h)) + ', largura ' + f1(Math.min(+m.w, +m.h)) + (ex.length ? ', ' + ex.join(', ') : '')); return; }
       var nmA = lav ? 'Lavatório' : /cozinha|pia|bancada|gourmet|balc/.test(t) ? 'Pia' : /pratel/.test(t) ? 'Prateleira' : 'Bancada';
       L.push(((+m.q || 1) > 1 ? (+m.q) + ' ' : '') + nmA + ' ' + f1(Math.max(+m.w, +m.h)) + ' x ' + f1(Math.min(+m.w, +m.h)) + (ex.length ? ', ' + ex.join(', ') : ''));
     });
     return L.join('\n');
+  }
+  function pecasDoPedido(ped) {
+    var out = [];
+    (ped.itens || []).forEach(function (it) {
+      var t = semAc(it.ambiente || ''), sv = it.sv || [], pcs = (it.pecas || []).filter(function (p) { return p.comp > 0 && p.larg > 0; }); if (!pcs.length) return;
+      var lav = /lavat|banheir|lavabo/.test(t) || sv.indexOf('cuba_lav') >= 0;
+      var tampos = pcs.filter(function (p) { return (p.tipo === 'bancada' || p.tipo === 'tampo' || !p.tipo) && Math.min(p.comp, p.larg) >= 25; }).sort(function (a, b) { return b.comp * b.larg - a.comp * a.larg; });
+      var fr = pcs.filter(function (p) { return p.tipo === 'frontao'; })[0], temSaiaP = pcs.some(function (p) { return p.tipo === 'saia'; });
+      if (/soleira|peitoril|filete|rodape|degrau/.test(t) || !tampos.length) { pcs.forEach(function (p) { var q = novaPeca('prateleira'); q.nome = /soleira/.test(t) ? 'Soleira' : /peitoril/.test(t) ? 'Peitoril' : (p.rot || 'Peça'); q.A = Math.max(p.comp, p.larg); q.p = Math.min(p.comp, p.larg); q.qtd = p.qtd; q.saia = 'nenhuma'; out.push(q); }); return; }
+      var m = tampos[0], L = !lav && tampos.length >= 2 && /cozinha|pia|bancada|gourmet/.test(t), pc = novaPeca(lav ? 'lavatorio' : L ? 'L' : 'bancada');
+      pc.A = Math.max(m.comp, m.larg); pc.p = Math.min(m.comp, m.larg); pc.qtd = m.qtd || 1;
+      if (L) { var b = tampos[1]; pc.B = Math.max(b.comp, b.larg); pc.pB = Math.min(b.comp, b.larg); pc.Bv = 2; }
+      if (/balc|ilha/.test(t)) pc.nome = /ilha/.test(t) ? 'Ilha' : 'Balcão';
+      pc.saia = it.saia || (temSaiaP ? 'reta' : 'nenhuma'); pc.saiaAlt = pc.saia === '45' ? 6 : lav ? 10 : 4;
+      if (fr) { pc.frF = true; pc.fr = Math.min(fr.comp, fr.larg); } else { pc.frF = pc.frE = pc.frD = false; }
+      var c = pc.cuba, ci = String(it.cubaInst || '');
+      if (it.cuba) { c.tipo = /^esc/.test(ci) ? 'esculpida' : 'retangular'; c.inst = ci === 'sobrepor' ? 'sobrepor' : ci === 'flush' ? 'flush' : 'embutida'; if (c.tipo === 'esculpida') { c.w = 50; c.h = 35; } else if (lav) { c.w = 45; c.h = 30; } else { c.w = 56; c.h = 34; } c.x = ''; }
+      else c.tipo = 'nenhuma';
+      if (!lav && it.rebaixo) { pc.reb.on = true; pc.reb.tipo = it.rebaixo; }
+      pc.cook.on = !lav && !!it.cook;
+      out.push(pc);
+    });
+    return out;
   }
   var EXEMPLOS = [
     'Cozinha em L 250 x 100, largura 60, perna esquerda, sainha 45, frontão 10, rebaixo americano 120x48, cuba a 155 do canto esquerdo',
@@ -855,7 +883,7 @@
   }
   function telaLista() {
     var m = document.getElementById('desMain'); if (!m) return; var l = lista(), bar = document.getElementById('desBar'); if (bar) bar.style.display = 'none';
-    m.innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt" data-acao="novo">＋ Novo projeto</button><button class="des-bt des-bt2" data-acao="orc">📋 Puxar de um orçamento</button><div style="height:10px"></div>' + (l.length ? l.map(function (d) { return '<div class="des-li" data-abre="' + esc(d.id) + '"><span style="font-size:1.4rem">📐</span><div style="flex:1"><b>' + esc(d.cliente || 'Sem cliente') + '</b><div class="des-sub">' + esc(vazio(d.desc) ? descAuto(d) : d.desc) + (d.material ? ' · ' + esc(d.material) : '') + ' · ' + new Date(d.em).toLocaleDateString('pt-BR') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica" style="text-align:center;padding:30px">Nenhum projeto ainda. Toque em <b>Novo projeto</b>.</div>') + '</div>';
+    m.innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt" data-acao="novo">＋ Novo projeto</button><button class="des-bt des-bt2" data-acao="ped">🏭 Puxar de um pedido</button><button class="des-bt des-bt2" data-acao="orc">📋 Puxar de um orçamento</button><div style="height:10px"></div>' + (l.length ? l.map(function (d) { return '<div class="des-li" data-abre="' + esc(d.id) + '"><span style="font-size:1.4rem">📐</span><div style="flex:1"><b>' + esc(d.cliente || 'Sem cliente') + '</b><div class="des-sub">' + esc(vazio(d.desc) ? descAuto(d) : d.desc) + (d.material ? ' · ' + esc(d.material) : '') + ' · ' + new Date(d.em).toLocaleDateString('pt-BR') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica" style="text-align:center;padding:30px">Nenhum projeto ainda. Toque em <b>Novo projeto</b>.</div>') + '</div>';
   }
   function render() { var sub = document.getElementById('desSub'); if (st.tela === 'lista') { if (sub) sub.textContent = 'Projeto 2D sob medida, no padrão da HR'; telaLista(); } else { if (sub) sub.textContent = st.d.cliente || 'Novo projeto'; telaEditor(); } }
   function pcDe(el) { var p = el.closest('[data-pc]'); return p ? st.d.pecas[+p.getAttribute('data-pc')] : null; }
@@ -911,6 +939,7 @@
       if (dp) { var cp = JSON.parse(JSON.stringify(d.pecas[+dp.getAttribute('data-dup')])); cp.id = uid(); d.pecas.splice(+dp.getAttribute('data-dup') + 1, 0, cp); st.aberta = +dp.getAttribute('data-dup') + 1; desenharCv(); atualizarPainel(); return; }
       if (ap) { var i = +ap.getAttribute('data-abrepc'); st.aberta = st.aberta === i ? -1 : i; atualizarPainel(); return; }
       if (ab) { var x = lista().filter(function (y) { return y.id === ab.getAttribute('data-abre'); })[0]; if (x) { st.d = x; st.aberta = 0; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render(); } return; }
+      var px = e.target.closest('[data-pedx]'); if (px && st.peds) { var pd = st.peds[+px.getAttribute('data-pedx')]; st.d = novo(); st.d.cliente = pd.nome || ''; st.d.material = pd.pedra || ''; st.d.pid = pd.id; st.d.pecas = pecasDoPedido(pd); st.aberta = -1; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render(); aviso(st.d.pecas.length ? '🏭 Puxei do pedido. Confira a posição da cuba.' : '⚠️ Esse pedido não tem as medidas das peças.'); return; }
       var oc = e.target.closest('[data-orc]'); if (oc && st.orcs) { var q = st.orcs[+oc.getAttribute('data-orc')]; st.d = novo(); st.d.cliente = q.cli || ''; st.d.material = q.mat || ''; st.d.texto = textoDoOrcamento(q); st.d.pecas = interpretar(st.d.texto); st.aberta = -1; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render(); aviso('📋 Puxei do orçamento. Confira as medidas e a posição da cuba.'); return; }
       var ex = e.target.closest('[data-ex]'); if (ex) { d.texto = EXEMPLOS[+ex.getAttribute('data-ex')]; d.pecas = interpretar(d.texto); st.aberta = -1; desenharCv(); atualizarPainel(); return; }
       if (!a) return; var k3 = a.getAttribute('data-acao');
@@ -920,6 +949,8 @@
       if (k3 === 'voltar') { if (st.tela === 'editor') { guardar(st.d); st.tela = 'lista'; render(); } else el.remove(); return; }
       if (k3 === 'orc') { var os = orcamentos(); document.getElementById('desMain').innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt des-bt2" data-acao="voltarLista">← Voltar</button><div class="des-dica" style="margin:10px 0">Escolha o orçamento: o desenho sai com as medidas, a cuba, a sainha e o rebaixo dele.</div>' + (os.length ? os.map(function (q, i) { return '<div class="des-li" data-orc="' + i + '"><span style="font-size:1.4rem">📋</span><div style="flex:1"><b>' + esc(q.cli || 'Sem cliente') + '</b><div class="des-sub">' + esc((q.ambSnap || []).map(function (a) { return a.tipo; }).join(' + ')) + (q.mat ? ' · ' + esc(q.mat) : '') + (q.date || q.data ? ' · ' + esc(String(q.date || q.data).slice(0, 10)) : '') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica">Nenhum orçamento salvo no app ainda.</div>') + '</div>'; st.orcs = os; return; }
       if (k3 === 'voltarLista') { render(); return; }
+      if (k3 === 'ped') { var mn = document.getElementById('desMain'); mn.innerHTML = '<div class="des-dica" style="padding:30px;text-align:center">Carregando os pedidos…</div>';
+        api('/bot/producao').then(function (pr) { st.peds = pr.pedidos || []; mn.innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt des-bt2" data-acao="voltarLista">← Voltar</button><div class="des-dica" style="margin:10px 0">Escolha o pedido: o desenho sai com o ambiente, as medidas, a sainha, o frontão e a cuba (de sobrepor ou de embutir) dele.</div>' + (st.peds.length ? st.peds.map(function (p, i) { return '<div class="des-li" data-pedx="' + i + '"><span style="font-size:1.4rem">🏭</span><div style="flex:1"><b>' + esc(p.nome) + '</b><div class="des-sub">' + esc((p.itens || []).map(function (x) { return x.ambiente; }).join(' + ')) + (p.pedra ? ' · ' + esc(p.pedra) : '') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica">Nenhum pedido em produção.</div>') + '</div>'; }).catch(function (er) { aviso('⚠️ ' + er.message); render(); }); return; }
       if (k3 === 'novo') { st.d = novo(); st.aberta = 0; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render(); return; }
       if (k3 === 'apagar') { if (confirm('Apagar este desenho?')) { apagar(d.id); st.tela = 'lista'; render(); } return; }
       if (k3 === 'salvar') { guardar(d); aviso('💾 Projeto salvo'); return; }
@@ -939,5 +970,5 @@
   }
   function iniciar() { var sb = document.getElementById('secBody'); if (!sb) return setTimeout(iniciar, 1500); cartaoSec(); new MutationObserver(cartaoSec).observe(sb, { childList: true }); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
-  window.abrirDesenho = abrir; window.__hrDesTeste = { MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
+  window.abrirDesenho = abrir; window.__hrDesTeste = { pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
 })();
