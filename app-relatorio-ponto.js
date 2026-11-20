@@ -986,6 +986,8 @@ var HR_RELATORIO_PONTO = (function () {
     else if (l.saldoMin < -5) { v.res = 'faltou ' + _hmC(l.saldoMin); v.cor = [180, 50, 50]; v.bg = [255, 244, 244]; }
     else if (l.trabMin) { v.res = 'completo'; v.cor = [120, 120, 120]; }
     if ((l.tipo === 'feriado' || l.tipo === 'acordo' || !l.esperadoMin) && !l.trabMin && !semPonto) { v.res = 'folga'; v.cor = [70, 110, 160]; v.bg = [244, 247, 252]; v.horario = v.horario || '—'; }
+    var mE = temHora ? (+l.entrada.slice(0, 2)) * 60 + (+l.entrada.slice(3, 5)) : NaN;
+    if (temHora && l.esperadoMin >= 420 && mE >= 735 && mE <= 885 && !(l.saidaAlm && l.saidaAlm !== '—')) { v.detalhe = 'sem batida de manhã' + (l.trabMin ? ' · trabalhou ' + _hmC(l.trabMin) : ''); if (v.res && /^faltou/.test(v.res)) v.res2 = 'esqueceu de bater de manhã?'; v.bg = [255, 248, 230]; v.cor = [190, 110, 20]; }
     if (l.autoComp) v.detalhe = (v.detalhe ? v.detalhe + ' · ' : '') + 'horário incompleto';
     return v;
   }
