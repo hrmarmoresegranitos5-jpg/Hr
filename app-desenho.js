@@ -35,7 +35,7 @@
     var p = { id: uid(), tipo: t, nome: '', qtd: 1, A: 200, p: 60, B: 160, pB: 60, perna: 'dir', emenda: 'principal', saia: 'reta', saiaAlt: 4, fr: 10, frF: true, frE: false, frD: false, vista: 0,
       cuba: { tipo: 'nenhuma', inst: 'embutida', ref: 'esq', x: '', w: 56, h: 34, fy: '' }, reb: { on: false, c: 121, l: 48, x: '' }, cook: { on: false, x: '', w: 56, h: 49 }, pe: 'nenhum', peAlt: 90, H: 40, prof: 10, obs: '' };
     if (t === 'bancada') { p.cuba.tipo = 'retangular'; }
-    if (t === 'L') { p.A = 250; p.B = 160; p.cuba.tipo = 'retangular'; p.frD = true; }
+    if (t === 'L') { p.A = 250; p.B = 100; p.Bv = 2; p.cuba.tipo = 'retangular'; p.frD = true; }
     if (t === 'lavatorio') { p.A = 80; p.p = 45; p.saiaAlt = 10; p.cuba = { tipo: 'redonda', inst: 'embutida', ref: 'esq', x: '', w: 40, h: 40, fy: '' }; }
     if (t === 'prateleira') { p.A = 80; p.p = 35; p.frF = false; }
     if (t === 'nicho') { p.A = 60; p.H = 30; p.prof = 10; p.saia = 'nenhuma'; p.frF = false; }
@@ -45,19 +45,20 @@
   function novo() { return { v: 2, id: 'd' + Date.now(), cliente: '', desc: '', material: '', obs: '', pid: '', texto: '', pecas: [] }; }
   function migrar(d) { // desenhos da v1 (forma/A/B/recortes)
     if (!d || d.v === 2) return d;
-    var p = novaPeca(d.forma === 'reta' ? 'bancada' : 'L'); p.A = num(d.A, 200); p.p = num(d.p, 60); p.B = num(d.B, 95); p.fr = num(d.frAlt, 10); p.saia = d.saiaTipo || 'reta'; p.saiaAlt = num(d.saiaAlt, 4);
+    var p = novaPeca(d.forma === 'reta' ? 'bancada' : 'L'); p.A = num(d.A, 200); p.p = num(d.p, 60); p.B = num(d.B, 95); p.Bv = 0; p.fr = num(d.frAlt, 10); p.saia = d.saiaTipo || 'reta'; p.saiaAlt = num(d.saiaAlt, 4);
     var cb = (d.recortes || []).filter(function (r) { return r.tipo === 'cuba'; })[0], rb = (d.recortes || []).filter(function (r) { return r.tipo === 'rebaixo'; })[0], ck = (d.recortes || []).filter(function (r) { return r.tipo === 'cooktop'; })[0];
     p.cuba.tipo = cb ? 'retangular' : 'nenhuma'; if (cb) { p.cuba.inst = cb.inst || 'embutida'; p.cuba.w = num(cb.w, 50); p.cuba.h = num(cb.h, 40); p.cuba.x = num(cb.x) + num(cb.w) / 2; }
     if (rb) { p.reb = { on: true, c: num(rb.w, 121), l: num(rb.h, 48), x: num(rb.x) }; }
     if (ck) { p.cook = { on: true, x: num(ck.x) + num(ck.w) / 2, w: num(ck.w, 56), h: num(ck.h, 49) }; }
     return { v: 2, id: d.id, cliente: d.cliente || '', desc: d.desc || '', material: d.material || '', obs: d.obs || '', pid: d.pid || '', em: d.em, pecas: [p] };
   }
-  function lista() { try { return (JSON.parse(localStorage.getItem(KEY) || '[]') || []).map(migrar); } catch (e) { return []; } }
+  function migrarB(d) { (d && d.pecas || []).forEach(function (pc) { if (pc && pc.tipo === 'L' && !pc.Bv) { pc.B = Math.max(5, num(pc.B, 160) - num(pc.p, 60)); pc.Bv = 2; } }); return d; }
+  function lista() { try { return (JSON.parse(localStorage.getItem(KEY) || '[]') || []).map(migrar).map(migrarB); } catch (e) { return []; } }
   function guardar(d) { var l = lista().filter(function (x) { return x.id !== d.id; }); d.em = Date.now(); l.unshift(JSON.parse(JSON.stringify(d))); try { localStorage.setItem(KEY, JSON.stringify(l.slice(0, 80))); } catch (e) {} }
   function apagar(id) { try { localStorage.setItem(KEY, JSON.stringify(lista().filter(function (x) { return x.id !== id; }))); } catch (e) {} }
 
   function oblq(pc) { return ['bancada', 'L', 'lavatorio', 'prateleira'].indexOf(pc.tipo) >= 0; }
-  function temSaia(pc) { return pc.saia !== 'nenhuma' && num(pc.saiaAlt) > 0; }
+  function temSaia(pc) { return pc.saia !== 'nenhuma' && pc.saia !== 'slim' && num(pc.saiaAlt) > 0; } // slim = só a espessura da pedra, sem sainha
   function nomePeca(pc) {
     if (!vazio(pc.nome)) return String(pc.nome).trim();
     return { bancada: 'Pia', L: 'Cozinha em L', lavatorio: 'Lavatório', prateleira: 'Prateleira', nicho: 'Nicho', placa: 'Placa' }[pc.tipo] || 'Peça';
@@ -67,7 +68,7 @@
   function geo(pc) {
     var A = Math.max(5, num(pc.A, 100)), p = Math.max(5, num(pc.p, 60)), T = temSaia(pc) ? num(pc.saiaAlt) : 2, bx = [], Ymax = p, yAt = { e: 0, d: 0 };
     if (pc.tipo === 'L') {
-      var B = Math.max(p + 5, num(pc.B, 160)), pB = Math.min(A - 5, Math.max(5, num(pc.pB, p))), dir = pc.perna !== 'esq', prn = pc.emenda === 'perna';
+      var B = Math.max(5, num(pc.B, 100)) + p, pB = Math.min(A - 5, Math.max(5, num(pc.pB, p))), dir = pc.perna !== 'esq', prn = pc.emenda === 'perna';
       Ymax = B;
       if (dir) {
         bx.push({ k: 'main', x0: 0, x1: prn ? A - pB : A, y0: B - p, y1: B });
@@ -223,7 +224,7 @@
     h += dimTxt(topo[0], topo[1] - 22, f1(g.A), fs, 'middle', it && idx + '|A');
     var ladoEsq = pc.tipo !== 'L' || pc.perna !== 'esq';
     if (pc.tipo === 'L') {
-      var dir = pc.perna !== 'esq', xo = dir ? g.A : 0, a1 = S(xo, 0, 0), a2 = S(xo, g.Ymax, 0), mx = (a1[0] + a2[0]) / 2, my = (a1[1] + a2[1]) / 2;
+      var dir = pc.perna !== 'esq', xo = dir ? g.A : 0, a1 = S(xo, 0, 0), a2 = S(xo, g.Ymax - g.p, 0), mx = (a1[0] + a2[0]) / 2, my = (a1[1] + a2[1]) / 2;
       h += dimTxt(mx + (dir ? 34 : -34), my, f1(num(pc.B)), fs, dir ? 'start' : 'end', it && idx + '|B');
       var xe = dir ? 0 : g.A, b1 = S(xe, g.Ymax - g.p, 0), b2 = S(xe, g.Ymax, 0);
       h += dimTxt((b1[0] + b2[0]) / 2 + (dir ? -30 : 30), (b1[1] + b2[1]) / 2 + 12, f1(g.p), fs2, dir ? 'end' : 'start', it && idx + '|p');
@@ -304,7 +305,7 @@
     var ps = d.pecas || [];
     if (ps.length === 1) {
       var pc = ps[0], c = pc.cuba || {}, x = [];
-      if (oblq(pc) && temSaia(pc)) x.push(NSAIA[pc.saia]);
+      if (oblq(pc) && (temSaia(pc) || pc.saia === 'slim')) x.push(pc.saia === 'slim' ? 'acabamento slim' : NSAIA[pc.saia]);
       if (pc.reb && pc.reb.on) x.push('rebaixo americano');
       if (c.tipo && c.tipo !== 'nenhuma' && pc.tipo !== 'prateleira') x.push(c.tipo === 'esculpida' ? 'cuba esculpida' : c.tipo === 'rampada' ? 'cuba esculpida rampada' : 'cuba ' + (c.tipo === 'retangular' ? '' : c.tipo + ' ') + (c.inst === 'sobrepor' ? 'de sobrepor' : c.inst === 'flush' ? 'flush' : 'embutida'));
       if (pc.cook && pc.cook.on) x.push('cooktop');
@@ -334,6 +335,7 @@
         else n.push('Cuba ' + (cb.f === 'redonda' ? 'redonda Ø ' + f1(cb.x1 - cb.x0) : 'oval ' + f1(cb.x1 - cb.x0) + 'x' + f1(cb.y1 - cb.y0)) + (c.inst === 'sobrepor' ? ' de sobrepor' : ''));
       }
       if (ck) n.push('Cooktop ' + f1(ck.x1 - ck.x0) + 'x' + f1(ck.y1 - ck.y0) + ', centro a ' + f1(ck.cx) + ' do canto esquerdo');
+      if (pc.saia === 'slim') n.push('Acabamento slim (só a espessura da pedra)');
       if (temSaia(pc)) n.push('Sainha ' + ({ reta: 'reta', slim: 'slim', '45': 'em 45°', boleada: 'boleada' }[pc.saia]) + ' de ' + f1(num(pc.saiaAlt)) + 'cm');
       if (num(pc.fr) > 0 && (pc.frF || pc.frE || pc.frD) && pc.tipo !== 'prateleira') n.push('Frontão de ' + f1(num(pc.fr)) + 'cm');
       if (pc.pe !== 'nenhum') n.push('Pé estrutural de ' + f1(num(pc.peAlt)) + 'cm no lado ' + (pc.pe === 'dir' ? 'direito' : 'esquerdo'));
@@ -406,7 +408,7 @@
     if (temSaia(pc)) {
       var sa = num(pc.saiaAlt), nmS = 'Saia ' + ({ reta: 'reta', slim: 'slim', '45': 'em 45°', boleada: 'boleada' }[pc.saia]), A2 = g.A, p = g.p;
       if (pc.tipo === 'L') {
-        var pB = Math.min(A2 - 5, num(pc.pB, p)), B = num(pc.B), dir = pc.perna !== 'esq';
+        var pB = Math.min(A2 - 5, num(pc.pB, p)), B = num(pc.B) + p, dir = pc.perna !== 'esq';
         add(nmS, 'saia', A2 - pB, sa); add(nmS, 'saia', pB, sa); add(nmS, 'saia', B - p, sa);
         if (dir ? !pc.frE : !pc.frD) add(nmS, 'saia', p, sa);
         if (dir ? !pc.frD : !pc.frE) add(nmS, 'saia', B, sa);
@@ -420,7 +422,7 @@
     if (temC) sv.push(pc.tipo === 'lavatorio' ? 'cuba_lav' : 'cuba_coz');
     if (pc.cook && pc.cook.on) sv.push('cook');
     if (pc.reb && pc.reb.on) sv.push('reb_a');
-    if (oblq(pc) && temSaia(pc)) sv.push({ reta: 's_reta', slim: 's_slim', boleada: 's_boleada', '45': 's_45' }[pc.saia] || 's_reta');
+    if (oblq(pc) && (temSaia(pc) || pc.saia === 'slim')) sv.push({ reta: 's_reta', slim: 's_slim', boleada: 's_boleada', '45': 's_45' }[pc.saia] || 's_reta');
     return { ambiente: nomePeca(pc), acabamento: oblq(pc) && temSaia(pc) && pc.saia === '45' ? '45' : '', sv: sv, cuba: temC ? 'desenho' : '', cubaInst: temC ? (/esculp|rampada/.test(c.tipo) ? 'esculpida' : { embutida: 'embutir', sobrepor: 'sobrepor', flush: 'flush' }[c.inst] || '') : '',
       pecas: corte(pc).map(function (p) { return { qtd: p.qtd, comp_cm: p.c, larg_cm: p.l, rot: p.nome, tipoP: p.tipo }; }) };
   }
@@ -542,6 +544,7 @@
     else if (oblq(pc)) x.push(f1(num(pc.A)) + ' × ' + f1(num(pc.p)));
     else x.push(f1(num(pc.A)) + ' × ' + f1(num(pc.H)) + (pc.tipo === 'nicho' ? ', prof. ' + f1(num(pc.prof)) : ''));
     if (oblq(pc)) {
+      if (pc.saia === 'slim') x.push('acabamento slim (só a espessura)');
       if (temSaia(pc)) x.push('sainha ' + ({ reta: 'reta', slim: 'slim', '45': 'em 45°', boleada: 'boleada' }[pc.saia]) + ' de ' + f1(num(pc.saiaAlt)));
       var fl = []; if (pc.frF) fl.push('fundo'); if (pc.frE) fl.push('esquerdo'); if (pc.frD) fl.push('direito');
       if (fl.length && pc.tipo !== 'prateleira') x.push('frontão ' + f1(num(pc.fr)) + ' (' + fl.join(', ') + ')');
@@ -573,7 +576,7 @@
     return L.join('\n');
   }
   var EXEMPLOS = [
-    'Cozinha em L 250 x 160, largura 60, perna esquerda, sainha 45, frontão 10, rebaixo 121x48, cuba a 155 do canto esquerdo',
+    'Cozinha em L 250 x 100, largura 60, perna esquerda, sainha 45, frontão 10, rebaixo 121x48, cuba a 155 do canto esquerdo',
     'Pia 206 x 60, sainha 45, frontão 10 nos lados, cuba a 92 do canto direito, cooktop a 38 do canto esquerdo',
     'Lavatório 80 x 45, sainha reta 10, frontão 10, cuba redonda embutida\nPrateleira 80 x 35, sainha 4',
     '2 lavatórios 120 x 45, sainha reta 12, frontão padrão, cuba oval\n3 divisórias 40 x 80',
@@ -621,10 +624,10 @@
     if (oblq(pc)) {
       if (pc.tipo === 'L') {
         h += '<span class="des-l" style="margin-top:8px">Perna do L</span>' + chips('perna', pc.perna, [['esq', '⌙ Esquerda'], ['dir', '⌐ Direita']]);
-        h += '<div class="des-g">' + campo('A', 'Comprimento (fundo)', pc.A, true) + campo('B', 'Perna (total)', pc.B, true) + campo('p', 'Largura', pc.p, true) + '</div>';
+        h += '<div class="des-g">' + campo('A', 'Comprimento (fundo)', pc.A, true) + campo('B', 'Perna (sem a largura da pia)', pc.B, true) + campo('p', 'Largura', pc.p, true) + '</div>';
         h += '<div class="des-g2">' + campo('pB', 'Largura da perna', pc.pB, true) + '<div><span class="des-l">Quem fica com o canto</span>' + chips('emenda', pc.emenda, [['principal', 'Fundo'], ['perna', 'Perna']]) + '</div></div>';
       } else h += '<div class="des-g2">' + campo('A', 'Comprimento', pc.A, true) + campo('p', 'Largura', pc.p, true) + '</div>';
-      h += '<span class="des-l" style="margin-top:9px">Sainha</span>' + chips('saia', pc.saia, SAIAS) + (pc.saia !== 'nenhuma' ? '<div class="des-g2">' + campo('saiaAlt', 'Altura da sainha (cm)', pc.saiaAlt, true) + '<div></div></div>' : '');
+      h += '<span class="des-l" style="margin-top:9px">Sainha</span>' + chips('saia', pc.saia, SAIAS) + (pc.saia !== 'nenhuma' && pc.saia !== 'slim' ? '<div class="des-g2">' + campo('saiaAlt', 'Altura da sainha (cm)', pc.saiaAlt, true) + '<div></div></div>' : '');
       if (pc.tipo !== 'prateleira') {
         h += '<span class="des-l" style="margin-top:9px">Frontões</span><div class="des-ch">' + lig('frF', pc.frF, 'Fundo') + lig('frE', pc.frE, 'Lado esquerdo') + lig('frD', pc.frD, 'Lado direito') + '</div>';
         if (pc.frF || pc.frE || pc.frD) h += '<div class="des-g2">' + campo('fr', 'Altura do frontão (cm)', pc.fr, true) + '<div></div></div>';
@@ -663,7 +666,8 @@
       if (pc.tipo === 'L') h += '<div class="des-g4">' + campo('A', 'Fundo', pc.A, true) + campo('B', 'Perna', pc.B, true) + campo('p', 'Largura', pc.p, true) + campo('qtd', 'Qtd.', pc.qtd, true) + '</div>' + chips('perna', pc.perna, [['esq', '⌙ Perna à esquerda'], ['dir', '⌐ Perna à direita']]);
       else h += '<div class="des-g">' + campo('A', 'Comprimento', pc.A, true) + campo('p', 'Largura', pc.p, true) + campo('qtd', 'Qtd.', pc.qtd, true) + '</div>';
       h += '<span class="des-l" style="margin-top:10px">Acabamento</span>' + chips('saia', pc.saia, SAIAS);
-      if (pc.saia !== 'nenhuma') h += '<div class="des-g" style="grid-template-columns:1fr 2fr">' + campo('saiaAlt', 'Altura da sainha', pc.saiaAlt, true) + '<div></div></div>';
+      if (pc.saia === 'slim') h += '<div class="des-dica">Slim: só a espessura da pedra, sem sainha.</div>';
+      else if (pc.saia !== 'nenhuma') h += '<div class="des-g" style="grid-template-columns:1fr 2fr">' + campo('saiaAlt', 'Altura da sainha', pc.saiaAlt, true) + '<div></div></div>';
       if (pc.tipo !== 'prateleira') {
         var c = pc.cuba || {}, tem = c.tipo && c.tipo !== 'nenhuma';
         h += '<span class="des-l" style="margin-top:10px">Detalhes</span><div class="des-ch">' + '<button type="button" data-cubaon="1" class="' + (tem ? 'on' : '') + '">' + (tem ? '✓ ' : '') + 'Cuba</button>' + lig('reb.on', pc.reb && pc.reb.on, 'Rebaixo americano') + lig('cook.on', pc.cook && pc.cook.on, 'Cooktop') + '</div>';
@@ -693,7 +697,7 @@
     }
     h += '<div class="des-sec"><div class="des-g2" style="margin-top:0">' + campo('cliente', 'Cliente', d.cliente) + campo('material', 'Material', d.material, false, 'ex.: preto São Gabriel') + '</div></div>';
     h += '<button class="des-bt des-bt2" data-acao="esc" style="margin:0 0 10px">' + (st.esc ? '▾ Esconder' : '✍️ Prefere escrever ou ditar o projeto?') + '</button>';
-    if (st.esc) h += '<div class="des-sec"><h4>✍️ Escreva o projeto</h4><textarea class="des-ta des-txt" data-f="texto" placeholder="Escreva como você fala. Ex.:\nCozinha em L 250 x 160, perna esquerda, sainha 45, frontão 10, rebaixo 121x48, cuba a 155 do canto esquerdo">' + esc(d.texto || '') + '</textarea>'
+    if (st.esc) h += '<div class="des-sec"><h4>✍️ Escreva o projeto</h4><textarea class="des-ta des-txt" data-f="texto" placeholder="Escreva como você fala. Ex.:\nCozinha em L 250 x 100, perna esquerda, sainha 45, frontão 10, rebaixo 121x48, cuba a 155 do canto esquerdo">' + esc(d.texto || '') + '</textarea>'
       + '<div class="des-dica">🎤 Pode ditar pelo microfone do teclado. Uma peça por linha. (Escrever troca as peças do desenho.)</div><div id="desEnt">' + entendiHtml() + '</div>'
       + '<details class="des-ex"><summary>Ver exemplos</summary>' + EXEMPLOS.map(function (x, i) { return '<div class="des-exi" data-ex="' + i + '">' + esc(x).replace(/\n/g, '<br>') + '</div>'; }).join('') + '</details></div>';
     h += '<button class="des-bt des-bt2" data-acao="det" style="margin:0 0 10px">' + (st.det ? '▾ Esconder' : '⚙️ Todas as opções e lista de corte') + '</button>';
@@ -707,7 +711,7 @@
     return h;
   }
   // ── no próprio desenho: arrastar recortes e tocar nas medidas ──
-  var NDIM = { A: 'Comprimento', p: 'Largura', B: 'Perna do L (total)', pB: 'Largura da perna', H: 'Altura', prof: 'Profundidade' };
+  var NDIM = { A: 'Comprimento', p: 'Largura', B: 'Perna do L (sem a largura da pia)', pB: 'Largura da perna', H: 'Altura', prof: 'Profundidade' };
   function pedirNum(rot, v, cb) {
     var o = document.createElement('div'); o.className = 'des-num';
     o.innerHTML = '<div class="cx"><div class="t">' + esc(rot) + ' (cm)</div><input type="text" inputmode="decimal" value="' + esc(v) + '"><div class="b"><button type="button" data-n="0">Cancelar</button><button type="button" data-n="1" class="ok">OK</button></div></div>';
