@@ -19494,6 +19494,12 @@ async function tratarMensagemBase(env, m, ctx) {
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
+      { const mt = normaliza(bruto); // v231: "pode mandar todos os relatórios" / "não manda nenhum"
+        if (/\b(relatorio|relatorios)\b/.test(mt) && /\b(pode|manda|mande|envia|envie|libera|aprova)\w*\b.*\b(todos|tudo|os relatorios|todos os)\b|\b(manda|mande|envia|envie|libera)\w* (todos|tudo)\b/.test(mt) && !/\bnao\b/.test(mt)) {
+          const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }); const cfgM = await pontoCfg(env), ok = [], sem = [];
+          for (const k of l.keys) { const id = k.name.slice('ponto:relaut:'.length); let per = null; try { per = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} const f = per && cfgM.funcs.find(x => String(x.id) === id.split('~')[0]); if (!f) continue;
+            if (!f.tel) { sem.push(apelidoFunc(cfgM, f)); continue; } await env.HR_KV.delete(k.name); if (await pontoRelEnviar(env, cfgM, f, per, { reenvio: true }).catch(() => null)) ok.push(apelidoFunc(cfgM, f)); }
+          await enviar(env, from, ok.length || sem.length ? [ok.length ? `Mandei os relatórios para: ${ok.join(', ')}.` : '', sem.length ? `Sem WhatsApp cadastrado: ${sem.join(', ')}.` : ''].filter(Boolean).join('\n') : 'Não tem relatório esperando autorização.'); return; } }
       { const mi = normaliza(bruto).match(/^(?:a |o )?([a-z]+)(?: [a-z]+)? (nao conta|nao e da equipe|nao trabalha|ainda nao conta|nao conta ainda|ignora|agora conta|ja conta|voltou|comecou)\b/); // v227
         if (mi) { const cfgI = await pontoCfg(env), f = eqFuncPorNomeTexto(cfgI, mi[1]);
           if (f) { const ig = await eqIgnorados(env), sai = /nao|ignora/.test(mi[2]); if (sai) ig.add(String(f.id)); else ig.delete(String(f.id)); await env.HR_KV.put('eq:ignora', JSON.stringify([...ig]));
@@ -28983,6 +28989,20 @@ async function eqAutoCadastroRotina(env, forcar) { // procura e convida quem est
 
 
 // v229: relatório que o BOT quer mandar fora da hora (cadastro novo, reenvio do que ficou parado) só sai com a autorização do dono
+
+function relPontosConferir(pdf) { // dias que merecem um olhar do dono antes de mandar
+  const out = [], hm = m => `${Math.floor(Math.abs(m) / 60)}h${String(Math.round(Math.abs(m)) % 60).padStart(2, '0')}`, dd = d => `${String(d).slice(8, 10)}/${String(d).slice(5, 7)}`;
+  for (const d of (pdf && pdf.dias) || []) {
+    const tem = x => x && x !== '—' && x !== '-', esp = +d.esp || 0, trab = +d.trab || 0, tipo = String(d.tipo || '');
+    if (/abonado|feriado|acordo|folga/.test(tipo) && !trab) continue;
+    if (esp > 0 && !trab && !tem(d.e)) out.push(`${dd(d.data)}: sem ponto (conta como falta de ${hm(esp)})`);
+    else if (tem(d.e) && !tem(d.s)) out.push(`${dd(d.data)}: entrou ${d.e} e não tem saída`);
+    else if (esp >= 420 && trab > 0 && !tem(d.ai)) out.push(`${dd(d.data)}: sem batida do almoço`);
+    else if ((+d.saldo || 0) >= 90) out.push(`${dd(d.data)}: ${hm(d.saldo)} de extra no dia`);
+    else if ((+d.saldo || 0) <= -30 && trab > 0) out.push(`${dd(d.data)}: faltou ${hm(d.saldo)}`);
+  }
+  return out;
+}
 async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para o dono conferir, com os botões
   const k = `${f.id}~${per.df}`;
   if (await env.HR_KV.get('ponto:relautno:' + k)) return false; // o dono já disse para não mandar
@@ -28993,7 +29013,8 @@ async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para
   const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null), val = pdf ? (pdf.status === 'pago' ? 'já quitado' : brl(pdf.valor)) : '';
   const dd = x => `${String(x || '').slice(8, 10)}/${String(x || '').slice(5, 7)}`;
   const nome = apelidoFunc(cfg, f);
-  const corpo = `Relatório de ponto de ${f.nome} · ${per.label} (${dd(per.di)} a ${dd(per.df)})${val ? '\nValor: ' + val : ''}\n\nConfira o PDF. Posso mandar para ${nome}?${!f.tel ? '\n(Ele ainda não tem WhatsApp cadastrado: mande o contato dele aqui.)' : ''}`;
+  const conf = relPontosConferir(pdf); // v231: o que vale olhar antes de aprovar
+  const corpo = `Relatório de ponto de ${f.nome} · ${per.label} (${dd(per.di)} a ${dd(per.df)})${val ? '\nValor: ' + val : ''}${conf.length ? '\n\nConfira:\n' + conf.slice(0, 6).map(x => '• ' + x).join('\n') : '\n\nNenhum dia com problema.'}\n\nPosso mandar para ${nome}?${!f.tel ? '\n(Ele ainda não tem WhatsApp cadastrado: mande o contato dele aqui.)' : ''}`;
   const botoes = [{ type: 'reply', reply: { id: 'rela_ok|' + k, title: 'Pode mandar' } }, { type: 'reply', reply: { id: 'rela_no|' + k, title: 'Não mandar' } }];
   let foi = false;
   if (pdf && pdf.b64) {
