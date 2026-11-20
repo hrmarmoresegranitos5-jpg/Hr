@@ -28914,7 +28914,7 @@ async function eqDescobrirBotao(env, from, id) {
     const t2 = Object.assign({}, cfg._tel2 || {}), u = ultimos8(it.tel); t2[u] = String(f.id); t2['n:' + u] = it.tel; await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
     await env.HR_KV.delete('ca:' + it.tel).catch(() => {});
     // relatório que ficou parado por falta do número
-    let rel = ''; try { const per = JSON.parse((await env.HR_KV.get('ponto:resant:' + f.id)) || 'null'); if (per && await pontoRelPdf(env, f.id, per.df)) { const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }); rel = v ? ' · relatório enviado' : ''; } } catch (_) {}
+    let rel = ''; try { const per = await eqRelParado(env, f.id); if (per) { const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }); rel = v ? ' · relatório enviado' : ''; } } catch (_) {} // v228
     await eqFichaPedir(env, f).catch(() => {});
     linhas.push(`• ${apelidoFunc(cfg, f)}: ${fmtNumero(it.tel)} gravado${rel} · pedi a ficha`);
   }
@@ -28979,6 +28979,20 @@ async function eqAutoCadastroRotina(env, forcar) { // procura e convida quem est
   for (const a of achou) { const via = await eqConvidar(env, a.f, a.tel, a.nome).catch(() => ''); if (via) feitos.push({ f: a.f, tel: a.tel, via }); }
   return feitos;
 }
+
+// v228: qual relatório está parado para o funcionário: o mais recente com PDF que ainda não chegou nem foi aprovado
+async function eqRelParado(env, fid) {
+  const cands = [];
+  for (const k of ['ponto:relfalhaper:', 'ponto:relpend:', 'ponto:res:', 'ponto:resant:']) { try { const p = JSON.parse((await env.HR_KV.get(k + fid)) || 'null'); if (p && p.df && !cands.some(c => c.df === p.df)) cands.push(p); } catch (_) {} }
+  cands.sort((a, b) => String(b.df).localeCompare(String(a.df)));
+  for (const p of cands) {
+    if (!(await pontoRelPdf(env, fid, p.df).catch(() => null))) continue;
+    const u = await pontoRelUltimo(env, fid).catch(() => null);
+    if (u && u.df === p.df && (u.via || u.status === 'aprovado')) return null; // esse já chegou
+    return p;
+  }
+  return null;
+}
 async function eqCadastrarConfirmado(env, f, num, from, opt) {
   opt = opt || {};
   const cfg = await pontoCfg(env), cf = cfg.funcs.find(x => String(x.id) === String(f.id)) || f; num = normalizarBR(num);
@@ -28990,7 +29004,7 @@ async function eqCadastrarConfirmado(env, f, num, from, opt) {
   await env.HR_KV.delete('ca:' + num).catch(() => {}); await env.HR_KV.delete('eq:conv:' + u).catch(() => {});
   const nome = apelidoFunc(cfg, cf) || String(cf.nome).split(' ')[0];
   if (!opt.porDono) await enviar(env, num, `Pronto, ${nome}! Você está cadastrado na equipe da HR ✅`);
-  let rel = false; try { const per = JSON.parse((await env.HR_KV.get('ponto:resant:' + cf.id)) || 'null'); if (per && await pontoRelPdf(env, cf.id, per.df) && !(await pontoRelUltimo(env, cf.id) || {}).via) rel = !!(await pontoRelEnviar(env, cfg, cf, per, { reenvio: true })); } catch (_) {}
+  let rel = false; try { const per = await eqRelParado(env, cf.id); if (per) { rel = !!(await pontoRelEnviar(env, cfg, cf, per, { reenvio: true })); if (rel) { await env.HR_KV.delete('ponto:relfalhaper:' + cf.id); await env.HR_KV.delete('ponto:relpend:' + cf.id); } } } catch (_) {} // v228: o relatório que ficou parado (não o antigo)
   await eqFichaPedir(env, cf).catch(() => {});
   if (opt.porDono) return { rel };
   await pontoAvisarDono(env, `✅ *${cf.nome}* confirmou que é da equipe e foi cadastrado com o WhatsApp ${fmtNumero(num)}.${rel ? ' Mandei o relatório de ponto que estava parado.' : ''} Pedi a ficha dele (nome completo, nascimento, CPF e Pix).`).catch(() => {});
@@ -29699,7 +29713,8 @@ ${rel && rel.fin ? `VALORES DO RELATÓRIO (o PDF que ele recebeu): ${rel.pago ? 
 ${rel && rel.diasPdf ? 'DIAS NO PDF: ' + rel.diasPdf.map(d => `${d.data} ${d.e}-${d.ai}/${d.af}-${d.s} trabalhou ${hmPonto(d.trab)} de ${hmPonto(d.esp)} (saldo ${d.saldo >= 0 ? '+' : '-'}${hmPonto(Math.abs(d.saldo))})${d.obs ? ' ' + d.obs : ''}`).join('; ') : ''}
 PERÍODO ATUAL (${atual.label}, ${atual.di} a ${atual.df}, em andamento):
 ${tab(atual)}
-Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resumo_para_dono":"","aprovou":false}`;
+Em "assunto": "ponto" se a mensagem fala do ponto, horas, relatório ou pagamento dele; "outro" para qualquer outra coisa (serviço, medidas, peças, recado).
+Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resumo_para_dono":"","aprovou":false,"assunto":"ponto"}`;
   let hist = []; try { hist = JSON.parse((await env.HR_KV.get('rh:hist:' + f.id)) || '[]'); } catch (_) {}
   let out = null;
   try {
@@ -29711,9 +29726,10 @@ Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resum
   await enviar(env, from, String(out.resposta).slice(0, 1200));
   hist = hist.concat([{ role: 'user', content: texto.slice(0, 800) }, { role: 'assistant', content: String(out.resposta).slice(0, 800) }]).slice(-12);
   await env.HR_KV.put('rh:hist:' + f.id, JSON.stringify(hist), { expirationTtl: 3 * 86400 });
+  const doPonto = String(out.assunto || 'ponto') !== 'outro'; // v228
   if (rel && out.aprovou) await pontoRelDecidir(env, cfg, f, rel.df, 'ok');
-  else if (rel && rel.status !== 'aprovado') await pontoRelDecidir(env, cfg, f, rel.df, 'duvida', texto);
-  if (out.escalar) await pontoAvisarDono(env, `❓ *${f.nome}* (RH${rel ? ', relatório do ' + rel.label : ''}): ${String(out.resumo_para_dono || texto).slice(0, 600)}\n\nCorrija em RH → Ponto e ajustes e toque em *Reenviar relatório*.`);
+  else if (doPonto && rel && rel.status !== 'aprovado' && out.escalar) await pontoRelDecidir(env, cfg, f, rel.df, 'duvida', texto);
+  if (out.escalar) await pontoAvisarDono(env, doPonto ? `❓ *${f.nome}* (RH${rel && rel.status !== 'aprovado' ? ', relatório do ' + rel.label : ''}): ${String(out.resumo_para_dono || texto).slice(0, 600)}\n\nCorrija em RH → Ponto e ajustes e toque em *Reenviar relatório*.` : `💬 *${f.nome}* disse: "${String(texto).slice(0, 500)}"`);
   return true;
 }
 
@@ -29722,6 +29738,7 @@ async function pontoRelFalhaDono(env, f, per, rel) {
   const k = `ponto:relfalha:${f.id}:${per.df}`;
   if (await env.HR_KV.get(k) || (await eqIgnorados(env)).has(String(f.id))) return; // v227
   await env.HR_KV.put(k, '1', { expirationTtl: 3 * 86400 });
+  await env.HR_KV.put('ponto:relfalhaper:' + f.id, JSON.stringify(per), { expirationTtl: 20 * 86400 }); // v228: mandar este quando ele for cadastrado
   const dono = numeroDono(env); if (!dono) return;
   const nome = String(f.nome).split(' ')[0];
   const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null);
@@ -30285,6 +30302,11 @@ async function pontoRotina(env) {
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
   await eqFichaRotina(env).catch(e => console.log('ficha equipe', e && e.message)); // v223
   if (await umaVez(env, 'eqctth:v226', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
+  if (agoraBahia().min < 21 * 60 && await umaVez(env, 'relparado:v228', 30)) { // v228: manda o relatório atual a quem foi cadastrado agora
+    const cfgR = await pontoCfg(env), ignR = await eqIgnorados(env), env2 = [];
+    for (const f of cfgR.funcs) { if (!f.tel || ignR.has(String(f.id))) continue; const per = await eqRelParado(env, f.id).catch(() => null); if (per && await pontoRelEnviar(env, cfgR, f, per, { reenvio: true }).catch(() => null)) env2.push(apelidoFunc(cfgR, f)); }
+    if (env2.length) await pontoAvisarDono(env, `📋 Mandei o relatório de ponto atual para: ${env2.join(', ')}.`).catch(() => {});
+  }
   await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
   await rhAvisos(env).catch(e => console.log('rh avisos', e && e.message)); // v81
   await pvRotina(env).catch(e => console.log('pós-venda', e && e.message)); // v46
