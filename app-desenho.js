@@ -230,7 +230,7 @@
   function chapaSvg(b, bi, k, foto, inter, pag, larg, numerar) {
     var W = b.W * k, H = b.H * k, id = 'chp' + (++nCh), h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 2) + ' ' + (H + 18) + '"' + (larg ? ' style="width:' + larg + ';height:auto;display:block;touch-action:' + (inter ? 'none' : 'auto') + '"' : ' width="' + (W + 2) + '" height="' + (H + 18) + '"') + ' font-family="' + FONTE + '">';
     var R = function (q) { return { x: 1 + q.x * k, y: 1 + q.y * k, w: q.w * k, h: q.h * k }; };
-    h += '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="' + (foto ? '#222' : b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
+    h += numerar && !foto ? '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="#f3f1ec" stroke="#8b877e" stroke-width="1.5" stroke-dasharray="6 4" rx="3"/>' : '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="' + (foto ? '#222' : b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
     if (foto) { // foto apagada fora das peças, clara dentro delas
       h += '<image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none" opacity=".35"/>';
       h += '<clipPath id="' + id + '">' + b.p.map(function (q) { var r = R(q); return '<rect x="' + r.x.toFixed(1) + '" y="' + r.y.toFixed(1) + '" width="' + r.w.toFixed(1) + '" height="' + r.h.toFixed(1) + '"/>'; }).join('') + '</clipPath><image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none" clip-path="url(#' + id + ')"/>';
@@ -238,9 +238,15 @@
     var fsz = Math.max(9, Math.min(15, k * 4.2));
     b.p.forEach(function (q, qi) {
       var r = R(q), cor = PALP[q.it.g % PALP.length];
-      h += '<g' + (inter ? ' data-q="' + bi + '|' + qi + '" style="cursor:move"' : '') + '><rect x="' + r.x.toFixed(1) + '" y="' + r.y.toFixed(1) + '" width="' + r.w.toFixed(1) + '" height="' + r.h.toFixed(1) + '" fill="' + (foto ? '#fff' : cor) + '" fill-opacity="' + (foto ? '0' : '1') + '" stroke="' + (q.colide ? '#ef4444' : '#15130f') + '" stroke-width="' + (q.colide ? 2.4 : 1.6) + '"/>';
+      h += '<g' + (inter ? ' data-q="' + bi + '|' + qi + '" style="cursor:move"' : '') + '><rect x="' + r.x.toFixed(1) + '" y="' + r.y.toFixed(1) + '" width="' + r.w.toFixed(1) + '" height="' + r.h.toFixed(1) + '" fill="' + (foto ? '#fff' : numerar ? mixc(cor, '#ffffff', 0.45) : cor) + '" fill-opacity="' + (foto ? '0' : '1') + '" stroke="' + (q.colide ? '#ef4444' : '#15130f') + '" stroke-width="' + (q.colide ? 2.4 : numerar ? 1.2 : 1.6) + '"/>';
       if (foto && !q.colide) h += '<rect x="' + (r.x + 1.2).toFixed(1) + '" y="' + (r.y + 1.2).toFixed(1) + '" width="' + Math.max(0, r.w - 2.4).toFixed(1) + '" height="' + Math.max(0, r.h - 2.4).toFixed(1) + '" fill="none" stroke="#fff" stroke-width="1"/>';
-      if (numerar) { var cx = r.x + r.w / 2, cy = r.y + r.h / 2, rr = Math.max(8, Math.min(13, Math.min(r.w, r.h) * 0.45 + 5)); h += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + rr.toFixed(1) + '" fill="#15130f" stroke="#c9a84c" stroke-width="1.5"/><text x="' + cx.toFixed(1) + '" y="' + (cy + rr * 0.38).toFixed(1) + '" font-size="' + (rr * 1.05).toFixed(1) + '" text-anchor="middle" fill="#fff" font-weight="800">' + (qi + 1) + '</text>'; }
+      if (numerar) { // folha: nome curto e medida escritos na própria peça
+        var curto = { bancada: q.it.nome.replace(/ \(.*\)$/, '').replace(/^Tampo à (esquerda|direita) do rebaixo$/, 'Tampo').replace(/^Pedra do rebaixo$/, 'Área molhada').replace(/^Bancada /, ''), frontao: 'Frontão', saia: 'Saia', tampo: 'Tampo do rebaixo', outro: q.it.nome }[q.it.tipo] || q.it.nome, md = f1(q.w) + ' × ' + f1(q.h), dep = r.h > r.w * 1.6 && r.h > 40, L1 = dep ? r.h : r.w, L2 = dep ? r.w : r.h, cx = r.x + r.w / 2, cy = r.y + r.h / 2, cor0 = '#1f1d19', sh = '';
+        var dois = L2 >= 30, fz1 = Math.max(7, Math.min(dois ? 15 : 12, L2 * (dois ? 0.26 : 0.62), L1 / (Math.max(curto.length + md.length + 3, 8) * 0.56)));
+        var tx = dois ? '<text x="0" y="' + (-fz1 * 0.25).toFixed(1) + '" font-size="' + fz1.toFixed(1) + '" text-anchor="middle" fill="' + cor0 + '" font-weight="700"' + sh + '>' + esc(curto) + '</text><text x="0" y="' + (fz1 * 1.05).toFixed(1) + '" font-size="' + (fz1 * 0.92).toFixed(1) + '" text-anchor="middle" fill="' + cor0 + '"' + sh + '>' + esc(md) + '</text>'
+          : '<text x="0" y="' + (fz1 * 0.36).toFixed(1) + '" font-size="' + fz1.toFixed(1) + '" text-anchor="middle" fill="' + cor0 + '" font-weight="600"' + sh + '>' + esc(curto + '  ' + md) + '</text>';
+        var pw = Math.min(L1 - 4, (dois ? Math.max(curto.length, md.length) : (curto + '  ' + md).length) * fz1 * 0.58 + 12), ph = Math.min(L2 - 3, dois ? fz1 * 2.5 : fz1 * 1.45), pil = foto ? '<rect x="' + (-pw / 2).toFixed(1) + '" y="' + (dois ? -fz1 * 1.2 : -ph / 2).toFixed(1) + '" width="' + pw.toFixed(1) + '" height="' + ph.toFixed(1) + '" rx="' + Math.min(6, ph / 2).toFixed(1) + '" fill="#fff" fill-opacity=".85"/>' : '';
+        if (L1 > 22 && L2 > 7) h += '<g transform="translate(' + cx.toFixed(1) + ',' + cy.toFixed(1) + ')' + (dep ? ' rotate(-90)' : '') + '">' + pil + tx + '</g>'; }
       else if (r.w > 34 && r.h > 12) { var tx = (pag ? 'P' + (q.it.g + 1) + ' ' : '') + f1(q.w) + '×' + f1(q.h), fz = Math.min(fsz, r.h * 0.62), tw = tx.length * fz * 0.58 + 8, cx2 = r.x + r.w / 2, cy2 = r.y + r.h / 2; h += '<rect x="' + (cx2 - tw / 2).toFixed(1) + '" y="' + (cy2 - fz * 0.75).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + (fz * 1.4).toFixed(1) + '" rx="' + (fz * 0.5).toFixed(1) + '" fill="#15130f" fill-opacity=".82"/><text x="' + cx2.toFixed(1) + '" y="' + (cy2 + fz * 0.35).toFixed(1) + '" font-size="' + fz.toFixed(1) + '" text-anchor="middle" fill="#fff" font-weight="700">' + esc(tx) + '</text>'; }
       h += '</g>';
     });
@@ -248,24 +254,23 @@
     return h + '</svg>';
   }
   function paginacaoSvg(d, pl) { // folha de paginação para aprovar e mandar para a produção
-    TOM = tomDe(d.material); var M = 34, W = FW - 2 * M, h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '"><rect width="' + FW + '" height="' + FH + '" fill="#fff"/>';
+    TOM = tomDe(d.material); var M = 34, W = FW - 2 * M, PH = Math.round(M + 128 + pl.bins.reduce(function (t, b) { return t + 34 + b.H * (W - 4) / b.W + 44; }, 0) + 100); PH = Math.max(700, Math.min(2400, PH)); pl.alturaFolha = PH; var FH = PH, h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '"><rect width="' + FW + '" height="' + FH + '" fill="#fff"/>';
     var T = function (x, y, t, fs, anc, cor, ext) { return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="' + fs + '" text-anchor="' + (anc || 'start') + '" fill="' + (cor || '#1f1d19') + '"' + (ext || '') + '>' + esc(t) + '</text>'; };
     h += '<rect x="' + M + '" y="' + M + '" width="' + W + '" height="104" rx="14" fill="#1d1a14"/><rect x="' + (M + 22) + '" y="' + (M + 20) + '" width="64" height="64" rx="10" fill="none" stroke="#c9a84c" stroke-width="2.5"/>' + T(M + 54, M + 63, 'HR', 30, 'middle', '#c9a84c', ' font-weight="800"');
     h += T(M + 108, M + 50, 'PAGINAÇÃO DAS CHAPAS', 27, 'start', '#f4efe2', ' font-weight="700" letter-spacing="2"') + T(M + 108, M + 82, (d.cliente || 'Projeto') + (d.material ? ' · ' + d.material : ''), 18, 'start', '#c9a84c');
     var y = M + 128, n = pl.bins.length, leg = (d.pecas || []).map(function (pc, i) { return 'P' + (i + 1) + ' = ' + nomePeca(pc); }).join('     ');
-    var dispo = FH - y - 70, nC = 0;
+    var dispo = FH - y - 84, nC = 0;
     pl.bins.forEach(function (b, bi) {
-      var linhas = Math.ceil(b.p.length / 2), tabH = linhas * 25 + 16, cota = dispo / n, k = Math.min((W - 4) / b.W, Math.max(60, cota - tabH - 56) / b.H), cw = b.W * k, ch = b.H * k;
+      var cota = dispo / n, k = Math.min((W - 4) / b.W, Math.max(60, cota - 64) / b.H), cw = b.W * k, ch = b.H * k;
       h += T(M, y + 22, b.tipo === 'sobra' ? 'Sobra do estoque · ' + f1(b.W) + ' × ' + f1(b.H) : 'Chapa ' + (++nC) + ' · ' + f1(b.W) + ' × ' + f1(b.H), 19, 'start', '#1f1d19', ' font-weight="700"') + T(M + W, y + 22, Math.round(b.uso * 100) + '% usada', 15, 'end', '#8b877e');
       var inner = chapaSvg(b, bi, k, (d.fotosChapa || {})[bi], false, true, null, true).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
       h += '<g transform="translate(' + (M + (W - cw) / 2 - 1) + ',' + (y + 34) + ')">' + inner + '</g>';
-      var ty = y + 34 + ch + 30;
-      b.p.forEach(function (q, qi) { var col = qi % 2, row = Math.floor(qi / 2), x = M + col * (W / 2), yy = ty + row * 25;
-        h += '<circle cx="' + (x + 11) + '" cy="' + (yy - 6) + '" r="10" fill="#15130f"/>' + T(x + 11, yy - 1.5, String(qi + 1), 12, 'middle', '#fff', ' font-weight="800"');
-        h += T(x + 28, yy, 'P' + (q.it.g + 1) + ' · ' + q.it.nome, 15.5, 'start', '#1f1d19') + T(x + W / 2 - 18, yy, f1(q.w) + ' × ' + f1(q.h), 15.5, 'end', '#1f1d19', ' font-weight="700"'); });
-      y = ty + linhas * 25 + 18;
+      var ty = y + 34 + ch + 14;
+      y = ty + 26;
     });
-    h += '<line x1="' + M + '" y1="' + (FH - 70) + '" x2="' + (M + W) + '" y2="' + (FH - 70) + '" stroke="#e3e0d8"/>' + T(M, FH - 46, leg, 15, 'start', '#1f1d19', ' font-weight="600"') + T(M, FH - 24, 'Frontão encostado atrás do tampo, sainha encostada na frente, tudo no sentido do veio. Medidas em cm.', 13, 'start', '#8b877e');
+    var lx = M; h += '<line x1="' + M + '" y1="' + (FH - 70) + '" x2="' + (M + W) + '" y2="' + (FH - 70) + '" stroke="#e3e0d8"/>';
+    (d.pecas || []).forEach(function (pc, i) { var t0 = 'P' + (i + 1) + ' · ' + nomePeca(pc); h += '<rect x="' + lx + '" y="' + (FH - 60) + '" width="18" height="18" rx="4" fill="' + mixc(PALP[i % PALP.length], '#ffffff', 0.45) + '" stroke="#15130f" stroke-width="1"/>' + T(lx + 26, FH - 46, t0, 15, 'start', '#1f1d19', ' font-weight="600"'); lx += 44 + t0.length * 8.6; });
+    h += '' + T(M, FH - 24, 'Frontão encostado atrás do tampo, sainha encostada na frente, tudo no sentido do veio. Medidas em cm.', 13, 'start', '#8b877e');
     return h + '</svg>';
   }
   function svgPng(svg, w, hh) { return new Promise(function (ok, erro) { var img = new Image(), url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })); img.onload = function () { var c = document.createElement('canvas'); c.width = w * 2; c.height = hh * 2; var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); c.toBlob(function (b) { b ? ok(b) : erro(new Error('Falha')); }, 'image/png'); }; img.onerror = function () { URL.revokeObjectURL(url); erro(new Error('Falha ao desenhar')); }; img.src = url; }); }
@@ -308,7 +313,7 @@
       var rr = e.target.closest('[data-plr]'); if (rr) { var bi2 = +rr.getAttribute('data-plr'), m2 = d.pagMan || {}; Object.keys(m2).forEach(function (k2) { if (m2[k2].b === bi2) delete m2[k2]; }); guardar(d); desenhar(st.sobras || []); return; }
       var b = e.target.closest('[data-pl]'); if (!b) return; var a = b.getAttribute('data-pl'), pl = o.__pl;
       if (a === 'sair') { o.remove(); return; }
-      if (a === 'img' && pl) { svgPng(paginacaoSvg(d, pl), FW, FH).then(function (bl) { compartilhar(bl, 'Paginação ' + (d.cliente || 'HR') + '.png'); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
+      if (a === 'img' && pl) { var svP = paginacaoSvg(d, pl); svgPng(svP, FW, pl.alturaFolha || FH).then(function (bl) { compartilhar(bl, 'Paginação ' + (d.cliente || 'HR') + '.png'); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
       if (a === 'pag' || a === 'sob') { if (a === 'pag') st.plOp.pag = !st.plOp.pag; else st.plOp.usarSobras = !st.plOp.usarSobras; desenhar(st.sobras || []); return; }
       if (a === 'recalc') { var c = num(o.querySelector('#plC').value), l = num(o.querySelector('#plL').value); if (c > 50 && l > 30) { try { localStorage.setItem('hr_chapa', JSON.stringify({ c: c, l: l })); } catch (er) {} } desenhar(st.sobras || []); desenharCv(); atualizarPainel(); return; }
       if (a === 'guardar' && pl) { if (!d.material) { aviso('Escreva o material do projeto primeiro.'); return; } api('/bot/sobras', { acao: 'guardar', itens: pl.novas.map(function (x) { return { material: d.material, comp: x.comp, larg: x.larg, origem: 'sobra do projeto ' + (d.cliente || '') }; }) }).then(function (r) { aviso('♻️ ' + r.n + ' sobra(s) guardada(s) no estoque'); b.remove(); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
