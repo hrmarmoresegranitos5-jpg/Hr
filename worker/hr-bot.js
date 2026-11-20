@@ -30651,6 +30651,19 @@ async function rotaBotPonto(req, env, url) {
     if (!f) return jsonR({ error: 'Foto não encontrada (as fotos ficam guardadas por 120 dias).' }, 404);
     return jsonR({ ok: true, foto: f });
   }
+  if (p === '/bot/ponto/perguntar' && req.method === 'POST') { // v235: o dono pede ao bot para perguntar ao funcionário o horário esquecido
+    const b = await req.json().catch(() => ({}));
+    const f = cfg.funcs.find(x => String(x.id) === String(b.funcId)), d = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : '';
+    if (!f || !d) return jsonR({ error: 'Funcionário ou dia inválido.' }, 400);
+    const falta = (Array.isArray(b.falta) ? b.falta : []).filter(t => PONTO_TIPOS[t]);
+    if (!falta.length) return jsonR({ error: 'Nada para perguntar.' }, 400);
+    const troca = b.troca && typeof b.troca === 'object' ? b.troca : {}, bid = Object.keys(troca)[0] || '';
+    if (bid) { const l = await pontoDia(env, d, f.id), x = l.find(y => y.id === bid); if (x && PONTO_TIPOS[troca[bid]] && x.tipo !== troca[bid]) { if (!x.tipoOriginal) x.tipoOriginal = x.tipo; x.tipo = troca[bid]; x.motivo = (x.motivo ? x.motivo + ' · ' : '') + 'tipo ajustado (esqueceu batidas)'; await env.HR_KV.put(`ponto:d:${d}:${f.id}`, JSON.stringify(l), { expirationTtl: PONTO_TTL }); } }
+    await env.HR_KV.put('ponto:perg:' + f.id, JSON.stringify({ data: d, batida: falta.join(' e '), caso: falta.includes('entrada') ? 'manha' : '', bid }), { expirationTtl: 3 * 86400 });
+    const nm = falta.map(t => (PONTO_TIPOS[t] || t).toLowerCase()).join(' e ');
+    await falarComFuncionario(env, f, `${apelidoFunc(cfg, f)}, no dia ${pontoDataBR(d)} ficou faltando no seu ponto: *${nm}*. Me diga os horários (ex.: _cheguei 7h, saí pro almoço 12h_). Eu passo para o Sr. Hangel aprovar.`);
+    return jsonR({ ok: true });
+  }
   if (p === '/bot/ponto/ajuste' && req.method === 'POST') { // dono: confirma pendente, recusa, ou acrescenta batida esquecida (com motivo)
     const b = await req.json().catch(() => ({}));
     const d = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : '';
