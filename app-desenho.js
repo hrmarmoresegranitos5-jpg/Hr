@@ -226,32 +226,46 @@
     return { ch: ch, bins: usados, grandes: grandes, novas: novas, chapas: usados.filter(function (b) { return b.tipo === 'chapa'; }).length, sobrasUsadas: usados.filter(function (b) { return b.tipo === 'sobra'; }) };
   }
   var PALP = ['#e9dfc7', '#cfe0d4', '#dcd6ec', '#f1d0c4', '#d6e4ee', '#efe2b0', '#e6cfe0', '#cfe7e6'];
-  function chapaSvg(b, bi, k, foto, inter, pag, larg) {
-    var W = b.W * k, H = b.H * k, h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 2) + ' ' + (H + 18) + '"' + (larg ? ' style="width:' + larg + ';height:auto;display:block;touch-action:' + (inter ? 'none' : 'auto') + '"' : ' width="' + (W + 2) + '" height="' + (H + 18) + '"') + ' font-family="' + FONTE + '">';
-    h += '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="' + (b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
-    if (foto) h += '<image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none"/>';
+  var nCh = 0;
+  function chapaSvg(b, bi, k, foto, inter, pag, larg, numerar) {
+    var W = b.W * k, H = b.H * k, id = 'chp' + (++nCh), h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 2) + ' ' + (H + 18) + '"' + (larg ? ' style="width:' + larg + ';height:auto;display:block;touch-action:' + (inter ? 'none' : 'auto') + '"' : ' width="' + (W + 2) + '" height="' + (H + 18) + '"') + ' font-family="' + FONTE + '">';
+    var R = function (q) { return { x: 1 + q.x * k, y: 1 + q.y * k, w: q.w * k, h: q.h * k }; };
+    h += '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="' + (foto ? '#222' : b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
+    if (foto) { // foto apagada fora das peças, clara dentro delas
+      h += '<image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none" opacity=".35"/>';
+      h += '<clipPath id="' + id + '">' + b.p.map(function (q) { var r = R(q); return '<rect x="' + r.x.toFixed(1) + '" y="' + r.y.toFixed(1) + '" width="' + r.w.toFixed(1) + '" height="' + r.h.toFixed(1) + '"/>'; }).join('') + '</clipPath><image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none" clip-path="url(#' + id + ')"/>';
+    }
+    var fsz = Math.max(9, Math.min(15, k * 4.2));
     b.p.forEach(function (q, qi) {
-      var x = 1 + q.x * k, y = 1 + q.y * k, w = q.w * k, hh = q.h * k, cor = PALP[q.it.g % PALP.length];
-      h += '<g' + (inter ? ' data-q="' + bi + '|' + qi + '" style="cursor:move"' : '') + '><rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + hh.toFixed(1) + '" fill="' + cor + '" fill-opacity="' + (foto ? '.28' : '1') + '" stroke="' + (q.colide ? '#ef4444' : foto ? '#ffffff' : '#1a1408') + '" stroke-width="' + (q.colide ? 2.2 : foto ? 1.6 : .8) + '"/>';
-      if (w > 30 && hh > 10) h += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (y + hh / 2 + 3).toFixed(1) + '" font-size="' + Math.min(10, hh * 0.55).toFixed(1) + '" text-anchor="middle" fill="' + (foto ? '#fff' : '#1a1408') + '" font-weight="700"' + (foto ? ' stroke="#000" stroke-width=".3"' : '') + '>' + esc((pag ? 'P' + (q.it.g + 1) + ' ' : '') + f1(q.w) + '×' + f1(q.h)) + '</text>';
+      var r = R(q), cor = PALP[q.it.g % PALP.length];
+      h += '<g' + (inter ? ' data-q="' + bi + '|' + qi + '" style="cursor:move"' : '') + '><rect x="' + r.x.toFixed(1) + '" y="' + r.y.toFixed(1) + '" width="' + r.w.toFixed(1) + '" height="' + r.h.toFixed(1) + '" fill="' + (foto ? '#fff' : cor) + '" fill-opacity="' + (foto ? '0' : '1') + '" stroke="' + (q.colide ? '#ef4444' : '#15130f') + '" stroke-width="' + (q.colide ? 2.4 : 1.6) + '"/>';
+      if (foto && !q.colide) h += '<rect x="' + (r.x + 1.2).toFixed(1) + '" y="' + (r.y + 1.2).toFixed(1) + '" width="' + Math.max(0, r.w - 2.4).toFixed(1) + '" height="' + Math.max(0, r.h - 2.4).toFixed(1) + '" fill="none" stroke="#fff" stroke-width="1"/>';
+      if (numerar) { var cx = r.x + r.w / 2, cy = r.y + r.h / 2, rr = Math.max(8, Math.min(13, Math.min(r.w, r.h) * 0.45 + 5)); h += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + rr.toFixed(1) + '" fill="#15130f" stroke="#c9a84c" stroke-width="1.5"/><text x="' + cx.toFixed(1) + '" y="' + (cy + rr * 0.38).toFixed(1) + '" font-size="' + (rr * 1.05).toFixed(1) + '" text-anchor="middle" fill="#fff" font-weight="800">' + (qi + 1) + '</text>'; }
+      else if (r.w > 34 && r.h > 12) { var tx = (pag ? 'P' + (q.it.g + 1) + ' ' : '') + f1(q.w) + '×' + f1(q.h), fz = Math.min(fsz, r.h * 0.62), tw = tx.length * fz * 0.58 + 8, cx2 = r.x + r.w / 2, cy2 = r.y + r.h / 2; h += '<rect x="' + (cx2 - tw / 2).toFixed(1) + '" y="' + (cy2 - fz * 0.75).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="' + (fz * 1.4).toFixed(1) + '" rx="' + (fz * 0.5).toFixed(1) + '" fill="#15130f" fill-opacity=".82"/><text x="' + cx2.toFixed(1) + '" y="' + (cy2 + fz * 0.35).toFixed(1) + '" font-size="' + fz.toFixed(1) + '" text-anchor="middle" fill="#fff" font-weight="700">' + esc(tx) + '</text>'; }
       h += '</g>';
     });
-    if (pag) h += '<text x="' + (W + 1) + '" y="' + (H + 14) + '" font-size="10" text-anchor="end" fill="#c9a84c" font-weight="700">sentido do veio →</text>';
+    if (pag) h += '<text x="' + (W + 1) + '" y="' + (H + 14) + '" font-size="11" text-anchor="end" fill="#b08f2e" font-weight="700">sentido do veio →</text>';
     return h + '</svg>';
   }
   function paginacaoSvg(d, pl) { // folha de paginação para aprovar e mandar para a produção
-    TOM = tomDe(d.material); var M = 30, W = FW - 2 * M, h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '"><rect width="' + FW + '" height="' + FH + '" fill="#fff"/>';
-    h += '<rect x="' + M + '" y="' + M + '" width="' + W + '" height="110" rx="14" fill="#1d1a14"/><rect x="' + (M + 24) + '" y="' + (M + 22) + '" width="66" height="66" rx="10" fill="none" stroke="#c9a84c" stroke-width="2.5"/><text x="' + (M + 57) + '" y="' + (M + 66) + '" font-size="32" text-anchor="middle" fill="#c9a84c" font-weight="800">HR</text>';
-    h += '<text x="' + (M + 112) + '" y="' + (M + 52) + '" font-size="28" fill="#f4efe2" font-weight="700" letter-spacing="2">PAGINAÇÃO DAS CHAPAS</text><text x="' + (M + 112) + '" y="' + (M + 84) + '" font-size="18" fill="#c9a84c">' + esc((d.cliente || 'Projeto') + (d.material ? ' · ' + d.material : '')) + '</text></svg>';
-    h = h.replace('</svg>', '');
-    var y = M + 130, n = pl.bins.length, alt = (FH - y - 120) / Math.max(1, n), nC = 0;
+    TOM = tomDe(d.material); var M = 34, W = FW - 2 * M, h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '"><rect width="' + FW + '" height="' + FH + '" fill="#fff"/>';
+    var T = function (x, y, t, fs, anc, cor, ext) { return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="' + fs + '" text-anchor="' + (anc || 'start') + '" fill="' + (cor || '#1f1d19') + '"' + (ext || '') + '>' + esc(t) + '</text>'; };
+    h += '<rect x="' + M + '" y="' + M + '" width="' + W + '" height="104" rx="14" fill="#1d1a14"/><rect x="' + (M + 22) + '" y="' + (M + 20) + '" width="64" height="64" rx="10" fill="none" stroke="#c9a84c" stroke-width="2.5"/>' + T(M + 54, M + 63, 'HR', 30, 'middle', '#c9a84c', ' font-weight="800"');
+    h += T(M + 108, M + 50, 'PAGINAÇÃO DAS CHAPAS', 27, 'start', '#f4efe2', ' font-weight="700" letter-spacing="2"') + T(M + 108, M + 82, (d.cliente || 'Projeto') + (d.material ? ' · ' + d.material : ''), 18, 'start', '#c9a84c');
+    var y = M + 128, n = pl.bins.length, leg = (d.pecas || []).map(function (pc, i) { return 'P' + (i + 1) + ' = ' + nomePeca(pc); }).join('     ');
+    var dispo = FH - y - 70, nC = 0;
     pl.bins.forEach(function (b, bi) {
-      var k = Math.min((W - 20) / b.W, (alt - 46) / (b.H + 2)), inner = chapaSvg(b, bi, k, (d.fotosChapa || {})[bi], false, true).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-      h += '<text x="' + M + '" y="' + (y + 22) + '" font-size="18" fill="#1f1d19" font-weight="700">' + esc(b.tipo === 'sobra' ? '♻️ Sobra ' + f1(b.W) + '×' + f1(b.H) : 'Chapa ' + (++nC) + ' · ' + f1(b.W) + '×' + f1(b.H)) + '</text><g transform="translate(' + M + ',' + (y + 32) + ')">' + inner + '</g>';
-      y += alt;
+      var linhas = Math.ceil(b.p.length / 2), tabH = linhas * 25 + 16, cota = dispo / n, k = Math.min((W - 4) / b.W, Math.max(60, cota - tabH - 56) / b.H), cw = b.W * k, ch = b.H * k;
+      h += T(M, y + 22, b.tipo === 'sobra' ? 'Sobra do estoque · ' + f1(b.W) + ' × ' + f1(b.H) : 'Chapa ' + (++nC) + ' · ' + f1(b.W) + ' × ' + f1(b.H), 19, 'start', '#1f1d19', ' font-weight="700"') + T(M + W, y + 22, Math.round(b.uso * 100) + '% usada', 15, 'end', '#8b877e');
+      var inner = chapaSvg(b, bi, k, (d.fotosChapa || {})[bi], false, true, null, true).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+      h += '<g transform="translate(' + (M + (W - cw) / 2 - 1) + ',' + (y + 34) + ')">' + inner + '</g>';
+      var ty = y + 34 + ch + 30;
+      b.p.forEach(function (q, qi) { var col = qi % 2, row = Math.floor(qi / 2), x = M + col * (W / 2), yy = ty + row * 25;
+        h += '<circle cx="' + (x + 11) + '" cy="' + (yy - 6) + '" r="10" fill="#15130f"/>' + T(x + 11, yy - 1.5, String(qi + 1), 12, 'middle', '#fff', ' font-weight="800"');
+        h += T(x + 28, yy, 'P' + (q.it.g + 1) + ' · ' + q.it.nome, 15.5, 'start', '#1f1d19') + T(x + W / 2 - 18, yy, f1(q.w) + ' × ' + f1(q.h), 15.5, 'end', '#1f1d19', ' font-weight="700"'); });
+      y = ty + linhas * 25 + 18;
     });
-    var leg = []; (d.pecas || []).forEach(function (pc, i) { leg.push('P' + (i + 1) + ' = ' + nomePeca(pc)); });
-    h += '<text x="' + M + '" y="' + (FH - 70) + '" font-size="16" fill="#1f1d19">' + esc(leg.join('   ·   ')) + '</text><text x="' + M + '" y="' + (FH - 44) + '" font-size="14" fill="#8b877e">Cada peça sai junto com a sua sainha (encostada na frente) e o seu frontão (encostado atrás), no mesmo sentido do veio. Medidas em cm.</text>';
+    h += '<line x1="' + M + '" y1="' + (FH - 70) + '" x2="' + (M + W) + '" y2="' + (FH - 70) + '" stroke="#e3e0d8"/>' + T(M, FH - 46, leg, 15, 'start', '#1f1d19', ' font-weight="600"') + T(M, FH - 24, 'Frontão encostado atrás do tampo, sainha encostada na frente, tudo no sentido do veio. Medidas em cm.', 13, 'start', '#8b877e');
     return h + '</svg>';
   }
   function svgPng(svg, w, hh) { return new Promise(function (ok, erro) { var img = new Image(), url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })); img.onload = function () { var c = document.createElement('canvas'); c.width = w * 2; c.height = hh * 2; var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); c.toBlob(function (b) { b ? ok(b) : erro(new Error('Falha')); }, 'image/png'); }; img.onerror = function () { URL.revokeObjectURL(url); erro(new Error('Falha ao desenhar')); }; img.src = url; }); }
