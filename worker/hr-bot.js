@@ -7804,9 +7804,34 @@ async function pedidosProducao(env, filtro) {
 const naFabrica = p => !!p.fichaEnviadaEm && !p.fabProntoEm && !p.prontoEm && !p.entregueEm && p.status !== 'recusado';
 const naEntrega = p => (!!p.fabProntoEm || !!p.prontoEm || !!p.entregaEnviadaEm) && !p.entregueEm && String(p.entrega || '') !== 'retirada' && p.status !== 'recusado';
 const resumoPecas = p => { const r = p.resumoApp || {}; if (!(r.itens && r.itens.length) && !(p.pecas || []).length && p.projetoApp) return p.projetoApp + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); const its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[p.interesse] || 'Peças', pecas: p.pecas || [] }]; return its.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), a = String(it.ambiente || 'peça').toLowerCase(); if (!/soleira|peitoril|peça/.test(a)) return a.charAt(0).toUpperCase() + a.slice(1); return `${n} ${a}${n > 1 && !/s$/.test(a) ? (/l$/.test(a) ? '' : 's') : ''}`.replace(/peitoril$/, n > 1 ? 'peitoris' : 'peitoril'); }).join(' + ') + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); };
+// v215: NOME DE CLIENTE ESCRITO ERRADO. "poliana" = Poliano, "esio"/"ézio" = Ésio, "osmaiton"/"osmail" = Osmailton, "kassio" = Cássio,
+// "wesli" = Wesley, "jhoel" = Joel. Primeiro vale o nome exato; só sem exato entra o parecido (som igual, 1 letra trocada, abreviado).
+const NOME_COMUM = new Set(['termin', 'inicie', 'iniciand', 'cortei', 'corte', 'pront', 'cozinh', 'banheir', 'lavatori', 'bancad', 'peitori', 'peitoris', 'soleir', 'cub', 'instalaca', 'servic', 'hoje', 'amanh', 'aind', 'falt', 'acabament', 'acabe', 'fabricaca', 'entreg', 'entregue', 'pec', 'peca', 'todo', 'toda', 'tud', 'agor', 'depoi', 'cliente', 'pedid', 'obr', 'cas', 'lavabo', 'nich', 'escad', 'tamp', 'sainh', 'rebaix', 'recort', 'fotos', 'foto', 'vide', 'esse', 'essa', 'dess', 'dele', 'dela', 'comec', 'comece', 'termine', 'instale', 'instalad', 'montage', 'polime']);
+function nomeChave(t) {
+  return String(t || '').replace(/ph/g, 'f').replace(/y/g, 'i').replace(/w/g, 'v').replace(/qu/g, 'c').replace(/k/g, 'c').replace(/ç/g, 's').replace(/z/g, 's').replace(/(ch|sh|x)/g, 'x').replace(/([^cnlsx])h/g, '$1').replace(/^h/, '').replace(/(.)\1+/g, '$1').replace(/[aeiou]$/, '');
+}
+function levD(a, b) { if (Math.abs(a.length - b.length) > 2) return 9; const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; }
+// 2 = igual · 1 = parecido · 0 = nada
+function tkCasa(a, b) {
+  if (!a || !b) return 0; if (a === b) return 2;
+  if (a.length < 3 || b.length < 3 || NOME_COMUM.has(a) || NOME_COMUM.has(b)) return 0;
+  const ka = nomeChave(a), kb = nomeChave(b); if (ka === kb && ka.length >= 2) return 1; // "ezio" = Ésio, "jhoel" = Joel
+  if (ka.length < 3 || kb.length < 3) return 0;
+  const m = Math.min(ka.length, kb.length);
+  if (ka[0] !== kb[0]) return 0; // primeira letra (pelo som) tem que bater: "quanto" não é Santos
+  if (m >= 4 && levD(ka, kb) <= (m >= 7 ? 2 : 1)) return 1;
+  if (m >= 4 && (ka.startsWith(kb) || kb.startsWith(ka))) return 1; // "osmail" = Osmailton
+  return 0;
+}
+// quanto o texto (tokens) bate com o nome do pedido: 2 exato, 1 parecido, 0 nada
+function nomeNota(nomePed, tkTexto) { let best = 0; for (const w of tokensPedra(nomePed || '')) { if (w.length < 3) continue; for (const t of tkTexto) { const c = tkCasa(w, t); if (c > best) best = c; if (best === 2) return 2; } } return best; }
+function nomeCasa(nomePed, tkTexto) { return nomeNota(nomePed, tkTexto) > 0; }
+// cliente que o dono/IA citou ("Ésio caveira"): TODAS as palavras precisam bater com o nome do pedido
+function nomeTodos(nomePed, tkCli) { const tp = tokensPedra(nomePed || ''); return tkCli.length > 0 && tkCli.every(w => tp.includes(w) || tp.some(x => tkCasa(x, w) > 0)); }
+function nomeMelhores(lista, tkTexto) { const ns = lista.map(p => nomeNota(p.nome, tkTexto)), mx = Math.max(0, ...ns); return mx ? lista.filter((_, i) => ns[i] === mx) : []; }
 function acharPorNome(lista, texto) {
   const tk = tokensPedra(texto || '');
-  const ach = lista.filter(p => { const t = tokensPedra(p.nome || ''); return t.some(w => tk.includes(w) && w.length >= 3); });
+  const ach = nomeMelhores(lista, tk); // v215: exato primeiro; sem exato, o parecido
   return ach.length ? ach : (lista.length === 1 ? lista : []);
 }
 async function papelFuncionario(env, f, from) {
@@ -7863,7 +7888,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   if (papel !== 'fabrica' && /\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
   { // v214: "não tá pronto ainda" e "Pronto, aí beleza... iniciei o do Caveira" NÃO são peça pronta
     if (/\b(vou|vamos|to indo|estou indo|indo|fui|fomos)\b[^.!?]*\b(com|junto)\b/.test(msg) && !/\b(instalei|instalamos|instalad\w*|entreguei|terminei|terminamos)\b/.test(msg)) { // v214: "hoje vou com o Gibson na Poliana"
-      const tkV = tokensPedra(texto), lV = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && (p.entResp || naEntrega(p)))).filter(p => tokensPedra(p.nome || '').some(w => w.length >= 3 && tkV.includes(w)));
+      const tkV = tokensPedra(texto), lV = nomeMelhores(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && (p.entResp || naEntrega(p))), tkV);
       if (lV.length === 1) { const pV = lV[0]; if (String(pV.entResp) !== String(f.id)) { pV.entAjud = [...new Set([...(pV.entAjud || []), String(f.id)])]; await salvarPedido(env, pV); }
         await enviar(env, from, `Anotado, ${nome}: você vai junto na instalação de *${pV.nome}*. Os pontos da instalação são divididos entre quem foi.`); await pontoAvisarDono(env, `👥 *${nome}* vai junto na instalação de *${pV.nome}*.`).catch(() => {}); return true; }
     }
@@ -7873,7 +7898,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     if (negP) { await enviar(env, from, papel === 'entrega' ? `Certo, ${nome}: anotado que ainda não terminou. Quando acabar: _instalei o da (cliente)_ e a foto com tudo instalado.` : `Certo, ${nome}: anotado que ainda não terminou. Quando terminar, me diga: _terminei o de (cliente)_.`); return true; }
     if (iniP && !forte) {
       const l0 = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), tkT = tokensPedra(texto);
-      const ach = l0.filter(p => tokensPedra(p.nome || '').some(w => w.length >= 3 && tkT.includes(w)));
+      const ach = nomeMelhores(l0, tkT);
       if (ach.length) { const ts = Date.now(); for (const p of ach.slice(0, 4)) { p.iniciadoEm = p.iniciadoEm || ts; p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : []; p.prodLog.push({ e: 'inicio', por: [String(f.id)], ts }); await salvarPedido(env, p); }
         const nms = ach.slice(0, 4).map(p => String(p.nome || '').split(' ').slice(0, 2).join(' '));
         await enviar(env, from, `Anotado, ${nome}: você começou ${nms.join(' e ')}. Quando terminar, me diga: _terminei o de ${nms[0].split(" ")[0]}_.`);
@@ -7884,9 +7909,9 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   }
   if (papel !== 'entrega' && !(papel !== 'fabrica' && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei|instalamos|instalad[oa]s?|terminamos a instalacao|terminei a instalacao|finalizamos a instalacao|finalizei a instalacao|montamos|assentamos|assentei)\b/.test(msg)) && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
     const l0 = await pedidosProducao(env, p => naFabrica(p) || (p.acabResp && !p.acabEm && !p.entregueEm)), mine = l0.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].map(String).includes(String(f.id)) && !(String(p.acabResp) !== String(f.id) && p.corteEm && !naFabrica(p))), l = mine.length ? mine : l0;
-    const tkT = tokensPedra(texto); let ach = mine.length ? acharPorNome(l, texto) : l.filter(p => tokensPedra(p.nome || '').some(w => w.length >= 3 && tkT.includes(w))); // v180: sem tarefa dele, só pelo nome do cliente (nunca "a única da fábrica") if (!ach.length) ach = await prodPorApelido(env, l, texto); if (!ach.length && mine.length === 1) ach = mine; // v161: apelido do cliente ou a única tarefa dele
-    if (ach.length === 1 && !tokensPedra(ach[0].nome || '').some(w => w.length >= 3 && tkT.includes(w))) { // v214: só tinha uma tarefa e ele falou de OUTRO cliente: não marca a errada
-      const outros = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado')).filter(p => p.id !== ach[0].id && tokensPedra(p.nome || '').some(w => w.length >= 3 && tkT.includes(w)));
+    const tkT = tokensPedra(texto); let ach = mine.length ? acharPorNome(l, texto) : nomeMelhores(l, tkT); // v180: sem tarefa dele, só pelo nome do cliente (nunca "a única da fábrica") if (!ach.length) ach = await prodPorApelido(env, l, texto); if (!ach.length && mine.length === 1) ach = mine; // v161: apelido do cliente ou a única tarefa dele
+    if (ach.length === 1 && nomeNota(ach[0].nome, tkT) === 0) { // v214: só tinha uma tarefa e ele falou de OUTRO cliente: não marca a errada
+      const outros = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado')).filter(p => p.id !== ach[0].id && nomeCasa(p.nome, tkT));
       if (outros.length) ach = [];
     }
     if (!ach.length) { if (l.length) await enviarComBotoes(env, from, `${nome}, de qual cliente é?`, l.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); else await enviar(env, from, `${nome}, não achei ficha pendente. Se for de um pedido novo, avise o Sr. Hangel.`); return true; }
@@ -7989,7 +8014,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await salvarPedido(env, ped);
   if (!jaEntregue && ped.numero) await garDoPedido(env, ped).catch(e => console.log('[GAR] entrega:', e.message)); // v144
   if (!jaEntregue) await rcbPedir(env, ped).catch(e => console.log('[RCB]', e.message)); // v157
-  if (!jaEntregue) await metaChecar(env, ped.entFeitoPor); // v147
+  if (!jaEntregue) { await metaChecar(env, ped.entFeitoPor); for (const aj of (ped.entAjud || [])) if (String(aj) !== String(ped.entFeitoPor)) await metaChecar(env, aj); } // v147 + v214: quem foi junto também recebe o aviso dos pontos
   if (!jaEntregue && ped.instIniEm) { const min = Math.round((ped.entregueEm - ped.instIniEm) / 60000); await pontoAvisarDono(env, `⏱️ Instalação de *${ped.nome}*: ${horaTs(ped.instIniEm)} → ${horaTs(ped.entregueEm)} (${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')})${ped.instIniFotoEm ? ' · fotos de início e fim ✅' : ' · sem foto do início'}.`).catch(() => {}); } // v156
   if (!jaEntregue) await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, entrega: dataBahia() }, 'entregue');
   const cobrar = cobrarNaEntrega(ped);
@@ -8069,7 +8094,7 @@ async function fechCandidatos(env, nome) {
     out.push({ fonte: 'app', qId: String(h.id || ''), orcNum: on, nome: h.cliente, valor: Number(h.valor) || 0, tel: h.tel || (r.cliente && r.cliente.tel) || '', projeto: h.projeto || '', material: h.material || '', data: h.data || '', status: h.status || '', prazo: h.prazoDias || 0 });
   }
   const tk = tokensPedra(nome);
-  const peds = await pedidosProducao(env, p => !p.entregueEm && !p.fechDono && p.origem !== 'pdf_dono' && Number(p.valor) > 0 && (p.pecas || []).length && Date.now() - (p.atualizado || p.criado || 0) < 45 * 86400000 && tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
+  const peds = await pedidosProducao(env, p => !p.entregueEm && !p.fechDono && p.origem !== 'pdf_dono' && Number(p.valor) > 0 && (p.pecas || []).length && Date.now() - (p.atualizado || p.criado || 0) < 45 * 86400000 && nomeTodos(p.nome, tk));
   for (const p of peds.reverse().slice(0, 3)) {
     if (p.orcNum && vistos.has(orcNumNorm(p.orcNum))) continue;
     out.push({ fonte: 'bot', pid: p.id, orcNum: orcNumNorm(p.orcNum) || '', nome: p.nome, valor: Number(p.valor) || 0, tel: p.numero || '', projeto: resumoPecas(p), material: '', data: new Date(p.criado || Date.now()).toISOString().slice(0, 10) });
@@ -10006,7 +10031,7 @@ async function producaoStatusTool(env, a) {
     if (fr.some(c => nms.some(n => (' ' + c + ' ').includes(' ' + n + ' ')) && fut.test(c))) a.vai_fazer = true;
   }
   const tk = tokensPedra(String(a.cliente || '')), item = normaliza(a.item || '');
-  let cands = await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)) && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
+  let cands = await pedidosProducao(env, p => nomeTodos(p.nome, tk) && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
   if (item && cands.length > 1) { const c2 = cands.filter(p => normaliza([p.projetoApp, p.interesse, resumoPecas(p)].join(' ')).includes(item.split(' ')[0].replace(/s$/, ''))); if (c2.length) cands = c2; }
   let ped = cands.sort((x, y) => (y.criado || 0) - (x.criado || 0))[0];
   if (!ped) { // serviço que não passou pelo bot: abre um registro para contar a produção
@@ -10063,7 +10088,7 @@ async function perdasTexto(env, mes) {
   return [`💔 *Perdas de ${mesesAbr[+mes.slice(5) - 1]}/${mes.slice(0, 4)}*: ${r.length} · R$ ${reais(tot)}`, '', ...r.slice(-15).map(x => `• ${dataBR(x.dia).slice(0, 5)} ${x.cliente ? '*' + x.cliente + '* · ' : ''}${x.descr}${x.valor ? ' · R$ ' + reais(x.valor) : ''}${x.func ? ' (' + x.func + ')' : ''}`), '', 'Por pessoa: ' + Object.entries(porF).map(([k, n]) => `${k} ${n}`).join(' · '), '_Para corrigir o valor: "perda da Maria foi 300"._'].join('\n');
 }
 async function perdaTool(env, a) {
-  let ped = null; if (a.cliente) { const tk = tokensPedra(String(a.cliente)); ped = (await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)))).sort((x, y) => (y.criado || 0) - (x.criado || 0))[0] || null; }
+  let ped = null; if (a.cliente) { const tk = tokensPedra(String(a.cliente)); ped = (await pedidosProducao(env, p => nomeTodos(p.nome, tk))).sort((x, y) => (y.criado || 0) - (x.criado || 0))[0] || null; }
   if (a.corrigir_valor && await v151Tabelas(env)) { const ult = await env.HR_DB.prepare("SELECT id FROM perda WHERE cliente LIKE ? ORDER BY ts DESC LIMIT 1").bind('%' + String(a.cliente || '').split(' ')[0] + '%').first(); if (ult) { await env.HR_DB.prepare('UPDATE perda SET valor = ? WHERE id = ?').bind(+a.valor || 0, ult.id).run(); return { texto: `Valor da perda corrigido para R$ ${reais(+a.valor || 0)}. Confirme em UMA frase.` }; } }
   const val = +a.valor || (ped ? perdaEstimativa(ped) : 0);
   await perdaRegistrar(env, { pid: ped ? ped.id : '', cliente: ped ? ped.nome : (a.cliente || ''), descr: a.descricao || 'peça perdida', valor: val, func: a.funcionario ? String(a.funcionario).split(' ')[0] : '', por: 'dono' });
@@ -10296,7 +10321,7 @@ async function acordoTool(env, from, x) {
   const dest = await destinoCobranca(env, x.numero || x.cliente); if (!dest) return { erro: true, texto: 'Não achei o WhatsApp dessa cliente. Peça o número com DDD (ou o contato) em UMA frase; nada foi feito ainda.' };
   const num = normalizarBR(dest.numero), nome = String(x.nome_completo || x.cliente).trim();
   // pedido de instalação (para o instalador saber quanto receber e para a entrega/foto/garantia)
-  const tk = tokensPedra(nome); let ped = (await pedidosProducao(env, p => !p.entregueEm && (ultimos8(p.numero || '') === ultimos8(num) || (tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)))))).sort((a, b) => (b.criado || 0) - (a.criado || 0))[0];
+  const tk = tokensPedra(nome); let ped = (await pedidosProducao(env, p => !p.entregueEm && (ultimos8(p.numero || '') === ultimos8(num) || (nomeTodos(p.nome, tk))))).sort((a, b) => (b.criado || 0) - (a.criado || 0))[0];
   if (!ped) ped = { id: String(Date.now()), origem: 'acordo', nome, numero: num, projetoApp: x.descricao || 'Instalação', pecas: [], status: 'enviado', etapa: 'concluido', criado: Date.now(), fichaEnviadaEm: Date.now(), corteEm: Date.now(), fabProntoEm: Date.now(), entrega: { endereco: x.endereco || '' } };
   ped.numero = ped.numero || num; ped.fechDono = ped.fechDono || 'ent'; ped.pago = naInst > 0 ? false : true; ped.valor = naInst; ped.sinal = null; ped.recebidoEntrega = null;
   ped.dataInstalacao = isoOk(x.data_instalacao) || ped.dataInstalacao || ''; ped.entrega_prevista = ped.dataInstalacao || ped.entrega_prevista;
@@ -10648,7 +10673,7 @@ async function rcbClienteMsg(env, from, m) {
 }
 // retrabalho: o dono registra; desconta 2 pontos de quem fez a etapa e entra no relatório de qualidade
 async function retrabalhoTool(env, a) {
-  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
+  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => nomeTodos(p.nome, tk));
   const ped = l.sort((x, y) => (y.criado || 0) - (x.criado || 0))[0]; if (!ped) return { erro: true, texto: 'Não achei esse serviço. Pergunte o nome do cliente em UMA frase.' };
   const et = String(a.etapa || 'instalacao'), cfg = await pontoCfg(env);
   let ids = [];
@@ -10687,7 +10712,7 @@ async function qualidadeTexto(env, dias) {
 async function prodPorApelido(env, l, texto) {
   let ap = {}; try { ap = JSON.parse((await env.HR_KV.get('cli:apelidos')) || '{}') || {}; } catch (_) {}
   const t = ' ' + normaliza(texto) + ' ';
-  for (const [k, nomeReal] of Object.entries(ap)) if (t.includes(' ' + k + ' ')) { const tk = tokensPedra(nomeReal); const r = l.filter(p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w))); if (r.length) return r; }
+  for (const [k, nomeReal] of Object.entries(ap)) if (t.includes(' ' + k + ' ')) { const tk = tokensPedra(nomeReal); const r = l.filter(p => nomeTodos(p.nome, tk)); if (r.length) return r; }
   return [];
 }
 async function apelidoClienteComando(env, from, msg, bruto) {
@@ -10695,7 +10720,7 @@ async function apelidoClienteComando(env, from, msg, bruto) {
   if (!m || !/\b(apelido|cliente|e a|e o)\b/.test(normaliza(bruto)) || /\?/.test(bruto)) return false;
   const apl = normaliza(m[1]).trim(), real = m[2].trim();
   const cfg = await pontoCfg(env); if (funcsDoTexto(cfg, apl).length) return false; // é apelido de funcionário, não de cliente
-  const tk = tokensPedra(real), achou = (await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)))).length;
+  const tk = tokensPedra(real), achou = (await pedidosProducao(env, p => nomeTodos(p.nome, tk))).length;
   if (!achou) return false;
   let ap = {}; try { ap = JSON.parse((await env.HR_KV.get('cli:apelidos')) || '{}') || {}; } catch (_) {}
   ap[apl] = real; await env.HR_KV.put('cli:apelidos', JSON.stringify(ap));
@@ -10831,7 +10856,7 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
   }
   if (leg) await env.HR_KV.put('prod:fotocli:' + k8, leg, { expirationTtl: 3 * 3600 }); else leg = (await env.HR_KV.get('prod:fotocli:' + k8)) || ''; // v176: lembra o cliente da última legenda
   await env.HR_KV.put('prod:fotopend:' + k8, JSON.stringify({ mid: m.image.id, mids: [m.image.id], leg, listaEm: Date.now(), em: Date.now() }), { expirationTtl: 6 * 3600 });
-  const id = String(f.id); const temNome = l0 => leg && tokensPedra(leg).length && l0.filter(p => tokensPedra(p.nome || '').some(w => w.length >= 3 && tokensPedra(leg).includes(w)));
+  const id = String(f.id); const temNome = l0 => leg && tokensPedra(leg).length && nomeMelhores(l0, tokensPedra(leg));
   let l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].includes(id));
   if (leg) { const ach = temNome(l) || []; if (ach.length) l = [...ach, ...l.filter(p => !ach.includes(p))]; } // v169: o cliente da legenda vem primeiro
   if (!l.length || (leg && !(temNome(l) || []).length)) { // v172/v176: sem serviço aberto com ele → serviços da equipe (abertos ou entregues há pouco; com nome na legenda, procura em todos)
@@ -10965,7 +10990,7 @@ async function fotoEquipeUsarTool(env, a) {
   let buf = null, tipo = 'image/jpeg';
   try { if (String(foto.midia).startsWith('d:')) { const x = await crmLerArquivo(env, foto.midia.slice(2)); buf = new Uint8Array(x.buf); tipo = x.mime || tipo; } else { const x = await baixarMidia(env, String(foto.midia).slice(2)); buf = new Uint8Array(x.buf); tipo = x.tipo || tipo; } }
   catch (e) { return { erro: true, texto: 'Não consegui baixar essa foto (' + String(e.message).slice(0, 80) + ').' }; }
-  const tk = tokensPedra(String(a.cliente || '')), l = await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)) && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
+  const tk = tokensPedra(String(a.cliente || '')), l = await pedidosProducao(env, p => nomeTodos(p.nome, tk) && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
   const ped = l.sort((x, y) => (y.atualizado || y.criado || 0) - (x.atualizado || x.criado || 0))[0]; if (!ped) return { erro: true, texto: 'Não achei o serviço desse cliente. Pergunte o nome em UMA frase.' };
   const nome = apelidoFunc(cfg, f), etapa = String(a.etapa || 'inicio');
   await env.HR_KV.delete('prod:fotopend:' + ultimos8(tel)).catch(() => {}); await env.HR_KV.delete('prod:fotoesp:' + ultimos8(tel)).catch(() => {});
@@ -11261,7 +11286,7 @@ const metaDoDia = metaSem => Math.ceil(metaSem / 6 * 1.1 * 2) / 2; // 6 dias de 
 async function pontosAnularTool(env, a) {
   const etapa = String(a.etapa || '').toLowerCase(); if (!ETAPA_TXT[etapa] || etapa === 'inicio') return { erro: true, texto: 'Etapa inválida.' };
   const cfg = await pontoCfg(env), tkF = tokensPedra(String(a.funcionario || '')), f = tkF.length ? cfg.funcs.find(x => tokensPedra(x.nome)[0] === tkF[0] || normaliza(apelidoFunc(cfg, x)) === normaliza(a.funcionario)) : null;
-  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
+  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => nomeTodos(p.nome, tk));
   const ped = l.sort((x, y) => (y.criado || 0) - (x.criado || 0))[0]; if (!ped) return { erro: true, texto: `Não achei o pedido de ${a.cliente}.` };
   ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
   const alvo = ped.prodLog.filter(x => x.e === etapa && (!f || (x.por || []).map(String).includes(String(f.id))));
@@ -11452,7 +11477,7 @@ async function reabrirEntrega(env, ped, motivo) {
   await salvarPedido(env, ped);
 }
 async function pedidoReabrirTool(env, a) {
-  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => p.entregueEm && tk.length && (tk.every(w => tokensPedra(p.nome || '').includes(w)) || nomeParecido(p, a.cliente)));
+  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => p.entregueEm && tk.length && (nomeTodos(p.nome, tk) || nomeParecido(p, a.cliente)));
   const ped = l.sort((x, y) => (y.entregueEm || 0) - (x.entregueEm || 0))[0]; if (!ped) return { erro: true, texto: `Não achei entrega registrada de ${a.cliente}.` };
   if (a.tambem_inicio) { ped.instIniEm = null; ped.instIniPor = null; ped.instIniFotoEm = null; }
   await reabrirEntrega(env, ped, a.motivo);
@@ -11679,7 +11704,7 @@ async function polidorDe(env, ped) {
 // dono: "a cuba da Maria é flush" (ou embutida / de sobrepor) → corrige o tipo no pedido e os pontos do Hugo
 async function cubaTipoComando(env, from, msg) {
   const m = msg.match(/^(?:a )?cuba d[aoe] ([a-z ]{3,40}?) (?:e|eh|é) (?:de )?(flush|embutida|embutir|sobrepor|esculpida)$/); if (!m) return false;
-  const tk = tokensPedra(m[1]); const l = await pedidosProducao(env, p => !p.entregueEm && tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
+  const tk = tokensPedra(m[1]); const l = await pedidosProducao(env, p => !p.entregueEm && nomeTodos(p.nome, tk));
   const ped = l.sort((a, b) => (b.criado || 0) - (a.criado || 0))[0]; if (!ped || !ped.resumoApp) { await enviar(env, from, `Não achei pedido aberto de ${m[1]} com os itens do app.`); return true; }
   const tipo = { embutida: 'embutir', embutir: 'embutir', sobrepor: 'sobrepor', flush: 'flush', esculpida: 'esc_sim' }[m[2]]; let n = 0;
   for (const it of ped.resumoApp.itens || []) if ((it.sv || []).some(k => /^cuba_/.test(k)) || it.cuba) { it.cubaInst = tipo; n++; }
