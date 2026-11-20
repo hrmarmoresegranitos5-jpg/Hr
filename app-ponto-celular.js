@@ -499,7 +499,7 @@
     if (!bot() || sincronizando) return Promise.resolve(null);
     if (typeof HR_IMPORT === 'undefined' || !HR_IMPORT._calcDia) return lancarVales().then(function () { return null; }); // v46: vales não dependem do cálculo
     sincronizando = true;
-    return api('/bot/ponto/registros?de=' + diaMenos(7) + '&ate=' + hoje()).then(function (j) {
+    return api('/bot/ponto/registros?de=' + diaMenos(12) + '&ate=' + hoje()).then(function (j) { // v22: 12 dias (o decêndio inteiro) — correção de dia antigo do período também entra
       var regs = lerJ('hr_registros'), funcs = lerJ('hr_funcionarios'), r = { novos: 0, atualizados: 0, incompletos: [], pendentes: 0 };
       var nomes = {}; (j.funcs || []).forEach(function (f) { nomes[f.id] = f.nome; });
       var CF = (typeof CFG !== 'undefined' && CFG) ? CFG : {};

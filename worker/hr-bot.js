@@ -1435,8 +1435,10 @@ async function ferrPontoFuncionario(env, a) {
     const k = `ponto:d:${d}:${f.id}`, l = await pontoDia(env, d, f.id);
     const feitos = [];
     for (const [tipo, hora] of novos) {
-      const ja = l.find(b => b.tipo === tipo && b.status !== 'recusada');
+      let ja = l.find(b => b.tipo === tipo && b.status !== 'recusada');
       if (ja && ja.hora === hora) continue;
+      { const mm = x => +String(x).slice(0, 2) * 60 + +String(x).slice(3, 5); // v234: a "entrada" das 13h era a volta do almoço — vira volta, não some
+        if (ja && tipo === 'entrada' && mm(ja.hora) >= 735 && mm(ja.hora) <= 885 && mm(hora) < mm(ja.hora) && !l.some(b => b.tipo === 'volta_almoco' && b.status !== 'recusada') && !novos.some(x => x[0] === 'volta_almoco')) { ja.tipo = 'volta_almoco'; ja.motivo = (ja.motivo ? ja.motivo + ' · ' : '') + 'era a volta do almoço (Sr. Hangel)'; feitos.push(`${ja.hora} virou volta do almoço`); ja = null; } }
       if (ja) { ja.status = 'recusada'; ja.motivo = (ja.motivo ? ja.motivo + ' · ' : '') + 'substituída por ' + hora + ' (Sr. Hangel)'; }
       const [h, m] = hora.split(':').map(Number), ts = Date.parse(d + 'T00:00:00-03:00') + (h * 60 + m) * 60000;
       l.push({ id: ts.toString(36) + pontoHex(3), tipo, ts, hora, status: 'ok', ajuste: true, motivo, criadoEm: Date.now(), autor: 'dono', previsto: ts > Date.now() });
