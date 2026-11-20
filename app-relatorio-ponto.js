@@ -860,11 +860,11 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(110, 110, 110);
-    doc.text(fin.status === 'pago' ? 'Valor já recebido' : 'Você vai receber', mL + 5, y + 7);
+    doc.text(fin.status === 'pago' ? 'Já recebido (quitado)' : 'Você vai receber', mL + 5, y + 7);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(19);
     doc.setTextColor.apply(doc, corStatus);
-    doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), mL + 5, y + 17);
+    doc.text(_fmtMoeda(fin.status === 'pago' && fin.totalPago > 0 ? fin.totalPago : Math.abs(fin.saldoFinal)), mL + 5, y + 17);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9.5);
     doc.setTextColor(90, 90, 90);
@@ -1295,8 +1295,8 @@ var HR_RELATORIO_PONTO = (function () {
       // ── VALOR A RECEBER — a primeira (e principal) informação ───────────────
       '<div style="background:#fff;border:2px solid '+faixaCor+';border-radius:8px;padding:14px 18px;margin-top:14px;display:flex;justify-content:space-between;align-items:flex-end;">'+
         '<div>'+
-          '<div style="font-size:14px;color:#777;">'+(fin.status==='pago'?'Valor já recebido':'Você vai receber')+'</div>'+
-          '<div style="font-size:30px;font-weight:800;color:'+faixaCor+';">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</div>'+
+          '<div style="font-size:14px;color:#777;">'+(fin.status==='pago'?'Já recebido (quitado)':'Você vai receber')+'</div>'+
+          '<div style="font-size:30px;font-weight:800;color:'+faixaCor+';">'+fmtMoeda(fin.status==='pago'&&fin.totalPago>0?fin.totalPago:Math.abs(fin.saldoFinal))+'</div>'+
         '</div>'+
         '<div style="font-size:15px;color:#555;">Trabalhou '+diasTrabalhados+(diasTrabalhados===1?' dia':' dias')+'</div>'+
       '</div>'+
