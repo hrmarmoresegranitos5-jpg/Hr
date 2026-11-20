@@ -96,7 +96,7 @@
         rebZ = T - REB_DESCE;
         cp('tE', main.x0, rr.x0, 0, T); cp('rebN', rr.x0, rr.x1, 0, Math.max(1, T - REB_DESCE)); cp('rebF', rr.x0, rr.x1, 0, T, main.y0); rebZ = Math.max(1, T - REB_DESCE); cp('tD', rr.x1, main.x1, 0, T);
         // a sainha da área molhada fica na altura toda (borda na frente); o tampo da área molhada desce 2 cm atrás dela; no corte dos lados só aparece o degrau
-        pts.forEach(function (b) { if (b.k === 'tE' || b.k === 'tD') b.zs = rebZ; });
+        pts.forEach(function (b) { if (b.k === 'rebF') b.semLado = true; if (b.k === 'tE' || b.k === 'tD') { b.zs = rebZ; b.ys = main.y0 + 3; } }); // o degrau começa atrás da borda da frente
         bx.splice.apply(bx, [0, 1].concat(pts));
         var fF = bx.filter(function (b) { return b.k === 'frF'; })[0];
         if (fF) { // frontão dividido na área molhada, com 2 cm a mais lá
@@ -212,7 +212,8 @@
   function caixa(b, P, c, s, ox, oy, sw) {
     var S = function (x, y, z) { var q = P(x, y, z); return [ox + q[0] * s, oy + q[1] * s]; }, h = '', st = 'fill="#fff" stroke="' + COR.tr + '" stroke-width="' + sw + '" stroke-linejoin="round"';
     var xs = c > 0 ? b.x1 : b.x0, zs = b.zs != null && ((c > 0 && b.k === 'tE') || (c < 0 && b.k === 'tD')) ? b.zs : b.z0; // no degrau do rebaixo só aparece a parte de cima
-    h += poly([S(xs, b.y0, zs), S(xs, b.y1, zs), S(xs, b.y1, b.z1), S(xs, b.y0, b.z1)], st);
+    var ys = zs !== b.z0 && b.ys != null ? b.ys : b.y0;
+    if (!b.semLado) h += poly([S(xs, ys, zs), S(xs, b.y1, zs), S(xs, b.y1, b.z1), S(xs, ys, b.z1)], st);
     h += poly([S(b.x0, b.y0, b.z0), S(b.x1, b.y0, b.z0), S(b.x1, b.y0, b.z1), S(b.x0, b.y0, b.z1)], st);
     h += poly([S(b.x0, b.y0, b.z1), S(b.x1, b.y0, b.z1), S(b.x1, b.y1, b.z1), S(b.x0, b.y1, b.z1)], st);
     return h;
@@ -259,7 +260,7 @@
     var grp = function (gg) { return g.boxes.filter(function (b) { return b.g === gg; }); };
     ordenar(grp('pe'), c).forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); });
     var zR = function (r) { var rn = R.filter(function (o) { return o.n; })[0]; return rn && r.t !== 'cook' && r.x0 >= rn.x0 - 1 && r.x1 <= rn.x1 + 1 ? g.rebZ : g.T; };
-    var lajes = ordenar(grp('slab'), c); lajes.sort(function (a, b) { var o = { rebN: 0, rebF: 1 }; return (o[a.k] != null ? o[a.k] : 2) - (o[b.k] != null ? o[b.k] : 2); }); // a pedra do rebaixo (mais baixa) primeiro
+    var lajes = ordenar(grp('slab'), c); lajes.sort(function (a, b) { var o = { rebN: 0, rebF: 2 }; return (o[a.k] != null ? o[a.k] : 1) - (o[b.k] != null ? o[b.k] : 1); }); // a pedra do rebaixo (mais baixa) primeiro
     lajes.forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); if (b.k === 'main') R.forEach(function (r) { h += recorteSvg(r, P, s, ox, oy, g.T, sw * 0.85); }); });
     if (g.rebZ !== g.T) R.forEach(function (r) { if (!r.n) h += recorteSvg(r, P, s, ox, oy, zR(r), sw * 0.85); });
     ordenar(grp('fr'), c).forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); });
