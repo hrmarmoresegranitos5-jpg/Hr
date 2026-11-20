@@ -156,6 +156,26 @@
   }
   function mesmaPedraD(a, b) { var tk = function (t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z]+/).filter(function (w) { return w.length > 2 && !/^(granito|marmore|quartzo|pedra|dos|das)$/.test(w); }); }, x = tk(a), y = tk(b); return x.length && y.length && x.filter(function (w) { return y.indexOf(w) >= 0; }).length >= Math.min(2, x.length, y.length); }
   // plano de corte: usa primeiro as sobras do estoque (reaproveitamento); com paginação, cada peça sai junto com a sua sainha e o seu frontão, no mesmo sentido do veio
+  // paginação de verdade: as partes da peça vão para a chapa na mesma posição em que ficam montadas (como na planta),
+  // o frontão encostado atrás do tampo e a sainha encostada na frente, para o veio passar de uma para a outra
+  function blocoPeca(pc) {
+    if (!oblq(pc)) return null;
+    var K = 0.5, g = geo(pc), lajes = g.boxes.filter(function (b) { return b.g === 'slab' && b.k !== 'rebF'; }), frs = g.boxes.filter(function (b) { return b.g === 'fr'; });
+    var cortesX = []; lajes.forEach(function (b) { if (b.x0 > 0.01) cortesX.push(b.x0); }); cortesX = cortesX.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort(function (a, b) { return a - b; });
+    var mx = function (x) { return x + K * cortesX.filter(function (c) { return c < x - 0.01; }).length; };
+    var frH = 0; frs.forEach(function (b) { if (b.k === 'frF' || b.k === 'frM') frH = Math.max(frH, b.z1 - b.z0); });
+    var y0 = frH ? frH + K : 0, its = [], nm = nomePeca(pc), sa = temSaia(pc) ? num(pc.saiaAlt) : 0;
+    var nomeL = function (b) { return (b.k === 'rebN' ? 'Pedra do rebaixo' : b.k === 'tE' ? 'Tampo à esquerda do rebaixo' : b.k === 'tD' ? 'Tampo à direita do rebaixo' : pc.tipo === 'L' ? (b.k === 'main' ? 'Bancada (parte maior)' : 'Bancada (perna do L)') : nm) + (b.em ? ' – parte ' + b.em : ''); };
+    lajes.forEach(function (b) { its.push({ nome: nomeL(b), tipo: 'bancada', w: b.x1 - b.x0, h: b.y1 - b.y0, rx: mx(b.x0), ry: y0 + (g.Ymax - b.y1) }); });
+    frs.forEach(function (b) { if (b.k === 'frF' || b.k === 'frM') its.push({ nome: b.k === 'frM' ? 'Frontão da área molhada' : 'Frontão', tipo: 'frontao', w: b.x1 - b.x0, h: b.z1 - b.z0, rx: mx(b.x0), ry: frH - (b.z1 - b.z0) }); });
+    if (sa && pc.tipo !== 'L' && ladoSaia(pc, 'F')) { // sainha da frente embaixo de cada parte do tampo
+      var yS = y0 + g.p + K; lajes.forEach(function (b) { if (b.y0 <= 0.01) its.push({ nome: 'Saia ' + ({ reta: 'reta', '45': 'em 45°', boleada: 'boleada' }[pc.saia] || '') + (b.k === 'rebN' ? ' (área molhada)' : ''), tipo: 'saia', w: b.x1 - b.x0, h: sa, rx: mx(b.x0), ry: yS }); });
+    }
+    if (sa && pc.tipo !== 'L') { var wl = g.A + K * cortesX.length; if (ladoSaia(pc, 'E')) its.push({ nome: 'Saia (lado esquerdo)', tipo: 'saia', w: sa, h: g.p, rx: -(sa + K), ry: y0 }); if (ladoSaia(pc, 'D')) its.push({ nome: 'Saia (lado direito)', tipo: 'saia', w: sa, h: g.p, rx: wl + K, ry: y0 }); }
+    var minx = Math.min.apply(0, its.map(function (q) { return q.rx; })), miny = Math.min.apply(0, its.map(function (q) { return q.ry; }));
+    its.forEach(function (q) { q.rx -= minx; q.ry -= miny; q.w = Math.round(q.w * 10) / 10; q.h = Math.round(q.h * 10) / 10; });
+    return { its: its, W: Math.max.apply(0, its.map(function (q) { return q.rx + q.w; })), H: Math.max.apply(0, its.map(function (q) { return q.ry + q.h; })) };
+  }
   function planoCorte(d, sobras, op) {
     op = op || {}; var ch = chapa(), K = 0.5, bins = [], grandes = [], pag = op.pag !== false;
     (op.usarSobras === false ? [] : (sobras || [])).filter(function (x) { return mesmaPedraD(x.material, d.material); }).sort(function (a, b) { return a.comp * a.larg - b.comp * b.larg; })
@@ -177,17 +197,26 @@
       for (var j2 = 0; j2 < oris.length; j2++) if (oris[j2][0] <= ch.c && oris[j2][1] <= ch.l) { var b = novaChapa(), q2 = cabeEm(b, oris[j2][0], oris[j2][1]); f(b, q2.x, q2.y, oris[j2][2]); return true; }
       return false;
     };
-    var ordem = { bancada: 0, tampo: 1, frontao: 2, saia: 3, outro: 4 };
+    var ordem = pag ? { frontao: 0, bancada: 1, saia: 2, tampo: 3, outro: 4 } : { bancada: 0, tampo: 1, frontao: 2, saia: 3, outro: 4 };
     (d.pecas || []).forEach(function (pc, gi) {
       var its = []; corte(pc).forEach(function (x) { for (var i = 0; i < x.qtd; i++) its.push({ nome: x.nome, c: x.c, l: x.l, tipo: x.tipo, g: gi, de: nomePeca(pc) }); });
-      its.sort(function (a, b) { return (ordem[a.tipo] - ordem[b.tipo]) || b.c - a.c; });
-      if (pag && its.length > 1) { // bloco da peça: tudo empilhado no mesmo sentido, para o veio continuar
-        var bw = Math.max.apply(0, its.map(function (x) { return x.c; })), bh = its.reduce(function (t, x) { return t + x.l + K; }, -K);
-        if (bw <= ch.c && bh <= ch.l && colocar(bw, bh, false, function (b, x, y) { var yy = y; its.forEach(function (it) { b.p.push({ x: x, y: yy, w: it.c, h: it.l, it: it }); if (bw - it.c - K > 1) b.livre.push({ x: x + it.c + K, y: yy, w: bw - it.c - K, h: it.l }); yy += it.l + K; }); })) return;
+      its.sort(function (a, b) { return (ordem[a.tipo] - ordem[b.tipo]) || b.c - a.c; }); its.forEach(function (it, ii) { it.k = gi + '|' + ii; });
+      if (pag) { // bloco da peça como montada: tampo(s), frontão atrás, sainha na frente
+        var bl = blocoPeca(pc), q1 = Math.max(1, Math.round(num(pc.qtd, 1)));
+        if (bl && bl.its.length && bl.W <= ch.c && bl.H <= ch.l) {
+          var resto = its.slice(), usados0 = [];
+          bl.its.forEach(function (q) { var j = -1; resto.forEach(function (it, ii) { if (j < 0 && it.tipo === q.tipo && Math.abs(it.c - Math.max(q.w, q.h)) < 0.6 && Math.abs(it.l - Math.min(q.w, q.h)) < 0.6) j = ii; }); if (j >= 0) { q.it = resto[j]; resto.splice(j, 1); } else q.it = { nome: q.nome, c: Math.max(q.w, q.h), l: Math.min(q.w, q.h), tipo: q.tipo, g: gi, de: nomePeca(pc), k: gi + '|b' + usados0.length }; usados0.push(q); });
+          var okB = true;
+          for (var cop = 0; cop < q1 && okB; cop++) okB = colocar(bl.W, bl.H, false, function (b, x, y) { bl.its.forEach(function (q, qi) { var it = cop ? Object.assign({}, q.it, { k: q.it.k + '#' + cop }) : q.it; b.p.push({ x: x + q.rx, y: y + q.ry, w: q.w, h: q.h, it: it }); }); });
+          if (okB) { var sobra0 = resto.slice(); for (var cc = 1; cc < q1; cc++) { /* cópias: as peças repetidas já foram no bloco */ } its = sobra0.filter(function (it) { return !bl.its.some(function (q) { return q.it === it; }); }); if (q1 > 1) { var cont = {}; its = its.filter(function (it) { var kk = it.tipo + it.c + 'x' + it.l; cont[kk] = (cont[kk] || 0) + 1; return cont[kk] > (q1 - 1) * bl.its.filter(function (q) { return q.it.tipo + q.it.c + 'x' + q.it.l === kk; }).length; }); } }
+        }
       }
       its.forEach(function (it) { if (!colocar(it.c, it.l, !pag, function (b, x, y, gir) { b.p.push({ x: x, y: y, w: gir ? it.l : it.c, h: gir ? it.c : it.l, it: it }); })) grandes.push(it); });
     });
-    var usados = bins.filter(function (b) { return b.p.length; }), novas = [];
+    var usados = bins.filter(function (b) { return b.p.length; }), novas = [], man = d.pagMan || {};
+    usados.forEach(function (b, bi) { b.p.forEach(function (q) { var m = man[q.it.k]; if (m && m.b === bi && m.w === q.w) { q.x = m.x; q.y = m.y; q.man = true; } });
+      b.p.forEach(function (q) { q.colide = q.x < -0.1 || q.y < -0.1 || q.x + q.w > b.W + 0.1 || q.y + q.h > b.H + 0.1 || b.p.some(function (o) { return o !== q && q.x < o.x + o.w - 0.1 && o.x < q.x + q.w - 0.1 && q.y < o.y + o.h - 0.1 && o.y < q.y + q.h - 0.1; }); });
+      if (b.p.some(function (q) { return q.man; })) { b.livre = []; } }); // com ajuste manual, as sobras saem pelo desenho da chapa
     usados.forEach(function (b) {
       b.uso = b.p.reduce(function (t, q) { return t + q.w * q.h; }, 0) / (b.W * b.H);
       if (b.tipo !== 'chapa') return;
@@ -196,6 +225,37 @@
     novas.sort(function (a, b) { return b.comp * b.larg - a.comp * a.larg; });
     return { ch: ch, bins: usados, grandes: grandes, novas: novas, chapas: usados.filter(function (b) { return b.tipo === 'chapa'; }).length, sobrasUsadas: usados.filter(function (b) { return b.tipo === 'sobra'; }) };
   }
+  var PALP = ['#e9dfc7', '#cfe0d4', '#dcd6ec', '#f1d0c4', '#d6e4ee', '#efe2b0', '#e6cfe0', '#cfe7e6'];
+  function chapaSvg(b, bi, k, foto, inter, pag, larg) {
+    var W = b.W * k, H = b.H * k, h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 2) + ' ' + (H + 18) + '"' + (larg ? ' style="width:' + larg + ';height:auto;display:block;touch-action:' + (inter ? 'none' : 'auto') + '"' : ' width="' + (W + 2) + '" height="' + (H + 18) + '"') + ' font-family="' + FONTE + '">';
+    h += '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="' + (b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
+    if (foto) h += '<image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none"/>';
+    b.p.forEach(function (q, qi) {
+      var x = 1 + q.x * k, y = 1 + q.y * k, w = q.w * k, hh = q.h * k, cor = PALP[q.it.g % PALP.length];
+      h += '<g' + (inter ? ' data-q="' + bi + '|' + qi + '" style="cursor:move"' : '') + '><rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + hh.toFixed(1) + '" fill="' + cor + '" fill-opacity="' + (foto ? '.28' : '1') + '" stroke="' + (q.colide ? '#ef4444' : foto ? '#ffffff' : '#1a1408') + '" stroke-width="' + (q.colide ? 2.2 : foto ? 1.6 : .8) + '"/>';
+      if (w > 30 && hh > 10) h += '<text x="' + (x + w / 2).toFixed(1) + '" y="' + (y + hh / 2 + 3).toFixed(1) + '" font-size="' + Math.min(10, hh * 0.55).toFixed(1) + '" text-anchor="middle" fill="' + (foto ? '#fff' : '#1a1408') + '" font-weight="700"' + (foto ? ' stroke="#000" stroke-width=".3"' : '') + '>' + esc((pag ? 'P' + (q.it.g + 1) + ' ' : '') + f1(q.w) + '×' + f1(q.h)) + '</text>';
+      h += '</g>';
+    });
+    if (pag) h += '<text x="' + (W + 1) + '" y="' + (H + 14) + '" font-size="10" text-anchor="end" fill="#c9a84c" font-weight="700">sentido do veio →</text>';
+    return h + '</svg>';
+  }
+  function paginacaoSvg(d, pl) { // folha de paginação para aprovar e mandar para a produção
+    TOM = tomDe(d.material); var M = 30, W = FW - 2 * M, h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '"><rect width="' + FW + '" height="' + FH + '" fill="#fff"/>';
+    h += '<rect x="' + M + '" y="' + M + '" width="' + W + '" height="110" rx="14" fill="#1d1a14"/><rect x="' + (M + 24) + '" y="' + (M + 22) + '" width="66" height="66" rx="10" fill="none" stroke="#c9a84c" stroke-width="2.5"/><text x="' + (M + 57) + '" y="' + (M + 66) + '" font-size="32" text-anchor="middle" fill="#c9a84c" font-weight="800">HR</text>';
+    h += '<text x="' + (M + 112) + '" y="' + (M + 52) + '" font-size="28" fill="#f4efe2" font-weight="700" letter-spacing="2">PAGINAÇÃO DAS CHAPAS</text><text x="' + (M + 112) + '" y="' + (M + 84) + '" font-size="18" fill="#c9a84c">' + esc((d.cliente || 'Projeto') + (d.material ? ' · ' + d.material : '')) + '</text></svg>';
+    h = h.replace('</svg>', '');
+    var y = M + 130, n = pl.bins.length, alt = (FH - y - 120) / Math.max(1, n), nC = 0;
+    pl.bins.forEach(function (b, bi) {
+      var k = Math.min((W - 20) / b.W, (alt - 46) / (b.H + 2)), inner = chapaSvg(b, bi, k, (d.fotosChapa || {})[bi], false, true).replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+      h += '<text x="' + M + '" y="' + (y + 22) + '" font-size="18" fill="#1f1d19" font-weight="700">' + esc(b.tipo === 'sobra' ? '♻️ Sobra ' + f1(b.W) + '×' + f1(b.H) : 'Chapa ' + (++nC) + ' · ' + f1(b.W) + '×' + f1(b.H)) + '</text><g transform="translate(' + M + ',' + (y + 32) + ')">' + inner + '</g>';
+      y += alt;
+    });
+    var leg = []; (d.pecas || []).forEach(function (pc, i) { leg.push('P' + (i + 1) + ' = ' + nomePeca(pc)); });
+    h += '<text x="' + M + '" y="' + (FH - 70) + '" font-size="16" fill="#1f1d19">' + esc(leg.join('   ·   ')) + '</text><text x="' + M + '" y="' + (FH - 44) + '" font-size="14" fill="#8b877e">Cada peça sai junto com a sua sainha (encostada na frente) e o seu frontão (encostado atrás), no mesmo sentido do veio. Medidas em cm.</text>';
+    return h + '</svg>';
+  }
+  function svgPng(svg, w, hh) { return new Promise(function (ok, erro) { var img = new Image(), url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })); img.onload = function () { var c = document.createElement('canvas'); c.width = w * 2; c.height = hh * 2; var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); c.toBlob(function (b) { b ? ok(b) : erro(new Error('Falha')); }, 'image/png'); }; img.onerror = function () { URL.revokeObjectURL(url); erro(new Error('Falha ao desenhar')); }; img.src = url; }); }
+  function compartilhar(blob, nome) { var f = new File([blob], nome, { type: 'image/png' }); if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: nome }).catch(function () {}); var u = URL.createObjectURL(blob), l = document.createElement('a'); l.href = u; l.download = nome; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 4000); }
   function telaPlano() {
     var d = st.d, o = document.createElement('div'); o.id = 'hrDesPl'; document.body.appendChild(o);
     st.plOp = st.plOp || { pag: true, usarSobras: true };
@@ -208,22 +268,33 @@
         + (!d.material ? '<div class="des-av">⚠️ Escreva o material do projeto para eu achar as sobras da mesma pedra.</div>' : semRede ? '<div class="des-av">⚠️ Não consegui ver o estoque de sobras agora.</div>' : '') + '</div>';
       if (pl.grandes.length) h += '<div class="des-av">⚠️ Não cabe numa chapa: ' + pl.grandes.map(function (g) { return esc(g.nome) + ' ' + f1(g.c) + '×' + f1(g.l); }).join(', ') + '. Coloque uma emenda na peça.</div>';
       var nC = 0;
-      pl.bins.forEach(function (b) {
-        var k = 330 / Math.max(b.W, ch.c * 0.6), sv = '<svg viewBox="0 0 ' + (b.W * k + 2) + ' ' + (b.H * k + (st.plOp.pag ? 16 : 2)) + '" style="width:' + Math.min(100, b.W / ch.c * 100 + 8) + '%;height:auto;display:block"><rect x="1" y="1" width="' + b.W * k + '" height="' + b.H * k + '" fill="' + (b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
-        b.p.forEach(function (q) { sv += '<rect x="' + (1 + q.x * k) + '" y="' + (1 + q.y * k) + '" width="' + q.w * k + '" height="' + q.h * k + '" fill="' + P[q.it.g % P.length] + '" stroke="#1a1408" stroke-width=".8"/>'; if (q.w * k > 30 && q.h * k > 10) sv += '<text x="' + (1 + (q.x + q.w / 2) * k) + '" y="' + (1 + (q.y + q.h / 2) * k + 3) + '" font-size="' + Math.min(9, q.h * k * 0.55) + '" text-anchor="middle" fill="#1a1408">' + esc((st.plOp.pag ? 'P' + (q.it.g + 1) + ' ' : '') + f1(q.w) + '×' + f1(q.h)) + '</text>'; });
-        if (st.plOp.pag) sv += '<text x="' + (b.W * k) + '" y="' + (b.H * k + 13) + '" font-size="9" text-anchor="end" fill="#c9a84c">veio →</text>';
+      pl.bins.forEach(function (b, bi) {
+        var k = 330 / Math.max(b.W, ch.c * 0.6), foto = (d.fotosChapa || {})[bi];
         var tit = b.tipo === 'sobra' ? '♻️ Sobra ' + f1(b.W) + '×' + f1(b.H) + (b.origem ? ' <span style="text-transform:none;letter-spacing:0;color:#9a917e">· ' + esc(b.origem) + '</span>' : '') : 'Chapa ' + (++nC) + ' (' + f1(b.W) + '×' + f1(b.H) + ')';
-        h += '<div class="des-sec"><h4>' + tit + ' <span style="margin-left:auto;color:#9a917e;text-transform:none;letter-spacing:0">' + Math.round(b.uso * 100) + '% usada</span></h4>' + sv + '</svg>' + b.p.map(function (q) { return '<div class="des-pc"><span>' + (st.plOp.pag ? '<b style="color:#c9a84c">P' + (q.it.g + 1) + '</b> ' : '') + esc(q.it.nome) + ((d.pecas || []).length > 1 ? ' <span class="des-sub">(' + esc(q.it.de) + ')</span>' : '') + '</span><b>' + f1(q.w) + ' × ' + f1(q.h) + '</b></div>'; }).join('') + '</div>';
+        h += '<div class="des-sec"><h4>' + tit + ' <span style="margin-left:auto;color:#9a917e;text-transform:none;letter-spacing:0">' + Math.round(b.uso * 100) + '% usada</span></h4>' + chapaSvg(b, bi, k, foto, true, st.plOp.pag, Math.min(100, b.W / ch.c * 100 + 8) + '%')
+          + '<div class="des-ch"><button type="button" data-plf="' + bi + '">📷 ' + (foto ? 'Trocar foto da chapa' : 'Foto da chapa') + '</button>' + (b.p.some(function (q) { return q.man; }) ? '<button type="button" data-plr="' + bi + '">↺ Voltar ao automático</button>' : '') + '</div>'
+          + (b.p.some(function (q) { return q.colide; }) ? '<div class="des-av">⚠️ Peça encavalada ou fora da chapa (em vermelho).</div>' : '')
+          + b.p.map(function (q) { return '<div class="des-pc"><span>' + (st.plOp.pag ? '<b style="color:#c9a84c">P' + (q.it.g + 1) + '</b> ' : '') + esc(q.it.nome) + ((d.pecas || []).length > 1 ? ' <span class="des-sub">(' + esc(q.it.de) + ')</span>' : '') + '</span><b>' + f1(q.w) + ' × ' + f1(q.h) + '</b></div>'; }).join('') + '</div>';
       });
+      h += '<button class="des-bt" data-pl="img">📤 Imagem da paginação</button>';
       if (pl.sobrasUsadas.length) h += '<button class="des-bt des-bt2" data-pl="usar">♻️ Marcar ' + (pl.sobrasUsadas.length > 1 ? 'essas sobras como usadas' : 'essa sobra como usada') + '</button>';
       if (pl.novas.length) h += '<div class="des-sec" style="margin-top:10px"><h4>♻️ Sobras que vão ficar</h4>' + pl.novas.map(function (x) { return '<div class="des-pc"><span>' + esc(d.material || 'Pedra') + '</span><b>' + x.comp + ' × ' + x.larg + '</b></div>'; }).join('') + '<button class="des-bt" data-pl="guardar">Guardar no estoque de sobras</button></div>';
       h += '<div class="des-dica" style="text-align:center;margin-top:8px">' + (st.plOp.pag ? 'Paginação: cada peça (P1, P2…) sai junto com a sua sainha e o seu frontão, tudo no mesmo sentido do veio, para o desenho da pedra continuar. ' : '') + 'Confira o veio e as falhas da chapa antes de cortar.</div></div>';
-      o.innerHTML = h; o.__pl = pl;
+      var sc = o.lastElementChild ? o.lastElementChild.scrollTop : 0; o.innerHTML = h; o.__pl = pl; if (o.lastElementChild) o.lastElementChild.scrollTop = sc;
     };
+    // arrastar a peça na chapa: escolher onde o veio fica (paginação manual)
+    var arP = null;
+    o.addEventListener('pointerdown', function (e) { var g = e.target.closest('[data-q]'); if (!g || !o.__pl) return; var pr = g.getAttribute('data-q').split('|'), b = o.__pl.bins[+pr[0]], q = b.p[+pr[1]], sv = g.ownerSVGElement, r = sv.getBoundingClientRect(), vb = sv.viewBox.baseVal; e.preventDefault(); arP = { bi: +pr[0], q: q, b: b, x0: e.clientX, y0: e.clientY, grupo: b.p.filter(function (q2) { return q2.it.g === q.it.g; }).map(function (q2) { return { q: q2, x: q2.x, y: q2.y }; }), k: r.width / vb.width * (330 / Math.max(b.W, chapa().c * 0.6)), id: e.pointerId }; try { o.setPointerCapture(e.pointerId); } catch (er) {} });
+    o.addEventListener('pointermove', function (e) { if (!arP || e.pointerId !== arP.id) return; e.preventDefault(); var dx = Math.round((e.clientX - arP.x0) / arP.k * 2) / 2, dy = Math.round((e.clientY - arP.y0) / arP.k * 2) / 2; d.pagMan = d.pagMan || {}; arP.grupo.forEach(function (m) { d.pagMan[m.q.it.k] = { b: arP.bi, x: m.x + dx, y: m.y + dy, w: m.q.w }; }); /* a peça anda junto com a sua sainha e o seu frontão */ if (!arP.raf) arP.raf = requestAnimationFrame(function () { if (arP) { arP.raf = 0; desenhar(st.sobras || []); } }); });
+    o.addEventListener('pointerup', function () { if (arP) { arP = null; guardar(d); } });
+    o.addEventListener('change', function (e) { var inp = e.target; if (!inp.matches || !inp.matches('#plFoto')) return; var f = inp.files && inp.files[0], bi = +inp.getAttribute('data-bi'); if (!f) return; var im = new Image(), u = URL.createObjectURL(f); im.onload = function () { var c = document.createElement('canvas'), kk = Math.min(1, 1000 / Math.max(im.width, im.height)); c.width = Math.round(im.width * kk); c.height = Math.round(im.height * kk); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); d.fotosChapa = d.fotosChapa || {}; d.fotosChapa[bi] = c.toDataURL('image/jpeg', 0.6); URL.revokeObjectURL(u); guardar(d); desenhar(st.sobras || []); aviso('📷 Foto da chapa colocada. Arraste as peças para escolher onde fica o veio.'); }; im.src = u; });
     var carregar = function () { if (!d.material || !base()) { desenhar([], !!d.material); return; } api('/bot/sobras').then(function (r) { st.sobras = r.sobras || []; desenhar(st.sobras); }).catch(function () { desenhar([], true); }); };
     o.addEventListener('click', function (e) {
+      var ff = e.target.closest('[data-plf]'); if (ff) { var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.id = 'plFoto'; inp.style.display = 'none'; inp.setAttribute('data-bi', ff.getAttribute('data-plf')); o.appendChild(inp); inp.click(); return; }
+      var rr = e.target.closest('[data-plr]'); if (rr) { var bi2 = +rr.getAttribute('data-plr'), m2 = d.pagMan || {}; Object.keys(m2).forEach(function (k2) { if (m2[k2].b === bi2) delete m2[k2]; }); guardar(d); desenhar(st.sobras || []); return; }
       var b = e.target.closest('[data-pl]'); if (!b) return; var a = b.getAttribute('data-pl'), pl = o.__pl;
       if (a === 'sair') { o.remove(); return; }
+      if (a === 'img' && pl) { svgPng(paginacaoSvg(d, pl), FW, FH).then(function (bl) { compartilhar(bl, 'Paginação ' + (d.cliente || 'HR') + '.png'); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
       if (a === 'pag' || a === 'sob') { if (a === 'pag') st.plOp.pag = !st.plOp.pag; else st.plOp.usarSobras = !st.plOp.usarSobras; desenhar(st.sobras || []); return; }
       if (a === 'recalc') { var c = num(o.querySelector('#plC').value), l = num(o.querySelector('#plL').value); if (c > 50 && l > 30) { try { localStorage.setItem('hr_chapa', JSON.stringify({ c: c, l: l })); } catch (er) {} } desenhar(st.sobras || []); desenharCv(); atualizarPainel(); return; }
       if (a === 'guardar' && pl) { if (!d.material) { aviso('Escreva o material do projeto primeiro.'); return; } api('/bot/sobras', { acao: 'guardar', itens: pl.novas.map(function (x) { return { material: d.material, comp: x.comp, larg: x.larg, origem: 'sobra do projeto ' + (d.cliente || '') }; }) }).then(function (r) { aviso('♻️ ' + r.n + ' sobra(s) guardada(s) no estoque'); b.remove(); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
@@ -650,7 +721,7 @@
         if (ladoSaia(pc, dir ? 'D' : 'E')) add(nmS, 'saia', B, sa);
       } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (!ladoSaia(pc, 'F')) {} else if (rn0) { if (rn0.x0 > 0.5) add(nmS, 'saia', rn0.x0, sa); add(nmS + ' (área molhada)', 'saia', rn0.x1 - rn0.x0, sa); if (A2 - rn0.x1 > 0.5) add(nmS, 'saia', A2 - rn0.x1, sa); } else add(nmS, 'saia', A2, sa); if (ladoSaia(pc, 'E')) add(nmS, 'saia', p, sa); if (ladoSaia(pc, 'D')) add(nmS, 'saia', p, sa); }
     }
-    if (pc.reb && pc.reb.on && !rebNormal(pc)) add('Tampo do rebaixo americano', 'tampo', num(pc.reb.c), num(pc.reb.l));
+    if (pc.reb && pc.reb.on && !rebNormal(pc)) add('Tampo do rebaixo americano', 'tampo', num(pc.reb.c, 120) + 6, num(pc.reb.l, 48) + 6); // o tampo é 6 cm maior que o recorte
     var ex = num(pc.emX), chc = chapa().c;
     if (ex > 0) L = L.reduce(function (o, x) { if ((x.tipo === 'frontao' || x.tipo === 'saia') && x.c > chc && x.c > ex + 1) { o.push(Object.assign({}, x, { nome: x.nome + ' – parte 1', c: Math.round(ex * 10) / 10 }), Object.assign({}, x, { nome: x.nome + ' – parte 2', c: Math.round((x.c - ex) * 10) / 10 })); } else o.push(x); return o; }, []); // frontão e sainha também emendam
     return L;
@@ -1235,5 +1306,5 @@
   }
   function iniciar() { var sb = document.getElementById('secBody'); if (!sb) return setTimeout(iniciar, 1500); cartaoSec(); new MutationObserver(cartaoSec).observe(sb, { childList: true }); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
-  window.abrirDesenho = abrir; window.__hrDesTeste = { planoCorte: planoCorte, pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
+  window.abrirDesenho = abrir; window.__hrDesTeste = { paginacaoSvg: paginacaoSvg, planoCorte: planoCorte, pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
 })();
