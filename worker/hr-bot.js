@@ -2338,6 +2338,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^eqc_(ok|no)\|/.test(id)) return eqContatoBotao(env, from, id); // v155
   if (/^eqd_(ok|no)\|/.test(id)) return eqDescobrirBotao(env, from, id); // v223
   if (/^rela_(ok|no)\|/.test(id)) return relAutBotao(env, from, id); // v229
+  if (/^mpq\|/.test(id)) return mpqBotao(env, from, id); // v236
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -15586,6 +15587,39 @@ async function painelMP(env, dias) {
   out.categorias = CATS;
   return out;
 }
+
+// v236: pistas para lembrar de um gasto — dia da semana e hora, se o nome é de alguém da equipe ou de um cliente,
+// o que a equipe fez naquele dia (instalação/entrega) e a categoria mais provável pelo nome
+async function finPistas(env, r) {
+  const out = { sug: null, linhas: [] };
+  const dias = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+  try { const dw = new Date(r.data + 'T12:00:00Z').getUTCDay(); out.linhas.push(`${dias[dw]} ${dataBR(r.data).slice(0, 5)}${r.hora ? ' às ' + r.hora : ''}`); } catch (_) {}
+  const nome = String(r.desc || '').replace(/^pix enviado( para)?\s*/i, '').trim();
+  try { const cfg = await pontoCfg(env), f = nome && eqFuncPorNomeTexto(cfg, nome); if (f) { out.linhas.push(`${apelidoFunc(cfg, f)} é da equipe (vale, diária ou adiantamento?)`); out.sug = 'mao_obra'; } } catch (_) {}
+  if (!out.sug) { const c = categoriaDe(nome.replace(/\b(d[aeo]s?|e)\b/gi, ' ')); if (c !== 'outros') out.sug = c; } // "Maria das Graças" não é o imposto DAS
+  try {
+    const ini = Date.parse(r.data + 'T00:00:00-03:00'), fim = ini + 86400000, fez = [];
+    const peds = await pedidosProducao(env, p => Array.isArray(p.prodLog) && p.prodLog.some(x => x.ts >= ini && x.ts < fim));
+    for (const p of peds.slice(0, 6)) { const ev = p.prodLog.filter(x => x.ts >= ini && x.ts < fim).map(x => x.e); const t = ev.includes('inicio_inst') || ev.includes('entrega') ? 'instalação' : ev.includes('corte') ? 'corte' : ev.includes('acabamento') ? 'acabamento' : 'serviço'; fez.push(`${t} de ${String(p.nome || '').split(' ').slice(0, 2).join(' ')}`); }
+    if (fez.length) out.linhas.push('nesse dia: ' + [...new Set(fez)].slice(0, 3).join(', '));
+  } catch (_) {}
+  return out;
+}
+async function mpqBotao(env, from, id) { // mpq|h|cat  ·  mpq|h|nl (não lembro)
+  const [, h, c] = id.split('|');
+  if (!(await env.HR_KV.get('mpx:p:' + h))) { await enviar(env, from, 'Esse gasto já foi resolvido.'); return true; }
+  if (c === 'nl') {
+    const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null');
+    await registrarLancamento(env, { type: 'out', value: r.valor, desc: (`A identificar — ${String(r.desc || tipoFaladoMPX(r)).replace(/^pix enviado( para)?\s*/i, '')}`).slice(0, 70) + ' (Mercado Pago)', date: r.data, cat: 'outros', origem: 'mpx', semUltimo: true });
+    await env.HR_KV.put('mpx:l:' + h, 'lancado', { expirationTtl: MPX_TTL }); await env.HR_KV.delete('mpx:p:' + h); await env.HR_KV.delete('mpx:pq:' + h);
+    await movMPStatus(env, h, 'lancado').catch(() => {});
+    await enviar(env, from, `Lancei R$ ${reais(r.valor)} em Outros como "A identificar". Se lembrar depois, é só mudar no app (Finanças).`);
+    return true;
+  }
+  const res = await classificarGastoMP(env, { ref: h, categoria: c });
+  await enviar(env, from, res.erro ? 'Não consegui lançar esse.' : `Lancei em ${CATS[c]}. Da próxima vez que aparecer esse nome, eu lanço sozinho.`);
+  return true;
+}
 // v58: pergunta, em texto livre, sobre gasto com favorecido desconhecido (até 3 por vez; o resto fica no app)
 async function perguntarDesconhecidosMPX(env, hs) {
   const lista = [];
@@ -15594,6 +15628,15 @@ async function perguntarDesconhecidosMPX(env, hs) {
   const vai = lista.slice(0, 3);
   for (const r of vai) await env.HR_KV.put('mpx:pq:' + r.h, '1', { expirationTtl: MPX_PEND_TTL });
   const nome = r => (r.semNome || /^(payment|pagamento)$/i.test(r.desc || '')) ? `${r.semNome ? 'Pix enviado' : 'pagamento com Pix'}${r.hora ? ' às ' + r.hora : ''} (o Mercado Pago não informa o nome)` : (r.desc || 'favorecido sem nome').replace(/^pix enviado( para)?\s*/i, '').slice(0, 50);
+  for (const r of vai) { // v236: um por vez, com pistas e 1 toque
+    const pi = await finPistas(env, r).catch(() => ({ sug: null, linhas: [] }));
+    const bts = []; if (pi.sug && CATS[pi.sug]) bts.push({ id: `mpq|${r.h}|${pi.sug}`, titulo: CATS[pi.sug].slice(0, 20) });
+    bts.push({ id: `mpq|${r.h}|nl`, titulo: 'Não lembro' });
+    const corpo = `Gasto no Mercado Pago: *R$ ${reais(r.valor)}* para *${nome(r)}*\n${pi.linhas.map(x => '• ' + x).join('\n')}\n\nCom o que foi? Responda do seu jeito (ex.: _diesel_, _almoço da equipe_)${pi.sug ? ', ou toque na sugestão' : ''}. Se não lembrar, toque em *Não lembro*: lanço como "A identificar" e o senhor corrige depois.\n\n[ref: mp:${r.h}]`;
+    await enviarComBotoes(env, numeroDono(env), corpo, bts).catch(() => notificarDono(env, Date.now(), corpo));
+  }
+  if (lista.length > 3) await enviar(env, numeroDono(env), `Há mais ${lista.length - 3} gasto(s) esperando no app (Finanças → Mercado Pago).`).catch(() => {});
+  return;
   const txt = vai.length === 1
     ? `*Gasto no Mercado Pago com um nome que eu não conheço:* R$ ${reais(vai[0].valor)} para *${nome(vai[0])}* em ${dataBR(vai[0].data).slice(0, 5)}.\n\nCom o que foi esse gasto? Responda do seu jeito, ex.: _produtos de limpeza pro escritório_. Se não for gasto (transferência sua), diga _não é gasto_.`
     : `*Gastos no Mercado Pago com nomes que eu não conheço:*\n${vai.map((r, i) => `${i + 1}. R$ ${reais(r.valor)} para *${nome(r)}* em ${dataBR(r.data).slice(0, 5)}`).join('\n')}\n\nCom o que foi cada um? Responda do seu jeito, ex.: _1 foi produto de limpeza pro escritório, 2 foi frete da chapa_.${lista.length > 3 ? `\n\n_Há mais ${lista.length - 3} no app (Finanças → Mercado Pago)._` : ''}`;
@@ -22708,11 +22751,13 @@ async function confPerguntarProxima(env, para, res) {
     return;
   }
   const resta = res.perguntas.filter(x => !x.ok).length;
-  const sug = categoriaDe(q.nome || '');
+  let sug = categoriaDe(q.nome || ''); try { const cfgS = await pontoCfg(env); if (eqFuncPorNomeTexto(cfgS, q.nome || '')) sug = 'mao_obra'; } catch (_) {}
   const ordem = [...(sug !== 'outros' ? [sug] : []), ...Object.keys(CATS).filter(k => k !== sug)];
   const linhas = ordem.slice(0, 9).map(k => ({ id: `confc|${res.id}|${q.i}|${k}`, titulo: CATS[k], descricao: k === sug ? 'Sugerida pelo nome' : undefined }));
   linhas.push({ id: `confc|${res.id}|${q.i}|nao`, titulo: 'Não é gasto', descricao: 'Transferência minha, devolução etc.' });
-  await enviarLista(env, para, `❓ *Saída ${res.perguntas.length - resta + 1} de ${res.perguntas.length}:* R$ ${reais(q.valor)} — *${q.nome || q.tipo || 'sem nome'}*${q.tipo ? ` (${q.tipo})` : ''}, ${dataBR(q.data).slice(0, 5)}${q.hora ? ' às ' + q.hora : ''}.\n\nCom o que foi? Escolha a categoria.`, 'Escolher', linhas, true);
+  linhas.push({ id: `confc|${res.id}|${q.i}|nl`, titulo: 'Não lembro', descricao: 'Lanço como A identificar' }); // v236
+  const piC = await finPistas(env, { desc: q.nome || '', data: q.data, hora: q.hora, valor: q.valor }).catch(() => ({ linhas: [] }));
+  await enviarLista(env, para, `❓ *Saída ${res.perguntas.length - resta + 1} de ${res.perguntas.length}:* R$ ${reais(q.valor)} — *${q.nome || q.tipo || 'sem nome'}*${q.tipo ? ` (${q.tipo})` : ''}\n${piC.linhas.map(x => '• ' + x).join('\n')}\n\nCom o que foi? Escolha a categoria.`, 'Escolher', linhas, true);
 }
 async function confBotao(env, from, id) {
   const p = id.split('|');
@@ -22720,6 +22765,10 @@ async function confBotao(env, from, id) {
     const res = await confLerRes(env, p[1]); if (!res) { await enviar(env, from, 'Essa conferência expirou, Sr. Hangel.'); return; }
     const q = (res.perguntas || []).find(x => String(x.i) === p[2]); if (!q || q.ok) { await confPerguntarProxima(env, from, res); return; }
     q.ok = true; q.cat = p[3];
+    if (q.cat === 'nl') { // v236: não lembra → entra em Outros como "A identificar", sem aprender o nome
+      await confEnfileirar(env, { tipo: 'aplicar', ops: [{ op: 'add', type: 'out', value: q.valor, date: q.data, cat: 'outros', desc: `A identificar — ${String(q.nome || '').trim()} (Mercado Pago)`.slice(0, 90) }] });
+      q.cat = 'outros'; await confGravarRes(env, res); await confPerguntarProxima(env, from, res); return;
+    }
     if (q.cat !== 'nao' && CATS[q.cat]) {
       const nome = String(q.nome || '').trim();
       await confEnfileirar(env, { tipo: 'aplicar', ops: [{ op: 'add', type: 'out', value: q.valor, date: q.data, cat: q.cat, desc: `${CATS[q.cat]}${nome ? ' — ' + nome : ''} (Mercado Pago)`.slice(0, 90) }] });
