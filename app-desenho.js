@@ -342,11 +342,18 @@
   }
 
   // ── módulos prontos (como no Promob): escolhe e ajusta no desenho ──
-  function mod(t, f) { return function () { var p = novaPeca(t); f && f(p); return p; }; }
+  // na pia de cozinha da HR: tem cuba, tem rebaixo; tem rebaixo, tem cuba
+  function casarCubaRebaixo(p) {
+    if (!p || ambDe(p) !== 'cozinha' || !oblq(p) || p.tipo === 'prateleira') return p;
+    var tc = p.cuba && p.cuba.tipo && p.cuba.tipo !== 'nenhuma';
+    if (tc && !p.reb.on) { p.reb.on = true; p.reb.tipo = p.reb.tipo || 'americano'; }
+    else if (!tc && p.reb.on) { p.cuba.tipo = 'retangular'; p.cuba.inst = p.cuba.inst === 'sobrepor' ? 'embutida' : (p.cuba.inst || 'embutida'); p.cuba.w = 56; p.cuba.h = 34; }
+    return p;
+  }
+  function mod(t, f) { return function () { var p = novaPeca(t); f && f(p); return casarCubaRebaixo(p); }; }
   // módulos por ambiente, os mesmos ambientes do orçamento do app
   var GRUPOS = [['cozinha', '🍳 Cozinha'], ['banheiro', '🚿 Banheiro / Lavabo'], ['soleira', '🚪 Soleira / Peitoril'], ['escada', '🪜 Escada'], ['piscina', '🏊 Piscina / Box'], ['outro', '🧱 Outros']];
   var MODS = [
-    { g: 'cozinha', n: 'Pia com cuba', f: mod('bancada', function (p) { p.A = 180; }) },
     { g: 'cozinha', n: 'Pia com rebaixo americano', f: mod('bancada', function (p) { p.A = 200; p.reb.on = true; }) },
     { g: 'cozinha', n: 'Pia com rebaixo normal', f: mod('bancada', function (p) { p.A = 200; p.reb.on = true; p.reb.tipo = 'normal'; }) },
     { g: 'cozinha', n: 'Pia com cooktop', f: mod('bancada', function (p) { p.A = 240; p.cuba.x = 170; p.cook.on = true; p.cook.x = 55; }) },
@@ -664,6 +671,7 @@
       if (tp === 'L' && temFr !== 'nao') { if (pc.perna === 'esq') pc.frE = true; else pc.frD = true; }
       if (frLados === 'ambos') { pc.frE = pc.frD = true; } else if (frLados === 'esq') pc.frE = true; else if (frLados === 'dir') pc.frD = true;
       if (pc.reb.on && pc.cuba.tipo === 'nenhuma') pc.cuba.tipo = 'retangular';
+      casarCubaRebaixo(pc);
       if (obs.length) pc.obs = obs.join(', ');
       out.push(pc);
     });
@@ -730,7 +738,7 @@
       else c.tipo = 'nenhuma';
       if (!lav && it.rebaixo) { pc.reb.on = true; pc.reb.tipo = it.rebaixo; }
       pc.cook.on = !lav && !!it.cook;
-      out.push(pc);
+      out.push(casarCubaRebaixo(pc));
     });
     return out;
   }
@@ -1012,7 +1020,7 @@
     var r = o.reb || {}; if (r.on) { p.reb.on = true; p.reb.tipo = r.tipo === 'normal' ? 'normal' : 'americano'; if (n(r.c)) p.reb.c = n(r.c); if (n(r.l)) p.reb.l = n(r.l); if (n(r.x)) p.reb.x = n(r.x); }
     var k = o.cook || {}; if (k.on) { p.cook.on = true; if (n(k.w)) p.cook.w = n(k.w); if (n(k.h)) p.cook.h = n(k.h); if (n(k.x)) p.cook.x = n(k.x); }
     if (ambDe(p) !== 'cozinha') { p.reb.on = false; p.cook.on = false; }
-    return p;
+    return casarCubaRebaixo(p);
   }
   function telaIA() {
     var o = document.createElement('div'); o.id = 'hrDesIA';
@@ -1070,12 +1078,12 @@
       var md = e.target.closest('[data-mod]'); if (md) { d.pecas.push(MODS[+md.getAttribute('data-mod')].f()); st.sel = d.pecas.length - 1; desenharCv(); atualizarPainel(); var cvv = document.getElementById('desCv'); if (cvv && innerWidth < 900) cvv.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       var sp = e.target.closest('[data-selpc]'); if (sp) { st.sel = +sp.getAttribute('data-selpc'); desenharCv(); atualizarPainel(); return; }
       var dm = e.target.closest('[data-dim]'); if (dm) { tocarDim(dm.getAttribute('data-dim')); return; }
-      var co = e.target.closest('[data-cubaon]'); if (co) { var pcc = pcDe(co), cc = pcc.cuba = pcc.cuba || {}; if (cc.tipo && cc.tipo !== 'nenhuma') cc.tipo = 'nenhuma'; else { cc.inst = cc.inst || 'embutida'; cc.ref = cc.ref || 'esq'; if (pcc.tipo === 'lavatorio') { cc.tipo = 'redonda'; cc.w = 40; cc.h = 40; } else { cc.tipo = 'retangular'; cc.w = 56; cc.h = 34; } } desenharCv(); atualizarPainel(); return; }
+      var co = e.target.closest('[data-cubaon]'); if (co) { var pcc = pcDe(co), cc = pcc.cuba = pcc.cuba || {}; if (cc.tipo && cc.tipo !== 'nenhuma') cc.tipo = 'nenhuma'; else { cc.inst = cc.inst || 'embutida'; cc.ref = cc.ref || 'esq'; if (pcc.tipo === 'lavatorio') { cc.tipo = 'redonda'; cc.w = 40; cc.h = 40; } else { cc.tipo = 'retangular'; cc.w = 56; cc.h = 34; } } if (ambDe(pcc) === 'cozinha') { if (cc.tipo === 'nenhuma') pcc.reb.on = false; else casarCubaRebaixo(pcc); } desenharCv(); atualizarPainel(); return; }
       var pcs1 = e.target.closest('[data-pcsel]'); if (pcs1 && !e.target.closest('[data-acao]')) { var ni = +pcs1.getAttribute('data-pcsel'); if (ni !== st.sel) { st.sel = ni; desenharCv(); atualizarPainel(); } return; }
       if (ch) { var pc = pcDe(ch), k = ch.getAttribute('data-ch'), vv = ch.getAttribute('data-v'); if (k === 'vista') vv = +vv; setK(pc, k, vv);
-        if (k === 'amb') { if (vv === 'balcao') { pc.cuba.tipo = 'nenhuma'; pc.reb.on = false; pc.cook.on = false; if (!pc.nome) pc.nome = 'Balcão'; } else if (vv === 'banheiro') { pc.reb.on = false; pc.cook.on = false; if (pc.cuba.tipo === 'nenhuma') { pc.cuba.tipo = 'retangular'; } pc.cuba.w = 45; pc.cuba.h = 30; if (pc.cuba.inst === 'flush') pc.cuba.inst = 'embutida'; if (pc.nome === 'Balcão') pc.nome = ''; } else if (pc.nome === 'Balcão') pc.nome = ''; }
+        if (k === 'amb') { if (vv === 'balcao') { pc.cuba.tipo = 'nenhuma'; pc.reb.on = false; pc.cook.on = false; if (!pc.nome) pc.nome = 'Balcão'; } else if (vv === 'banheiro') { pc.reb.on = false; pc.cook.on = false; if (pc.cuba.tipo === 'nenhuma') { pc.cuba.tipo = 'retangular'; } pc.cuba.w = 45; pc.cuba.h = 30; if (pc.cuba.inst === 'flush') pc.cuba.inst = 'embutida'; if (pc.nome === 'Balcão') pc.nome = ''; } else { if (pc.nome === 'Balcão') pc.nome = ''; if (vv === 'cozinha') { if (pc.cuba.tipo === 'nenhuma') pc.cuba.tipo = 'retangular'; pc.cuba.w = 56; pc.cuba.h = 34; casarCubaRebaixo(pc); } } }
         if (k === 'pe') { if (vv === 'dir') pc.frD = false; if (vv === 'esq') pc.frE = false; } /* do lado do pé não tem frontão */ if (k === 'saia') { var sa0 = num(pc.saiaAlt); if (vv === '45' && (sa0 === 4 || !sa0)) pc.saiaAlt = 6; else if ((vv === 'reta' || vv === 'boleada') && (sa0 === 6 || !sa0)) pc.saiaAlt = pc.tipo === 'lavatorio' ? 10 : 4; } if (k === 'cuba.tipo') { var cb = pc.cuba; if (vv === 'redonda') { cb.w = pc.tipo === 'lavatorio' ? 40 : 45; cb.h = cb.w; } else if (vv === 'oval') { cb.w = 48; cb.h = 36; } else if (/esculp|rampada/.test(vv)) { cb.w = 50; cb.h = 35; } else if (vv === 'retangular') { cb.w = pc.tipo === 'lavatorio' ? 45 : 56; cb.h = pc.tipo === 'lavatorio' ? 30 : 34; } } desenharCv(); atualizarPainel(); return; }
-      if (tg) { var pc2 = pcDe(tg), k2 = tg.getAttribute('data-tg'); setK(pc2, k2, !getK(pc2, k2)); desenharCv(); atualizarPainel(); return; }
+      if (tg) { var pc2 = pcDe(tg), k2 = tg.getAttribute('data-tg'); setK(pc2, k2, !getK(pc2, k2)); if (k2 === 'reb.on' && ambDe(pc2) === 'cozinha') { if (!pc2.reb.on) pc2.cuba.tipo = 'nenhuma'; else casarCubaRebaixo(pc2); } desenharCv(); atualizarPainel(); return; }
       if (ad) { d.pecas.push(novaPeca(ad.getAttribute('data-addpc'))); st.aberta = d.pecas.length - 1; st.sel = st.aberta; desenharCv(); atualizarPainel(); var u = document.querySelector('[data-pc="' + st.aberta + '"]'); if (u) u.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       if (rm) { if (!confirm('Remover esta peça?')) return; d.pecas.splice(+rm.getAttribute('data-rmpc'), 1); st.aberta = -1; desenharCv(); atualizarPainel(); return; }
       if (dp) { var cp = JSON.parse(JSON.stringify(d.pecas[+dp.getAttribute('data-dup')])); cp.id = uid(); d.pecas.splice(+dp.getAttribute('data-dup') + 1, 0, cp); st.aberta = +dp.getAttribute('data-dup') + 1; desenharCv(); atualizarPainel(); return; }
