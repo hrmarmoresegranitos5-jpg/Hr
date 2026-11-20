@@ -214,9 +214,11 @@
       return g2 + '</g>' + poly(ret, ln);
     };
     if (r.t === 'reb') {
-      var id = CLP + (++nClip), deg = [S(r.x0, r.y0, z - 2.2), S(r.x1, r.y0, z - 2.2), S(r.x1, r.y1, z - 2.2), S(r.x0, r.y1, z - 2.2)];
-      h += '<clipPath id="' + id + '">' + poly(ret, '') + '</clipPath><g clip-path="url(#' + id + ')">' + poly(deg, ln) + '</g>';
-      h += poly(ret, 'fill="none" stroke="' + COR.tr + '" stroke-width="' + (sw * 1.45) + '" stroke-linejoin="round"');
+      // americano: recorte com os cantos arredondados e a borda polida (a frente da pedra continua inteira)
+      var arr2 = function (zz, rd) { var L2 = [], cs = [[r.x1 - rd, r.y0 + rd, -90], [r.x1 - rd, r.y1 - rd, 0], [r.x0 + rd, r.y1 - rd, 90], [r.x0 + rd, r.y0 + rd, 180]]; cs.forEach(function (c0) { for (var k = 0; k <= 4; k++) { var an = (c0[2] + k * 22.5) * Math.PI / 180; L2.push(S(c0[0] + rd * Math.cos(an), c0[1] + rd * Math.sin(an), zz)); } }); return L2; };
+      var rr2 = Math.min(6, (r.x1 - r.x0) / 4, (r.y1 - r.y0) / 4), retR = arr2(z, rr2), id = CLP + (++nClip), deg = arr2(z - 2.2, Math.max(1, rr2 - 1.5));
+      h += '<clipPath id="' + id + '">' + poly(retR, '') + '</clipPath><g clip-path="url(#' + id + ')">' + poly(deg, ln) + '</g>';
+      h += poly(retR, 'fill="none" stroke="' + COR.tr + '" stroke-width="' + (sw * 1.45) + '" stroke-linejoin="round"');
     } else if (r.t === 'cook') {
       h += poly(ret, ln);
       var bw = (r.x1 - r.x0), bh = (r.y1 - r.y0);
