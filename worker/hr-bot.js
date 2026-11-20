@@ -28726,6 +28726,20 @@ function pontoProximo(lista, curto) {
   if (curto && validas.length === 1) return 'saida';
   return PONTO_ORDEM[validas.length] || 'extra';
 }
+
+// v233: o tipo da batida pelo HORÁRIO, não só pela ordem — quem esquece uma batida não bagunça o dia todo
+// · 1ª batida do dia entre 12:15 e 14:45 → é a VOLTA DO ALMOÇO (esqueceu a manhã) · 2ª batida depois das 15:30 → é a SAÍDA (esqueceu o almoço)
+// · 3ª batida mais de 3 h depois da saída do almoço e depois das 15:30 → é a SAÍDA (esqueceu a volta)
+function pontoProximoHora(lista, curto, minAgora) {
+  const v = lista.filter(b => b.status !== 'recusada'), seq = pontoProximo(lista, curto), hm = h => { const m = /^(\d{1,2}):(\d{2})/.exec(h || ''); return m ? +m[1] * 60 + +m[2] : NaN; };
+  const ult = v.length ? v[v.length - 1].tipo : '';
+  if (ult === 'volta_almoco') return { tipo: 'saida', caso: '' }; // depois da volta do almoço vem a saída (mesmo sem a manhã)
+  if (curto || !isFinite(minAgora)) return { tipo: seq, caso: '' };
+  if (!v.length && minAgora >= 735 && minAgora <= 885) return { tipo: 'volta_almoco', caso: 'manha' };
+  if (v.length === 1 && v[0].tipo === 'entrada' && minAgora >= 930 && minAgora - hm(v[0].hora) >= 420) return { tipo: 'saida', caso: 'almoco' };
+  if (v.length === 2 && v[1].tipo === 'saida_almoco' && minAgora >= 930 && minAgora - hm(v[1].hora) >= 180) return { tipo: 'saida', caso: 'volta' };
+  return { tipo: seq, caso: '' };
+}
 function pontoPublico(b) { return { id: b.id, tipo: b.tipo, rotulo: PONTO_TIPOS[b.tipo] || b.tipo, hora: b.hora, horaOriginal: b.horaOriginal || '', status: b.status, externo: !!b.externo, ajuste: !!b.ajuste, motivo: b.motivo || '', dist: b.dist ?? null, rosto: b.rosto ?? null, rostoRot: pontoRostoRotulo(b.rosto ?? null), vivo: b.vivo ?? null }; }
 // ══════════════════════════════════════════════════════════════════════
 // v36 · ROSTO NO PONTO — cadastro com prova de vida (frente, aproximar, afastar, virar para os dois lados)
@@ -29012,6 +29026,8 @@ function relPontosConferir(pdf) { // dias que merecem um olhar do dono antes de 
   for (const d of (pdf && pdf.dias) || []) {
     const tem = x => x && x !== '—' && x !== '-', esp = +d.esp || 0, trab = +d.trab || 0, tipo = String(d.tipo || '');
     if (/abonado|feriado|acordo|folga/.test(tipo) && !trab) continue;
+    const mE = tem(d.e) ? +String(d.e).slice(0, 2) * 60 + +String(d.e).slice(3, 5) : NaN;
+    if (esp >= 420 && mE >= 735 && mE <= 885 && !tem(d.ai)) { out.push(`${dd(d.data)}: a 1ª batida foi ${d.e}, horário da volta do almoço. Parece que esqueceu a manhã (está contando falta de ${hm(Math.max(0, esp - trab))})`); continue; } // v233
     if (esp > 0 && !trab && !tem(d.e)) out.push(`${dd(d.data)}: sem ponto (conta como falta de ${hm(esp)})`);
     else if (tem(d.e) && !tem(d.s)) out.push(`${dd(d.data)}: entrou ${d.e} e não tem saída`);
     else if (esp >= 420 && trab > 0 && !tem(d.ai)) out.push(`${dd(d.data)}: sem batida do almoço`);
@@ -29234,6 +29250,14 @@ async function pontoCorrecaoTexto(env, cfg, f, from, texto, nome) {
     await env.HR_KV.delete('ponto:pergdias:' + f.id);
     await enviar(env, from, `Certo, ${nome}. Passei para o Sr. Hangel.${/atestado|doente/.test(n) ? ' Se tiver atestado, mande a foto aqui.' : ''}`);
     await pontoAvisarDono(env, `📋 *${f.nome}* disse sobre ${dias.dias.map(pontoDataBR).join(', ')}: "${texto.slice(0, 200)}". Se for falta, marque no *Pagar equipe* (✗ Faltou ou 🩺 Atestado).`).catch(() => {});
+    return true;
+  }
+  if (perg && perg.caso === 'manha' && /\b(so (vim|cheguei|entrei|trabalhei) (a|de|pela) tarde|nao (vim|trabalhei) (de|pela) manha|faltei (de|pela) manha|cheguei (agora|a tarde)|comecei (a|de) tarde)\b/.test(n)) { // v233
+    const l = await pontoDia(env, perg.data, f.id), b = l.find(x => x.id === perg.bid);
+    if (b) { b.tipo = 'entrada'; await env.HR_KV.put(`ponto:d:${perg.data}:${f.id}`, JSON.stringify(l), { expirationTtl: PONTO_TTL }); }
+    await env.HR_KV.delete('ponto:perg:' + f.id);
+    await enviar(env, from, `Certo, ${nome}. Hoje ficou: entrada às ${b ? b.hora : '?'} (só à tarde).`);
+    await pontoAvisarDono(env, `${f.nome} disse que só veio à tarde em ${pontoDataBR(perg.data)}: entrada às ${b ? b.hora : '?'}.`).catch(() => {});
     return true;
   }
   if (!/\d{1,2}\s*(:|h|hs|horas?)\s*\d{0,2}|\b\d{1,2}\s*(e meia|da manha|da tarde)\b/.test(n)) return false;
@@ -29960,7 +29984,7 @@ async function rotaPonto(req, env, ctx, url) {
       const relU = await pontoRelUltimo(env, dev.funcId), bn = relU && relU.status !== 'aprovado' ? await pontoBotNumero(env) : '';
       const pedidos = (await pontoPedidosLista(env)).filter(x => String(x.funcId) === String(dev.funcId)).slice(0, 8).map(pontoPedidoPublico);
       const saidas = (await saiLista(env, hoje, dev.funcId)).filter(x => !['cancelado'].includes(x.status)).map(saiPublico); // v131
-      return J({ ok: true, nome, hoje, saidas, proximo: pontoProximo(await pontoDia(env, hoje, dev.funcId), pontoDiaCurto(cfg, hoje)), externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, pedidos, jornada: { almoco: Math.max(30, +((cfg.lemb || {}).almoco) || 80) }, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
+      return J({ ok: true, nome, hoje, saidas, proximo: pontoProximoHora(await pontoDia(env, hoje, dev.funcId), pontoDiaCurto(cfg, hoje), agoraBahia().min).tipo, externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, pedidos, jornada: { almoco: Math.max(30, +((cfg.lemb || {}).almoco) || 80) }, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
     }
 
     if (p === '/ponto/bater') {
@@ -29982,7 +30006,8 @@ async function rotaPonto(req, env, ctx, url) {
       if (perto) return J({ erro: `Você já bateu às ${perto.hora}. Espere 2 minutos para bater de novo.`, descartar: off }, off ? 409 : 429);
       let tipo = String(b.tipo || '');
       const curtoB = pontoDiaCurto(cfg, diaB);
-      if (!PONTO_TIPOS[tipo]) tipo = pontoProximo(lista, curtoB);
+      let casoEsq = ''; // v233
+      { const seq = pontoProximo(lista, curtoB), ph = pontoProximoHora(lista, curtoB, Math.floor(((ts - Date.parse(diaB + 'T00:00:00-03:00')) / 60000))); if (!PONTO_TIPOS[tipo] || tipo === seq || tipo === ph.tipo) { tipo = ph.tipo; casoEsq = ph.caso; } }
       if (curtoB && tipo === 'saida_almoco' && lista.filter(x => x.status !== 'recusada').length === 1) tipo = 'saida'; // v221: meio período/sábado
       const ip = String(req.headers.get('cf-connecting-ip') || '');
       const ipK = pontoIpChave(ip);
@@ -30041,7 +30066,14 @@ async function rotaPonto(req, env, ctx, url) {
           novaRede ? [{ id: 'pr_ok|' + ipK, titulo: '✅ É a oficina' }, { id: 'pr_no|' + ipK, titulo: '❌ Não é' }]
             : [{ id: `pb_ok|${diaB}|${dev.funcId}|${id}`, titulo: '✅ Confirmar' }, { id: `pb_no|${diaB}|${dev.funcId}|${id}`, titulo: '❌ Recusar' }]);
       }
-      return J({ ok: true, tipo, rotulo: PONTO_TIPOS[tipo], hora: bat.hora, status, motivo, nome, proximo: pontoProximo(lista, curtoB) });
+      if (casoEsq) { // v233: pergunta na hora o que faltou
+        const fE = cfg.funcs.find(x => String(x.id) === String(dev.funcId)), pn = fE ? apelidoFunc(cfg, fE) : String(nome).split(' ')[0];
+        const falta = casoEsq === 'manha' ? 'a *entrada* e a *saída para o almoço* de hoje' : casoEsq === 'almoco' ? 'a *saída* e a *volta do almoço* de hoje' : 'a *volta do almoço* de hoje';
+        const como = casoEsq === 'manha' ? `Sua primeira batida hoje foi às ${bat.hora}, então anotei como *volta do almoço*.` : casoEsq === 'almoco' ? `Você bateu às ${bat.hora} e não tinha batido o almoço, então anotei como *saída*.` : `Você bateu às ${bat.hora} sem bater a volta do almoço, então anotei como *saída*.`;
+        await env.HR_KV.put('ponto:perg:' + dev.funcId, JSON.stringify({ data: diaB, batida: casoEsq === 'manha' ? 'entrada e saida_almoco' : casoEsq === 'almoco' ? 'saida_almoco e volta_almoco' : 'volta_almoco', caso: casoEsq, bid: id }), { expirationTtl: 2 * 86400 });
+        if (fE) await falarComFuncionario(env, fE, `${pn}, ${como} Faltou ${falta}. Me diga os horários (ex.: _cheguei 7h, saí pro almoço 12h_)${casoEsq === 'manha' ? ' ou, se só veio à tarde, escreva _só vim à tarde_' : ''}.`).catch(e => console.log('[PONTO] esqueceu:', e.message));
+      }
+      return J({ ok: true, tipo, rotulo: PONTO_TIPOS[tipo], hora: bat.hora, status, motivo, nome, proximo: pontoProximo(lista, curtoB), aviso: casoEsq ? 'Você esqueceu uma batida. Mandei uma mensagem no WhatsApp para corrigir.' : '' });
     }
     return J({ erro: 'Rota inválida.' }, 404);
   } catch (e) {
@@ -31157,7 +31189,7 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
       var tsCli=Date.now()+difHora;corpo.tsCli=tsCli;corpo.idCli=tsCli.toString(36)+Math.random().toString(36).slice(2,7);
       return api('/ponto/bater',Object.assign({token:TOKEN},corpo));
     }).then(function(j){
-      if(j.ok){bip(j.status!=='pendente');mostra(j.status==='pendente'?'pend':'',j.status==='pendente'?'⏳':'✓',j.rotulo+(j.status==='pendente'?' aguardando':' registrada'),j.hora,j.status==='pendente'?('O responsável vai confirmar: '+(j.motivo||'')):'Pode seguir. Bom trabalho, '+String(j.nome||'').split(' ')[0]+'!');tipoSel=''}
+      if(j.ok){bip(j.status!=='pendente');mostra(j.status==='pendente'?'pend':'',j.status==='pendente'?'⏳':'✓',j.rotulo+(j.status==='pendente'?' aguardando':' registrada'),j.hora,j.status==='pendente'?('O responsável vai confirmar: '+(j.motivo||'')):(j.aviso?j.aviso:'Pode seguir. Bom trabalho, '+String(j.nome||'').split(' ')[0]+'!'));tipoSel=''}
       else{bip(false);mostra('err','✕','Não registrou','',j.erro||'Tente de novo.');if(j.desativado){try{localStorage.removeItem('hrponto_token')}catch(e){}TOKEN='';telaAtivar()}if(j.precisaRosto){fecharOk();telaRosto()}}
     }).catch(function(e){
       if(corpo){ // não chegou ao servidor: guarda no celular e manda depois
