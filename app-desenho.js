@@ -93,9 +93,15 @@
       var rr = recortes(pc, { A: A, p: p, main: main }).filter(function (r) { return r.t === 'reb'; })[0];
       if (rr) {
         var pts = [], cp = function (k, x0, x1, z0, z1) { if (x1 - x0 > 0.5) pts.push({ k: k, g: 'slab', x0: x0, x1: x1, y0: main.y0, y1: main.y1, z0: z0, z1: z1 }); };
-        rebZ = -REB_DESCE;
-        cp('tE', main.x0, rr.x0, 0, T); cp('rebN', rr.x0, rr.x1, -REB_DESCE - T2(T), -REB_DESCE); cp('tD', rr.x1, main.x1, 0, T);
+        rebZ = T - REB_DESCE;
+        cp('tE', main.x0, rr.x0, 0, T); cp('rebN', rr.x0, rr.x1, -REB_DESCE, T - REB_DESCE); cp('tD', rr.x1, main.x1, 0, T);
         bx.splice.apply(bx, [0, 1].concat(pts));
+        var fF = bx.filter(function (b) { return b.k === 'frF'; })[0];
+        if (fF) { // frontão dividido na área molhada, com 2 cm a mais lá
+          var fp = [], cf = function (k, x0, x1, z0) { if (x1 - x0 > 0.5) fp.push({ k: k, g: 'fr', x0: x0, x1: x1, y0: fF.y0, y1: fF.y1, z0: z0, z1: fF.z1 }); };
+          cf('frF', fF.x0, rr.x0, fF.z0); cf('frM', rr.x0, rr.x1, fF.z0 - REB_DESCE); cf('frF', rr.x1, fF.x1, fF.z0);
+          bx.splice.apply(bx, [bx.indexOf(fF), 1].concat(fp));
+        }
       }
     }
     return { A: A, p: p, T: T, Ymax: Ymax, boxes: bx, main: main, yAt: yAt, rebZ: rebZ };
@@ -127,9 +133,10 @@
     }
     return L;
   }
-  // rebaixo normal: a bancada vira pedras separadas (tampo, pedra do rebaixo mais baixa, tampo); encostado numa lateral, 2 pedras
+  // rebaixo normal: quase igual ao americano, mas cortado até a sainha: tampo, pedra do rebaixo 2 cm mais baixa, tampo (2 pedras se encostar numa lateral);
+  // o frontão é dividido na área molhada e lá tem 2 cm a mais
   function rebNormal(pc) { return !!(pc.reb && pc.reb.on && pc.reb.tipo === 'normal' && oblq(pc) && pc.tipo !== 'prateleira'); }
-  var REB_DESCE = 3;
+  var REB_DESCE = 2;
   function avisos(pc) {
     if (!oblq(pc)) return [];
     var g = geo(pc), R = recortes(pc, g), m = g.main, out = [], nm = { reb: 'O rebaixo', cuba: 'A cuba', cook: 'O cooktop' };
@@ -345,7 +352,7 @@
       if (!oblq(pc)) return;
       var g = geo(pc), R = recortes(pc, g), pre = varias ? nomePeca(pc) + ': ' : '', n = [];
       var cb = R.filter(function (r) { return r.t === 'cuba'; })[0], rb = R.filter(function (r) { return r.t === 'reb'; })[0], ck = R.filter(function (r) { return r.t === 'cook'; })[0], c = pc.cuba || {};
-      if (rb && rb.n) { var np = 1 + (rb.x0 - g.main.x0 > 0.5 ? 1 : 0) + (g.main.x1 - rb.x1 > 0.5 ? 1 : 0); n.push('Rebaixo normal de ' + f1(rb.x1 - rb.x0) + ', início a ' + f1(rb.x0) + ' do canto esquerdo (' + np + ' pedras separadas)'); }
+      if (rb && rb.n) { var np = 1 + (rb.x0 - g.main.x0 > 0.5 ? 1 : 0) + (g.main.x1 - rb.x1 > 0.5 ? 1 : 0); n.push('Rebaixo normal de ' + f1(rb.x1 - rb.x0) + ', início a ' + f1(rb.x0) + ' do canto esquerdo, cortado até a sainha (' + np + ' pedras)'); if (num(pc.fr) > 0 && pc.frF) n.push('Frontão dividido na área molhada, lá com ' + f1(num(pc.fr) + REB_DESCE) + 'cm'); }
       else if (rb) n.push('Rebaixo americano ' + f1(rb.x1 - rb.x0) + 'x' + f1(rb.y1 - rb.y0) + ', início a ' + f1(rb.x0) + ' do canto esquerdo');
       if (cb) {
         var dsq = c.ref === 'dir' ? g.A - cb.cx : cb.cx, lado = c.ref === 'dir' ? 'direito' : 'esquerdo';
@@ -422,7 +429,7 @@
     var g = geo(pc), nm = nomePeca(pc);
     g.boxes.forEach(function (b) {
       if (b.g === 'slab') add(b.k === 'rebN' ? 'Pedra do rebaixo' : b.k === 'tE' ? 'Tampo à esquerda do rebaixo' : b.k === 'tD' ? 'Tampo à direita do rebaixo' : pc.tipo === 'L' ? (b.k === 'main' ? 'Bancada (parte maior)' : 'Bancada (perna do L)') : nm, 'bancada', b.x1 - b.x0, b.y1 - b.y0);
-      if (b.g === 'fr') add('Frontão', 'frontao', Math.max(b.x1 - b.x0, b.y1 - b.y0), num(pc.fr));
+      if (b.g === 'fr') add(b.k === 'frM' ? 'Frontão da área molhada' : 'Frontão', 'frontao', Math.max(b.x1 - b.x0, b.y1 - b.y0), b.z1 - b.z0);
       if (b.g === 'pe') add('Pé estrutural', 'outro', b.z1 - b.z0, b.y1 - b.y0);
     });
     if (temSaia(pc)) {
@@ -432,7 +439,7 @@
         add(nmS, 'saia', A2 - pB, sa); add(nmS, 'saia', pB, sa); add(nmS, 'saia', B - p, sa);
         if (dir ? !pc.frE : !pc.frD) add(nmS, 'saia', p, sa);
         if (dir ? !pc.frD : !pc.frE) add(nmS, 'saia', B, sa);
-      } else { add(nmS, 'saia', A2, sa); if (!pc.frE) add(nmS, 'saia', p, sa); if (!pc.frD) add(nmS, 'saia', p, sa); }
+      } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (rn0) [rn0.x0, rn0.x1 - rn0.x0, A2 - rn0.x1].forEach(function (w) { if (w > 0.5) add(nmS, 'saia', w, sa); }); else add(nmS, 'saia', A2, sa); if (!pc.frE) add(nmS, 'saia', p, sa); if (!pc.frD) add(nmS, 'saia', p, sa); }
     }
     if (pc.reb && pc.reb.on && !rebNormal(pc)) add('Tampo do rebaixo americano', 'tampo', num(pc.reb.c), num(pc.reb.l));
     return L;
@@ -709,9 +716,9 @@
   }
   function rebHtml(pc) {
     var rb = pc.reb || {}; if (!rb.on) return '';
-    var nrm = rb.tipo === 'normal', h = '<span class="des-l" style="margin-top:10px">Rebaixo</span>' + chips('reb.tipo', nrm ? 'normal' : 'americano', [['americano', 'Americano'], ['normal', 'Normal (pedras separadas)']]);
+    var nrm = rb.tipo === 'normal', h = '<span class="des-l" style="margin-top:10px">Rebaixo</span>' + chips('reb.tipo', nrm ? 'normal' : 'americano', [['americano', 'Americano'], ['normal', 'Normal (cortado até a sainha)']]);
     h += '<div class="des-g">' + campo('reb.c', 'Comprimento', rb.c, true) + (nrm ? '' : campo('reb.l', 'Largura', rb.l, true)) + campo('reb.x', 'Início a (do canto esq.)', rb.x, true, 'pela cuba') + '</div>';
-    return h + '<div class="des-dica">' + (nrm ? 'Normal: a bancada sai em 3 pedras (tampo, rebaixo mais baixo e tampo), ou 2 se o rebaixo encostar numa lateral.' : 'Americano: a pedra continua inteira e o rebaixo fica embutido nela.') + '</div>';
+    return h + '<div class="des-dica">' + (nrm ? 'Normal: igual ao americano, mas cortado até a sainha: 3 pedras (tampo, rebaixo 2 cm mais baixo e tampo), ou 2 se encostar numa lateral. O frontão divide na área molhada e lá tem 2 cm a mais.' : 'Americano: a pedra continua inteira e o rebaixo fica embutido nela.') + '</div>';
   }
   function painel() {
     var d = st.d, ps = d.pecas || [], h = '<div id="desCvSlot"></div>';
