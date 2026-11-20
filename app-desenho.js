@@ -180,7 +180,16 @@
   }
 
   // ── desenho de uma peça em perspectiva ──
-  var COR = { tr: '#4a4a52', vd: '#4d6b54', am: '#d9b23a', az: '#5bc0d6' };
+  var COR = { tr: '#4a4a52', vd: '#3f5e48', am: '#d9b23a', az: '#5bc0d6' };
+  function mixc(h, t, k) { var a = parseInt(h.slice(1), 16), b = parseInt(t.slice(1), 16), r = function (sh) { var x = (a >> sh) & 255, y = (b >> sh) & 255; return Math.round(x + (y - x) * k); }; return '#' + ((1 << 24) + (r(16) << 16) + (r(8) << 8) + r(0)).toString(16).slice(1); }
+  function tomDe(m) { // cor da pedra pelo nome do material
+    var t = String(m || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''), b = '#e4e1da';
+    if (/preto|gabriel|absoluto|via lactea|nero|black/.test(t)) b = '#3a3a3d'; else if (/verde|ubatuba/.test(t)) b = '#56685d'; else if (/cinza|andorinha|corumba|ocre/.test(t)) b = '#a5a6a8';
+    else if (/marrom|cafe|bahia|imperial|tabaco|castanho/.test(t)) b = '#7b6352'; else if (/amarelo|ornamental|cecilia|giallo|dourado|gold/.test(t)) b = '#d2bf95'; else if (/branco|marfim|carrara|dallas|itaunas|siena|polar|prime|white|nano/.test(t)) b = '#efeee9';
+    var esc = (parseInt(b.slice(1, 3), 16) + parseInt(b.slice(3, 5), 16) + parseInt(b.slice(5, 7), 16)) / 765 < 0.5;
+    return { top: mixc(b, '#ffffff', esc ? 0.12 : 0.35), front: mixc(b, '#000000', 0.12), side: mixc(b, '#000000', 0.24), line: esc ? '#111113' : '#3a3a3e', furo: esc ? '#cfd2d6' : '#d6d9dd', fundo: '#b9bdc3', reb: mixc(b, '#000000', esc ? 0.06 : 0.07), escura: esc };
+  }
+  var TOM = tomDe('');
   function poly(pts, extra) { return '<polygon points="' + pts.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' ') + '" ' + (extra || 'fill="#fff"') + '/>'; }
   function txt(x, y, t, fs, anc, cor, extra) { return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="' + fs + '" text-anchor="' + (anc || 'middle') + '" fill="' + (cor || COR.vd) + '"' + (extra || '') + '>' + esc(t) + '</text>'; }
   function dimTxt(x, y, t, fs, anc, key) { // número da medida; na tela vira um "botão" para tocar e mudar
@@ -190,12 +199,12 @@
   }
   function cota(a, b, n, d, t, fs, key, semIniExt, semFimExt) { // a,b: pontos na tela; n: direção para fora; d: afastamento
     if (MINI) return '';
-    var o1 = [a[0] + n[0] * d, a[1] + n[1] * d], o2 = [b[0] + n[0] * d, b[1] + n[1] * d], ln = 'stroke="' + COR.tr + '" stroke-width="1.3" fill="none"', h = '';
+    var o1 = [a[0] + n[0] * d, a[1] + n[1] * d], o2 = [b[0] + n[0] * d, b[1] + n[1] * d], ln = 'stroke="' + '#7a7a80' + '" stroke-width="1.3" fill="none"', h = '';
     var ext = function (p, o) { return '<line x1="' + (p[0] + n[0] * 2).toFixed(1) + '" y1="' + (p[1] + n[1] * 2).toFixed(1) + '" x2="' + (o[0] + n[0] * 8).toFixed(1) + '" y2="' + (o[1] + n[1] * 8).toFixed(1) + '" ' + ln + '/>'; };
     if (!semIniExt) h += ext(a, o1); if (!semFimExt) h += ext(b, o2);
     var vx = o2[0] - o1[0], vy = o2[1] - o1[1], L0 = Math.hypot(vx, vy) || 1, u = [vx / L0, vy / L0];
     h += '<line x1="' + (o1[0] - u[0] * 8).toFixed(1) + '" y1="' + (o1[1] - u[1] * 8).toFixed(1) + '" x2="' + (o2[0] + u[0] * 8).toFixed(1) + '" y2="' + (o2[1] + u[1] * 8).toFixed(1) + '" ' + ln + '/>';
-    var tick = function (o) { var k = 7, tx = (u[0] + n[0]) * k, ty = (u[1] + n[1]) * k; return '<line x1="' + (o[0] - tx).toFixed(1) + '" y1="' + (o[1] - ty).toFixed(1) + '" x2="' + (o[0] + tx).toFixed(1) + '" y2="' + (o[1] + ty).toFixed(1) + '" stroke="' + COR.tr + '" stroke-width="2.4"/>'; };
+    var tick = function (o) { var k = 7, tx = (u[0] + n[0]) * k, ty = (u[1] + n[1]) * k; return '<line x1="' + (o[0] - tx).toFixed(1) + '" y1="' + (o[1] - ty).toFixed(1) + '" x2="' + (o[0] + tx).toFixed(1) + '" y2="' + (o[1] + ty).toFixed(1) + '" stroke="' + '#55555b' + '" stroke-width="2.4"/>'; };
     h += tick(o1) + tick(o2);
     var ang = Math.atan2(u[1], u[0]) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
     var mx = (o1[0] + o2[0]) / 2 + n[0] * (fs * 0.35), my = (o1[1] + o2[1]) / 2 + n[1] * (fs * 0.35), up = Math.abs(ang) < 1 ? -1 : 0;
@@ -213,24 +222,24 @@
   }
   function ordenar(L, c) { var r = L.slice(); for (var i = 0; i < r.length; i++) for (var j = i + 1; j < r.length; j++) if (antes(r[j], r[i], c) && !antes(r[i], r[j], c)) { var t = r[i]; r[i] = r[j]; r[j] = t; } return r; }
   function caixa(b, P, c, s, ox, oy, sw) {
-    var S = function (x, y, z) { var q = P(x, y, z); return [ox + q[0] * s, oy + q[1] * s]; }, h = '', st = 'fill="#fff" stroke="' + COR.tr + '" stroke-width="' + sw + '" stroke-linejoin="round"';
+    var S = function (x, y, z) { var q = P(x, y, z); return [ox + q[0] * s, oy + q[1] * s]; }, h = '', st0 = ' stroke="' + TOM.line + '" stroke-width="' + sw + '" stroke-linejoin="round"', stS = 'fill="' + TOM.side + '"' + st0, stF = 'fill="' + TOM.front + '"' + st0, stT = 'fill="' + TOM.top + '"' + st0, st = stF;
     var xs = c > 0 ? b.x1 : b.x0, zs = b.zs != null && ((c > 0 && b.k === 'tE') || (c < 0 && b.k === 'tD')) ? b.zs : b.z0; // no degrau do rebaixo só aparece a parte de cima
     var ys = zs !== b.z0 && b.ys != null ? b.ys : b.y0;
-    if (!b.semLado) h += poly([S(xs, ys, zs), S(xs, b.y1, zs), S(xs, b.y1, b.z1), S(xs, ys, b.z1)], st);
-    h += poly([S(b.x0, b.y0, b.z0), S(b.x1, b.y0, b.z0), S(b.x1, b.y0, b.z1), S(b.x0, b.y0, b.z1)], st);
-    h += poly([S(b.x0, b.y0, b.z1), S(b.x1, b.y0, b.z1), S(b.x1, b.y1, b.z1), S(b.x0, b.y1, b.z1)], st);
+    if (!b.semLado) h += poly([S(xs, ys, zs), S(xs, b.y1, zs), S(xs, b.y1, b.z1), S(xs, ys, b.z1)], stS);
+    h += poly([S(b.x0, b.y0, b.z0), S(b.x1, b.y0, b.z0), S(b.x1, b.y0, b.z1), S(b.x0, b.y0, b.z1)], stF);
+    h += poly([S(b.x0, b.y0, b.z1), S(b.x1, b.y0, b.z1), S(b.x1, b.y1, b.z1), S(b.x0, b.y1, b.z1)], stT);
     return h;
   }
   var nClip = 0, CLP = 'hrc', INTER = false, MINI = false, nMini = 0;
   function recorteSvg(r, P, s, ox, oy, z, sw) {
-    var S = function (x, y, zz) { var q = P(x, y, zz == null ? z : zz); return [ox + q[0] * s, oy + q[1] * s]; }, h = '', ln = 'fill="none" stroke="' + COR.tr + '" stroke-width="' + sw + '" stroke-linejoin="round"';
+    var S = function (x, y, zz) { var q = P(x, y, zz == null ? z : zz); return [ox + q[0] * s, oy + q[1] * s]; }, h = '', ln = 'fill="none" stroke="' + TOM.line + '" stroke-width="' + sw + '" stroke-linejoin="round"';
     var ret = [S(r.x0, r.y0), S(r.x1, r.y0), S(r.x1, r.y1), S(r.x0, r.y1)];
     var circ = function (cx, cy, rx, ry, zz) { var pts = []; for (var i = 0; i < 48; i++) { var a = i / 48 * Math.PI * 2; pts.push(S(cx + rx * Math.cos(a), cy + ry * Math.sin(a), zz)); } return pts; };
     var bacia = function (dz, so) { // furo com fundo: parede de trás e lateral aparecem por dentro
       var id = CLP + (++nClip), x0 = r.x0, x1 = r.x1, y0 = r.y0, y1 = r.y1;
       if (so) { y0 = r.y1 - Math.max(5, (r.y1 - r.y0) * 0.22); x0 = r.x0 + (r.x1 - r.x0) * 0.08; x1 = r.x1 - (r.x1 - r.x0) * 0.08; }
-      var fundo = [S(x0, y0, z - dz), S(x1, y0, z - dz), S(x1, y1, z - dz), S(x0, y1, z - dz)], g2 = '<clipPath id="' + id + '">' + poly(ret, '') + '</clipPath><g clip-path="url(#' + id + ')">';
-      g2 += poly(fundo, ln);
+      var fundo = [S(x0, y0, z - dz), S(x1, y0, z - dz), S(x1, y1, z - dz), S(x0, y1, z - dz)], g2 = '<clipPath id="' + id + '">' + poly(ret, '') + '</clipPath>' + poly(ret, 'fill="' + (r.f === 'esculpida' || r.f === 'rampada' ? TOM.reb : TOM.furo) + '" stroke="none"') + '<g clip-path="url(#' + id + ')">';
+      g2 += poly(fundo, 'fill="' + (r.f === 'esculpida' || r.f === 'rampada' ? TOM.side : TOM.fundo) + '" stroke="' + TOM.line + '" stroke-width="' + sw + '" stroke-linejoin="round"');
       if (so) { g2 += '<line x1="' + ret[0][0] + '" y1="' + ret[0][1] + '" x2="' + fundo[0][0] + '" y2="' + fundo[0][1] + '" ' + ln + '/>' + '<line x1="' + ret[1][0] + '" y1="' + ret[1][1] + '" x2="' + fundo[1][0] + '" y2="' + fundo[1][1] + '" ' + ln + '/>'; }
       else [0, 1, 2, 3].forEach(function (i) { g2 += '<line x1="' + ret[i][0] + '" y1="' + ret[i][1] + '" x2="' + fundo[i][0] + '" y2="' + fundo[i][1] + '" ' + ln + '/>'; });
       return g2 + '</g>' + poly(ret, ln);
@@ -239,14 +248,14 @@
       // americano: recorte com os cantos arredondados e a borda polida (a frente da pedra continua inteira)
       var arr2 = function (zz, rd) { var L2 = [], cs = [[r.x1 - rd, r.y0 + rd, -90], [r.x1 - rd, r.y1 - rd, 0], [r.x0 + rd, r.y1 - rd, 90], [r.x0 + rd, r.y0 + rd, 180]]; cs.forEach(function (c0) { for (var k = 0; k <= 4; k++) { var an = (c0[2] + k * 22.5) * Math.PI / 180; L2.push(S(c0[0] + rd * Math.cos(an), c0[1] + rd * Math.sin(an), zz)); } }); return L2; };
       var rr2 = Math.min(6, (r.x1 - r.x0) / 4, (r.y1 - r.y0) / 4), retR = arr2(z, rr2), id = CLP + (++nClip), deg = arr2(z - 2.2, Math.max(1, rr2 - 1.5));
-      h += '<clipPath id="' + id + '">' + poly(retR, '') + '</clipPath><g clip-path="url(#' + id + ')">' + poly(deg, ln) + '</g>';
-      h += poly(retR, 'fill="none" stroke="' + COR.tr + '" stroke-width="' + (sw * 1.45) + '" stroke-linejoin="round"');
+      h += '<clipPath id="' + id + '">' + poly(retR, '') + '</clipPath>' + poly(retR, 'fill="' + TOM.reb + '" stroke="none"') + '<g clip-path="url(#' + id + ')">' + poly(deg, ln) + '</g>';
+      h += poly(retR, 'fill="none" stroke="' + TOM.line + '" stroke-width="' + (sw * 1.45) + '" stroke-linejoin="round"');
     } else if (r.t === 'cook') {
-      h += poly(ret, ln);
+      h += poly(ret, 'fill="#1d1e21" stroke="' + TOM.line + '" stroke-width="' + sw + '" stroke-linejoin="round"');
       var bw = (r.x1 - r.x0), bh = (r.y1 - r.y0);
-      [[0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]].forEach(function (k) { h += poly(circ(r.x0 + bw * k[0], r.y0 + bh * k[1], bw * 0.12, bw * 0.12), ln); });
+      [[0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]].forEach(function (k) { h += poly(circ(r.x0 + bw * k[0], r.y0 + bh * k[1], bw * 0.12, bw * 0.12), 'fill="none" stroke="#8d9097" stroke-width="' + (sw * 0.8) + '"'); });
     } else if (r.t === 'cuba' && r.apoio) { // lavatório com cuba de sobrepor: só o furo do ralo e o da torneira; a cuba fica em cima (tracejada)
-      var tr = 'fill="none" stroke="' + COR.tr + '" stroke-width="' + (sw * 0.6) + '" stroke-dasharray="7 6"';
+      var tr = 'fill="#ffffff" fill-opacity=".55" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.6) + '" stroke-dasharray="7 6"';
       if (r.f === 'redonda' || r.f === 'oval') h += poly(circ(r.cx, r.cy, (r.x1 - r.x0) / 2, (r.y1 - r.y0) / 2), tr);
       else h += poly([S(r.x0, r.y0), S(r.x1, r.y0), S(r.x1, r.y1), S(r.x0, r.y1)], tr);
       h += poly(circ(r.cx, r.cy, 2.5, 2.5), ln) + poly(circ(r.cx, r.yT, 2, 2), ln);
@@ -297,7 +306,7 @@
       var esq = sentido(pc) > 0, xl = esq ? 0 : g.A, frL = num(pc.fr) > 0 && (esq ? pc.frE : pc.frD) && pc.tipo !== 'prateleira' ? num(pc.fr) : 0, e1 = S(xl, 0, g.T + frL), e2 = S(xl, g.p, g.T + frL);
       h += cota(e1, e2, [esq ? -1 : 1, 0], 22, f1(g.p), fs2, it && idx + '|p');
     }
-    if ((pc.pe === 'dir' || pc.pe === 'esq') && !MINI) { var dirP = pc.pe === 'dir', xpz = dirP ? g.A : 0, ypz = dirP ? g.yAt.d : g.yAt.e, pa = Math.max(10, num(pc.peAlt, 90)); h += cota(S(xpz, ypz, g.T - pa), S(xpz, ypz, g.T), [dirP ? 1 : -1, 0], 30, f1(pa), fs2, it && idx + '|peAlt'); }
+    if ((pc.pe === 'dir' || pc.pe === 'esq') && !MINI) { var dirP = pc.pe === 'dir', xpz = dirP ? g.A : 0, ypz = dirP ? g.yAt.d : g.yAt.e, pa = Math.max(10, num(pc.peAlt, 90)); h += cota(S(xpz, ypz, g.T - pa), S(xpz, ypz, g.T), [dirP ? 1 : -1, 0], (dirP === sentido(pc) > 0 ? KC * g.p * s : 0) + 28, f1(pa), fs2, it && idx + '|peAlt'); }
     if (frH && !MINI) { var xf = sentido(pc) > 0 ? g.A : 0, h1 = S(xf, g.Ymax, g.T), h2 = S(xf, g.Ymax, zTop); h += cota(h1, h2, [sentido(pc) > 0 ? 1 : -1, 0], 26, f1(frH), 24, it && idx + '|fr'); }
     if (it) { // áreas de arrastar: cuba, rebaixo e cooktop
       R.forEach(function (r) {
@@ -312,14 +321,14 @@
     return h;
   }
   function frenteSvg(pc, s, x0, y0, idx) { // nicho e placas: vista de frente
-    var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', st = 'fill="#fff" stroke="' + COR.tr + '" stroke-width="' + sw + '"';
+    var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', st = 'fill="' + TOM.top + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"';
     if (pc.tipo === 'nicho') {
       var m = 8, pr = Math.max(4, num(pc.prof, 10)), X = x0 + m * s, Y = y0 + m * s, W = A * s, Hh = H * s, d = Math.min(pr * 0.45, A * 0.2) * s, b = Math.min(pr * 0.45, H * 0.2) * s;
       h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + ((A + 2 * m) * s) + '" height="' + ((H + 2 * m) * s) + '" ' + st + '/>';
       h += '<rect x="' + X + '" y="' + Y + '" width="' + W + '" height="' + Hh + '" ' + st + '/>';
-      h += '<line x1="' + (X + W - d) + '" y1="' + (Y) + '" x2="' + (X + W - d) + '" y2="' + (Y + Hh - b) + '" stroke="' + COR.tr + '" stroke-width="' + sw + '"/>';
-      h += '<line x1="' + (X) + '" y1="' + (Y + Hh - b) + '" x2="' + (X + W - d) + '" y2="' + (Y + Hh - b) + '" stroke="' + COR.tr + '" stroke-width="' + sw + '"/>';
-      h += '<line x1="' + (X + W - d) + '" y1="' + (Y + Hh - b) + '" x2="' + (X + W) + '" y2="' + (Y + Hh) + '" stroke="' + COR.tr + '" stroke-width="' + sw + '"/>';
+      h += '<line x1="' + (X + W - d) + '" y1="' + (Y) + '" x2="' + (X + W - d) + '" y2="' + (Y + Hh - b) + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"/>';
+      h += '<line x1="' + (X) + '" y1="' + (Y + Hh - b) + '" x2="' + (X + W - d) + '" y2="' + (Y + Hh - b) + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"/>';
+      h += '<line x1="' + (X + W - d) + '" y1="' + (Y + Hh - b) + '" x2="' + (X + W) + '" y2="' + (Y + Hh) + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"/>';
       h += dimTxt(X + 14, Y + Hh / 2 + 10, f1(H), 30, 'start', it && idx + '|H') + dimTxt(X + W / 2, Y + Hh - b - 14, f1(A), 30, 'middle', it && idx + '|A');
       h += dimTxt(X + W + m * s + 10, Y + Hh / 2 + 8, '↔ ' + f1(pr), 24, 'start', it && idx + '|prof');
       // quantidade vai na etiqueta embaixo
@@ -367,7 +376,7 @@
     { g: 'outro', n: 'Nicho', f: mod('nicho') }
   ];
   function miniSvg(pc) {
-    var cl = CLP; MINI = true; CLP = 'hrm' + (++nMini) + '_'; var h = '';
+    var cl = CLP; MINI = true; CLP = 'hrm' + (++nMini) + '_'; var h = ''; TOM = tomDe('');
     try {
       if (oblq(pc)) { var bb = bboxOb(pc), w = bb.x1 - bb.x0, hh = bb.y1 - bb.y0, pd = Math.max(w, hh) * 0.07; h = '<svg viewBox="' + (-pd).toFixed(1) + ' ' + (-pd).toFixed(1) + ' ' + (w + 2 * pd).toFixed(1) + ' ' + (hh + 2 * pd).toFixed(1) + '">' + pecaSvg(pc, 1, 0, 0, -1) + '</svg>'; }
       else { var A = num(pc.A), H = num(pc.H), fw = pc.tipo === 'nicho' ? A + 16 : A, fh = pc.tipo === 'nicho' ? H + 16 : H; h = '<svg viewBox="-6 -6 ' + (fw + 12) + ' ' + (fh + 12) + '">' + frenteSvg(pc, 1, 0, 0, -1) + '</svg>'; }
@@ -459,56 +468,56 @@
   }
   function rotuloPeca(pc) { return oblq(pc) ? (pc.tipo === 'L' ? f1(num(pc.A)) + ' + ' + f1(num(pc.B)) + ' × ' + f1(num(pc.p)) : f1(num(pc.A)) + ' × ' + f1(num(pc.p))) : f1(num(pc.A)) + ' × ' + f1(num(pc.H)); }
   function folhaSvg(d) {
-    nClip = 0;
-    var M = 34, W = FW - 2 * M, ESC = '#2b2b2e', CIN = '#8a8a8e', LIN = '#cfcfd2', h = '';
+    nClip = 0; TOM = tomDe(d.material);
+    var M = 30, W = FW - 2 * M, ESC = '#1f1d19', CIN = '#8b877e', LIN = '#e3e0d8', OURO = '#c9a84c', h = '';
     h += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '">';
-    h += '<rect width="' + FW + '" height="' + FH + '" fill="#fbfbfa"/>';
-    h += '<rect x="' + M + '" y="' + M + '" width="' + W + '" height="' + (FH - 2 * M) + '" fill="none" stroke="' + ESC + '" stroke-width="2.2"/>';
+    h += '<defs><filter id="sombra" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#000" flood-opacity=".16"/></filter><linearGradient id="faixa" x1="0" x2="1"><stop offset="0" stop-color="#1b1813"/><stop offset="1" stop-color="#2a251c"/></linearGradient></defs>';
+    h += '<rect width="' + FW + '" height="' + FH + '" fill="#ffffff"/>';
     var T = function (x, y, t, fs, anc, cor, ext) { return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" font-size="' + fs + '" text-anchor="' + (anc || 'start') + '" fill="' + (cor || ESC) + '"' + (ext || '') + '>' + esc(t) + '</text>'; };
-    var lbl = function (x, y, t, anc) { return T(x, y, String(t).toUpperCase(), 13, anc, CIN, ' letter-spacing="1.6" font-weight="600"'); };
-    var hl = function (y, x0, x1, cor, sw) { return '<line x1="' + (x0 == null ? M : x0) + '" y1="' + y + '" x2="' + (x1 == null ? M + W : x1) + '" y2="' + y + '" stroke="' + (cor || ESC) + '" stroke-width="' + (sw || 1.4) + '"/>'; };
-    var vl = function (x, y0, y1, cor) { return '<line x1="' + x + '" y1="' + y0 + '" x2="' + x + '" y2="' + y1 + '" stroke="' + (cor || LIN) + '" stroke-width="1.2"/>'; };
-    // cabeçalho: marca, título, nº e data
-    var HH = 118, y0 = M;
-    h += '<rect x="' + M + '" y="' + y0 + '" width="' + HH + '" height="' + HH + '" fill="' + COR.vd + '"/>';
-    h += T(M + HH / 2, y0 + HH / 2 + 20, 'HR', 54, 'middle', '#fff', ' font-weight="700" letter-spacing="2"');
-    h += T(M + HH + 28, y0 + 54, 'Mármores e Granitos', 38, 'start', ESC, ' font-weight="600"');
-    h += T(M + HH + 28, y0 + 90, 'Projeto 2D sob medida', 21, 'start', CIN);
+    var lbl = function (x, y, t, anc, cor) { return T(x, y, String(t).toUpperCase(), 12.5, anc, cor || CIN, ' letter-spacing="2" font-weight="700"'); };
+    var hl = function (y, x0, x1, cor, sw) { return '<line x1="' + (x0 == null ? M : x0) + '" y1="' + y + '" x2="' + (x1 == null ? M + W : x1) + '" y2="' + y + '" stroke="' + (cor || LIN) + '" stroke-width="' + (sw || 1.2) + '"/>'; };
+    // faixa escura com a marca (preto e dourado, como o app)
+    var HH = 128, y0 = M;
+    h += '<rect x="' + M + '" y="' + y0 + '" width="' + W + '" height="' + HH + '" rx="14" fill="url(#faixa)"/>';
+    h += '<rect x="' + (M + 26) + '" y="' + (y0 + 26) + '" width="76" height="76" rx="10" fill="none" stroke="' + OURO + '" stroke-width="2.5"/>' + T(M + 64, y0 + 78, 'HR', 38, 'middle', OURO, ' font-weight="800" letter-spacing="1"');
+    h += T(M + 126, y0 + 62, 'MÁRMORES E GRANITOS', 30, 'start', '#f4efe2', ' font-weight="700" letter-spacing="3"');
+    h += T(M + 126, y0 + 94, 'Projeto 2D sob medida', 19, 'start', OURO, ' letter-spacing="1"');
     var dt = new Date(d.em || Date.now()), dtx = ('0' + dt.getDate()).slice(-2) + '/' + ('0' + (dt.getMonth() + 1)).slice(-2) + '/' + dt.getFullYear(), nro = String(d.id || '').replace(/\D/g, '').slice(-5) || '—';
-    var xr = M + W - 210; h += vl(xr, y0, y0 + HH, ESC) + hl(y0 + HH / 2, xr, M + W, LIN, 1.2);
-    h += lbl(xr + 18, y0 + 24, 'Projeto nº') + T(xr + 18, y0 + 50, nro, 22, 'start', ESC, ' font-weight="600"');
-    h += lbl(xr + 18, y0 + HH / 2 + 24, 'Data') + T(xr + 18, y0 + HH / 2 + 50, dtx, 22, 'start', ESC, ' font-weight="600"');
-    y0 += HH; h += hl(y0, null, null, ESC, 2.2);
-    // dados do cliente
-    var desc = vazio(d.desc) ? descAuto(d) : d.desc, dl = quebra(desc, 86).slice(0, 2), xm = M + W * 0.58;
-    h += lbl(M + 18, y0 + 24, 'Cliente') + T(M + 18, y0 + 54, d.cliente || '—', 24, 'start', ESC, ' font-weight="600"');
-    h += vl(xm, y0, y0 + 70) + lbl(xm + 18, y0 + 24, 'Material') + T(xm + 18, y0 + 54, d.material || '—', 24, 'start', ESC, ' font-weight="600"');
-    y0 += 70; h += hl(y0, null, null, LIN, 1.2);
-    h += lbl(M + 18, y0 + 24, 'Descrição'); dl.forEach(function (l, i) { h += T(M + 18, y0 + 53 + i * 28, l, 22, 'start', ESC); });
-    y0 += 40 + dl.length * 28; h += hl(y0, null, null, ESC, 2.2);
-    // rodapé (carimbo)
-    var yf = FH - M - 40; h += hl(yf, null, null, ESC, 1.6);
-    h += T(M + 18, yf + 26, 'Medidas em centímetros · conferir no local antes do corte', 15, 'start', CIN);
-    h += T(M + W - 18, yf + 26, 'HR Mármores e Granitos', 15, 'end', CIN, ' font-weight="600"');
-    // observações (numeradas pela peça)
+    var xr = M + W - 26; h += lbl(xr, y0 + 44, 'Projeto nº', 'end', '#a39a86') + T(xr, y0 + 68, nro, 20, 'end', '#f4efe2', ' font-weight="700"') + lbl(xr, y0 + 94, 'Data', 'end', '#a39a86') + T(xr, y0 + 116, dtx, 18, 'end', '#f4efe2', ' font-weight="600"');
+    y0 += HH + 22;
+    // cliente, material e descrição em cartões claros
+    var desc = vazio(d.desc) ? descAuto(d) : d.desc, dl = quebra(desc, 92).slice(0, 2), cw = (W - 14) / 2, cartao = function (x, y, w, hh) { return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + hh + '" rx="10" fill="#f7f5f0" stroke="' + LIN + '"/>'; };
+    h += cartao(M, y0, cw, 70) + lbl(M + 18, y0 + 26, 'Cliente') + T(M + 18, y0 + 54, d.cliente || '—', 23, 'start', ESC, ' font-weight="700"');
+    h += cartao(M + cw + 14, y0, cw, 70) + lbl(M + cw + 32, y0 + 26, 'Material') + T(M + cw + 32, y0 + 54, d.material || '—', 23, 'start', ESC, ' font-weight="700"');
+    y0 += 82; var dh = 40 + dl.length * 27;
+    h += cartao(M, y0, W, dh) + lbl(M + 18, y0 + 26, 'Descrição'); dl.forEach(function (l, i) { h += T(M + 18, y0 + 52 + i * 27, l, 20, 'start', ESC); });
+    y0 += dh + 10;
+    // rodapé
+    var yf = FH - M - 30; h += hl(yf, null, null, LIN, 1.2);
+    h += T(M, yf + 22, 'Medidas em centímetros · conferir no local antes do corte', 14, 'start', CIN);
+    h += T(M + W, yf + 22, 'HR Mármores e Granitos', 14, 'end', OURO, ' font-weight="700" letter-spacing="1"');
+    // observações
     var NP = notasPorPeca(d).filter(function (o) { return o.itens.length; }), gerais = vazio(d.obs) ? [] : String(d.obs).split(/\n+/).filter(function (x) { return x.trim(); });
-    var linhas = [], varias = (d.pecas || []).length > 1, fsn = 19, lhn = 25, maxc = 96;
-    NP.forEach(function (o) { var tx = (varias ? o.n + '. ' + o.nome + ' — ' : '') + o.itens.join('; ') + '.'; quebra(tx, maxc).forEach(function (l, k) { linhas.push({ t: l, sub: k > 0 && varias }); }); });
-    gerais.forEach(function (g) { quebra('• ' + g.trim(), maxc).forEach(function (l) { linhas.push({ t: l }); }); });
-    linhas = linhas.slice(0, 10);
-    var notH = linhas.length ? 44 + linhas.length * lhn + 10 : 0, yn = yf - notH;
+    var varias = (d.pecas || []).length > 1, blocos = [];
+    NP.forEach(function (o) { blocos.push({ n: varias ? String(o.n) : '•', tit: varias ? o.nome : '', ls: quebra(o.itens.join(' · '), 88) }); });
+    gerais.forEach(function (g) { blocos.push({ n: '•', tit: '', ls: quebra(g.trim(), 88) }); });
+    var nl = 0, lhn = 24, bl2 = []; blocos.forEach(function (b) { if (nl >= 10) return; var ls = b.ls.slice(0, 10 - nl); nl += ls.length; bl2.push({ n: b.n, tit: b.tit, ls: ls }); });
+    var notH = bl2.length ? 46 + nl * lhn + 14 : 0, yn = yf - 14 - notH;
     if (notH) {
-      h += hl(yn, null, null, ESC, 1.6) + lbl(M + 18, yn + 26, 'Observações');
-      linhas.forEach(function (l, i) { h += T(M + 18 + (l.sub ? 22 : 0), yn + 54 + i * lhn, l.t, fsn, 'start', ESC); });
+      h += cartao(M, yn, W, notH) + lbl(M + 18, yn + 28, 'Observações');
+      var yy = yn + 56; bl2.forEach(function (b) { h += '<circle cx="' + (M + 30) + '" cy="' + (yy - 6) + '" r="11" fill="' + (b.n === '•' ? OURO : ESC) + '"/>' + T(M + 30, yy - 1.5, b.n === '•' ? '' : b.n, 13, 'middle', '#fff', ' font-weight="700"');
+        b.ls.forEach(function (l, k) { h += T(M + 52, yy, (k === 0 && b.tit ? b.tit + ' — ' : '') + l, 18.5, 'start', ESC); yy += lhn; }); });
     }
     // desenho
     var ps = (d.pecas || []).filter(function (pc) { return pc; });
     if (ps.length) {
-      var ay = y0 + 18, aH = (notH ? yn : yf) - ay - 14, Lay = layout(ps, M + 16, ay, W - 32, aH);
+      var ay = y0 + 14, aH = (notH ? yn - 10 : yf - 14) - ay, Lay = layout(ps, M + 10, ay, W - 20, aH);
       ps.forEach(function (pc, i) {
-        var o = Lay[i], b = bboxPeca(pc); h += oblq(pc) ? pecaSvg(pc, o.s, o.x, o.y, i) : frenteSvg(pc, o.s, o.x, o.y, i);
-        if (!MINI) { var cx = o.x + b.w * o.s / 2, ty = o.y + b.h * o.s + b.mB - 10, tt = (varias ? i + 1 + '. ' : '') + nomePeca(pc) + (num(pc.qtd) > 1 ? ' (' + num(pc.qtd) + ' un.)' : ''), tw = tt.length * 11.5 + 24;
-          h += '<rect x="' + (cx - tw / 2).toFixed(1) + '" y="' + (ty - 22).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="30" rx="15" fill="#fff" stroke="' + LIN + '" stroke-width="1.2"/>' + T(cx, ty - 1, tt, 18, 'middle', ESC, ' font-weight="600"'); }
+        var o = Lay[i], b = bboxPeca(pc); h += '<g filter="url(#sombra)">' + (oblq(pc) ? pecaSvg(pc, o.s, o.x, o.y, i) : frenteSvg(pc, o.s, o.x, o.y, i)) + '</g>';
+        if (!MINI) { var cx = o.x + b.w * o.s / 2, ty = o.y + b.h * o.s + b.mB - 12, tt = nomePeca(pc) + (num(pc.qtd) > 1 ? '  ×' + num(pc.qtd) : ''), tw = tt.length * 10.5 + (varias ? 56 : 30);
+          h += '<rect x="' + (cx - tw / 2).toFixed(1) + '" y="' + (ty - 21).toFixed(1) + '" width="' + tw.toFixed(1) + '" height="30" rx="15" fill="' + ESC + '"/>';
+          if (varias) h += '<circle cx="' + (cx - tw / 2 + 15).toFixed(1) + '" cy="' + (ty - 6).toFixed(1) + '" r="10" fill="' + OURO + '"/>' + T(cx - tw / 2 + 15, ty - 1.5, String(i + 1), 13, 'middle', ESC, ' font-weight="800"');
+          h += T(cx + (varias ? 12 : 0), ty, tt, 16.5, 'middle', '#f4efe2', ' font-weight="700" letter-spacing=".5"'); }
       });
     } else h += T(FW / 2, (y0 + yf) / 2, 'Escolha um módulo para começar', 24, 'middle', CIN);
     return h + '</svg>';
@@ -942,7 +951,7 @@
   function desenharCv() {
     var cv = document.getElementById('desCv'); if (!cv) return; var tp = document.getElementById('desTip'), tt = tp && tp.style.display === 'block' ? tp.textContent : '';
     INTER = true; st.lay = {}; var sv; try { sv = folhaSvg(st.d); } finally { INTER = false; }
-    cv.innerHTML = sv + '<button type="button" class="lupa" data-acao="zoom">🔍 Ampliar</button><div class="des-tip" id="desTip"' + (tt ? ' style="display:block"' : '') + '>' + esc(tt) + '</div>';
+    cv.innerHTML = sv + '<button type="button" class="lupa" data-acao="zoom" aria-label="Ampliar">🔍</button><div class="des-tip" id="desTip"' + (tt ? ' style="display:block"' : '') + '>' + esc(tt) + '</div>';
     ligarDesenho(cv);
   }
   function atualizarPainel() {
