@@ -6877,7 +6877,7 @@ async function pedirAvaliacoes(env) {
       const from = k.name.slice(3);
       let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
       if (!c || !c.ultimaEm || !Array.isArray(c.hist)) continue;
-      { if (!globalThis.__eqCfgR || Date.now() - globalThis.__eqCfgR.em > 60000) globalThis.__eqCfgR = { em: Date.now(), cfg: await pontoCfg(env).catch(() => ({ funcs: [] })) }; if (pontoFuncPorFone(globalThis.__eqCfgR.cfg, from)) { await env.HR_KV.delete(k.name).catch(() => {}); continue; } } // v214: funcionário não é cliente
+      { if (!globalThis.__eqCfgR || Date.now() - globalThis.__eqCfgR.em > 60000) globalThis.__eqCfgR = { em: Date.now(), cfg: await pontoCfg(env).catch(() => ({ funcs: [] })) }; if (pontoFuncPorFone(globalThis.__eqCfgR.cfg, from) || await eqAprenderNumero(env, from, c.nome).catch(() => null)) { await env.HR_KV.delete(k.name).catch(() => {}); continue; } } // v214: funcionário não é cliente
       if (c.hist.filter(h => h.role === 'user').length < 2) continue;                 // conversa de verdade, não só um "oi"
       const ociosoC = agora - c.ultimaEm;
       if (!c.resumoDono && !c.concluido && ociosoC >= AVAL_OCIOSO_MS && ociosoC <= 3 * 86400000 && !ehDono(env, from) && !(await env.HR_KV.get('humano:' + from)) && !(await pedidoIdDoCliente(env, from))
@@ -19239,7 +19239,7 @@ async function tratarMensagemBase(env, m, ctx) {
   }
   if (dono && m.type === 'contacts') { if (await eqContatoDono(env, from, m).catch(e => { console.log('[EQ] contato:', e.message); return false; })) return; await commsTratarDono(env, from, 'cartão de contato', m); return; } // v155
   if (!dono) { // v214: número da equipe NUNCA cai no atendimento de cliente (Hugo e Gibson recebiam "qual pedra você deseja?" e "nome completo")
-    const cfgEq = await pontoCfg(env).catch(() => null), fEq = cfgEq && pontoFuncPorFone(cfgEq, from);
+    const cfgEq = await pontoCfg(env).catch(() => null), fEq = (cfgEq && pontoFuncPorFone(cfgEq, from)) || await eqAprenderNumero(env, from, m._perfil).catch(() => null);
     if (fEq) {
       ctx.cliente = false; await env.HR_KV.delete('ca:' + from).catch(() => {}); // v214: some o atendimento de cliente que abriu por engano
       if (m.type === 'video' || m.type === 'document') { const cap = String((m[m.type] && m[m.type].caption) || '').trim(); if (cap) { m._texto = cap; m._midia = m.type; } }
@@ -28651,6 +28651,8 @@ async function pontoCfg(env) {
   const r = Object.assign({ funcs: [], ips: [], lat: null, lng: null, raio: 150, aviso: '18:00', avisoEnviado: '', feriados: [] }, c || {});
   r.lemb = Object.assign({ ligado: true, entrada: '07:15', saida: '17:45', sabado: '12:15', almoco: 80 }, r.lemb || {}); // v35
   if (typeof r.facial !== 'boolean') r.facial = true; // v36: exige rosto cadastrado e conferido em toda batida
+  let t2 = {}; try { t2 = JSON.parse((await env.HR_KV.get('eq:tels2')) || '{}') || {}; } catch (_) {}
+  Object.defineProperty(r, '_tel2', { value: t2, enumerable: false }); // v218: outro número do funcionário (ex.: o do Gibson de entrega), aprendido sozinho
   return r;
 }
 async function pontoCfgSalvar(env, c) { await env.HR_KV.put('ponto:cfg', JSON.stringify(c)); }
@@ -28728,7 +28730,23 @@ function pontoRostoRotulo(d) { return d == null ? '' : d <= 0.52 ? 'confere' : d
 // KV: ponto:rel:<funcId>:<df> · ponto:relenv:<df> · rh:hist:<funcId>
 // ══════════════════════════════════════════════════════════════════════
 const hmPonto = m => m == null ? '—' : Math.floor(Math.round(m) / 60) + ':' + String(Math.round(m) % 60).padStart(2, '0');
-function pontoFuncPorFone(cfg, fone) { const u = ultimos8(fone); return u.length === 8 ? cfg.funcs.find(f => f.tel && ultimos8(f.tel) === u) || null : null; }
+function pontoFuncPorFone(cfg, fone) { const u = ultimos8(fone); if (u.length !== 8) return null; return cfg.funcs.find(f => f.tel && ultimos8(f.tel) === u) || (cfg._tel2 && cfg._tel2[u] != null ? cfg.funcs.find(f => String(f.id) === String(cfg._tel2[u])) : null) || null; }
+// v218: número da equipe que não está na ficha do ponto (o Gibson escreve do número de entrega). Reconhece pelo número de
+// fábrica/entrega configurado + nome do perfil/contato, ou por nome do perfil igual ao de um funcionário que já recebeu tarefa por esse número.
+async function eqAprenderNumero(env, from, perfil) {
+  const cfg = await pontoCfg(env); if (pontoFuncPorFone(cfg, from)) return pontoFuncPorFone(cfg, from);
+  const u = ultimos8(from), n = await lerNumeros(env).catch(() => ({}));
+  const ehNumEquipe = [n.fabrica, n.entrega, env.FABRICA_NUMERO, env.ENTREGA_NUMERO].some(x => x && ultimos8(String(x)) === u);
+  if (!ehNumEquipe) return null;
+  const nomes = [perfil, await nomeParaDono(env, from).catch(() => '')].map(x => normaliza(String(x || ''))).filter(Boolean);
+  let f = cfg.funcs.find(x => nomes.some(nm => nm.split(' ')[0] === normaliza(String(x.nome)).split(' ')[0] || nm.split(' ')[0] === normaliza(apelidoFunc(cfg, x))));
+  if (!f) { const fx = await funcoesEquipe(env).catch(() => null); const papel = n.entrega && ultimos8(n.entrega) === u ? ['instalacao', 'entrega'] : ['corte', 'fabricacao']; const c = cfg.funcs.filter(x => ((fx && fx.map[x.id]) || []).some(r => papel.includes(r))); if (c.length === 1) f = c[0]; }
+  if (!f) return null;
+  const t2 = Object.assign({}, cfg._tel2 || {}); t2[u] = String(f.id); await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
+  await env.HR_KV.delete('ca:' + from).catch(() => {});
+  await pontoAvisarDono(env, `ℹ️ Reconheci o número final ${u.slice(-4)} como sendo do *${apelidoFunc(cfg, f)}* (equipe). Daqui pra frente ele não é tratado como cliente.`).catch(() => {});
+  return f;
+}
 async function pontoRelUltimo(env, funcId) { try { return JSON.parse((await env.HR_KV.get('ponto:relult:' + funcId)) || 'null'); } catch (_) { return null; } }
 async function pontoRelSalvar(env, rel) {
   await env.HR_KV.put(`ponto:rel:${rel.funcId}:${rel.df}`, JSON.stringify(rel), { expirationTtl: 120 * 86400 });
