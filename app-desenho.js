@@ -109,6 +109,8 @@
         }
       }
     }
+    var ex = num(pc.emX);
+    if (ex > 0) { var nb = []; bx.forEach(function (b) { if (b.g === 'slab' && b.k !== 'perna' && b.k !== 'rebF' && ex > b.x0 + 1 && ex < b.x1 - 1) { var a = JSON.parse(JSON.stringify(b)), c2 = JSON.parse(JSON.stringify(b)); a.x1 = ex; c2.x0 = ex; a.em = 1; c2.em = 2; nb.push(a, c2); } else nb.push(b); }); bx = nb; }
     return { A: A, p: p, T: T, Ymax: Ymax, boxes: bx, main: main, yAt: yAt, rebZ: rebZ };
   }
   // posições dos recortes no tampo principal
@@ -132,6 +134,8 @@
       var cy = !vazio(c.fy) ? m.y0 + num(c.fy) : rebR ? (rebR.y0 + rebR.y1) / 2 : (m.y0 + m.y1) / 2;
       L.push({ t: 'cuba', f: c.tipo, inst: c.inst, x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2, cx: cx, cy: cy, apoio: c.inst === 'sobrepor' && pc.tipo === 'lavatorio' && !/esculp|rampada/.test(c.tipo), yT: Math.min(cy + h / 2 + 6, m.y1 - 5) });
     }
+    var cbF = L.filter(function (r) { return r.t === 'cuba'; })[0], nT = torneiras(pc);
+    if (cbF && nT > 0) { var yt = Math.min(cbF.y1 + 6, m.y1 - 4); for (var ti = 0; ti < nT; ti++) { var xt = cbF.cx + (ti - (nT - 1) / 2) * 12; L.push({ t: 'furo', x0: xt - 1.8, x1: xt + 1.8, y0: yt - 1.8, y1: yt + 1.8, cx: xt, cy: yt }); } }
     if (ck.on && pc.tipo !== 'prateleira') {
       var kw = Math.max(10, num(ck.w, 56)), kh = Math.max(10, num(ck.h, 49)), kx = !vazio(ck.x) ? num(ck.x) : m.x0 + 20 + kw / 2;
       L.push({ t: 'cook', x0: kx - kw / 2, x1: kx + kw / 2, y0: (m.y0 + m.y1) / 2 - kh / 2, y1: (m.y0 + m.y1) / 2 + kh / 2, cx: kx });
@@ -142,11 +146,53 @@
   // o frontão é dividido na área molhada e lá tem 2 cm a mais
   function rebNormal(pc) { return !!(pc.reb && pc.reb.on && pc.reb.tipo === 'normal' && oblq(pc) && pc.tipo !== 'prateleira' && ambDe(pc) === 'cozinha'); }
   var REB_DESCE = 2;
+  function torneiras(pc) { if (pc.torn != null && pc.torn !== '') return Math.max(0, Math.min(3, Math.round(num(pc.torn)))); var c = pc.cuba || {}; return c.tipo && c.tipo !== 'nenhuma' && oblq(pc) && pc.tipo !== 'prateleira' && ambDe(pc) !== 'balcao' ? 1 : 0; }
+  function ladoSaia(pc, l) { var v = pc['b' + l]; if (v != null) return !!v; if (l === 'F') return true; return !(l === 'E' ? pc.frE : pc.frD); } // sainha em cada lado (auto: onde não tem frontão)
+  function chapa() { try { var c = JSON.parse(localStorage.getItem('hr_chapa') || 'null'); if (c && c.c > 50 && c.l > 30) return c; } catch (e) {} return { c: 290, l: 180 }; }
+  function resumo(d) {
+    var r = { m2: 0, saia: 0, fr: 0, pecas: 0 };
+    (d.pecas || []).forEach(function (pc) { corte(pc).forEach(function (x) { r.m2 += x.c * x.l * x.qtd / 10000; r.pecas += x.qtd; if (x.tipo === 'saia') r.saia += x.c * x.qtd / 100; if (x.tipo === 'frontao') r.fr += x.c * x.qtd / 100; }); });
+    return r;
+  }
+  function planoCorte(d) { // encaixe simples em prateleiras, girando a peça se precisar (0,5 cm de serra)
+    var ch = chapa(), K = 0.5, its = [], grandes = [], chs = [];
+    (d.pecas || []).forEach(function (pc) { corte(pc).forEach(function (x) { for (var i = 0; i < x.qtd; i++) its.push({ nome: x.nome, c: x.c, l: x.l, tipo: x.tipo }); }); });
+    its.sort(function (a, b) { return b.l - a.l || b.c - a.c; });
+    its.forEach(function (it) {
+      var ori = [[it.c, it.l], [it.l, it.c]].filter(function (o) { return o[0] <= ch.c && o[1] <= ch.l; });
+      if (!ori.length) { grandes.push(it); return; }
+      var ok = false;
+      for (var k = 0; k < chs.length && !ok; k++) { var C = chs[k];
+        for (var si = 0; si < C.sh.length && !ok; si++) { var S0 = C.sh[si]; ori.forEach(function (o) { if (ok) return; if (o[1] <= S0.h && S0.x + o[0] <= ch.c) { C.p.push({ x: S0.x, y: S0.y, w: o[0], h: o[1], it: it }); S0.x += o[0] + K; ok = true; } }); }
+        if (!ok) ori.forEach(function (o) { if (ok) return; if (C.y + o[1] <= ch.l) { var ns = { y: C.y, h: o[1], x: o[0] + K }; C.sh.push(ns); C.p.push({ x: 0, y: C.y, w: o[0], h: o[1], it: it }); C.y += o[1] + K; ok = true; } });
+      }
+      if (!ok) { var o = ori[0], C2 = { sh: [{ y: 0, h: o[1], x: o[0] + K }], p: [{ x: 0, y: 0, w: o[0], h: o[1], it: it }], y: o[1] + K }; chs.push(C2); }
+    });
+    chs.forEach(function (C) { C.uso = C.p.reduce(function (t, q) { return t + q.w * q.h; }, 0) / (ch.c * ch.l); });
+    return { ch: ch, chapas: chs, grandes: grandes };
+  }
+  function telaPlano() {
+    var d = st.d, pl = planoCorte(d), ch = pl.ch, rs = resumo(d), o = document.createElement('div'); o.id = 'hrDesPl';
+    var cores = { bancada: '#e9dfc7', frontao: '#cfe0d4', saia: '#dcd6ec', tampo: '#f1d0c4', outro: '#d6e4ee' };
+    var h = '<div class="ia-top"><button class="des-ic" data-pl="sair">✕</button><div style="flex:1"><b>🪚 Plano de corte nas chapas</b><div class="des-sub">' + pl.chapas.length + (pl.chapas.length === 1 ? ' chapa' : ' chapas') + ' de ' + ch.c + '×' + ch.l + ' · ' + f1(Math.round(rs.m2 * 100) / 100) + ' m² de pedra</div></div></div><div style="flex:1;overflow:auto;padding:12px">';
+    h += '<div class="des-sec"><div class="des-g2" style="margin-top:0"><div><span class="des-l">Chapa: comprimento</span><input class="des-i" id="plC" inputmode="decimal" value="' + ch.c + '"></div><div><span class="des-l">Chapa: largura</span><input class="des-i" id="plL" inputmode="decimal" value="' + ch.l + '"></div></div><button class="des-bt des-bt2" data-pl="recalc">Recalcular</button></div>';
+    if (pl.grandes.length) h += '<div class="des-av">⚠️ Não cabe numa chapa: ' + pl.grandes.map(function (g) { return esc(g.nome) + ' ' + f1(g.c) + '×' + f1(g.l); }).join(', ') + '. Coloque uma emenda na peça.</div>';
+    pl.chapas.forEach(function (C, i) {
+      var k = 330 / ch.c, sv = '<svg viewBox="0 0 ' + (ch.c * k + 2) + ' ' + (ch.l * k + 2) + '" style="width:100%;height:auto;display:block"><rect x="1" y="1" width="' + ch.c * k + '" height="' + ch.l * k + '" fill="#3a352c" rx="3"/>';
+      C.p.forEach(function (q) { sv += '<rect x="' + (1 + q.x * k) + '" y="' + (1 + q.y * k) + '" width="' + q.w * k + '" height="' + q.h * k + '" fill="' + (cores[q.it.tipo] || '#e9dfc7') + '" stroke="#1a1408" stroke-width=".8"/>'; if (q.w * k > 34 && q.h * k > 11) sv += '<text x="' + (1 + (q.x + q.w / 2) * k) + '" y="' + (1 + (q.y + q.h / 2) * k + 3) + '" font-size="' + Math.min(9, q.h * k * 0.55) + '" text-anchor="middle" fill="#1a1408">' + esc(f1(q.w) + '×' + f1(q.h)) + '</text>'; });
+      h += '<div class="des-sec"><h4>Chapa ' + (i + 1) + ' <span style="margin-left:auto;color:#9a917e;text-transform:none;letter-spacing:0">' + Math.round(C.uso * 100) + '% usada</span></h4>' + sv + '</svg>' + C.p.map(function (q) { return '<div class="des-pc"><span>' + esc(q.it.nome) + '</span><b>' + f1(q.w) + ' × ' + f1(q.h) + '</b></div>'; }).join('') + '</div>';
+    });
+    h += '<div class="des-dica" style="text-align:center">Cores: bancada (bege), frontão (verde), sainha (lilás), tampo do rebaixo (rosa). É uma sugestão: confira o veio e as falhas da chapa antes de cortar.</div></div>';
+    o.innerHTML = h; document.body.appendChild(o);
+    o.addEventListener('click', function (e) { var b = e.target.closest('[data-pl]'); if (!b) return; var a = b.getAttribute('data-pl'); if (a === 'sair') o.remove(); if (a === 'recalc') { var c = num(o.querySelector('#plC').value), l = num(o.querySelector('#plL').value); if (c > 50 && l > 30) { try { localStorage.setItem('hr_chapa', JSON.stringify({ c: c, l: l })); } catch (er) {} } o.remove(); telaPlano(); desenharCv(); atualizarPainel(); } });
+  }
   function avisos(pc) {
-    if (!oblq(pc)) return [];
+    var gr = [], ch = chapa(); corte(pc).forEach(function (x) { if ((x.c > ch.c || x.l > ch.l) && (x.c > ch.l || x.l > ch.c) || x.c > Math.max(ch.c, ch.l)) gr.push(x.nome + ' ' + f1(x.c) + '×' + f1(x.l)); });
+    var avG = gr.length ? [gr.join(', ') + ' passa do tamanho da chapa (' + ch.c + '×' + ch.l + '): coloque uma emenda (campo Emenda).'] : [];
+    if (!oblq(pc)) return avG;
     var g = geo(pc), R = recortes(pc, g), m = g.main, out = [], nm = { reb: 'O rebaixo', cuba: 'A cuba', cook: 'O cooktop' };
     R.forEach(function (r) {
-      if (r.n) return;
+      if (r.n || r.t === 'furo') return;
       if (r.x0 < 3 || r.x1 > g.A - 3 || r.y0 < m.y0 + 2 || r.y1 > m.y1 - 1) out.push(nm[r.t] + ' passa da borda da pedra — confira a medida.');
       else if (r.x0 < m.x0 + 3 || r.x1 > m.x1 - 3) out.push(nm[r.t] + ' passa pela emenda do L — em "Quem fica com o canto", troque para ' + (pc.emenda === 'perna' ? 'Fundo' : 'Perna') + ' ou mude a posição.');
     });
@@ -155,7 +201,7 @@
     var bate = function (a, b) { return a && b && a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1; };
     if (bate(ck, cb)) out.push('O cooktop está em cima da cuba.'); else if (bate(ck, rb)) out.push('O cooktop está em cima do rebaixo.');
     if (ck && cb && !bate(ck, cb) && Math.min(Math.abs(ck.x0 - cb.x1), Math.abs(cb.x0 - ck.x1)) < 15) out.push('Cooktop e cuba muito perto (menos de 15 cm).');
-    return out;
+    return avG.concat(out);
   }
 
   // ── projeção oblíqua (como os seus desenhos) ──
@@ -164,8 +210,10 @@
   function pj(x, y, z, c) { var tz = z; return [x + c * y, -(tz + KS * y)]; }
   function zv(z, T) { return z <= 0 ? z : z <= T ? z * T2(T) / T : T2(T) + (z - T); } // espessura um pouco exagerada p/ ler
   function T2(T) { return Math.max(T, 5); }
+  var PLANTA = false; // vista de cima (planta), como nos projetos de fora
   function proj(pc, g) {
     var c = KC * sentido(pc), T = g.T;
+    if (PLANTA) return function (x, y) { return [x, -y]; };
     return function (x, y, z) { return pj(x, y, zv(z, T), c); };
   }
   function bboxOb(pc) {
@@ -254,11 +302,12 @@
       h += poly(ret, 'fill="#1d1e21" stroke="' + TOM.line + '" stroke-width="' + sw + '" stroke-linejoin="round"');
       var bw = (r.x1 - r.x0), bh = (r.y1 - r.y0);
       [[0.3, 0.3], [0.7, 0.3], [0.3, 0.7], [0.7, 0.7]].forEach(function (k) { h += poly(circ(r.x0 + bw * k[0], r.y0 + bh * k[1], bw * 0.12, bw * 0.12), 'fill="none" stroke="#8d9097" stroke-width="' + (sw * 0.8) + '"'); });
+    } else if (r.t === 'furo') { h += poly(circ(r.cx, r.cy, 1.8, 1.8), 'fill="' + TOM.fundo + '" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.7) + '"');
     } else if (r.t === 'cuba' && r.apoio) { // lavatório com cuba de sobrepor: só o furo do ralo e o da torneira; a cuba fica em cima (tracejada)
       var tr = 'fill="#ffffff" fill-opacity=".55" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.6) + '" stroke-dasharray="7 6"';
       if (r.f === 'redonda' || r.f === 'oval') h += poly(circ(r.cx, r.cy, (r.x1 - r.x0) / 2, (r.y1 - r.y0) / 2), tr);
       else h += poly([S(r.x0, r.y0), S(r.x1, r.y0), S(r.x1, r.y1), S(r.x0, r.y1)], tr);
-      h += poly(circ(r.cx, r.cy, 2.5, 2.5), ln) + poly(circ(r.cx, r.yT, 2, 2), ln);
+      h += poly(circ(r.cx, r.cy, 2.5, 2.5), ln);
     } else if (r.t === 'cuba') {
       if (r.f === 'redonda' || r.f === 'oval') {
         var rx = (r.x1 - r.x0) / 2, ry = (r.y1 - r.y0) / 2;
@@ -306,10 +355,11 @@
       var esq = sentido(pc) > 0, xl = esq ? 0 : g.A, frL = num(pc.fr) > 0 && (esq ? pc.frE : pc.frD) && pc.tipo !== 'prateleira' ? num(pc.fr) : 0, e1 = S(xl, 0, g.T + frL), e2 = S(xl, g.p, g.T + frL);
       h += cota(e1, e2, [esq ? -1 : 1, 0], 22, f1(g.p), fs2, it && idx + '|p');
     }
-    if ((pc.pe === 'dir' || pc.pe === 'esq') && !MINI) { var dirP = pc.pe === 'dir', xpz = dirP ? g.A : 0, ypz = dirP ? g.yAt.d : g.yAt.e, pa = Math.max(10, num(pc.peAlt, 90)); h += cota(S(xpz, ypz, g.T - pa), S(xpz, ypz, g.T), [dirP ? 1 : -1, 0], (dirP === sentido(pc) > 0 ? KC * g.p * s : 0) + 28, f1(pa), fs2, it && idx + '|peAlt'); }
-    if (frH && !MINI) { var xf = sentido(pc) > 0 ? g.A : 0, h1 = S(xf, g.Ymax, g.T), h2 = S(xf, g.Ymax, zTop); h += cota(h1, h2, [sentido(pc) > 0 ? 1 : -1, 0], 26, f1(frH), 24, it && idx + '|fr'); }
+    if ((pc.pe === 'dir' || pc.pe === 'esq') && !MINI && !PLANTA) { var dirP = pc.pe === 'dir', xpz = dirP ? g.A : 0, ypz = dirP ? g.yAt.d : g.yAt.e, pa = Math.max(10, num(pc.peAlt, 90)); h += cota(S(xpz, ypz, g.T - pa), S(xpz, ypz, g.T), [dirP ? 1 : -1, 0], (dirP === sentido(pc) > 0 ? KC * g.p * s : 0) + 28, f1(pa), fs2, it && idx + '|peAlt'); }
+    if (frH && !MINI && !PLANTA) { var xf = sentido(pc) > 0 ? g.A : 0, h1 = S(xf, g.Ymax, g.T), h2 = S(xf, g.Ymax, zTop); h += cota(h1, h2, [sentido(pc) > 0 ? 1 : -1, 0], 26, f1(frH), 24, it && idx + '|fr'); }
     if (it) { // áreas de arrastar: cuba, rebaixo e cooktop
       R.forEach(function (r) {
+        if (r.t === 'furo') return;
         var e = r.n ? 0 : 3, zz = r.n ? g.rebZ : zR(r), q = [S(r.x0 - e, r.y0 - e, zz), S(r.x1 + e, r.y0 - e, zz), S(r.x1 + e, r.y1 + e, zz), S(r.x0 - e, r.y1 + e, zz)], cx = (q[0][0] + q[2][0]) / 2, cy = (q[0][1] + q[2][1]) / 2;
         h += '<g data-rc="' + idx + '|' + r.t + '" style="cursor:grab">' + poly(q, 'fill="#e8c96a" fill-opacity="' + (r.n ? '.01' : r.t === 'reb' ? '.06' : '.12') + '" stroke="none"');
         if (r.t !== 'reb' || !R.some(function (o) { return o.t === 'cuba'; })) h += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="26" fill="#c9a84c" fill-opacity=".92"/><text x="' + cx.toFixed(1) + '" y="' + (cy + 11).toFixed(1) + '" font-size="32" text-anchor="middle" fill="#1a1408" font-weight="700">⇔</text>';
@@ -383,7 +433,7 @@
     { g: 'outro', n: 'Nicho', f: mod('nicho') }
   ];
   function miniSvg(pc) {
-    var cl = CLP; MINI = true; CLP = 'hrm' + (++nMini) + '_'; var h = ''; TOM = tomDe('');
+    var cl = CLP; MINI = true; PLANTA = false; CLP = 'hrm' + (++nMini) + '_'; var h = ''; TOM = tomDe('');
     try {
       if (oblq(pc)) { var bb = bboxOb(pc), w = bb.x1 - bb.x0, hh = bb.y1 - bb.y0, pd = Math.max(w, hh) * 0.07; h = '<svg viewBox="' + (-pd).toFixed(1) + ' ' + (-pd).toFixed(1) + ' ' + (w + 2 * pd).toFixed(1) + ' ' + (hh + 2 * pd).toFixed(1) + '">' + pecaSvg(pc, 1, 0, 0, -1) + '</svg>'; }
       else { var A = num(pc.A), H = num(pc.H), fw = pc.tipo === 'nicho' ? A + 16 : A, fh = pc.tipo === 'nicho' ? H + 16 : H; h = '<svg viewBox="-6 -6 ' + (fw + 12) + ' ' + (fh + 12) + '">' + frenteSvg(pc, 1, 0, 0, -1) + '</svg>'; }
@@ -434,6 +484,8 @@
         else if (cb.f !== 'redonda' && cb.f !== 'oval') n.push('Cuba ' + f1(cb.x1 - cb.x0) + 'x' + f1(cb.y1 - cb.y0) + (cb.f === 'rampada' ? ' esculpida rampada' : cb.f === 'esculpida' ? ' esculpida' : c.inst === 'flush' ? ' flush' : c.inst === 'sobrepor' ? ' de sobrepor' : ''));
         else n.push('Cuba ' + (cb.f === 'redonda' ? 'redonda Ø ' + f1(cb.x1 - cb.x0) : 'oval ' + f1(cb.x1 - cb.x0) + 'x' + f1(cb.y1 - cb.y0)) + (c.inst === 'sobrepor' ? ' de sobrepor' : ''));
       }
+      var nTo = R.filter(function (r) { return r.t === 'furo'; }).length; if (nTo && !(cb && cb.apoio)) n.push(nTo + (nTo > 1 ? ' furos' : ' furo') + ' de torneira atrás da cuba'); else if (nTo > 1) n.push(nTo + ' furos de torneira');
+      if (num(pc.emX) > 0) n.push('Emenda a ' + f1(num(pc.emX)) + ' do canto esquerdo');
       if (ck) n.push('Cooktop ' + f1(ck.x1 - ck.x0) + 'x' + f1(ck.y1 - ck.y0) + ', centro a ' + f1(ck.cx) + ' do canto esquerdo');
       if (pc.saia === 'slim') n.push('Acabamento slim (2 cm, só a espessura da pedra)');
       if (temSaia(pc)) n.push('Sainha ' + ({ reta: 'reta', slim: 'slim', '45': 'em 45°', boleada: 'boleada' }[pc.saia]) + ' de ' + f1(num(pc.saiaAlt)) + 'cm');
@@ -475,7 +527,7 @@
   }
   function rotuloPeca(pc) { return oblq(pc) ? (pc.tipo === 'L' ? f1(num(pc.A)) + ' + ' + f1(num(pc.B)) + ' × ' + f1(num(pc.p)) : f1(num(pc.A)) + ' × ' + f1(num(pc.p))) : f1(num(pc.A)) + ' × ' + f1(num(pc.H)); }
   function folhaSvg(d) {
-    nClip = 0; TOM = tomDe(d.material);
+    nClip = 0; TOM = tomDe(d.material); PLANTA = d.vista === 'planta';
     var M = 30, W = FW - 2 * M, ESC = '#1f1d19', CIN = '#8b877e', LIN = '#e3e0d8', OURO = '#c9a84c', h = '';
     h += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '">';
     h += '<defs><filter id="sombra" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#000" flood-opacity=".16"/></filter><linearGradient id="faixa" x1="0" x2="1"><stop offset="0" stop-color="#1b1813"/><stop offset="1" stop-color="#2a251c"/></linearGradient></defs>';
@@ -511,7 +563,7 @@
     var nl = 0, lhn = 24, bl2 = []; blocos.forEach(function (b) { if (nl >= 10) return; var ls = b.ls.slice(0, 10 - nl); nl += ls.length; bl2.push({ n: b.n, tit: b.tit, ls: ls }); });
     var notH = bl2.length ? 46 + nl * lhn + 14 : 0, yn = yf - 14 - notH;
     if (notH) {
-      h += cartao(M, yn, W, notH) + lbl(M + 18, yn + 28, 'Observações');
+      var rs0 = resumo(d); h += cartao(M, yn, W, notH) + lbl(M + 18, yn + 28, 'Observações') + T(M + W - 18, yn + 28, f1(Math.round(rs0.m2 * 100) / 100) + ' m² de pedra' + (rs0.saia ? ' · ' + f1(Math.round(rs0.saia * 10) / 10) + ' m de sainha' : '') + (rs0.fr ? ' · ' + f1(Math.round(rs0.fr * 10) / 10) + ' m de frontão' : ''), 14, 'end', CIN, ' font-weight="600"');
       var yy = yn + 56; bl2.forEach(function (b) { h += '<circle cx="' + (M + 30) + '" cy="' + (yy - 6) + '" r="11" fill="' + (b.n === '•' ? OURO : ESC) + '"/>' + T(M + 30, yy - 1.5, b.n === '•' ? '' : b.n, 13, 'middle', '#fff', ' font-weight="700"');
         b.ls.forEach(function (l, k) { h += T(M + 52, yy, (k === 0 && b.tit ? b.tit + ' — ' : '') + l, 18.5, 'start', ESC); yy += lhn; }); });
     }
@@ -527,6 +579,8 @@
           h += T(cx + (varias ? 12 : 0), ty, tt, 16.5, 'middle', '#f4efe2', ' font-weight="700" letter-spacing=".5"'); }
       });
     } else h += T(FW / 2, (y0 + yf) / 2, 'Escolha um módulo para começar', 24, 'middle', CIN);
+    if (PLANTA) h += T(M + W, y0 + 34, 'VISTA DE CIMA (PLANTA)', 12.5, 'end', CIN, ' letter-spacing="2" font-weight="700"');
+    PLANTA = false;
     return h + '</svg>';
   }
 
@@ -538,7 +592,7 @@
     var g = geo(pc), nm = nomePeca(pc);
     g.boxes.forEach(function (b) {
       if (b.k === 'rebF') return;
-      if (b.g === 'slab') add(b.k === 'rebN' ? 'Pedra do rebaixo' : b.k === 'tE' ? 'Tampo à esquerda do rebaixo' : b.k === 'tD' ? 'Tampo à direita do rebaixo' : pc.tipo === 'L' ? (b.k === 'main' ? 'Bancada (parte maior)' : 'Bancada (perna do L)') : nm, 'bancada', b.x1 - b.x0, b.y1 - b.y0);
+      if (b.g === 'slab') add((b.em ? '' : '') + (b.k === 'rebN' ? 'Pedra do rebaixo' : b.k === 'tE' ? 'Tampo à esquerda do rebaixo' : b.k === 'tD' ? 'Tampo à direita do rebaixo' : pc.tipo === 'L' ? (b.k === 'main' ? 'Bancada (parte maior)' : 'Bancada (perna do L)') : nm) + (b.em ? ' – parte ' + b.em : ''), 'bancada', b.x1 - b.x0, b.y1 - b.y0);
       if (b.g === 'fr') add(b.k === 'frM' ? 'Frontão da área molhada' : 'Frontão', 'frontao', Math.max(b.x1 - b.x0, b.y1 - b.y0), b.z1 - b.z0);
       if (b.g === 'pe') add('Pé estrutural', 'outro', b.z1 - b.z0, b.y1 - b.y0);
     });
@@ -547,11 +601,13 @@
       if (pc.tipo === 'L') {
         var pB = Math.min(A2 - 5, num(pc.pB, p)), B = num(pc.B) + p, dir = pc.perna !== 'esq';
         add(nmS, 'saia', A2 - pB, sa); add(nmS, 'saia', pB, sa); add(nmS, 'saia', B - p, sa);
-        if (dir ? !pc.frE : !pc.frD) add(nmS, 'saia', p, sa);
-        if (dir ? !pc.frD : !pc.frE) add(nmS, 'saia', B, sa);
-      } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (rn0) { if (rn0.x0 > 0.5) add(nmS, 'saia', rn0.x0, sa); add(nmS + ' (área molhada)', 'saia', rn0.x1 - rn0.x0, sa); if (A2 - rn0.x1 > 0.5) add(nmS, 'saia', A2 - rn0.x1, sa); } else add(nmS, 'saia', A2, sa); if (!pc.frE) add(nmS, 'saia', p, sa); if (!pc.frD) add(nmS, 'saia', p, sa); }
+        if (ladoSaia(pc, dir ? 'E' : 'D')) add(nmS, 'saia', p, sa);
+        if (ladoSaia(pc, dir ? 'D' : 'E')) add(nmS, 'saia', B, sa);
+      } else { var rn0 = rebNormal(pc) && recortes(pc, g).filter(function (r) { return r.n; })[0]; if (!ladoSaia(pc, 'F')) {} else if (rn0) { if (rn0.x0 > 0.5) add(nmS, 'saia', rn0.x0, sa); add(nmS + ' (área molhada)', 'saia', rn0.x1 - rn0.x0, sa); if (A2 - rn0.x1 > 0.5) add(nmS, 'saia', A2 - rn0.x1, sa); } else add(nmS, 'saia', A2, sa); if (ladoSaia(pc, 'E')) add(nmS, 'saia', p, sa); if (ladoSaia(pc, 'D')) add(nmS, 'saia', p, sa); }
     }
     if (pc.reb && pc.reb.on && !rebNormal(pc)) add('Tampo do rebaixo americano', 'tampo', num(pc.reb.c), num(pc.reb.l));
+    var ex = num(pc.emX), chc = chapa().c;
+    if (ex > 0) L = L.reduce(function (o, x) { if ((x.tipo === 'frontao' || x.tipo === 'saia') && x.c > chc && x.c > ex + 1) { o.push(Object.assign({}, x, { nome: x.nome + ' – parte 1', c: Math.round(ex * 10) / 10 }), Object.assign({}, x, { nome: x.nome + ' – parte 2', c: Math.round((x.c - ex) * 10) / 10 })); } else o.push(x); return o; }, []); // frontão e sainha também emendam
     return L;
   }
   function itemProducao(pc) {
@@ -779,6 +835,7 @@
     + '.des-ent{font-size:.82rem;color:#d7f0dc;background:rgba(74,222,128,.07);border:1px solid rgba(74,222,128,.25);border-radius:10px;padding:7px 9px;margin-top:7px;line-height:1.4}.des-ex{margin-top:9px;font-size:.78rem;color:#c9a84c}.des-ex summary{cursor:pointer}.des-exi{margin-top:6px;padding:8px;border-radius:9px;background:#16130e;color:#c9bfa6;cursor:pointer;line-height:1.35}'
     + '.des-bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(10,9,8,.96);border-top:1px solid rgba(201,168,76,.18);z-index:2}.des-bar .des-bt{margin:0;padding:12px 6px;font-size:.84rem}'
     + '#hrDesIA{position:fixed;inset:0;z-index:9994;background:#0a0908;color:#efe9dc;display:flex;flex-direction:column}.ia-top{display:flex;align-items:center;gap:10px;padding:12px;padding-top:max(12px,env(safe-area-inset-top));border-bottom:1px solid rgba(201,168,76,.18)}.ia-cv{flex:1;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:8px}.ia-cv canvas{max-width:100%;max-height:100%;touch-action:none;border-radius:10px;background:#fff}.ia-vazio{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:24px;background:#0a0908}.ia-ferr{display:flex;gap:6px;padding:8px 12px}.ia-ferr button{flex:1;padding:11px 4px;border-radius:11px;border:1px solid rgba(201,168,76,.3);background:#16130e;color:#c9bfa6;font-weight:800;font-size:.85rem}.ia-ferr button.on{background:#c9a84c;color:#1a1408}.ia-bx{padding:0 12px max(12px,env(safe-area-inset-bottom))}'
+    + '.des-res{background:#16130e;border:1px solid rgba(201,168,76,.2);border-radius:11px;padding:8px;text-align:center}.des-res b{display:block;font-size:1.1rem;color:#f0d78c}.des-res span{font-size:.62rem;color:#9a917e}#hrDesPl{position:fixed;inset:0;z-index:9994;background:#0a0908;color:#efe9dc;display:flex;flex-direction:column}'
     + '#hrDesZoom{position:fixed;inset:0;z-index:9995;background:#2a2a2a;overflow:hidden;touch-action:none}#hrDesZoom .in{transform-origin:0 0;position:absolute;left:0;top:0}#hrDesZoom .fx{position:absolute;right:12px;top:max(12px,env(safe-area-inset-top));z-index:2;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:12px;padding:10px 14px;font-size:1rem}'
     + '.des-card-sec{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border-radius:16px;padding:14px;margin:10px 0;background:linear-gradient(135deg,rgba(96,165,250,.14),rgba(201,168,76,.05));border:1px solid rgba(96,165,250,.35);color:#efe9dc;cursor:pointer}.des-card-sec .ic{font-size:1.5rem}.des-card-sec .t{font-weight:800}.des-card-sec .s{font-size:.72rem;color:#9a917e}';
   function css() { if (document.getElementById('hrDesCss2')) return; var o = document.getElementById('hrDesCss'); if (o) o.remove(); var s = document.createElement('style'); s.id = 'hrDesCss2'; s.textContent = CSS; document.head.appendChild(s); }
@@ -835,6 +892,7 @@
       h += '<span class="des-l" style="margin-top:10px">Acabamento</span>' + chips('saia', pc.saia, SAIAS);
       if (pc.saia === 'slim') h += '<div class="des-dica">Slim: só a espessura da pedra (2 cm), sem sainha.</div>';
       else if (pc.saia !== 'nenhuma') h += '<div class="des-g" style="grid-template-columns:1fr 2fr">' + campo('saiaAlt', 'Altura da sainha', pc.saiaAlt, true) + '<div class="des-dica" style="align-self:end">' + (pc.saia === '45' ? 'Padrão da 45°: 6 cm' : 'Pode mudar a altura') + '</div></div>';
+      if (pc.saia !== 'nenhuma' && pc.saia !== 'slim') h += '<span class="des-l" style="margin-top:8px">Sainha em quais bordas</span><div class="des-ch">' + ['F', 'E', 'D'].map(function (l) { var on = ladoSaia(pc, l); return '<button type="button" data-lado="' + l + '" class="' + (on ? 'on' : '') + '">' + (on ? '✓ ' : '') + { F: 'Frente', E: 'Lado esquerdo', D: 'Lado direito' }[l] + '</button>'; }).join('') + '</div>';
       if (pc.tipo !== 'prateleira') {
         var c = pc.cuba || {}, tem = c.tipo && c.tipo !== 'nenhuma', am = ambDe(pc);
         h += '<span class="des-l" style="margin-top:10px">Ambiente</span>' + chips('amb', am, pc.tipo === 'L' ? [['cozinha', '🍳 Cozinha']] : [['cozinha', '🍳 Pia de cozinha'], ['balcao', 'Balcão / ilha'], ['banheiro', '🚿 Lavatório']]);
@@ -844,6 +902,7 @@
             h += chips('cuba.tipo', c.tipo, am === 'banheiro' ? CUBAS.slice(1) : [['retangular', 'Inox retangular'], ['redonda', 'Inox redonda'], ['esculpida', 'Esculpida']]);
             if (!/esculp|rampada/.test(c.tipo)) h += chips('cuba.inst', c.inst, am === 'banheiro' ? [['embutida', 'De embutir'], ['sobrepor', 'De sobrepor']] : [['embutida', 'De embutir'], ['sobrepor', 'De sobrepor'], ['flush', 'Flush']]);
             if (am === 'banheiro' && c.inst === 'sobrepor' && !/esculp|rampada/.test(c.tipo)) h += '<div class="des-dica">De sobrepor: só furo do ralo e furo da torneira.</div>';
+            h += '<span class="des-l" style="margin-top:8px">Furos de torneira (atrás da cuba)</span>' + chips('torn', torneiras(pc), [[0, 'Nenhum'], [1, '1 furo'], [2, '2 furos'], [3, '3 furos']]);
           }
           if (am === 'cozinha') h += rebHtml(pc);
         }
@@ -857,8 +916,15 @@
     } else {
       h += '<div class="des-g">' + campo('A', 'Largura', pc.A, true) + campo('H', 'Altura', pc.H, true) + (pc.tipo === 'nicho' ? campo('prof', 'Profund.', pc.prof, true) : campo('qtd', 'Qtd.', pc.qtd, true)) + '</div>';
     }
+    if (oblq(pc)) h += '<div class="des-g" style="grid-template-columns:1fr 1fr;margin-top:10px">' + campo('emX', 'Emenda a (cm do canto esq.)', pc.emX, true, 'sem emenda') + '<div class="des-dica" style="align-self:end">Chapa ' + chapa().c + '×' + chapa().l + '</div></div>';
     h += avisos(pc).map(function (a) { return '<div class="des-av">⚠️ ' + esc(a) + '</div>'; }).join('');
     return h + '</div>';
+  }
+  function ferramentasHtml() {
+    var d = st.d, rs = resumo(d);
+    return '<div class="des-sec"><h4>🛠️ Ferramentas</h4><span class="des-l">Vista da folha</span><div class="des-ch">' + [['3d', '🧊 3D'], ['planta', '📐 Planta (de cima)']].map(function (v) { var on = (d.vista || '3d') === v[0]; return '<button type="button" data-vistaf="' + v[0] + '" class="' + (on ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>'
+      + '<div class="des-g" style="margin-top:9px"><div class="des-res"><b>' + f1(Math.round(rs.m2 * 100) / 100) + '</b><span>m² de pedra</span></div><div class="des-res"><b>' + f1(Math.round(rs.saia * 10) / 10) + '</b><span>m de sainha</span></div><div class="des-res"><b>' + f1(Math.round(rs.fr * 10) / 10) + '</b><span>m de frontão</span></div></div>'
+      + '<button class="des-bt des-bt2" data-acao="planoc" style="margin-top:9px">🪚 Plano de corte nas chapas</button></div>';
   }
   function rebHtml(pc) {
     var rb = pc.reb || {}; if (!rb.on) return '';
@@ -871,7 +937,7 @@
     if (st.sel >= ps.length) st.sel = ps.length - 1; if (st.sel < 0 && ps.length) st.sel = 0;
     if (!ps.length) h += '<div class="des-sec"><h4>🧩 Escolha um módulo</h4><button class="des-bt des-bt2" data-acao="ia" style="margin:0 0 10px">📷 Ou desenhe por foto ou rabisco</button>' + modsHtml(true) + '<div class="des-dica">Depois é só tocar no desenho: arrastar a cuba, o rebaixo e o cooktop, e tocar nos números para mudar as medidas.</div></div>';
     else {
-      h += barraPeca(ps[st.sel], st.sel);
+      h += barraPeca(ps[st.sel], st.sel) + ferramentasHtml();
       h += '<div class="des-sec"><h4>＋ Adicionar módulo</h4>' + modsHtml(false) + '<button class="des-bt des-bt2" data-acao="ia" style="margin-top:10px">📷 Adicionar por foto ou rabisco</button></div>';
     }
     h += '<div class="des-sec"><div class="des-g2" style="margin-top:0">' + campo('cliente', 'Cliente', d.cliente) + campo('material', 'Material', d.material, false, 'ex.: preto São Gabriel') + '</div></div>';
@@ -1074,6 +1140,8 @@
     el.addEventListener('input', function (e) { var t = e.target.closest('[data-f]'); if (!t || st.tela !== 'editor') return; lerCampo(t); if (t.getAttribute('data-f') === 'texto' && !pcDe(t)) { var np = interpretar(t.value); if (np.length || !t.value.trim()) st.d.pecas = np; var en = document.getElementById('desEnt'); if (en) en.innerHTML = entendiHtml(); desenharCv(); return; } desenharCv(); clearTimeout(st.tm); st.tm = setTimeout(function () { var pc = pcDe(t), sel = t.closest('.des-selpc'); if (pc && sel) { sel.querySelectorAll('.des-av').forEach(function (x) { x.remove(); }); avisos(pc).forEach(function (x) { var dv = document.createElement('div'); dv.className = 'des-av'; dv.textContent = '⚠️ ' + x; sel.appendChild(dv); }); var tb = sel.querySelector('.des-tabs .on'); if (tb) tb.textContent = (st.d.pecas.indexOf(pc) + 1) + '. ' + nomePeca(pc); return; } if (pc) { var hd = document.querySelector('[data-pc="' + st.d.pecas.indexOf(pc) + '"] .des-pc-h[data-abrepc]'); if (hd) { var tmp = document.createElement('div'); tmp.innerHTML = painelPeca(pc, st.d.pecas.indexOf(pc)); var nh = tmp.querySelector('.des-pc-h'); hd.innerHTML = nh.innerHTML; var sec = hd.parentNode; sec.querySelectorAll('.des-av').forEach(function (a) { a.remove(); }); var rb2 = sec.querySelector('[data-dup]'); if (!rb2) return; var ref = rb2.parentNode; tmp.querySelectorAll('.des-av').forEach(function (a) { sec.insertBefore(a, ref); }); } } }, 500); });
     el.addEventListener('click', function (e) {
       var d = st.d, a = e.target.closest('[data-acao]'), ch = e.target.closest('[data-ch]'), tg = e.target.closest('[data-tg]'), ad = e.target.closest('[data-addpc]'), rm = e.target.closest('[data-rmpc]'), dp = e.target.closest('[data-dup]'), ap = e.target.closest('[data-abrepc]'), ab = e.target.closest('[data-abre]');
+      var ld = e.target.closest('[data-lado]'); if (ld) { var pl0 = pcDe(ld), lk = ld.getAttribute('data-lado'); pl0['b' + lk] = !ladoSaia(pl0, lk); desenharCv(); atualizarPainel(); return; }
+      var vf = e.target.closest('[data-vistaf]'); if (vf) { st.d.vista = vf.getAttribute('data-vistaf'); desenharCv(); atualizarPainel(); return; }
       var gp = e.target.closest('[data-grp]'); if (gp) { st.grp = gp.getAttribute('data-grp'); atualizarPainel(); return; }
       var md = e.target.closest('[data-mod]'); if (md) { d.pecas.push(MODS[+md.getAttribute('data-mod')].f()); st.sel = d.pecas.length - 1; desenharCv(); atualizarPainel(); var cvv = document.getElementById('desCv'); if (cvv && innerWidth < 900) cvv.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
       var sp = e.target.closest('[data-selpc]'); if (sp) { st.sel = +sp.getAttribute('data-selpc'); desenharCv(); atualizarPainel(); return; }
@@ -1100,6 +1168,7 @@
       if (k3 === 'orc') { var os = orcamentos(); document.getElementById('desMain').innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt des-bt2" data-acao="voltarLista">← Voltar</button><div class="des-dica" style="margin:10px 0">Escolha o orçamento: o desenho sai com as medidas, a cuba, a sainha e o rebaixo dele.</div>' + (os.length ? os.map(function (q, i) { return '<div class="des-li" data-orc="' + i + '"><span style="font-size:1.4rem">📋</span><div style="flex:1"><b>' + esc(q.cli || 'Sem cliente') + '</b><div class="des-sub">' + esc((q.ambSnap || []).map(function (a) { return a.tipo; }).join(' + ')) + (q.mat ? ' · ' + esc(q.mat) : '') + (q.date || q.data ? ' · ' + esc(String(q.date || q.data).slice(0, 10)) : '') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica">Nenhum orçamento salvo no app ainda.</div>') + '</div>'; st.orcs = os; return; }
       if (k3 === 'voltarLista') { render(); return; }
       if (k3 === 'ia') { telaIA(); return; }
+      if (k3 === 'planoc') { telaPlano(); return; }
       if (k3 === 'ped') { var mn = document.getElementById('desMain'); mn.innerHTML = '<div class="des-dica" style="padding:30px;text-align:center">Carregando os pedidos…</div>';
         api('/bot/producao').then(function (pr) { st.peds = pr.pedidos || []; mn.innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt des-bt2" data-acao="voltarLista">← Voltar</button><div class="des-dica" style="margin:10px 0">Escolha o pedido: o desenho sai com o ambiente, as medidas, a sainha, o frontão e a cuba (de sobrepor ou de embutir) dele.</div>' + (st.peds.length ? st.peds.map(function (p, i) { return '<div class="des-li" data-pedx="' + i + '"><span style="font-size:1.4rem">🏭</span><div style="flex:1"><b>' + esc(p.nome) + '</b><div class="des-sub">' + esc((p.itens || []).map(function (x) { return x.ambiente; }).join(' + ')) + (p.pedra ? ' · ' + esc(p.pedra) : '') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica">Nenhum pedido em produção.</div>') + '</div>'; }).catch(function (er) { aviso('⚠️ ' + er.message); render(); }); return; }
       if (k3 === 'novo') { st.d = novo(); st.aberta = 0; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render(); return; }
