@@ -28692,8 +28692,14 @@ function pontoDistM(a1, o1, a2, o2) {
 function pontoHora(ts) { return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ts)); }
 function pontoHex(n) { const b = new Uint8Array(n); crypto.getRandomValues(b); return [...b].map(x => x.toString(16).padStart(2, '0')).join(''); }
 async function pontoDia(env, data, funcId) { try { return JSON.parse((await env.HR_KV.get(`ponto:d:${data}:${funcId}`)) || '[]'); } catch (_) { return []; } }
-function pontoProximo(lista) {
+function pontoDiaCurto(cfg, iso) { // v221: meio período combinado ou sábado — a 2ª batida é a SAÍDA (não "saída do almoço")
+  if (!cfg || !iso) return false;
+  if ((cfg.excBot || []).some(x => x.data === iso && x.tipo === 'meio') || (cfg.meios || []).includes(iso)) return true;
+  return new Date(iso + 'T12:00:00Z').getUTCDay() === 6;
+}
+function pontoProximo(lista, curto) {
   const validas = lista.filter(b => b.status !== 'recusada');
+  if (curto && validas.length === 1) return 'saida';
   return PONTO_ORDEM[validas.length] || 'extra';
 }
 function pontoPublico(b) { return { id: b.id, tipo: b.tipo, rotulo: PONTO_TIPOS[b.tipo] || b.tipo, hora: b.hora, horaOriginal: b.horaOriginal || '', status: b.status, externo: !!b.externo, ajuste: !!b.ajuste, motivo: b.motivo || '', dist: b.dist ?? null, rosto: b.rosto ?? null, rostoRot: pontoRostoRotulo(b.rosto ?? null), vivo: b.vivo ?? null }; }
@@ -29510,7 +29516,7 @@ async function rotaPonto(req, env, ctx, url) {
       const relU = await pontoRelUltimo(env, dev.funcId), bn = relU && relU.status !== 'aprovado' ? await pontoBotNumero(env) : '';
       const pedidos = (await pontoPedidosLista(env)).filter(x => String(x.funcId) === String(dev.funcId)).slice(0, 8).map(pontoPedidoPublico);
       const saidas = (await saiLista(env, hoje, dev.funcId)).filter(x => !['cancelado'].includes(x.status)).map(saiPublico); // v131
-      return J({ ok: true, nome, hoje, saidas, proximo: pontoProximo(await pontoDia(env, hoje, dev.funcId)), externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, pedidos, jornada: { almoco: Math.max(30, +((cfg.lemb || {}).almoco) || 80) }, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
+      return J({ ok: true, nome, hoje, saidas, proximo: pontoProximo(await pontoDia(env, hoje, dev.funcId), pontoDiaCurto(cfg, hoje)), externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, pedidos, jornada: { almoco: Math.max(30, +((cfg.lemb || {}).almoco) || 80) }, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
     }
 
     if (p === '/ponto/bater') {
@@ -29531,7 +29537,9 @@ async function rotaPonto(req, env, ctx, url) {
       const perto = lista.filter(x => x.status !== 'recusada' && Math.abs(ts - x.ts) < 120000)[0];
       if (perto) return J({ erro: `Você já bateu às ${perto.hora}. Espere 2 minutos para bater de novo.`, descartar: off }, off ? 409 : 429);
       let tipo = String(b.tipo || '');
-      if (!PONTO_TIPOS[tipo]) tipo = pontoProximo(lista);
+      const curtoB = pontoDiaCurto(cfg, diaB);
+      if (!PONTO_TIPOS[tipo]) tipo = pontoProximo(lista, curtoB);
+      if (curtoB && tipo === 'saida_almoco' && lista.filter(x => x.status !== 'recusada').length === 1) tipo = 'saida'; // v221: meio período/sábado
       const ip = String(req.headers.get('cf-connecting-ip') || '');
       const ipK = pontoIpChave(ip);
       const ipOk = cfg.ips.includes(ipK);
@@ -29589,7 +29597,7 @@ async function rotaPonto(req, env, ctx, url) {
           novaRede ? [{ id: 'pr_ok|' + ipK, titulo: '✅ É a oficina' }, { id: 'pr_no|' + ipK, titulo: '❌ Não é' }]
             : [{ id: `pb_ok|${diaB}|${dev.funcId}|${id}`, titulo: '✅ Confirmar' }, { id: `pb_no|${diaB}|${dev.funcId}|${id}`, titulo: '❌ Recusar' }]);
       }
-      return J({ ok: true, tipo, rotulo: PONTO_TIPOS[tipo], hora: bat.hora, status, motivo, nome, proximo: pontoProximo(lista) });
+      return J({ ok: true, tipo, rotulo: PONTO_TIPOS[tipo], hora: bat.hora, status, motivo, nome, proximo: pontoProximo(lista, curtoB) });
     }
     return J({ erro: 'Rota inválida.' }, 404);
   } catch (e) {
@@ -29912,7 +29920,7 @@ async function pontoLembretes(env, cfg) {
     const ult = l[l.length - 1], nome = String(f.nome).split(' ')[0];
     let k = '', t = '', c = '';
     if (!l.length && ag.min >= ent && ag.min < ent + 180) { k = 'entrada'; t = 'Bateu a entrada?'; c = `${nome}, você ainda não bateu a entrada hoje. Se já chegou, abra o HR Ponto e bata agora.`; }
-    else if (ult && ult.tipo === 'saida_almoco') { const [h, mi] = ult.hora.split(':').map(Number); if (ag.min - (h * 60 + mi) >= alm) { k = 'almoco'; t = 'Volta do almoço'; c = `${nome}, não esqueça de bater a volta do almoço (saiu às ${ult.hora}).`; } }
+    else if (ult && ult.tipo === 'saida_almoco' && !pontoDiaCurto(cfg, hoje)) { const [h, mi] = ult.hora.split(':').map(Number); if (ag.min - (h * 60 + mi) >= alm) { k = 'almoco'; t = 'Volta do almoço'; c = `${nome}, não esqueça de bater a volta do almoço (saiu às ${ult.hora}).`; } }
     else if (ult && (ult.tipo === 'entrada' || ult.tipo === 'volta_almoco') && isFinite(sai) && ag.min >= sai) { k = 'saida'; t = 'Vai sair?'; c = `${nome}, antes de ir embora bata a saída no HR Ponto.`; }
     if (!k) continue;
     const chave = `ponto:lemb:${hoje}:${f.id}:${k}`;
@@ -30411,7 +30419,7 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
     HJ=hj.filter(function(b){return b.status!=='recusada'}).map(function(b){return Object.assign({data:hoje},b)});
     fila().forEach(function(x){if(x.data===hoje)HJ.push({tipo:x.tipo,hora:x.hora,status:'pendente',fila:true,data:hoje})});
     HJ.sort(function(a,b){return minDe(a.hora)-minDe(b.hora)});
-    proximo=ORDEM[HJ.length]||'extra';if(!escolhido)tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos();
+    proximo=(j.proximo&&HJ.length===hj.filter(function(b){return b.status!=='recusada'}).length)?j.proximo:(ORDEM[HJ.length]||'extra');if(!escolhido)tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos();
     $('ext').style.display=j.externo&&d0.data===hoje?'block':'none';
     desenhaHoje();desenhaFila();desenhaPedidos(j.pedidos);SAIDAS=j.saidas||[];desenhaSaida();
     var ds=['dom','seg','ter','qua','qui','sex','sáb'],dd=function(d){var x=d.split('-');return ds[new Date(d+'T12:00:00Z').getUTCDay()]+' '+x[2]+'/'+x[1]};
