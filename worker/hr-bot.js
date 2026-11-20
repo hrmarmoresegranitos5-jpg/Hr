@@ -2243,6 +2243,7 @@ async function tratarBotao(env, from, id, F) {
   if (id === 'cmd_desfazer') { await responderDesfeito(env, from, F, await desfazerUltimo(env)); return true; }
   if (id.startsWith('desf|')) { await responderDesfeito(env, from, F, await desfazerPorChave(env, id.slice(5))); return true; }
   if (/^(pgpix|pgok|pgno|pgrep)\|/.test(id)) return fechPagBotao(env, from, id); // v197
+  if (id.startsWith('rgaj|')) return reguaBotao(env, from, id); // v210
 
   if (id.startsWith('ped_desc|') || id.startsWith('ped_descno|')) { await decidirDesconto(env, from, id); return true; }
 
@@ -6861,6 +6862,7 @@ async function pedirAvaliacoes(env) {
   await mig198Ajudante(env).catch(e => console.log('[MIG198]', e.message)); // v198
   await mig199Narracao(env).catch(e => console.log('[MIG199]', e.message)); // v199
   await mig202Jailton(env).catch(e => console.log('[MIG202]', e.message)); // v202
+  for (const [n, fn] of [['regua', reguaRotina], ['fila', filaRotina], ['cliacomp', cliAcompRotina], ['sexta', resumoSextaRotina], ['cjunto', corteJuntoRotina]]) await fn(env).catch(e => console.log('[V210 ' + n + ']', e.message)); // v210
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -9593,7 +9595,9 @@ function hSaiasItem(it) { // acabamento das saias que é do polidor (45° é do 
   const sv = it.sv || [], m = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia').reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
   if (sv.includes('s_45') || it.acabamento === '45') return 0; return sv.includes('s_boleada') ? m * 0.8 : sv.includes('s_reta') ? m * 0.5 : sv.includes('s_slim') ? m * 0.3 : 0;
 }
-function horasRegua(p, e) {
+function reguaFator(e) { const f = (globalThis.__reguaFator || {})[e === 'polimento' ? 'acabamento' : e]; return f > 0 ? f : 1; } // v210: ajuste da régua pelo tempo medido (aprovado pelo dono)
+function horasRegua(p, e) { return horasRegua0(p, e) * (e === 'instalacao' ? 1 : reguaFator(e)); }
+function horasRegua0(p, e) {
   const its = itensPecas(p), n = nPecasPed(p), cx = pedComplexo(p);
   if (e === 'corte') { if (!its.length) return n * 0.3; let h = 0; for (const it of its) { for (const pc of it.pecas) h += hCortePeca(pc.comp_cm, pc.larg_cm) * Math.min(+pc.qtd || 1, 50); if ((it.sv || []).includes('reb_a')) h += 0.25; if ((it.sv || []).includes('cook')) h += 0.3; } return h; }
   if (e === 'acabamento' || e === 'polimento') {
@@ -9618,7 +9622,8 @@ function ptsEtapa(p, e, ts) {
     if (e === 'corte') { const d = dificuldade(p); return meio(((d ? d.corte : nPecasPed(p)) + ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('reb_a')).length) + 0.5 * ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('cook')).length)) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); } // v203: recorte do cooktop é da equipe do corte
   }
   const d = dificuldade(p), n = nPecasPed(p), mu = d ? nivelDif(p).mult : 1;
-  if (e === 'fabricacao' && !d && p && pedComplexo(p)) { const tx = hugoPeloTexto(p); if (tx > 0) return meio(Math.max(3 + n, 1 + tx)); } // v202: pedido sem ficha: lê o que o serviço tem pela descrição // corte pesa menos o nível (o difícil é a fabricação)
+  if (e === 'fabricacao' && !d && p && pedComplexo(p)) { const tx = hugoPeloTexto(p); if (tx > 0) return meio(Math.max(3 + n, 1 + tx)); } // v202: pedido sem ficha: lê o que o serviço tem pela descrição
+  if (e === 'corte') return meio((d ? d.corte : n) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); // corte pesa menos o nível (o difícil é a fabricação)
   if (e === 'fabricacao') return d ? meio((2 + d.det + d.corte * 0.5) * mu) : 3 + n;
   if (e === 'acabamento' || e === 'polimento') return d ? meio((1 + d.det * 0.5) * mu) : 1; // v182: polimento vale como o acabamento
   if (e === 'instalacao') return d ? meio((3 + d.corte * 0.5) * mu) : 5;
@@ -11154,6 +11159,10 @@ async function desempComandoDono(env, from, msg, bruto) {
       if (!g.cpf) { await enviar(env, from, `A garantia ${g.id} de ${g.cliente} ainda está sem CPF. Mande: _pede o CPF da ${String(g.cliente).split(' ')[0]} para a garantia_.`); return true; }
       const bytes = await garCertificadoPdf(env, g); const foi = await garEnviarCertificado(env, { ...g, cert_b64: bytesParaBase64(bytes) }, bytes).then(() => true).catch(() => false);
       await enviar(env, from, foi ? `Certificado ${g.id} reenviado a ${g.cliente}.` : `Não consegui enviar agora (fora das 24 h da conversa dela?). Tente quando ela responder.`); return true; } }
+  if (/^(regua|ajustar regua|regua dos pontos|tempo real)$/.test(msg)) { const t = await reguaTexto(env); if (t.bts.length) await enviarComBotoes(env, from, t.texto, t.bts.slice(0, 3)); else await enviar(env, from, t.texto); return true; } // v210
+  if (/^(fila de hoje|fila da equipe|fila de cada um|servico na fila)$/.test(msg)) { const l = await filaFuncionarios(env); await enviar(env, from, ['📋 *Serviço na fila de cada um (em pontos):*', ...l.map(x => `• *${x.nome}*: ${vPt(x.pts)}${x.itens.length ? ' — ' + x.itens.slice(0, 4).join(', ') : ' — nada'}`)].join('\n')); return true; } // v210
+  if (/^(resumo da semana|resumo de sexta|como foi a semana)$/.test(msg)) { await enviar(env, from, await resumoSextaTexto(env)); return true; } // v210
+  { const ma = msg.match(/^(desligar|desliga|ligar|liga) (?:os )?avisos? (?:ao|do|para o) cliente$/); if (ma) { const off = /^desl/.test(ma[1]); await env.HR_KV.put('cfg:cliacomp', off ? '0' : '1'); await enviar(env, from, off ? '🔕 Desliguei os avisos de andamento para os clientes (cortado/pronto).' : '🔔 Liguei os avisos de andamento para os clientes: aviso quando as peças forem cortadas e quando ficar pronto.'); return true; } } // v210
   if (await nivelComandoDono(env, from, msg)) return true; // v183
   let m = String(bruto || '').match(/^\s*sal[aá]rio d[oae]s?\s+([A-Za-zÀ-ú]+)[^\d]{0,12}(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)\s*$/i);
   if (m) { const cfg = await pontoCfg(env), tk = normaliza(m[1]), f = cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(tk) || normaliza(apelidoFunc(cfg, x)) === tk); if (!f) { await enviar(env, from, `Não achei ${m[1]} na equipe.`); return true; }
@@ -11478,11 +11487,110 @@ async function nivelComandoDono(env, from, msg) {
 function cubaTipo(it) { const t = normaliza(String(it.cubaInst || '') + ' ' + String(it.cuba || '')); return /esc_mxc/.test(t) ? 'esc3' : /esc_com/.test(t) ? 'esc2' : /esc_sim|esculp/.test(t) ? 'esc1' : /flush/.test(t) ? 'flush' : /embut/.test(t) ? 'embutir' : /sobrep/.test(t) ? 'sobrepor' : ''; }
 const CUBA_HUGO = { sobrepor: [1.5, 'Cuba de sobrepor: recorte, polimento e colar'], embutir: [3, 'Cuba embutida: recorte, polimento e colagem'], flush: [6, 'Cuba flush: recorte profissional e nivelamento'], esc1: [6, 'Cuba esculpida'], esc2: [8, 'Cuba esculpida com detalhe'], esc3: [10, 'Cuba esculpida completa'], '': [2.5, 'Cuba: recorte, polimento e colagem'] };
 const pcEstreita = (pc, it) => ['frontao', 'saia'].includes(tipoDaPeca(pc, it)); // v190: pela ficha (ou pela largura, sem ficha)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v210: IDEIAS APLICADAS — 1) régua que se acerta pelo tempo medido; 2) aviso de fila abaixo da meta; 4) cliente acompanhando
+//   o pedido; 5) resumo de sexta; 6) cortar junto (mesmo material). (3 = "puxar do orçamento" fica no app, Projeto 2D.)
+// ═════════════════════════════════════════════════════════════════════════════
+// 1) RÉGUA: compara o tempo real (fotos de "comecei" e "terminei") com o tempo-padrão de cada etapa e sugere o ajuste ao dono
+async function reguaSugestao(env) {
+  await precosCarregar(env).catch(() => {}); globalThis.__envRegua = env;
+  const de = Date.now() - 35 * 86400000, R = { corte: [], acabamento: [] };
+  for (const p of await pedidosProducao(env, p => (p.corteEm || 0) > de || (p.acabEm || 0) > de)) {
+    if (p.corteIniEm && p.corteEm > p.corteIniEm && p.corteEm > de && itensPecas(p).length) { const real = minUteis(env, p.corteIniEm, p.corteEm) / 60, pad = horasRegua(p, 'corte'); if (real > 0.05 && real < 12 && pad > 0) R.corte.push(real / pad); }
+    const fimA = p.acabEm || (p.prodLog || []).filter(x => x.e === 'acabamento' || x.e === 'polimento').map(x => x.ts).pop();
+    if (p.acabIniEm && fimA > p.acabIniEm && fimA > de && itensPecas(p).length) { const real = minUteis(env, p.acabIniEm, fimA) / 60, pad = horasRegua(p, 'acabamento'); if (real > 0.05 && real < 16 && pad > 0) R.acabamento.push(real / pad); }
+  }
+  const out = {}; for (const [e, l] of Object.entries(R)) { if (l.length < 5) { out[e] = { n: l.length }; continue; } const s0 = l.slice().sort((a, b) => a - b), med = s0[Math.floor(s0.length / 2)], atual = reguaFator(e), novo = Math.round(Math.max(0.5, Math.min(2, atual * med)) * 100) / 100; out[e] = { n: l.length, med: Math.round(med * 100) / 100, atual, novo, muda: Math.abs(med - 1) > 0.2 }; }
+  return out;
+}
+async function reguaTexto(env) {
+  const r = await reguaSugestao(env), nm = { corte: 'Corte', acabamento: 'Acabamento/polimento' }, L = ['⚖️ *Régua dos pontos × tempo real* (últimos 35 dias)', ''], bts = [];
+  for (const [e, x] of Object.entries(r)) {
+    if (!x.med) { L.push(`• ${nm[e]}: só ${x.n} serviço(s) com foto de início e fim — preciso de 5 para comparar.`); continue; }
+    L.push(`• ${nm[e]}: levou *${Math.round(x.med * 100)}%* do tempo-padrão (${x.n} serviços).${x.muda ? ` Sugiro ajustar o tempo-padrão para *${Math.round(x.novo * 100)}%* (hoje ${Math.round(x.atual * 100)}%).` : ' Está certo, não precisa mudar.'}`);
+    if (x.muda) bts.push({ id: `rgaj|${e}|${x.novo}`, titulo: `Ajustar ${e === 'corte' ? 'corte' : 'acabamento'}` });
+  }
+  L.push('', 'Os pontos de cada tarefa valem pelo tempo-padrão; o ajuste vale daqui para frente.');
+  return { texto: L.join('\n'), bts };
+}
+async function reguaBotao(env, from, id) {
+  const [, e, v] = id.split('|'); if (!['corte', 'acabamento'].includes(e) || !(+v > 0)) return false;
+  let f = {}; try { f = JSON.parse((await env.HR_KV.get('cfg:regua_fator')) || '{}') || {}; } catch (_) {}
+  f[e] = +v; await env.HR_KV.put('cfg:regua_fator', JSON.stringify(f)); globalThis.__precosEm = 0;
+  await enviar(env, from, `✅ Régua ajustada: ${e === 'corte' ? 'corte' : 'acabamento/polimento'} agora vale ${Math.round(+v * 100)}% do tempo-padrão, a partir de agora.`); return true;
+}
+async function reguaRotina(env) { // dia 1º de cada mês, às 9h
+  const hoje = dataBahia(), ag = agoraBahia(); if (hoje.slice(8) !== '01' || ag.min < 9 * 60) return;
+  if (!(await travaEnvio(env, 'regua:' + hoje.slice(0, 7)))) return;
+  const t = await reguaTexto(env); if (t.bts.length) await enviarComBotoes(env, numeroDono(env), t.texto, t.bts.slice(0, 3)).catch(() => {}); else await pontoAvisarDono(env, t.texto).catch(() => {});
+}
+// 2) FILA DO DIA: quanto cada um tem de serviço na fila × a meta do dia
+async function filaFuncionarios(env) {
+  const cfg = await pontoCfg(env), { map } = await funcoesEquipe(env), peds = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), out = [];
+  for (const f of cfg.funcs) {
+    const id = String(f.id), fs = map[id] || []; if (!fs.length) continue; let pts = 0; const itens = [];
+    for (const p of peds) {
+      const ok = !!(p.fichaEnviadaEm || p.fechDono), add = (e, v) => { if (v > 0) { pts += v; itens.push(`${String(p.nome || '').split(' ')[0]} (${e})`); } };
+      if (ok && String(p.fabResp) === id && !p.corteEm) add('corte', ptsEtapa(p, 'corte'));
+      if (p.corteEm && !p.acabEm && [p.acabResp, p.poliResp].map(String).includes(id)) add('acabamento', ptsEtapa(p, pedComplexo(p) ? 'polimento' : 'acabamento'));
+      if (p.corteEm && !p.fabProntoEm && pedComplexo(p) && String(p.fab2Resp) === id) add('fabricação', ptsEtapa(p, 'fabricacao'));
+      if (naEntrega(p) && String(p.entResp) === id) add(pedComplexo(p) ? 'instalação' : 'entrega', ptsEtapa(p, pedComplexo(p) ? 'instalacao' : 'entrega'));
+    }
+    out.push({ id, nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], fs, pts: Math.round(pts * 10) / 10, itens });
+  }
+  return out;
+}
+async function filaRotina(env) { // dias de trabalho, 7h40
+  const hoje = dataBahia(), ag = agoraBahia(); if (ag.min < 7 * 60 + 40 || ag.min > 11 * 60 || !dsmDiaTrab(env, hoje)) return;
+  if (!(await travaEnvio(env, 'fila:' + hoje))) return;
+  const l = await filaFuncionarios(env), baixo = [];
+  for (const x of l) { const pn = await metaPainel(env, x.id).catch(() => null); if (!pn || !(pn.metaDia > 0)) continue; if (x.pts < pn.metaDia) baixo.push(`• *${x.nome}*: ${vPt(x.pts)} de ${vPt(pn.metaDia)} pontos na fila${x.itens.length ? ' — ' + x.itens.slice(0, 3).join(', ') : ' — *nada na fila*'}`); }
+  if (baixo.length) await pontoAvisarDono(env, [`📋 *Fila de hoje abaixo da meta do dia:*`, ...baixo, '', 'Sem serviço na fila a pessoa não bate a meta. Dá para passar uma tarefa para eles? (ex.: _o Lucas faz o acabamento da Maria_)'].join('\n')).catch(() => {});
+}
+// 4) CLIENTE ACOMPANHANDO: avisa quando as peças foram cortadas e quando ficou pronto (só dentro da janela de 24 h do WhatsApp)
+async function cliAcompRotina(env) {
+  if (Date.now() - (globalThis.__cliAcomp || 0) < 10 * 60000) return; globalThis.__cliAcomp = Date.now();
+  if ((await env.HR_KV.get('cfg:cliacomp')) === '0') return;
+  const ag = agoraBahia(); if (ag.min < 7 * 60 || ag.min > 19 * 60) return;
+  const agora = Date.now(), l = await pedidosProducao(env, p => p.numero && !p.entregueEm && p.status !== 'recusado' && (p.fechDono || p.fichaEnviadaEm) && ((p.corteEm && agora - p.corteEm < 12 * 3600000) || (p.fabProntoEm && agora - p.fabProntoEm < 12 * 3600000)));
+  for (const p of l) {
+    const av = p.cliAv || {}, pn = nomeDeTratamento(p.nome) || 'Olá', num = normalizarBR(String(p.numero)); let txt = '', k = '';
+    if (p.fabProntoEm && agora - p.fabProntoEm < 12 * 3600000 && !av.pronto && !p.prontoEm && String(p.entrega || '') !== 'retirada') { k = 'pronto'; txt = `${pn}, boa notícia: o seu pedido (${resumoPecas(p)}) ficou *pronto* na nossa fábrica ✅. Já já combinamos com você o dia da ${pedComplexo(p) ? 'instalação' : 'entrega'}.`; }
+    else if (p.corteEm && agora - p.corteEm < 12 * 3600000 && !av.corte && !av.pronto && !p.fabProntoEm) { k = 'corte'; txt = `${pn}, passando para contar: as peças do seu pedido (${resumoPecas(p)}) já foram *cortadas* ✂️ e seguem para o acabamento. Te aviso quando ficar pronto. 😊`; }
+    if (!k || !(await janela24h(env, num))) continue; if (!(await travaEnvio(env, 'cliav:' + p.id + ':' + k))) continue;
+    await enviar(env, num, txt).catch(() => {}); p.cliAv = { ...av, [k]: Date.now() }; await salvarPedido(env, p);
+  }
+}
+// 5) RESUMO DE SEXTA (17h20): pontos da equipe, entradas da semana e o que falta receber
+async function resumoSextaTexto(env) {
+  const hoje = dataBahia(), ini = semIni(hoje), cfg = await pontoCfg(env), L = [`📊 *Resumo da semana* (${dataBR(ini).slice(0, 5)} a ${dataBR(hoje).slice(0, 5)})`, ''];
+  const fila = await filaFuncionarios(env).catch(() => []);
+  for (const f of cfg.funcs) { const pn = await metaPainel(env, f.id).catch(() => null); if (!pn || (!pn.pts && !pn.meta)) continue; const fl = fila.find(x => x.id === String(f.id)), motivo = pn.pts >= pn.meta ? '' : (fl && fl.pts < 1 ? ' · pouca coisa na fila' : '') + (pn.teto < 999 ? ' · teve retrabalho' : '');
+    L.push(`${pn.pts >= pn.meta ? '✅' : pn.pct >= 80 ? '🟡' : '🔴'} *${apelidoFunc(cfg, f) || f.nome.split(' ')[0]}*: ${vPt(pn.pts)} de ${vPt(pn.meta)} (${pn.pct}%)${motivo}`); }
+  let ent = 0; try { const t0 = Date.parse(ini + 'T03:00:00Z'), t1 = Date.now(), prefs = [...new Set([String(t0).slice(0, 4), String(t1).slice(0, 4)])];
+    for (const pr of prefs) { let cur; do { const r = await env.HR_KV.list({ prefix: 'fin:' + pr, cursor: cur }); for (const k of r.keys) { const ts = +k.name.slice(4, 17); if (ts < t0 || ts > t1) continue; const rec = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (rec && rec.type === 'in') ent += +rec.value || 0; } cur = r.list_complete ? null : r.cursor; } while (cur); } } catch (_) {}
+  let receber = 0, nRec = 0; try { for (const r of await livTodos(env)) { const sd = livSaldo(r); if (sd > 0.009) { receber += sd; nRec++; } } } catch (_) {}
+  L.push('', `💰 Entradas lançadas pelo bot na semana: *R$ ${reais(ent)}*`, `📒 Falta receber (livro de entregas): *R$ ${reais(receber)}* de ${nRec} cliente(s)`);
+  return L.join('\n');
+}
+async function resumoSextaRotina(env) { const hoje = dataBahia(), ag = agoraBahia(); if (diaSemanaISO(hoje) !== 5 || ag.min < 17 * 60 + 20) return; if (!(await travaEnvio(env, 'sexta:' + hoje))) return; await pontoAvisarDono(env, await resumoSextaTexto(env)).catch(() => {}); }
+// 6) CORTE JUNTO: pedidos esperando corte com o mesmo material saem juntos (aproveita a chapa)
+async function corteJuntoRotina(env) {
+  const hoje = dataBahia(), ag = agoraBahia(); if (ag.min < 7 * 60 + 30 || ag.min > 11 * 60 || !dsmDiaTrab(env, hoje)) return; if (!(await travaEnvio(env, 'cjunto:' + hoje))) return;
+  const l = (await pedidosProducao(env, p => !p.entregueEm && !p.corteEm && (p.fichaEnviadaEm || p.fechDono) && p.status !== 'recusado')).filter(p => pedraDe(p) && pecasDe(p).length), grupos = [];
+  for (const p of l) { const g = grupos.find(x => mesmaPedra(x.pedra, pedraDe(p))); if (g) g.peds.push(p); else grupos.push({ pedra: pedraDe(p), peds: [p] }); }
+  const jun = grupos.filter(g => g.peds.length >= 2); if (!jun.length) return;
+  const txt = ['✂️ *Corte junto hoje (mesmo material, aproveita a chapa):*', ...jun.map(g => { const m2 = g.peds.reduce((t, p) => t + pecasDe(p).reduce((a, x) => a + x.c * x.l * x.qtd, 0), 0) / 10000; return `• *${g.pedra}*: ${g.peds.map(p => `${String(p.nome || '').split(' ')[0]} (${pecasDe(p).reduce((a, x) => a + x.qtd, 0)} pç)`).join(' + ')} · ${String(Math.round(m2 * 100) / 100).replace('.', ',')} m²${m2 <= 4.5 ? ' — cabe numa chapa' : ` — umas ${Math.ceil(m2 / 4.5)} chapas`}`; })].join('\n');
+  await pontoAvisarDono(env, txt).catch(() => {});
+  const resp = [...new Set(jun.flatMap(g => g.peds.map(p => String(p.fabResp || ''))).filter(Boolean))], cfg = await pontoCfg(env);
+  for (const id of resp) { const f = cfg.funcs.find(x => String(x.id) === id); if (f && f.tel) await eqTexto(env, f.tel, `${avisoTeste(env)}${txt}\nCorte esses juntos para aproveitar melhor a pedra. 👍`).catch(() => {}); }
+}
 // v206: serviços do Hugo pelo PREÇO do app (sainha 45° por metro linear, rebaixo americano, rebaixo normal): pontos = valor ÷ R$ por ponto (padrão R$ 45)
 const PRECO_PAD = { s_45: 150, reb_a: 430, reb_n: 200 };
 const precoSv = k => { const v = +((globalThis.__precosSv || {})[k]); return v > 0 ? v : PRECO_PAD[k] || 0; };
 const rsPonto = () => +((globalThis.__precosSv || {})._rsPonto) || (dataBahia() >= MES100_INI ? 36 : 45); // v209: com a meta de 100/mês, cada ponto vale R$ 36 de serviço
-async function precosCarregar(env) { if (globalThis.__precosEm && Date.now() - globalThis.__precosEm < 5 * 60000) return; globalThis.__precosEm = Date.now(); try { globalThis.__precosSv = JSON.parse((await env.HR_KV.get('cfg:precosSv')) || '{}') || {}; } catch (_) { globalThis.__precosSv = {}; } }
+async function precosCarregar(env) { if (globalThis.__precosEm && Date.now() - globalThis.__precosEm < 5 * 60000) return; globalThis.__precosEm = Date.now(); try { globalThis.__precosSv = JSON.parse((await env.HR_KV.get('cfg:precosSv')) || '{}') || {}; } catch (_) { globalThis.__precosSv = {}; } try { globalThis.__reguaFator = JSON.parse((await env.HR_KV.get('cfg:regua_fator')) || '{}') || {}; } catch (_) { globalThis.__reguaFator = {}; } }
 function servicosHugo(it) {
   const sv = it.sv || [], L = [], saiasF = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia'), saiaM = (saiasF.length ? saiasF : (it.pecas || []).filter(pc => pcEstreita(pc, it))).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
   if (sv.includes('reb_a')) L.push({ nome: `Rebaixo americano: recorte, polimento e colar o tampo (R$ ${reais(precoSv('reb_a'))})`, pts: meio(precoSv('reb_a') / rsPonto()) || 1 });
@@ -11674,6 +11782,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v210: régua que se acerta pelo tempo real (dia 1º, botão para aprovar; comando "régua"), aviso da fila abaixo da meta às 7h40 ("fila de hoje"), avisos de andamento ao cliente (cortado/pronto), resumo de sexta 17h20 ("resumo da semana"), corte junto do mesmo material às 7h30.
 // v209: META DE 100 PONTOS NO MÊS (a partir de 1º/12): dia = 100 ÷ dias de trabalho (sábado meio dia), semana = soma dos dias; 1 ponto ≈ 1,6 h (Hugo: R$ 36 de serviço por ponto).
 // v207: pontos SIMPLES para a equipe: mensagens só com "hoje X de Y" e "semana X de Y"; comemora só a meta batida; sem avisos de faixa/nível/lugar.
 // v206: serviços do Hugo (sainha 45° por metro, rebaixo americano/normal) pelo preço do app ÷ R$ 45 por ponto; preços vêm do app.
