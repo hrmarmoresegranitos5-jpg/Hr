@@ -6864,7 +6864,7 @@ async function pedirAvaliacoes(env) {
   await mig198Ajudante(env).catch(e => console.log('[MIG198]', e.message)); // v198
   await mig199Narracao(env).catch(e => console.log('[MIG199]', e.message)); // v199
   await mig202Jailton(env).catch(e => console.log('[MIG202]', e.message)); // v202
-  for (const [n, fn] of [['regua', reguaRotina], ['fila', filaRotina], ['cliacomp', cliAcompRotina], ['sexta', resumoSextaRotina], ['cjunto', corteJuntoRotina]]) await fn(env).catch(e => console.log('[V210 ' + n + ']', e.message)); // v210
+  for (const [n, fn] of [['regua', reguaRotina], ['fimdia', fimDiaEquipeRotina], ['fila', filaRotina], ['cliacomp', cliAcompRotina], ['sexta', resumoSextaRotina], ['cjunto', corteJuntoRotina]]) await fn(env).catch(e => console.log('[V210 ' + n + ']', e.message)); // v210
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7926,6 +7926,43 @@ async function donoPlanoEquipe(env, from, bruto) {
   try { let h = JSON.parse((await env.HR_KV.get('ag:hist')) || '[]') || []; h = h.concat([{ role: 'user', content: String(bruto).slice(0, 800) }, { role: 'assistant', content: 'Anotado (plano da equipe): ' + linhas.join(' ') }]).slice(-30); await env.HR_KV.put('ag:hist', JSON.stringify(h), { expirationTtl: 3 * 86400 }); } catch (_) {}
   return true;
 }
+// v217: FIM DO DIA — 45 min antes da saída o bot pergunta a cada um como ficou o que ele começou/tinha hoje (Terminei / Continua amanhã).
+// Assim nada fica "esquecido": o que terminou entra (com os pontos) e o que não terminou fica marcado para amanhã.
+async function fimDiaEquipeRotina(env) {
+  const hoje = dataBahia(), ag = agoraBahia(); if (!dsmDiaTrab(env, hoje)) return;
+  const cfg = await pontoCfg(env), L = cfg.lemb || {}, mm = t => { const [h, mi] = String(t || '').split(':').map(Number); return h * 60 + (mi || 0); };
+  const xh = (cfg.excBot || []).find(x => x.data === hoje && x.tipo === 'meio');
+  const sai = mm((xh && xh.s) || (ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || '12:15') : (L.saida || '17:45')));
+  if (ag.min < sai - 45 || ag.min > sai + 30) return;
+  if (!(await umaVez(env, 'fimdia:' + hoje, 1))) return;
+  const ini0 = quandoTs(hoje, '00:00');
+  for (const f of cfg.funcs) {
+    const tel = f.tel ? normalizarBR(String(f.tel).startsWith('55') ? f.tel : '55' + f.tel) : ''; if (!tel) continue;
+    const id = String(f.id), nome = apelidoFunc(cfg, f);
+    const l = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado');
+    const meus = l.filter(p => {
+      const tocouHoje = [p.iniciadoEm, p.corteIniEm, p.acabIniEm, p.instIniEm, p.fab2Avisado].some(t => t && t >= ini0) || (p.prodLog || []).some(x => x.ts >= ini0 && (x.por || []).map(String).includes(id) && x.e === 'inicio');
+      const meu = (String(p.fabResp) === id && !p.corteEm) || (String(p.fab2Resp) === id && !p.fabProntoEm && !p.prontoEm) || (String(p.acabResp) === id && p.corteEm && !p.acabEm && !p.fabProntoEm) || (naEntrega(p) && (String(p.entResp) === id || (p.entAjud || []).map(String).includes(id)) && p.instIniEm);
+      return meu && tocouHoje;
+    }).slice(0, 3);
+    if (!meus.length) continue;
+    const aberta = await funcJanelaAberta(env, f).catch(() => false);
+    for (const p of meus) {
+      const inst = naEntrega(p) && p.instIniEm;
+      const txt = `${avisoTeste(env)}🕔 ${nome}, como ficou *${p.nome}* hoje?`;
+      if (aberta) await enviarComBotoes(env, tel, txt, [{ id: `fdia|ok|${p.id}`, titulo: inst ? 'Instalei' : 'Terminei' }, { id: `fdia|nao|${p.id}`, titulo: 'Continua amanhã' }]).catch(() => {});
+      else await eqTexto(env, tel, `${txt} Se terminou, me diga: _${inst ? 'instalei' : 'terminei'} o de ${String(p.nome).split(' ')[0]}_. Se não, _continua amanhã_.`).catch(() => {});
+    }
+  }
+}
+async function fimDiaBotao(env, f, from, idB, nome) {
+  const [, ac, pid] = idB.split('|'); const p = await lerPedido(env, pid).catch(() => null);
+  if (!p) { await enviar(env, from, 'Não achei esse serviço.'); return true; }
+  const pn = String(p.nome || '').split(' ')[0];
+  if (ac === 'nao') { p.continuaEm = p.continuaEm || []; p.continuaEm.push({ por: String(f.id), ts: Date.now() }); p.continuaEm = p.continuaEm.slice(-10); await salvarPedido(env, p); await enviar(env, from, `Certo, ${nome}: ${pn} continua amanhã. Bom descanso!`); await pontoAvisarDono(env, `🕔 ${nome}: *${p.nome}* continua amanhã.`).catch(() => {}); return true; }
+  const inst = naEntrega(p) && p.instIniEm;
+  return producaoFuncionario(env, f, from, `${inst ? 'instalei' : 'terminei'} o de ${p.nome}`, '', nome);
+}
 function acharPorNome(lista, texto) {
   const tk = tokensPedra(texto || '');
   const ach = nomeMelhores(lista, tk); // v215: exato primeiro; sem exato, o parecido
@@ -7948,6 +7985,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   const papel = await papelFuncionario(env, f, from); if (!papel) return false;
   const msg = normaliza(texto || '');
   if (idB && /^acb\|/.test(idB)) return prodAcabadorEscolhido(env, f, from, idB, nome); // v149
+  if (idB && /^fdia\|/.test(idB)) return fimDiaBotao(env, f, from, idB, nome); // v217
   if (!idB && await funcPerguntas(env, f, from, texto, nome, msg).catch(e => { console.log('[PROD] perguntas:', e.message); return false; })) return true; // v215: lista, pontos, sem serviço, problema
   if (!idB && /\b(quebrou|quebrei|quebramos|trincou|trinquei|rachou|rachei|lascou|lasquei|estragou|estraguei|perdi a peca|perdemos)\b/.test(msg)) return perdaFuncionario(env, f, from, texto, nome); // v151
   if (!idB && msg.split(' ').length <= 6 && !/\b(iniciando|inicia|comec|cheguei|instalei|entreguei|terminei|cortei|pronto|acabei)\w*/.test(msg) && await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) { // v172: "é da Renata" depois de uma foto
@@ -7994,7 +8032,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       if (lV.length === 1) { const pV = lV[0]; if (String(pV.entResp) !== String(f.id)) { pV.entAjud = [...new Set([...(pV.entAjud || []), String(f.id)])]; await salvarPedido(env, pV); }
         await enviar(env, from, `Anotado, ${nome}: você vai junto na instalação de *${pV.nome}*. Os pontos da instalação são divididos entre quem foi.`); await pontoAvisarDono(env, `👥 *${nome}* vai junto na instalação de *${pV.nome}*.`).catch(() => {}); return true; }
     }
-    const negP = /\b(nao|ainda nao|nem)\b[^.!?]{0,20}\b(pront[oa]s?|termin\w*|acab\w*|finaliz\w*)\b|^(so )?falta\w*\b|\bfalta\w* (terminar|acabar|pouco|so)\b/.test(msg) && !/\b(terminei|acabei|finalizei)\b/.test(msg);
+    const negP = /\b(nao|ainda nao|nem)\b[^.!?]{0,20}\b(pront[oa]s?|termin\w*|acab\w*|finaliz\w*)\b|^(so )?falta\w*\b|\bfalta\w* (terminar|acabar|pouco|so)\b|\bcontinu\w* amanha\b|\bfica (pra|para) amanha\b|\bamanha (eu )?(termino|acabo|continuo)\b/.test(msg) && !/\b(terminei|acabei|finalizei)\b/.test(msg);
     const forte = /\b(terminei|acabei|finalizei|conclui|terminamos|acabamos|ficou pront\w*|(ta|esta|estao|tao|ja) pront\w*|ta feito|esta feito)\b/.test(msg);
     const iniP = /\b(iniciei|iniciando|inicio|comecei|comecando|comecamos|vou comecar|vou iniciar|to comecando|estou comecando|peguei)\b/.test(msg);
     if (negP) { await enviar(env, from, papel === 'entrega' ? `Certo, ${nome}: anotado que ainda não terminou. Quando acabar: _instalei o da (cliente)_ e a foto com tudo instalado.` : `Certo, ${nome}: anotado que ainda não terminou. Quando terminar, me diga: _terminei o de (cliente)_.`); return true; }
@@ -29228,7 +29266,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   if (idB && /^fot\|/.test(idB)) return prodFotoEscolha(env, f, from, idB, nome); // v165
   if (idB && /^cnt\|/.test(idB)) return contarBotao(env, f, from, idB, nome); // v174
   if (!idB && m.type === 'text' && /^\s*\d{1,3}\s*(pecas?|peças?|unidades?)?\s*$/i.test(String(m.text?.body || ''))) { let c = null; try { c = JSON.parse((await env.HR_KV.get('prod:contar:' + ultimos8(from))) || 'null'); } catch (_) {} if (c) return contarFinalizar(env, f, from, c, parseInt(String(m.text.body), 10), nome); } // v174
-  if (!texto && idB && /^(fpr|fen|fgr|fgs|fgn|frs|acb)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
+  if (!texto && idB && /^(fpr|fen|fgr|fgs|fgn|frs|acb|fdia)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
   if (!texto) { await enviar(env, from, `${nome}, por aqui eu só consigo ler texto e áudio sobre o seu ponto, as suas horas e os pedidos.`); return true; }
   if (entregues) return true; // ele escreveu e havia recado guardado: primeiro lê o recado
   if (await producaoFuncionario(env, f, from, texto, idB, nome).catch(e => { console.log('[PROD] funcionário:', e.message); return false; })) return true; // v133
