@@ -160,6 +160,9 @@ var HR_FECHAMENTO = (function () {
       if (esp > 0 && (!r || (!(parseFloat(r.horas) > 0) && r.tipo !== 'abonado' && r.tipo !== 'falta'))) vazios.push(_dm(d));
       d = _proxDia(d);
     }
+    var manhas = []; d = per.di; guard = 0;
+    while (d <= per.df && d <= hoje && guard++ < 40) { var esp2 = 0; try { esp2 = HR_IMPORT._jornadaEsperada(d, l.f.id) || 0; } catch (e) {} if (_manhaEsquecida(porDia[d], esp2)) manhas.push(_dm(d) + ' (1ª batida ' + porDia[d].entrada + ')'); d = _proxDia(d); }
+    if (manhas.length) out.push({ t: 'Esqueceu de bater de manhã: ' + manhas.join(', ') + '. Está contando como falta. Toque em "Completar a manhã" no dia a dia.', grave: true });
     if (vazios.length) out.push({ t: 'Dia sem ponto: ' + vazios.join(', ') + '. Resolva no dia a dia abaixo: trabalhou, faltou ou atestado.', grave: true });
     if (l.semSaida > 0) out.push({ t: l.semSaida + ' dia(s) com entrada e sem saída.', grave: true });
     if (l.antPend > 0.01) out.push({ t: 'Pode haver ' + _m(l.antPend) + ' em aberto do mês passado (' + l.antLbl + '). NÃO está somado aqui — toque em "Ver ficha" para conferir.', grave: false });
@@ -184,7 +187,9 @@ var HR_FECHAMENTO = (function () {
       var horario = r && r.entrada ? r.entrada + '–' + (r.saida || '?') : '—';
       var semP = !futuro && esp > 0 && (!r || (!trab && r.tipo !== 'abonado' && r.tipo !== 'falta'));
       if (r && r.tipo === 'falta') txtDif = 'faltou';
-      var acoes = semP ? '<div style="display:flex;gap:5px;margin:2px 0 6px 68px;flex-wrap:wrap;">' +
+      var esqM = !futuro && _manhaEsquecida(r, esp);
+      if (esqM) { cor = AMBER; txtDif = 'esqueceu a manhã?'; }
+      var acoes = esqM ? '<div style="display:flex;gap:5px;margin:2px 0 6px 68px;flex-wrap:wrap;">' + _btnP('🕗 Completar a manhã', "HR_FECHAMENTO.diaCompletarManha('" + l.f.id + "','" + d + "')", AMBER) + '</div>' : semP ? '<div style="display:flex;gap:5px;margin:2px 0 6px 68px;flex-wrap:wrap;">' +
         _btnP('✓ Trabalhou', "HR_FECHAMENTO.diaTrabalhou('" + l.f.id + "','" + d + "'," + esp + ")", GREEN) +
         _btnP('✗ Faltou', "HR_FECHAMENTO.diaMarcar('" + l.f.id + "','" + d + "','falta')", RED) +
         _btnP('🩺 Atestado', "HR_FECHAMENTO.diaMarcar('" + l.f.id + "','" + d + "','abonado')", AMBER) + '</div>' : '';
@@ -387,6 +392,30 @@ var HR_FECHAMENTO = (function () {
   // ── v5: resolver dia sem ponto aqui mesmo ──
   function _hm2min(t) { var m = /^(\d{1,2})[:h]?(\d{2})?$/.exec(String(t || '').trim()); return m ? (+m[1]) * 60 + (+(m[2] || 0)) : NaN; }
   function _min2hm(x) { return _p2(Math.floor(x / 60)) + ':' + _p2(x % 60); }
+
+  // v6: horário de costume do funcionário (mediana dos últimos 45 dias) — base para completar batida esquecida
+  function _costume(fid) {
+    var regs = {}; try { regs = HR_FUNC.getRegistros() || {}; } catch (e) {}
+    var lim = new Date(); lim.setDate(lim.getDate() - 45); var limI = _iso(lim), col = { e: [], ai: [], af: [], s: [] };
+    Object.keys(regs).forEach(function (k) { var r = regs[k]; if (!r || String(r.funcionarioId) !== String(fid) || r.data < limI || r.tipo === 'falta' || r.tipo === 'abonado') return;
+      var e = _hm2min(r.entrada), ai = _hm2min(r.saidaAlmoco), af = _hm2min(r.voltaAlmoco), sa = _hm2min(r.saida);
+      if (e >= 300 && e <= 600) col.e.push(e); if (ai >= 600 && ai <= 810 && af > ai) { col.ai.push(ai); col.af.push(af); } if (sa >= 900 && sa <= 1200) col.s.push(sa); });
+    function med(a, pad) { if (!a.length) return pad; a.sort(function (x, y) { return x - y; }); return a[Math.floor(a.length / 2)]; }
+    return { e: med(col.e, 420), ai: med(col.ai, 720), af: med(col.af, 800), s: med(col.s, 1020), n: col.e.length };
+  }
+  function _manhaEsquecida(r, esp) { var e = _hm2min(r && r.entrada); return !!r && esp >= 420 && e >= 735 && e <= 885 && !r.saidaAlmoco; }
+  function diaCompletarManha(fid, d) {
+    var regs = HR_FUNC.getRegistros(), r = null; Object.keys(regs).some(function (k) { var g = regs[k]; if (g && String(g.funcionarioId) === String(fid) && g.data === d) { r = g; return true; } });
+    if (!r) return;
+    var c = _costume(fid), volta = _hm2min(r.entrada), sa = _hm2min(r.saida);
+    var t = prompt('Em ' + _dm(d) + ' a 1ª batida foi ' + r.entrada + ' (volta do almoço).\nQue horas ele chegou e saiu pro almoço?\n(sugestão pelo costume dele)', _min2hm(c.e) + ' ' + _min2hm(Math.min(c.ai, volta - 30)));
+    if (t == null) return;
+    var p = String(t).trim().split(/[\s,;–-]+/), e = _hm2min(p[0]), ai = _hm2min(p[1]);
+    if (!(e >= 0) || !(ai > e) || !(volta > ai) || !(sa > volta)) { _toast('Não entendi. Ex.: 07:00 12:00'); return; }
+    var alm = volta - ai, cc = (typeof HR_IMPORT !== 'undefined' && HR_IMPORT._calcDia) ? HR_IMPORT._calcDia(e, sa, d, alm, fid) : { trab: sa - e - alm, extra: 0 };
+    var campos = { entrada: _min2hm(e), saidaAlmoco: _min2hm(ai), voltaAlmoco: _min2hm(volta), saida: _min2hm(sa), semAlmocoConfirmado: false, horas: +(cc.trab / 60).toFixed(4), extra: +((cc.extra || 0) / 60).toFixed(4), tipo: r.tipo === 'falta' ? 'normal' : (r.tipo || 'normal'), observacao: 'Manhã completada no fechamento (esqueceu de bater)' };
+    if (_gravarDia(fid, d, campos)) { _toast('✓ ' + _dm(d) + ': ' + campos.entrada + '–' + campos.saidaAlmoco + ' / ' + campos.voltaAlmoco + '–' + campos.saida); _render(); }
+  }
   function _gravarDia(fid, d, campos) {
     var regs = HR_FUNC.getRegistros(), existe = null;
     Object.keys(regs).some(function (k) { var g = regs[k]; if (g && String(g.funcionarioId) === String(fid) && g.data === d) { existe = g; return true; } });
@@ -398,7 +427,7 @@ var HR_FECHAMENTO = (function () {
     return true;
   }
   function diaTrabalhou(fid, d, esp) {
-    var sug = esp <= 300 ? '07:00-11:00' : '07:00-17:00';
+    var cst = _costume(fid), sug = esp <= 300 ? _min2hm(cst.e) + '-' + _min2hm(cst.e + 240) : _min2hm(cst.e) + '-' + _min2hm(cst.s); // v6: pelo costume dele
     var t = prompt('Que horas entrou e saiu em ' + _dm(d) + '?\n(ex.: ' + sug + ' — em dia cheio desconto 1h20 de almoço)', sug);
     if (t == null) return;
     var p = String(t).replace(/\s/g, '').split(/[-–a]+/), e = _hm2min(p[0]), sa = _hm2min(p[1]);
@@ -513,7 +542,7 @@ var HR_FECHAMENTO = (function () {
   } catch (e) {}
 
   return {
-    abrir: abrir, atualizar: atualizar, abreFecha: abreFecha, copiarPix: copiarPix, diaTrabalhou: diaTrabalhou, diaMarcar: diaMarcar, fechar: fechar, setCorte: setCorte, toggle: toggle,
+    abrir: abrir, atualizar: atualizar, abreFecha: abreFecha, copiarPix: copiarPix, diaTrabalhou: diaTrabalhou, diaCompletarManha: diaCompletarManha, diaMarcar: diaMarcar, fechar: fechar, setCorte: setCorte, toggle: toggle,
     relatorio: relatorio, avisar: avisar, corrigir: corrigir, detalhes: detalhes, importar: importar,
     pagarUm: pagarUm, pagarSelecionados: pagarSelecionados, _executar: _executar
   };
