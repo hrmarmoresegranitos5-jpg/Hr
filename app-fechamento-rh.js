@@ -17,7 +17,7 @@ var HR_FECHAMENTO = (function () {
 
   var OV = 'hrFechamento', OV_CONF = 'hrFechConf';
   var LS_AVISOS = 'hr_fechamento_avisos';
-  var _st = { corte: null, sel: {}, linhas: [], ocupado: false, dirty: false };
+  var _st = { corte: null, sel: {}, linhas: [], ocupado: false, dirty: false, aberto: {} };
 
   // ── utilitários ─────────────────────────────────────────────
   function _p2(n) { return String(n).padStart(2, '0'); }
@@ -170,55 +170,83 @@ var HR_FECHAMENTO = (function () {
       '<span style="color:' + T2 + ';">' + rot + (sub ? '<div style="font-size:.64rem;color:' + T3 + ';margin-top:1px;">' + sub + '</div>' : '') + '</span>' +
       '<b style="color:' + (cor || T1) + ';white-space:nowrap;">' + (sinal || '') + _m(val) + '</b></div>';
   }
+  // dia a dia, sem PDF: quanto devia trabalhar, quanto trabalhou e a diferença
+  function _diaADia(l, regsF) {
+    var per = l.pv.per, porDia = {}, hoje = _hojeISO(), d = per.di, guard = 0, rows = '';
+    var nomes = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+    regsF.forEach(function (r) { porDia[r.data] = r; });
+    while (d <= per.df && guard++ < 40) {
+      var esp = 0; try { esp = HR_IMPORT._jornadaEsperada(d, l.f.id) || 0; } catch (e) {}
+      var r = porDia[d], trab = r ? Math.round((parseFloat(r.horas) || 0) * 60) : 0, dow = new Date(d + 'T12:00:00').getDay();
+      if (esp === 0 && !trab) { d = _proxDia(d); continue; }
+      var futuro = d > hoje, dif = trab - esp, cor = futuro ? T3 : (!r || (!trab && r.tipo !== 'abonado')) ? RED : dif > 0 ? GREEN : dif < 0 ? AMBER : T2;
+      var txtDif = futuro ? '—' : (!r && esp) ? 'sem ponto' : (r && r.tipo === 'abonado') ? 'abonado' : (dif === 0 ? 'certo' : (dif > 0 ? '+' : '−') + _hm(dif));
+      var horario = r && r.entrada ? r.entrada + '–' + (r.saida || '?') : '—';
+      rows += '<div style="display:grid;grid-template-columns:62px 1fr 52px 70px;gap:6px;padding:5px 0;border-top:1px solid ' + BD2 + ';font-size:.72rem;align-items:center;">' +
+        '<span style="color:' + T2 + ';">' + _dm(d) + ' <span style="color:' + T3 + ';font-size:.6rem;">' + nomes[dow] + '</span></span>' +
+        '<span style="color:' + T3 + ';">' + horario + (esp && esp < 480 && dow !== 6 ? ' <span style="font-size:.58rem;">(meio período)</span>' : '') + '</span>' +
+        '<span style="color:' + T2 + ';text-align:right;">' + (trab ? _hm(trab) : '') + '</span>' +
+        '<b style="color:' + cor + ';text-align:right;">' + txtDif + '</b></div>';
+      d = _proxDia(d);
+    }
+    return '<div style="margin-top:10px;"><div style="font-size:.6rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Dia a dia</div>' + rows + '</div>';
+  }
+  function _ultimoPag(f) {
+    var ps = Object.values(HR_FUNC.getPagamentos()).filter(function (p) { return p.funcionarioId === f.id && (p.tipo === 'decendio' || !p.tipo); }).sort(function (a, b) { return (b.data || '').localeCompare(a.data || ''); });
+    return ps[0] || null;
+  }
   function _htmlLinha(l, i, av) {
     var f = l.f, s = l.s || {}, nome = _esc(f.nome.split(' ').slice(0, 2).join(' '));
     var per = l.pv.per, k = _chave(l), conf = l.conf || [], grave = conf.some(function (c) { return c.grave; }) || l.erro;
+    var aberto = !!_st.aberto[k];
     var ext = (s.valorExtra || 0) + (s.totalAcrescimos || 0) + ((s.totalCreditosHE || 0) - (s.totalPendEntra || 0));
+    var desc = (s.deficitRestanteValor || 0) + (s.totalPendSai || 0) + (l.adi || 0) + (l.cre || 0) + (l.pago || 0);
     var e2 = s.totalExtra50Min || 0, e3 = (s.totalExtra100Min || 0) + (s.totalExtra200Min || 0);
-    var subExt = (e2 ? _hm(e2) + ' dobrada (×2)' : '') + (e2 && e3 ? ' + ' : '') + (e3 ? _hm(e3) + ' triplicada (×3)' : '');
-    if ((s.deficitAbatidoMin || 0) > 0) subExt += (subExt ? ' · ' : '') + 'já tirei ' + _hm(s.deficitAbatidoMin) + ' de falta/atraso daqui';
-    var conta = _linhaConta('Salário do ' + per.label, s.totalSalario || 0, '', T1);
-    if (ext > 0.01) conta += _linhaConta('Horas extras', ext, '+ ', GREEN, subExt);
-    if ((s.totalPendEntra || 0) > 0.01) conta += _linhaConta('Sobrou do período anterior', s.totalPendEntra, '+ ', GREEN);
-    if ((s.deficitRestanteValor || 0) > 0.01) conta += _linhaConta('Faltas/atrasos (' + _hm(s.deficitRestanteMin || 0) + ')', s.deficitRestanteValor, '− ', RED, 'o que não deu para tirar das horas extras');
-    if ((s.totalPendSai || 0) > 0.01) conta += _linhaConta('Passado para o próximo pagamento', s.totalPendSai, '− ', RED);
-    if (l.adi > 0.01) conta += _linhaConta('Vale / adiantamento', l.adi, '− ', RED);
-    if (l.cre > 0.01) conta += _linhaConta('Pago a mais antes', l.cre, '− ', RED);
-    if (l.pago > 0.01) conta += _linhaConta('Já pago neste período', l.pago, '− ', RED);
 
-    var topo, corTopo;
-    if (l.status === 'pagar') { topo = _m(l.valor); corTopo = GOLD; }
-    else if (l.status === 'pago') { topo = '✅ Pago'; corTopo = GREEN; }
-    else if (l.status === 'erro') { topo = '⚠️ Erro'; corTopo = AMBER; }
-    else { topo = 'Nada a pagar'; corTopo = T3; }
-    var chk = (l.status === 'pagar')
-      ? '<label style="display:flex;align-items:center;gap:7px;font-size:.72rem;color:' + T2 + ';cursor:pointer;"><input type="checkbox" ' + (_st.sel[k] ? 'checked' : '') + ' onchange="HR_FECHAMENTO.toggle(' + i + ',this.checked)" style="width:20px;height:20px;accent-color:#5cb85c;">incluir no "pagar todos"</label>' : '';
+    var badge = l.status === 'pago' ? ['✅ Pago', GREEN] : l.status === 'erro' ? ['⚠️ Erro no cálculo', AMBER] : l.status === 'zero' ? ['Nada a pagar', T3] : grave ? ['⛔ Conferir ponto', '#e29a9a'] : ['✓ Pronto pra pagar', GREEN];
+    var valor = l.status === 'pago' ? _m(l.pago) : l.status === 'pagar' ? _m(l.valor) : '—';
+    var resumo = 'salário ' + _m(s.totalSalario || 0) + (ext > 0.01 ? ' + extras ' + _m(ext) : '') + (desc > 0.01 ? ' − ' + _m(desc) : '');
+    var ult = _ultimoPag(f), alertaVar = '';
+    if (ult && l.status === 'pagar' && ult.valor > 0) { var r0 = l.valor / ult.valor; if (r0 > 1.35 || r0 < 0.65) alertaVar = 'Valor bem ' + (r0 > 1 ? 'maior' : 'menor') + ' que o último pagamento (' + _m(ult.valor) + ' em ' + _dm(ult.data) + ').'; }
 
-    var confHtml = conf.length ? '<div style="margin-top:10px;">' + conf.map(function (c) {
-      return '<div style="font-size:.72rem;line-height:1.45;padding:7px 10px;border-radius:9px;margin-top:6px;background:' + (c.grave ? 'rgba(200,92,92,.09)' : 'rgba(224,184,112,.08)') + ';border:1px solid ' + (c.grave ? 'rgba(200,92,92,.35)' : 'rgba(224,184,112,.3)') + ';color:' + (c.grave ? '#e29a9a' : AMBER) + ';">' + (c.grave ? '⛔ ' : 'ℹ️ ') + _esc(c.t) + '</div>';
-    }).join('') + '</div>' : (l.status === 'pagar' ? '<div style="font-size:.7rem;color:' + GREEN + ';margin-top:9px;">✓ Ponto completo — pode pagar.</div>' : '');
+    var head = '<div onclick="HR_FECHAMENTO.abreFecha(' + i + ')" style="display:flex;align-items:center;gap:11px;cursor:pointer;">' +
+      '<div style="width:38px;height:38px;border-radius:50%;background:rgba(201,168,76,.14);border:1px solid ' + GOLDB + ';display:flex;align-items:center;justify-content:center;font-weight:800;color:' + GOLD + ';flex-shrink:0;">' + _esc(f.nome.charAt(0)) + '</div>' +
+      '<div style="flex:1;min-width:0;"><div style="font-weight:800;color:' + T1 + ';font-size:.98rem;">' + nome + (f.ativo === 'ferias' ? ' 🌴' : '') + '</div>' +
+      '<div style="font-size:.66rem;color:' + badge[1] + ';font-weight:700;margin-top:1px;">' + badge[0] + '</div>' +
+      (l.status === 'pagar' ? '<div style="font-size:.62rem;color:' + T3 + ';margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + resumo + '</div>' : '') + '</div>' +
+      '<div style="text-align:right;flex-shrink:0;"><div style="font-size:1.15rem;font-weight:800;color:' + (l.status === 'pago' ? GREEN : GOLD) + ';">' + valor + '</div>' +
+      '<div style="font-size:.62rem;color:' + T3 + ';">' + (aberto ? 'fechar ▲' : 'ver conta ▼') + '</div></div></div>';
 
-    var kAviso = k + '|' + (l.status === 'pago' ? 'pago' : 'valor');
-    var enviado = av[kAviso] ? ' ✓' : '';
-    var botoes = '';
-    if (l.status === 'pagar') botoes += _btn('💳 Pagar ' + _m(l.valor), 'HR_FECHAMENTO.pagarUm(' + i + ')', GREEN, 'rgba(92,184,92,.1)', 'rgba(92,184,92,.45)');
-    if (grave) botoes += _btn('🛠 Corrigir ponto', 'HR_FECHAMENTO.corrigir(' + i + ')', AMBER, 'rgba(224,184,112,.07)', 'rgba(224,184,112,.35)');
-    botoes += _btn('📄 Ponto dia a dia', 'HR_FECHAMENTO.relatorio(' + i + ')');
-    if (l.status === 'pagar' || l.status === 'pago') botoes += _btn('💬 ' + (l.status === 'pago' ? 'Avisar que pagou' : 'Mandar a conta pra ele') + enviado, 'HR_FECHAMENTO.avisar(' + i + ')', '#25d366', 'rgba(37,211,102,.07)', 'rgba(37,211,102,.35)');
-    botoes += _btn('👤 Ver ficha', 'HR_FECHAMENTO.detalhes(' + i + ')');
-
-    return '<div class="fech-card" style="background:' + S2 + ';border:1px solid ' + (grave ? 'rgba(200,92,92,.45)' : (l.status === 'pagar' ? 'rgba(201,168,76,.35)' : BD)) + ';border-radius:14px;padding:14px 15px;' + (l.status === 'pago' || l.status === 'zero' ? 'opacity:.8;' : '') + '">' +
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">' +
-        '<div style="min-width:0;"><div style="font-weight:800;color:' + T1 + ';font-size:1.02rem;">' + nome + (f.ativo === 'ferias' ? ' 🌴' : '') + '</div>' +
-        '<div style="font-size:.66rem;color:' + T3 + ';margin-top:2px;">' + _dm(per.di) + ' a ' + _dm(per.df) + ' · trabalhou ' + (s.diasTrabalhados || 0) + ' dias</div></div>' +
-        '<div style="text-align:right;flex-shrink:0;"><div style="font-size:.58rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;">' + (l.status === 'pagar' ? 'Recebe' : '') + '</div><div style="font-size:1.25rem;font-weight:800;color:' + corTopo + ';line-height:1.1;">' + topo + '</div>' + (l.status === 'pago' ? '<div style="font-size:.62rem;color:' + T3 + ';">' + _m(l.pago) + '</div>' : '') + '</div>' +
-      '</div>' +
-      (l.status === 'pagar' || l.status === 'pago' ? '<div style="margin-top:10px;padding:8px 11px;background:rgba(0,0,0,.22);border-radius:10px;">' + conta +
-        '<div style="display:flex;justify-content:space-between;padding:7px 0 2px;margin-top:3px;border-top:1px solid ' + BD + ';font-size:.88rem;font-weight:800;"><span style="color:' + T1 + ';">' + (l.status === 'pago' ? 'Faltava' : 'Recebe') + '</span><span style="color:' + (l.status === 'pago' ? GREEN : GOLD) + ';">' + _m(l.status === 'pago' ? 0 : l.valor) + '</span></div></div>' : '') +
-      confHtml +
-      (chk ? '<div style="margin-top:9px;">' + chk + '</div>' : '') +
-      '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;">' + botoes + '</div>' +
-    '</div>';
+    var corpo = '';
+    if (aberto) {
+      var subExt = (e2 ? _hm(e2) + ' dobrada (×2)' : '') + (e2 && e3 ? ' + ' : '') + (e3 ? _hm(e3) + ' triplicada (×3)' : '');
+      if ((s.deficitAbatidoMin || 0) > 0) subExt += (subExt ? ' · ' : '') + 'já descontei ' + _hm(s.deficitAbatidoMin) + ' de falta/atraso daqui';
+      var conta = _linhaConta('Salário do ' + per.label + ' (' + _dm(per.di) + ' a ' + _dm(per.df) + ')', s.totalSalario || 0, '', T1);
+      if (ext > 0.01) conta += _linhaConta('Horas extras', ext, '+ ', GREEN, subExt);
+      else if ((s.deficitAbatidoMin || 0) > 0) conta += _linhaConta('Horas extras (' + _hm(s.deficitAbatidoMin) + ')', 0, '+ ', T3, 'todas usadas para cobrir faltas/atrasos');
+      if ((s.totalPendEntra || 0) > 0.01) conta += _linhaConta('Sobrou do período anterior', s.totalPendEntra, '+ ', GREEN);
+      if ((s.deficitRestanteValor || 0) > 0.01) conta += _linhaConta('Faltas/atrasos (' + _hm(s.deficitRestanteMin || 0) + ')', s.deficitRestanteValor, '− ', RED, 'o que não deu para tirar das horas extras');
+      if ((s.totalPendSai || 0) > 0.01) conta += _linhaConta('Passado para o próximo pagamento', s.totalPendSai, '− ', RED);
+      if (l.adi > 0.01) conta += _linhaConta('Vale / adiantamento', l.adi, '− ', RED);
+      if (l.cre > 0.01) conta += _linhaConta('Pago a mais antes', l.cre, '− ', RED);
+      if (l.pago > 0.01) conta += _linhaConta('Já pago neste período', l.pago, '− ', RED);
+      conta += '<div style="display:flex;justify-content:space-between;padding:7px 0 2px;margin-top:3px;border-top:1px solid ' + GOLDB + ';font-size:.9rem;font-weight:800;"><span style="color:' + T1 + ';">' + (l.status === 'pago' ? 'Falta pagar' : 'Recebe') + '</span><span style="color:' + GOLD + ';">' + _m(l.status === 'pagar' ? l.valor : 0) + '</span></div>';
+      var avs = conf.slice(); if (alertaVar) avs.push({ t: alertaVar, grave: false });
+      var confHtml = avs.map(function (c) { return '<div style="font-size:.72rem;line-height:1.45;padding:7px 10px;border-radius:9px;margin-top:7px;background:' + (c.grave ? 'rgba(200,92,92,.09)' : 'rgba(224,184,112,.08)') + ';border:1px solid ' + (c.grave ? 'rgba(200,92,92,.35)' : 'rgba(224,184,112,.3)') + ';color:' + (c.grave ? '#e29a9a' : AMBER) + ';">' + (c.grave ? '⛔ ' : 'ℹ️ ') + _esc(c.t) + '</div>'; }).join('');
+      var kAviso = k + '|' + (l.status === 'pago' ? 'pago' : 'valor'), enviado = av[kAviso] ? ' ✓' : '';
+      var botoes = '';
+      if (l.status === 'pagar') botoes += _btn('💳 Pagar ' + _m(l.valor), 'HR_FECHAMENTO.pagarUm(' + i + ')', GREEN, 'rgba(92,184,92,.1)', 'rgba(92,184,92,.45)');
+      if (f.pix) botoes += _btn('📋 Copiar Pix', 'HR_FECHAMENTO.copiarPix(' + i + ')', GOLD, 'rgba(201,168,76,.07)', GOLDB);
+      if (grave) botoes += _btn('🛠 Corrigir ponto', 'HR_FECHAMENTO.corrigir(' + i + ')', AMBER, 'rgba(224,184,112,.07)', 'rgba(224,184,112,.35)');
+      if (l.status === 'pagar' || l.status === 'pago') botoes += _btn('💬 ' + (l.status === 'pago' ? 'Avisar que pagou' : 'Mandar a conta') + enviado, 'HR_FECHAMENTO.avisar(' + i + ')', '#25d366', 'rgba(37,211,102,.07)', 'rgba(37,211,102,.35)');
+      botoes += _btn('📄 PDF', 'HR_FECHAMENTO.relatorio(' + i + ')') + _btn('👤 Ficha', 'HR_FECHAMENTO.detalhes(' + i + ')');
+      var chk = l.status === 'pagar' ? '<label style="display:flex;align-items:center;gap:7px;font-size:.72rem;color:' + T2 + ';cursor:pointer;margin-top:9px;"><input type="checkbox" ' + (_st.sel[k] ? 'checked' : '') + ' onchange="HR_FECHAMENTO.toggle(' + i + ',this.checked)" style="width:20px;height:20px;accent-color:#5cb85c;">entra no "pagar todos"</label>' : '';
+      corpo = '<div style="margin-top:12px;padding:9px 11px;background:rgba(0,0,0,.25);border-radius:10px;">' + conta + '</div>' + confHtml +
+        _diaADia(l, l.regsF || []) + chk + '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;">' + botoes + '</div>';
+    } else if (grave || alertaVar) {
+      corpo = '<div style="font-size:.68rem;color:' + (grave ? '#e29a9a' : AMBER) + ';margin-top:7px;line-height:1.4;">' + _esc((conf.find(function (c) { return c.grave; }) || { t: alertaVar }).t) + '</div>';
+    }
+    return '<div class="fech-card" style="background:' + S2 + ';border:1px solid ' + (grave ? 'rgba(200,92,92,.45)' : aberto ? GOLDB : BD) + ';border-radius:14px;padding:12px 14px;' + (l.status === 'pago' || l.status === 'zero' ? 'opacity:.78;' : '') + '">' + head + corpo + '</div>';
   }
 
   function _render() {
@@ -233,7 +261,8 @@ var HR_FECHAMENTO = (function () {
     linhas.forEach(function (l) {
       try { var sa = HR_FUNC.calcSaldoFuncionario(l.f.id, mAnt + '-01', mAnt + '-' + _p2(ultAnt)); l.antPend = (!sa.temCredito && sa.saldo > 5 && regsTodos.some(function (r) { return r.funcionarioId === l.f.id && r.data.slice(0, 7) === mAnt; })) ? sa.saldo : 0; } catch (e) { l.antPend = 0; }
       l.antLbl = mesesPt[+mAnt.slice(5, 7)] + '/' + mAnt.slice(0, 4);
-      l.conf = _conferir(l, regsTodos.filter(function (r) { return r.funcionarioId === l.f.id && r.data >= l.pv.per.di && r.data <= l.pv.per.df; }));
+      l.regsF = regsTodos.filter(function (r) { return r.funcionarioId === l.f.id && r.data >= l.pv.per.di && r.data <= l.pv.per.df; });
+      l.conf = _conferir(l, l.regsF);
       var k = _chave(l); if (l.conf.some(function (c) { return c.grave; }) && _st.sel[k] && !_st.selManual) _st.sel[k] = false;
     });
     var aPagar = linhas.filter(function (l) { return l.status === 'pagar'; });
@@ -271,7 +300,7 @@ var HR_FECHAMENTO = (function () {
           (nPagos ? '<div style="font-size:.66rem;color:' + GREEN + ';margin-top:3px;">' + nPagos + ' já pago' + (nPagos > 1 ? 's' : '') + '</div>' : '') +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' + _btn('📥 Importar ponto do relógio', 'HR_FECHAMENTO.importar()', GREEN, 'rgba(92,184,92,.07)', 'rgba(92,184,92,.35)') + _btn('↻ Atualizar', 'HR_FECHAMENTO.atualizar()') + '</div>' +
         '</div>' +
-        (totAPagar > 0.5 ? passos : '') +
+        (totAPagar > 0.5 ? '<div style="font-size:.7rem;color:' + T3 + ';margin:0 2px 10px;">Toque no nome para ver a conta e o dia a dia.</div>' : '') +
         (nGrave ? '<div style="background:rgba(200,92,92,.08);border:1px solid rgba(200,92,92,.35);border-radius:11px;padding:10px 13px;margin-bottom:12px;font-size:.76rem;color:#e29a9a;line-height:1.5;">⛔ ' + nGrave + (nGrave === 1 ? ' pessoa tem' : ' pessoas têm') + ' ponto faltando — o valor delas pode estar errado. Corrija antes de pagar (ficaram fora do "pagar todos").</div>' : '') +
         (linhas.length === 0 ? '<div style="text-align:center;padding:40px 20px;color:' + T3 + ';font-size:.84rem;">Nenhum funcionário ativo para pagar.</div>'
           : '<div class="fech-grid" style="display:flex;flex-direction:column;gap:10px;">' + linhas.map(function (l, i) { return _htmlLinha(l, i, av); }).join('') + '</div>') +
@@ -299,6 +328,8 @@ var HR_FECHAMENTO = (function () {
     _render();
   }
   function atualizar() { _render(); }
+  function abreFecha(i) { var l = _st.linhas[i]; if (!l) return; var k = _chave(l); _st.aberto[k] = !_st.aberto[k]; _render(); }
+  function copiarPix(i) { var l = _st.linhas[i]; if (!l || !l.f.pix) return; var t = String(l.f.pix); try { navigator.clipboard.writeText(t).then(function () { _toast('Pix de ' + l.f.nome.split(' ')[0] + ' copiado: ' + t); }, function () { prompt('Copie o Pix:', t); }); } catch (e) { prompt('Copie o Pix:', t); } }
   function fechar() {
     var ov = document.getElementById(OV); if (ov) ov.remove();
     _st.dirty = false;
@@ -423,7 +454,7 @@ var HR_FECHAMENTO = (function () {
   } catch (e) {}
 
   return {
-    abrir: abrir, atualizar: atualizar, fechar: fechar, setCorte: setCorte, toggle: toggle,
+    abrir: abrir, atualizar: atualizar, abreFecha: abreFecha, copiarPix: copiarPix, fechar: fechar, setCorte: setCorte, toggle: toggle,
     relatorio: relatorio, avisar: avisar, corrigir: corrigir, detalhes: detalhes, importar: importar,
     pagarUm: pagarUm, pagarSelecionados: pagarSelecionados, _executar: _executar
   };
