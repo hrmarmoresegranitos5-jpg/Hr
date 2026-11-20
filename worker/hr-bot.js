@@ -19253,6 +19253,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (dono && m.type === 'contacts') { if (await eqContatoDono(env, from, m).catch(e => { console.log('[EQ] contato:', e.message); return false; })) return; await commsTratarDono(env, from, 'cartão de contato', m); return; } // v155
   if (!dono) { // v214: número da equipe NUNCA cai no atendimento de cliente (Hugo e Gibson recebiam "qual pedra você deseja?" e "nome completo")
     const cfgEq = await pontoCfg(env).catch(() => null), fEq = (cfgEq && pontoFuncPorFone(cfgEq, from)) || await eqAprenderNumero(env, from, m._perfil).catch(() => null);
+    if (!fEq && await eqAutoReconhecer(env, from, m).catch(e => { console.log('[EQ] autocadastro:', e.message); return false; })) return; // v224
     if (fEq) {
       ctx.cliente = false; await env.HR_KV.delete('ca:' + from).catch(() => {}); // v214: some o atendimento de cliente que abriu por engano
       if (m.type === 'video' || m.type === 'document') { const cap = String((m[m.type] && m[m.type].caption) || '').trim(); if (cap) { m._texto = cap; m._midia = m.type; } }
@@ -19489,7 +19490,7 @@ async function tratarMensagemBase(env, m, ctx) {
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       { const mq = normaliza(bruto); // v223
-        if (/\b(ach\w*|descobr\w*|cadastr\w*|busc\w*|busq\w*|procur\w*|peg\w*|encontr\w*|salv\w*|grav\w*|atualiz\w*)\b.*\b(numero|whatsapp|zap|contato|telefone|celular)s?\b.*\b(equipe|funcionarios?|time|pessoal)\b|\b(cadastr\w*) (a |os )?(equipe|funcionarios)\b/.test(mq)) { await eqDescobrirOferecer(env, true); return; }
+        if (/\b(ach\w*|descobr\w*|cadastr\w*|busc\w*|busq\w*|procur\w*|peg\w*|encontr\w*|salv\w*|grav\w*|atualiz\w*)\b.*\b(numero|whatsapp|zap|contato|telefone|celular)s?\b.*\b(equipe|funcionarios?|time|pessoal)\b|\b(cadastr\w*) (a |os )?(equipe|funcionarios)\b/.test(mq)) { const fe = await eqAutoCadastroRotina(env, true), cfgD = await pontoCfg(env), sem = cfgD.funcs.filter(x => !x.tel && !fe.some(y => y.f.id === x.id)); await enviar(env, from, [fe.length ? `Mandei para cada um confirmar que é da equipe: ${fe.map(y => `${apelidoFunc(cfgD, y.f)} ${fmtNumero(y.tel)}`).join(', ')}. Quando confirmarem, cadastro sozinho, mando o relatório e peço a ficha.` : (cfgD.funcs.some(x => !x.tel) ? 'Não achei número novo nas conversas.' : 'Toda a equipe já está cadastrada.'), sem.length ? `Sem número ainda: ${sem.map(x => apelidoFunc(cfgD, x)).join(', ')}. Quando eles escreverem para o bot, eu reconheço pelo nome e pergunto; ou mande o contato deles aqui.` : ''].filter(Boolean).join('\n\n')); return; }
         if (/\b(peg\w*|ped\w*|peca|colet\w*|complet\w*|busc\w*|busq\w*|atualiz\w*)\b.*\b(ficha|dados|cadastro|informac\w*|detalhes)s?\b.*\b(equipe|funcionarios?)\b/.test(mq)) { const cfgF = await pontoCfg(env), com = cfgF.funcs.filter(x => x.tel); for (const x of com) await eqFichaPedir(env, x).catch(() => {}); await enviar(env, from, com.length ? `Pedi a ficha (nome completo, nascimento, CPF e Pix) para: ${com.map(x => apelidoFunc(cfgF, x)).join(', ')}. Quando responderem, gravo no RH e te aviso.${cfgF.funcs.length > com.length ? ' Sem WhatsApp: ' + cfgF.funcs.filter(x => !x.tel).map(x => apelidoFunc(cfgF, x)).join(', ') + ' — mande *achar números da equipe*.' : ''}` : 'Ninguém da equipe tem WhatsApp cadastrado ainda. Mande: *achar números da equipe*.'); return; } }
       if (await donoPlanoEquipe(env, from, bruto).catch(e => { console.log('[PLANO] dono:', e.message); return false; })) return; // v216
       { const junto = await juntarMsgsDono(env, bruto); if (junto === null) return; await responderAgente(env, from, junto, F, voz); } // v193: mensagens seguidas viram uma só
@@ -28938,8 +28939,77 @@ async function eqFichaResposta(env, cfg, f, from, texto, nome) {
 }
 async function eqFichaRotina(env) { // uma vez: pede a ficha a quem já tem número
   const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 17 * 60) return;
-  if (!(await umaVez(env, 'eqficha:v1', 365))) return;
-  const cfg = await pontoCfg(env); for (const f of cfg.funcs) if (f.tel) await eqFichaPedir(env, f).catch(() => {});
+  const cfg = await pontoCfg(env);
+  if (await umaVez(env, 'eqficha:v1', 365)) { for (const f of cfg.funcs) if (f.tel) await eqFichaPedir(env, f).catch(() => {}); return; }
+  if (!(await umaVez(env, 'eqfichalemb:' + dataBahia(), 1))) return;
+  for (const f of cfg.funcs) { // v224: quem não completou em 2 dias recebe um lembrete (uma vez)
+    const pend = +(await env.HR_KV.get('eq:fichapend:' + f.id)) || 0;
+    if (f.tel && pend && Date.now() - pend > 48 * 3600000 && !(await env.HR_KV.get('eq:fichalemb:' + f.id))) { await env.HR_KV.put('eq:fichalemb:' + f.id, '1', { expirationTtl: 30 * 86400 }); await eqFichaPedir(env, f).catch(() => {}); }
+  }
+}
+
+// v224: AUTOCADASTRO DA EQUIPE — o bot acha o número nas conversas, pergunta ao PRÓPRIO funcionário se é ele
+// ("Você é o Lucas da equipe da HR?") e, confirmado, cadastra sozinho, pede a ficha e manda o que estava parado.
+// Também reconhece quando alguém da equipe escreve de um número novo (nome do perfil igual ao de quem está sem telefone).
+async function eqConvidar(env, f, num, nomePerfil) {
+  num = normalizarBR(num); const u = ultimos8(num);
+  if (await env.HR_KV.get('eq:naoeq:' + u) || await env.HR_KV.get('eq:conv:' + u)) return '';
+  await env.HR_KV.put('eq:conv:' + u, JSON.stringify({ fid: String(f.id), num, em: Date.now() }), { expirationTtl: 7 * 86400 });
+  const pn = String(f.nome || '').split(' ')[0];
+  const txt = `Oi! Aqui é o assistente da *HR Mármores e Granitos*. Você é o *${pn}*, da equipe da HR? Confirmando, eu te cadastro para receber por aqui o relatório de ponto, o pagamento e as tarefas do dia.`;
+  if (await cbJanelaAberta(env, num).catch(() => false)) { await enviarComBotoes(env, num, txt, [{ id: 'eqv_ok|' + f.id, titulo: 'Sim, sou eu' }, { id: 'eqv_no|' + f.id, titulo: 'Não sou' }]); return 'direto'; }
+  const x = await tplCadeiaEnviar(env, num, { nome: pn, mensagem: `Para te cadastrar na equipe e mandar seu ponto e pagamento por aqui, me responda: você é o ${pn} da equipe da HR?`, curta: `Você é o ${pn} da equipe da HR? Me responda por aqui.` }).catch(() => null);
+  return x ? 'modelo' : '';
+}
+async function eqAutoCadastroRotina(env, forcar) { // procura e convida quem está sem telefone (1x por dia, horário comercial)
+  const ag = agoraBahia(); if (!forcar && (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 18 * 60)) return [];
+  if (!forcar && !(await umaVez(env, 'eqauto:' + dataBahia(), 1))) return [];
+  const achou = await eqDescobrirNumeros(env), feitos = [];
+  for (const a of achou) { const via = await eqConvidar(env, a.f, a.tel, a.nome).catch(() => ''); if (via) feitos.push({ f: a.f, tel: a.tel, via }); }
+  return feitos;
+}
+async function eqCadastrarConfirmado(env, f, num, from) {
+  const cfg = await pontoCfg(env), cf = cfg.funcs.find(x => String(x.id) === String(f.id)) || f; num = normalizarBR(num);
+  cf.tel = num; await pontoCfgSalvar(env, cfg);
+  await equipeAtualizar(env, { funcionario: cf.nome, telefone: num }).catch(() => null);
+  const t2 = Object.assign({}, cfg._tel2 || {}), u = ultimos8(num); t2[u] = String(cf.id); t2['n:' + u] = num; await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
+  await env.HR_KV.put('ponto:ultzap:' + cf.id, String(Date.now()), { expirationTtl: 2 * 86400 });
+  await env.HR_KV.delete('ca:' + num).catch(() => {}); await env.HR_KV.delete('eq:conv:' + u).catch(() => {});
+  const nome = apelidoFunc(cfg, cf) || String(cf.nome).split(' ')[0];
+  await enviar(env, num, `Pronto, ${nome}! Você está cadastrado na equipe da HR ✅`);
+  let rel = false; try { const per = JSON.parse((await env.HR_KV.get('ponto:resant:' + cf.id)) || 'null'); if (per && await pontoRelPdf(env, cf.id, per.df) && !(await pontoRelUltimo(env, cf.id) || {}).via) rel = !!(await pontoRelEnviar(env, cfg, cf, per, { reenvio: true })); } catch (_) {}
+  await eqFichaPedir(env, cf).catch(() => {});
+  await pontoAvisarDono(env, `✅ *${cf.nome}* confirmou que é da equipe e foi cadastrado com o WhatsApp ${fmtNumero(num)}.${rel ? ' Mandei o relatório de ponto que estava parado.' : ''} Pedi a ficha dele (nome completo, nascimento, CPF e Pix).`).catch(() => {});
+}
+// mensagem de número desconhecido: convite pendente / perfil com nome de quem está sem telefone
+async function eqAutoReconhecer(env, from, m) {
+  const u = ultimos8(from); if (u.length !== 8 || await env.HR_KV.get('eq:naoeq:' + u)) return false;
+  const cfg = await pontoCfg(env);
+  const idB = m.type === 'interactive' ? (m.interactive?.button_reply?.id || '') : '';
+  if (/^eqv_(ok|no)\|/.test(idB)) {
+    const fid = idB.split('|')[1], f = cfg.funcs.find(x => String(x.id) === String(fid));
+    if (idB.startsWith('eqv_no')) { await env.HR_KV.put('eq:naoeq:' + u, '1', { expirationTtl: 365 * 86400 }); await env.HR_KV.delete('eq:conv:' + u); await enviar(env, from, 'Tudo bem, desculpe o engano! Em que posso te ajudar?'); return true; }
+    if (f) { await eqCadastrarConfirmado(env, f, from); return true; }
+    return false;
+  }
+  let conv = null; try { conv = JSON.parse((await env.HR_KV.get('eq:conv:' + u)) || 'null'); } catch (_) {}
+  const t = normaliza(m.type === 'text' ? String(m.text?.body || '') : m.type === 'button' ? String(m.button?.text || '') : '');
+  if (conv) {
+    const f = cfg.funcs.find(x => String(x.id) === String(conv.fid)); if (!f) return false;
+    if (/^(sim|sou|sou eu|sim sou|isso|e eu|eu mesmo|correto|quero continuar|pode)\b/.test(t)) { await eqCadastrarConfirmado(env, f, from); return true; }
+    if (/^(nao|não|nao sou|engano)\b/.test(t)) { await env.HR_KV.put('eq:naoeq:' + u, '1', { expirationTtl: 365 * 86400 }); await env.HR_KV.delete('eq:conv:' + u); return false; }
+    if (!conv.perguntado) { conv.perguntado = 1; await env.HR_KV.put('eq:conv:' + u, JSON.stringify(conv), { expirationTtl: 7 * 86400 }); await enviarComBotoes(env, from, `Antes, uma pergunta rápida: você é o *${String(f.nome).split(' ')[0]}*, da equipe da HR?`, [{ id: 'eqv_ok|' + f.id, titulo: 'Sim, sou eu' }, { id: 'eqv_no|' + f.id, titulo: 'Não sou' }]); return true; }
+    return false;
+  }
+  // perfil com nome e sobrenome de alguém da equipe que está sem telefone → pergunta na hora
+  const perfil = String(m._perfil || ''); if (!perfil) return false;
+  const tp = tokensPedra(perfil), sem = cfg.funcs.filter(f => !f.tel);
+  const f = sem.find(x => { const tf = tokensPedra(x.nome || ''); return tf.length >= 2 && tp.length >= 2 && tkCasa(tp[0], tf[0]) > 0 && tf.slice(1).some(w => tp.slice(1).some(y => tkCasa(y, w) > 0)); })
+    || (/\b(ponto|bati|patrao|hangel|sr hangel|seu hangel|servico de hoje|terminei|iniciei|cortei|instalei)\b/.test(t) ? sem.find(x => tp.length && tkCasa(tp[0], tokensPedra(x.nome || '')[0]) > 0) : null);
+  if (!f) return false;
+  await env.HR_KV.put('eq:conv:' + u, JSON.stringify({ fid: String(f.id), num: normalizarBR(from), em: Date.now(), perguntado: 1 }), { expirationTtl: 7 * 86400 });
+  await enviarComBotoes(env, from, `Oi! Você é o *${String(f.nome).split(' ')[0]}*, da equipe da HR? Confirmando, eu te cadastro para receber por aqui o seu ponto, o pagamento e as tarefas.`, [{ id: 'eqv_ok|' + f.id, titulo: 'Sim, sou eu' }, { id: 'eqv_no|' + f.id, titulo: 'Não sou' }]);
+  return true;
 }
 // prova: primeira mensagem do funcionário no WhatsApp naquele dia
 async function pontoPrimeiraMsg(env, tel, data) {
@@ -29542,7 +29612,7 @@ async function pontoRelFalhaDono(env, f, per, rel) {
   const nome = String(f.nome).split(' ')[0];
   const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null);
   const valorTxt = pdf ? (pdf.status === 'pago' ? 'já quitado' : brl(pdf.valor)) : '';
-  if (!f.tel) eqDescobrirOferecer(env, false).catch(e => console.log('[EQ] descobrir:', e.message)); // v223
+  if (!f.tel) eqAutoCadastroRotina(env, false).catch(e => console.log('[EQ] autocadastro:', e.message)); // v224
   const motivo = !f.tel ? 'ele não tem WhatsApp cadastrado no app de ponto'
     : `ele não falou com o bot nas últimas 24 h${env.TEMPLATE_RELATORIO ? ' e a Meta recusou o modelo' + (rel && rel.erroZap ? ' (' + String(rel.erroZap).slice(0, 80) + ')' : '') : ' e o modelo *relatorio_ponto* ainda não está ativo (TEMPLATE_RELATORIO)'}`;
   try {
@@ -30100,6 +30170,7 @@ async function pontoRotina(env) {
   await pontoLembretes(env, cfg).catch(e => console.log('lembrete ponto', e && e.message)); // v35
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
   await eqFichaRotina(env).catch(e => console.log('ficha equipe', e && e.message)); // v223
+  await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
   await rhAvisos(env).catch(e => console.log('rh avisos', e && e.message)); // v81
   await pvRotina(env).catch(e => console.log('pós-venda', e && e.message)); // v46
   if (!cfg.funcs.length || !cfg.aviso) return;
