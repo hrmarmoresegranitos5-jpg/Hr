@@ -146,58 +146,77 @@ var HR_FECHAMENTO = (function () {
       ';font-family:Outfit,sans-serif;font-size:.74rem;font-weight:700;cursor:pointer;white-space:nowrap;">' + txt + '</button>';
   }
 
+  // ── v2: tela "Pagar equipe" — a conta de cada um em linhas simples + o que conferir antes de pagar ──
+  function _hm(min) { min = Math.round(Math.abs(min || 0)); return Math.floor(min / 60) + 'h' + _p2(min % 60); }
+  function _proxDia(d) { var x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + 1); return _iso(x); }
+  // o que pode deixar o valor errado — em português claro
+  function _conferir(l, regsF) {
+    var out = [], hoje = _hojeISO(), per = l.pv.per, porDia = {};
+    regsF.forEach(function (r) { porDia[r.data] = r; });
+    var vazios = [], d = per.di, guard = 0;
+    while (d <= per.df && d <= hoje && guard++ < 40) {
+      var esp = 0; try { esp = HR_IMPORT._jornadaEsperada(d, l.f.id) || 0; } catch (e) {}
+      var r = porDia[d];
+      if (esp > 0 && (!r || (!(parseFloat(r.horas) > 0) && r.tipo !== 'abonado'))) vazios.push(_dm(d));
+      d = _proxDia(d);
+    }
+    if (vazios.length) out.push({ t: 'Dia sem ponto: ' + vazios.join(', ') + '. Conta como falta. Se a pessoa trabalhou, corrija o ponto antes de pagar.', grave: true });
+    if (l.semSaida > 0) out.push({ t: l.semSaida + ' dia(s) com entrada e sem saída.', grave: true });
+    if (l.antPend > 0.01) out.push({ t: 'Pode haver ' + _m(l.antPend) + ' em aberto do mês passado (' + l.antLbl + '). NÃO está somado aqui — toque em "Ver ficha" para conferir.', grave: false });
+    return out;
+  }
+  function _linhaConta(rot, val, sinal, cor, sub) {
+    return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:.82rem;">' +
+      '<span style="color:' + T2 + ';">' + rot + (sub ? '<div style="font-size:.64rem;color:' + T3 + ';margin-top:1px;">' + sub + '</div>' : '') + '</span>' +
+      '<b style="color:' + (cor || T1) + ';white-space:nowrap;">' + (sinal || '') + _m(val) + '</b></div>';
+  }
   function _htmlLinha(l, i, av) {
-    var f = l.f, nome = _esc(f.nome.split(' ').slice(0, 2).join(' '));
-    var per = l.pv.per, k = _chave(l), prob = _problema(l);
-    var emFerias = f.ativo === 'ferias';
+    var f = l.f, s = l.s || {}, nome = _esc(f.nome.split(' ').slice(0, 2).join(' '));
+    var per = l.pv.per, k = _chave(l), conf = l.conf || [], grave = conf.some(function (c) { return c.grave; }) || l.erro;
+    var ext = (s.valorExtra || 0) + (s.totalAcrescimos || 0) + ((s.totalCreditosHE || 0) - (s.totalPendEntra || 0));
+    var e2 = s.totalExtra50Min || 0, e3 = (s.totalExtra100Min || 0) + (s.totalExtra200Min || 0);
+    var subExt = (e2 ? _hm(e2) + ' dobrada (×2)' : '') + (e2 && e3 ? ' + ' : '') + (e3 ? _hm(e3) + ' triplicada (×3)' : '');
+    if ((s.deficitAbatidoMin || 0) > 0) subExt += (subExt ? ' · ' : '') + 'já tirei ' + _hm(s.deficitAbatidoMin) + ' de falta/atraso daqui';
+    var conta = _linhaConta('Salário do ' + per.label, s.totalSalario || 0, '', T1);
+    if (ext > 0.01) conta += _linhaConta('Horas extras', ext, '+ ', GREEN, subExt);
+    if ((s.totalPendEntra || 0) > 0.01) conta += _linhaConta('Sobrou do período anterior', s.totalPendEntra, '+ ', GREEN);
+    if ((s.deficitRestanteValor || 0) > 0.01) conta += _linhaConta('Faltas/atrasos (' + _hm(s.deficitRestanteMin || 0) + ')', s.deficitRestanteValor, '− ', RED, 'o que não deu para tirar das horas extras');
+    if ((s.totalPendSai || 0) > 0.01) conta += _linhaConta('Passado para o próximo pagamento', s.totalPendSai, '− ', RED);
+    if (l.adi > 0.01) conta += _linhaConta('Vale / adiantamento', l.adi, '− ', RED);
+    if (l.cre > 0.01) conta += _linhaConta('Pago a mais antes', l.cre, '− ', RED);
+    if (l.pago > 0.01) conta += _linhaConta('Já pago neste período', l.pago, '− ', RED);
 
+    var topo, corTopo;
+    if (l.status === 'pagar') { topo = _m(l.valor); corTopo = GOLD; }
+    else if (l.status === 'pago') { topo = '✅ Pago'; corTopo = GREEN; }
+    else if (l.status === 'erro') { topo = '⚠️ Erro'; corTopo = AMBER; }
+    else { topo = 'Nada a pagar'; corTopo = T3; }
     var chk = (l.status === 'pagar')
-      ? '<input type="checkbox" ' + (_st.sel[k] ? 'checked' : '') + ' onchange="HR_FECHAMENTO.toggle(' + i + ',this.checked)" style="width:22px;height:22px;accent-color:#5cb85c;flex-shrink:0;margin-top:2px;">'
-      : '<span style="width:22px;flex-shrink:0;"></span>';
+      ? '<label style="display:flex;align-items:center;gap:7px;font-size:.72rem;color:' + T2 + ';cursor:pointer;"><input type="checkbox" ' + (_st.sel[k] ? 'checked' : '') + ' onchange="HR_FECHAMENTO.toggle(' + i + ',this.checked)" style="width:20px;height:20px;accent-color:#5cb85c;">incluir no "pagar todos"</label>' : '';
 
-    var vTxt, vCor, vRot;
-    if (l.status === 'pagar') { vTxt = _m(l.valor); vCor = GOLD; vRot = l.pago > 0.01 ? 'falta pagar' : 'a pagar'; }
-    else if (l.status === 'pago') { vTxt = '✅ Pago'; vCor = GREEN; vRot = _m(l.pago); }
-    else if (l.status === 'erro') { vTxt = '⚠️ erro'; vCor = AMBER; vRot = 'confira manualmente'; }
-    else { vTxt = '—'; vCor = T3; vRot = 'nada a pagar'; }
-
-    var partes = ['Fixo ' + _m(l.s.totalSalario)];
-    var ext = (l.s.valorExtra || 0) + (l.s.totalAcrescimos || 0) + ((l.s.totalCreditosHE || 0) - (l.s.totalPendEntra || 0));
-    if (ext > 0.01) partes.push('Extras +' + _m(ext));
-    if ((l.s.totalPendEntra || 0) > 0.01) partes.push('Restante anterior +' + _m(l.s.totalPendEntra));
-    if ((l.s.totalPendSai || 0) > 0.01) partes.push('Restante p/ próximo −' + _m(l.s.totalPendSai));
-    if ((l.s.deficitRestanteValor || 0) > 0.01) partes.push('Faltas −' + _m(l.s.deficitRestanteValor));
-    if (l.adi > 0.01) partes.push('Vale −' + _m(l.adi));
-    if (l.cre > 0.01) partes.push('Desc. pago a mais −' + _m(l.cre));
-    if (l.pago > 0.01 && l.status !== 'pago') partes.push('Já pago −' + _m(l.pago));
-
-    var avisos = '';
-    if (l.semPonto) avisos += '<div style="font-size:.7rem;color:' + AMBER + ';margin-top:6px;line-height:1.45;">⚠️ Nenhum ponto lançado neste período — o valor pode estar errado. Importe ou lance o ponto antes de pagar.</div>';
-    if (l.semSaida > 0) avisos += '<div style="font-size:.7rem;color:' + AMBER + ';margin-top:6px;line-height:1.45;">⚠️ ' + l.semSaida + ' dia' + (l.semSaida > 1 ? 's' : '') + ' com entrada e sem saída — confira o ponto.</div>';
+    var confHtml = conf.length ? '<div style="margin-top:10px;">' + conf.map(function (c) {
+      return '<div style="font-size:.72rem;line-height:1.45;padding:7px 10px;border-radius:9px;margin-top:6px;background:' + (c.grave ? 'rgba(200,92,92,.09)' : 'rgba(224,184,112,.08)') + ';border:1px solid ' + (c.grave ? 'rgba(200,92,92,.35)' : 'rgba(224,184,112,.3)') + ';color:' + (c.grave ? '#e29a9a' : AMBER) + ';">' + (c.grave ? '⛔ ' : 'ℹ️ ') + _esc(c.t) + '</div>';
+    }).join('') + '</div>' : (l.status === 'pagar' ? '<div style="font-size:.7rem;color:' + GREEN + ';margin-top:9px;">✓ Ponto completo — pode pagar.</div>' : '');
 
     var kAviso = k + '|' + (l.status === 'pago' ? 'pago' : 'valor');
-    var enviado = av[kAviso] ? ' <span style="color:' + GREEN + ';">✓</span>' : '';
-    var botoes = _btn('📄 Relatório', 'HR_FECHAMENTO.relatorio(' + i + ')');
-    if (l.status === 'pagar' || l.status === 'pago')
-      botoes += _btn('💬 ' + (l.status === 'pago' ? 'Avisar pago' : 'Avisar valor') + enviado, 'HR_FECHAMENTO.avisar(' + i + ')', '#25d366', 'rgba(37,211,102,.07)', 'rgba(37,211,102,.35)');
-    if (prob) botoes += _btn('🛠 Corrigir ponto', 'HR_FECHAMENTO.corrigir(' + i + ')', AMBER, 'rgba(224,184,112,.07)', 'rgba(224,184,112,.35)');
-    if (l.status === 'pagar')
-      botoes += _btn('💳 Pagar', 'HR_FECHAMENTO.pagarUm(' + i + ')', GREEN, 'rgba(92,184,92,.09)', 'rgba(92,184,92,.4)');
+    var enviado = av[kAviso] ? ' ✓' : '';
+    var botoes = '';
+    if (l.status === 'pagar') botoes += _btn('💳 Pagar ' + _m(l.valor), 'HR_FECHAMENTO.pagarUm(' + i + ')', GREEN, 'rgba(92,184,92,.1)', 'rgba(92,184,92,.45)');
+    if (grave) botoes += _btn('🛠 Corrigir ponto', 'HR_FECHAMENTO.corrigir(' + i + ')', AMBER, 'rgba(224,184,112,.07)', 'rgba(224,184,112,.35)');
+    botoes += _btn('📄 Ponto dia a dia', 'HR_FECHAMENTO.relatorio(' + i + ')');
+    if (l.status === 'pagar' || l.status === 'pago') botoes += _btn('💬 ' + (l.status === 'pago' ? 'Avisar que pagou' : 'Mandar a conta pra ele') + enviado, 'HR_FECHAMENTO.avisar(' + i + ')', '#25d366', 'rgba(37,211,102,.07)', 'rgba(37,211,102,.35)');
+    botoes += _btn('👤 Ver ficha', 'HR_FECHAMENTO.detalhes(' + i + ')');
 
-    return '<div class="fech-card" style="background:' + S2 + ';border:1px solid ' + (prob ? 'rgba(224,184,112,.45)' : (l.status === 'pagar' ? 'rgba(201,168,76,.35)' : BD)) +
-      ';border-radius:14px;padding:13px 14px;' + (l.status === 'pago' || l.status === 'zero' ? 'opacity:.82;' : '') + '">' +
-      '<div style="display:flex;gap:11px;align-items:flex-start;">' + chk +
-        '<div style="flex:1;min-width:0;">' +
-          '<div style="font-weight:700;color:' + T1 + ';font-size:.95rem;cursor:pointer;" onclick="HR_FECHAMENTO.detalhes(' + i + ')">' + nome + (emFerias ? ' 🌴' : '') + '</div>' +
-          '<div style="font-size:.66rem;color:' + T3 + ';margin-top:1px;">' + per.label + ' · ' + _dm(per.di) + ' a ' + _dm(per.df) + ' · ' + (l.s.diasTrabalhados || 0) + ' dias' + (l.s.totalHoras ? ' · ' + Math.round(l.s.totalHoras) + 'h' : '') + '</div>' +
-        '</div>' +
-        '<div style="text-align:right;flex-shrink:0;">' +
-          '<div style="font-size:1.05rem;font-weight:800;color:' + vCor + ';line-height:1.15;">' + vTxt + '</div>' +
-          '<div style="font-size:.6rem;color:' + T3 + ';">' + vRot + '</div>' +
-        '</div>' +
+    return '<div class="fech-card" style="background:' + S2 + ';border:1px solid ' + (grave ? 'rgba(200,92,92,.45)' : (l.status === 'pagar' ? 'rgba(201,168,76,.35)' : BD)) + ';border-radius:14px;padding:14px 15px;' + (l.status === 'pago' || l.status === 'zero' ? 'opacity:.8;' : '') + '">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">' +
+        '<div style="min-width:0;"><div style="font-weight:800;color:' + T1 + ';font-size:1.02rem;">' + nome + (f.ativo === 'ferias' ? ' 🌴' : '') + '</div>' +
+        '<div style="font-size:.66rem;color:' + T3 + ';margin-top:2px;">' + _dm(per.di) + ' a ' + _dm(per.df) + ' · trabalhou ' + (s.diasTrabalhados || 0) + ' dias</div></div>' +
+        '<div style="text-align:right;flex-shrink:0;"><div style="font-size:.58rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;">' + (l.status === 'pagar' ? 'Recebe' : '') + '</div><div style="font-size:1.25rem;font-weight:800;color:' + corTopo + ';line-height:1.1;">' + topo + '</div>' + (l.status === 'pago' ? '<div style="font-size:.62rem;color:' + T3 + ';">' + _m(l.pago) + '</div>' : '') + '</div>' +
       '</div>' +
-      '<div style="font-size:.68rem;color:' + T3 + ';margin-top:8px;line-height:1.5;">' + partes.join(' · ') + '</div>' +
-      avisos +
+      (l.status === 'pagar' || l.status === 'pago' ? '<div style="margin-top:10px;padding:8px 11px;background:rgba(0,0,0,.22);border-radius:10px;">' + conta +
+        '<div style="display:flex;justify-content:space-between;padding:7px 0 2px;margin-top:3px;border-top:1px solid ' + BD + ';font-size:.88rem;font-weight:800;"><span style="color:' + T1 + ';">' + (l.status === 'pago' ? 'Faltava' : 'Recebe') + '</span><span style="color:' + (l.status === 'pago' ? GREEN : GOLD) + ';">' + _m(l.status === 'pago' ? 0 : l.valor) + '</span></div></div>' : '') +
+      confHtml +
+      (chk ? '<div style="margin-top:9px;">' + chk + '</div>' : '') +
       '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;">' + botoes + '</div>' +
     '</div>';
   }
@@ -206,55 +225,59 @@ var HR_FECHAMENTO = (function () {
     if (typeof HR_FUNC === 'undefined') return;
     var dados = _linhasAtuais();
     var linhas = _st.linhas = dados.linhas, venc = dados.venc;
-    var av = _avisosGet();
-
+    var av = _avisosGet(), regsTodos = Object.values(HR_FUNC.getRegistros());
+    // conferências + pendência do mês passado (informativa)
+    var mp = new Date(); mp.setDate(1); mp.setMonth(mp.getMonth() - 1);
+    var mAnt = mp.getFullYear() + '-' + _p2(mp.getMonth() + 1), ultAnt = new Date(mp.getFullYear(), mp.getMonth() + 1, 0).getDate();
+    var mesesPt = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    linhas.forEach(function (l) {
+      try { var sa = HR_FUNC.calcSaldoFuncionario(l.f.id, mAnt + '-01', mAnt + '-' + _p2(ultAnt)); l.antPend = (!sa.temCredito && sa.saldo > 5 && regsTodos.some(function (r) { return r.funcionarioId === l.f.id && r.data.slice(0, 7) === mAnt; })) ? sa.saldo : 0; } catch (e) { l.antPend = 0; }
+      l.antLbl = mesesPt[+mAnt.slice(5, 7)] + '/' + mAnt.slice(0, 4);
+      l.conf = _conferir(l, regsTodos.filter(function (r) { return r.funcionarioId === l.f.id && r.data >= l.pv.per.di && r.data <= l.pv.per.df; }));
+      var k = _chave(l); if (l.conf.some(function (c) { return c.grave; }) && _st.sel[k] && !_st.selManual) _st.sel[k] = false;
+    });
     var aPagar = linhas.filter(function (l) { return l.status === 'pagar'; });
     var totAPagar = aPagar.reduce(function (s, l) { return s + l.valor; }, 0);
     var sel = aPagar.filter(function (l) { return _st.sel[_chave(l)]; });
     var totSel = sel.reduce(function (s, l) { return s + l.valor; }, 0);
-    var nProb = linhas.filter(_problema).length;
+    var nGrave = linhas.filter(function (l) { return (l.conf || []).some(function (c) { return c.grave; }); }).length;
     var nPagos = linhas.filter(function (l) { return l.status === 'pago'; }).length;
+    var somaFixo = aPagar.reduce(function (s, l) { return s + (l.s.totalSalario || 0); }, 0);
+    var somaExt = aPagar.reduce(function (s, l) { var x = l.s; return s + (x.valorExtra || 0) + (x.totalAcrescimos || 0) + ((x.totalCreditosHE || 0) - (x.totalPendEntra || 0)); }, 0);
+    var somaDesc = Math.max(0, somaFixo + somaExt - totAPagar);
 
-    var chips = venc.map(function (d) {
+    var chips = venc.slice(0, 2).map(function (d) {
       var on = d === _st.corte;
       return '<button onclick="HR_FECHAMENTO.setCorte(\'' + d + '\')" style="padding:8px 13px;border-radius:20px;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;' +
-        (on ? 'background:rgba(201,168,76,.15);border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' : 'background:' + S2 + ';border:1px solid ' + BD + ';color:' + T3 + ';') + '">' + _dm(d) + '</button>';
+        (on ? 'background:rgba(201,168,76,.15);border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' : 'background:' + S2 + ';border:1px solid ' + BD + ';color:' + T3 + ';') + '">Dia ' + _dm(d) + '</button>';
     }).join('');
 
+    var passos = '<div style="display:flex;gap:6px;margin-bottom:12px;font-size:.66rem;color:' + T3 + ';">' +
+      ['1. Confira os avisos', '2. Pague', '3. Mande a conta'].map(function (t) { return '<div style="flex:1;text-align:center;padding:6px 4px;border:1px solid ' + BD + ';border-radius:8px;">' + t + '</div>'; }).join('') + '</div>';
+
     var html =
-      '<style>@media(min-width:820px){#' + OV + ' .fech-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start;}#' + OV + ' .fech-grid>.fech-card{margin-bottom:0!important;}}</style>' +
+      '<style>@media(min-width:820px){#' + OV + ' .fech-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start;}}</style>' +
       '<div style="width:100%;max-width:900px;padding:0 16px;">' +
-        '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">' +
           '<div><div style="font-size:.55rem;color:' + GOLD + ';letter-spacing:.18em;text-transform:uppercase;margin-bottom:3px;">HR MÁRMORES</div>' +
-          '<div style="font-size:1.3rem;font-weight:800;color:' + T1 + ';letter-spacing:-.02em;">Fechar pagamento</div>' +
-          '<div style="font-size:.72rem;color:' + T3 + ';margin-top:3px;">Pagamento do dia ' + _dm(_st.corte) + ' · confira, avise e pague</div></div>' +
-          '<button onclick="HR_FECHAMENTO.fechar()" style="background:none;border:none;color:' + T3 + ';cursor:pointer;font-size:1.1rem;padding:4px 0 4px 8px;">✕</button>' +
+          '<div style="font-size:1.35rem;font-weight:800;color:' + T1 + ';">💰 Pagar equipe</div></div>' +
+          '<button onclick="HR_FECHAMENTO.fechar()" style="background:none;border:none;color:' + T3 + ';cursor:pointer;font-size:1.2rem;padding:4px 0 4px 8px;">✕</button>' +
         '</div>' +
-
         (venc.length > 1 ? '<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px;">' + chips + '</div>' : '') +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:13px;padding:13px 15px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">' +
-          '<div><div style="font-size:.62rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.08em;">Total a pagar</div>' +
-          '<div style="font-size:1.4rem;font-weight:800;color:' + (totAPagar > 0.5 ? GOLD : GREEN) + ';line-height:1.1;">' + _m(totAPagar) + '</div>' +
-          '<div style="font-size:.66rem;color:' + T3 + ';margin-top:2px;">' + aPagar.length + (aPagar.length === 1 ? ' pessoa' : ' pessoas') + (nPagos ? ' · ' + nPagos + ' já pago' + (nPagos > 1 ? 's' : '') : '') + '</div></div>' +
-          '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-            _btn('📥 Importar ponto do relógio', 'HR_FECHAMENTO.importar()', GREEN, 'rgba(92,184,92,.07)', 'rgba(92,184,92,.35)') +
-            _btn('↻ Atualizar', 'HR_FECHAMENTO.atualizar()') +
-          '</div>' +
+        '<div style="background:linear-gradient(135deg,' + S2 + ',rgba(201,168,76,.07));border:1px solid ' + GOLDB + ';border-radius:14px;padding:14px 16px;margin-bottom:12px;">' +
+          '<div style="font-size:.66rem;color:' + T3 + ';">Pagamento do dia ' + _dm(_st.corte) + '</div>' +
+          '<div style="font-size:1.7rem;font-weight:800;color:' + (totAPagar > 0.5 ? GOLD : GREEN) + ';line-height:1.15;">' + (totAPagar > 0.5 ? _m(totAPagar) : '✅ Tudo pago') + '</div>' +
+          (totAPagar > 0.5 ? '<div style="font-size:.72rem;color:' + T2 + ';margin-top:4px;">' + aPagar.length + (aPagar.length === 1 ? ' pessoa' : ' pessoas') + ' · salários ' + _m(somaFixo) + ' + extras ' + _m(somaExt) + (somaDesc > 0.01 ? ' − descontos ' + _m(somaDesc) : '') + '</div>' : '') +
+          (nPagos ? '<div style="font-size:.66rem;color:' + GREEN + ';margin-top:3px;">' + nPagos + ' já pago' + (nPagos > 1 ? 's' : '') + '</div>' : '') +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">' + _btn('📥 Importar ponto do relógio', 'HR_FECHAMENTO.importar()', GREEN, 'rgba(92,184,92,.07)', 'rgba(92,184,92,.35)') + _btn('↻ Atualizar', 'HR_FECHAMENTO.atualizar()') + '</div>' +
         '</div>' +
-
-        (nProb ? '<div style="background:rgba(224,184,112,.08);border:1px solid rgba(224,184,112,.35);border-radius:11px;padding:10px 13px;margin-bottom:12px;font-size:.74rem;color:' + AMBER + ';line-height:1.5;">⚠️ ' + nProb + (nProb === 1 ? ' pessoa com problema' : ' pessoas com problema') + ' no ponto — elas aparecem primeiro e não vêm marcadas para pagar.</div>' : '') +
-
-        (linhas.length === 0
-          ? '<div style="text-align:center;padding:40px 20px;color:' + T3 + ';font-size:.84rem;">Nenhum funcionário ativo para pagar.</div>'
+        (totAPagar > 0.5 ? passos : '') +
+        (nGrave ? '<div style="background:rgba(200,92,92,.08);border:1px solid rgba(200,92,92,.35);border-radius:11px;padding:10px 13px;margin-bottom:12px;font-size:.76rem;color:#e29a9a;line-height:1.5;">⛔ ' + nGrave + (nGrave === 1 ? ' pessoa tem' : ' pessoas têm') + ' ponto faltando — o valor delas pode estar errado. Corrija antes de pagar (ficaram fora do "pagar todos").</div>' : '') +
+        (linhas.length === 0 ? '<div style="text-align:center;padding:40px 20px;color:' + T3 + ';font-size:.84rem;">Nenhum funcionário ativo para pagar.</div>'
           : '<div class="fech-grid" style="display:flex;flex-direction:column;gap:10px;">' + linhas.map(function (l, i) { return _htmlLinha(l, i, av); }).join('') + '</div>') +
-
         '<div style="position:sticky;bottom:0;margin-top:14px;padding:12px 0 6px;background:linear-gradient(180deg,rgba(8,7,4,0),rgba(8,7,4,.97) 30%);">' +
-          (aPagar.length
-            ? '<button onclick="HR_FECHAMENTO.pagarSelecionados()" ' + (sel.length ? '' : 'disabled ') + 'style="width:100%;padding:14px;border-radius:12px;background:linear-gradient(135deg,#091a09,#040d04);border:1.5px solid rgba(92,184,92,.5);color:' + GREEN + ';font-family:Outfit,sans-serif;font-size:.92rem;font-weight:800;cursor:pointer;' + (sel.length ? '' : 'opacity:.45;') + '">' +
-                (sel.length ? '✅ Marcar ' + sel.length + (sel.length === 1 ? ' selecionado' : ' selecionados') + ' como pagos · ' + _m(totSel) : 'Marque quem você já pagou')
-              + '</button>'
-            : '') +
+          (aPagar.length ? '<button onclick="HR_FECHAMENTO.pagarSelecionados()" ' + (sel.length ? '' : 'disabled ') + 'style="width:100%;padding:15px;border-radius:12px;background:linear-gradient(135deg,#091a09,#040d04);border:1.5px solid rgba(92,184,92,' + (sel.length ? '.6' : '.2') + ');color:' + (sel.length ? GREEN : T3) + ';font-family:Outfit,sans-serif;font-size:.95rem;font-weight:800;cursor:' + (sel.length ? 'pointer' : 'default') + ';">' +
+            (sel.length ? '💳 Pagar todos que estão certos (' + sel.length + ') · ' + _m(totSel) : 'Marque quem vai pagar') + '</button>' : '') +
           '<button onclick="HR_FECHAMENTO.fechar()" style="width:100%;margin-top:8px;padding:11px;border-radius:11px;background:transparent;border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Fechar</button>' +
         '</div>' +
       '</div>';
@@ -266,7 +289,7 @@ var HR_FECHAMENTO = (function () {
       ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,7,4,.97);display:flex;flex-direction:column;align-items:center;overflow-y:auto;font-family:Outfit,sans-serif;padding:24px 0 40px;';
       document.body.appendChild(ov);
     }
-    ov.innerHTML = html;    // mesmo elemento → mantém a posição da rolagem
+    ov.innerHTML = html;
   }
 
   // ── ações ───────────────────────────────────────────────────
@@ -284,7 +307,7 @@ var HR_FECHAMENTO = (function () {
   function setCorte(d) { _st.corte = d; _render(); }
   function toggle(i, on) {
     var l = _st.linhas[i]; if (!l) return;
-    _st.sel[_chave(l)] = !!on;
+    _st.sel[_chave(l)] = !!on; _st.selManual = true;
     _render();
   }
   function relatorio(i) {
