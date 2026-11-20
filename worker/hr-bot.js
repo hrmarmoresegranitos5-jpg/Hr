@@ -28983,11 +28983,26 @@ async function eqAutoCadastroRotina(env, forcar) { // procura e convida quem est
 
 
 // v229: relatório que o BOT quer mandar fora da hora (cadastro novo, reenvio do que ficou parado) só sai com a autorização do dono
-async function relPedirAutorizacao(env, cfg, f, per) {
-  const k = `${f.id}~${per.df}`, ja = await env.HR_KV.get('ponto:relaut:' + k); if (ja) return false;
+async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para o dono conferir, com os botões
+  const k = `${f.id}~${per.df}`;
+  if (await env.HR_KV.get('ponto:relautno:' + k)) return false; // o dono já disse para não mandar
+  const pdf0 = await pontoRelPdf(env, f.id, per.df).catch(() => null), assin = pdf0 ? String(pdf0.valor) + ':' + String(pdf0.status || '') + ':' + JSON.stringify(pdf0.dias || []).length + ':' + JSON.stringify(pdf0.fin || []).length : ''; // muda só se o conteúdo mudar
+  const pend = await env.HR_KV.get('ponto:relautsig:' + k); if (pend && pend === assin && await env.HR_KV.get('ponto:relaut:' + k)) return false; // já está esperando (mesmo PDF)
+  await env.HR_KV.put('ponto:relautsig:' + k, assin, { expirationTtl: 15 * 86400 });
   await env.HR_KV.put('ponto:relaut:' + k, JSON.stringify(per), { expirationTtl: 15 * 86400 });
   const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null), val = pdf ? (pdf.status === 'pago' ? 'já quitado' : brl(pdf.valor)) : '';
-  await enviarComBotoes(env, numeroDono(env), `Relatório de ponto do ${per.label} (${String(per.di || '').slice(8, 10)}/${String(per.di || '').slice(5, 7)} a ${String(per.df).slice(8, 10)}/${String(per.df).slice(5, 7)}) de ${apelidoFunc(cfg, f)}${val ? ' · ' + val : ''}. Posso mandar para ele?`, [{ id: 'rela_ok|' + k, titulo: 'Pode mandar' }, { id: 'rela_no|' + k, titulo: 'Não mandar' }]);
+  const dd = x => `${String(x || '').slice(8, 10)}/${String(x || '').slice(5, 7)}`;
+  const nome = apelidoFunc(cfg, f);
+  const corpo = `Relatório de ponto de ${f.nome} · ${per.label} (${dd(per.di)} a ${dd(per.df)})${val ? '\nValor: ' + val : ''}\n\nConfira o PDF. Posso mandar para ${nome}?${!f.tel ? '\n(Ele ainda não tem WhatsApp cadastrado: mande o contato dele aqui.)' : ''}`;
+  const botoes = [{ type: 'reply', reply: { id: 'rela_ok|' + k, title: 'Pode mandar' } }, { type: 'reply', reply: { id: 'rela_no|' + k, title: 'Não mandar' } }];
+  let foi = false;
+  if (pdf && pdf.b64) {
+    try {
+      const mid = await subirMidiaMeta(env, Uint8Array.from(atob(pdf.b64), c => c.charCodeAt(0)), 'application/pdf', pdf.arquivo || 'relatorio_ponto.pdf');
+      if (mid) { await postarMsg(env, numeroDono(env), { type: 'interactive', interactive: { type: 'button', header: { type: 'document', document: { id: mid, filename: pdf.arquivo || 'relatorio_ponto.pdf' } }, body: { text: corpo.slice(0, 1020) }, action: { buttons: botoes } } }); foi = true; }
+    } catch (e) { console.log('[REL] PDF p/ dono:', e.message); }
+  }
+  if (!foi) await enviarComBotoes(env, numeroDono(env), corpo, [{ id: 'rela_ok|' + k, titulo: 'Pode mandar' }, { id: 'rela_no|' + k, titulo: 'Não mandar' }]);
   return true;
 }
 async function relAutBotao(env, from, id) {
@@ -28995,7 +29010,8 @@ async function relAutBotao(env, from, id) {
   if (!per) { await enviar(env, from, 'Esse pedido expirou.'); return true; }
   await env.HR_KV.delete('ponto:relaut:' + k);
   const cfg = await pontoCfg(env), f = cfg.funcs.find(x => String(x.id) === k.split('~')[0]); if (!f) { await enviar(env, from, 'Não achei o funcionário.'); return true; }
-  if (ac === 'rela_no') { await enviar(env, from, `Certo, não mandei o relatório para ${apelidoFunc(cfg, f)}.`); return true; }
+  if (ac === 'rela_no') { await env.HR_KV.put('ponto:relautno:' + k, '1', { expirationTtl: 30 * 86400 }); await enviar(env, from, `Certo, não mandei o relatório para ${apelidoFunc(cfg, f)}. Se corrigir algo, toque em *Reenviar relatório* no app.`); return true; }
+  if (!f.tel) { await env.HR_KV.put('ponto:relaut:' + k, JSON.stringify(per), { expirationTtl: 15 * 86400 }); await enviar(env, from, `${apelidoFunc(cfg, f)} ainda não tem WhatsApp cadastrado. Mande o contato dele aqui e eu mando o relatório logo depois.`); await env.HR_KV.put('ponto:relautpend:' + f.id, k, { expirationTtl: 15 * 86400 }); return true; }
   const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }).catch(() => null);
   await enviar(env, from, v ? `Mandei o relatório do ${per.label} para ${apelidoFunc(cfg, f)}.` : `Não consegui mandar para ${apelidoFunc(cfg, f)} agora.`);
   return true;
@@ -29024,7 +29040,11 @@ async function eqCadastrarConfirmado(env, f, num, from, opt) {
   await env.HR_KV.delete('ca:' + num).catch(() => {}); await env.HR_KV.delete('eq:conv:' + u).catch(() => {});
   const nome = apelidoFunc(cfg, cf) || String(cf.nome).split(' ')[0];
   if (!opt.porDono) await enviar(env, num, `Pronto, ${nome}! Você está cadastrado na equipe da HR ✅`);
-  let rel = false; try { const per = await eqRelParado(env, cf.id); if (per) rel = await relPedirAutorizacao(env, cfg, cf, per); } catch (_) {} // v229: só manda com autorização do dono
+  let rel = false; try {
+    const kp = await env.HR_KV.get('ponto:relautpend:' + cf.id); let perA = null; if (kp) { try { perA = JSON.parse((await env.HR_KV.get('ponto:relaut:' + kp)) || 'null'); } catch (_) {} }
+    if (perA) { await env.HR_KV.delete('ponto:relautpend:' + cf.id); await env.HR_KV.delete('ponto:relaut:' + kp); if (await pontoRelEnviar(env, cfg, cf, perA, { reenvio: true })) await pontoAvisarDono(env, `Mandei para ${apelidoFunc(cfg, cf)} o relatório do ${perA.label} que o senhor autorizou.`).catch(() => {}); }
+    else { const per = await eqRelParado(env, cf.id); if (per) rel = await relPedirAutorizacao(env, cfg, cf, per); }
+  } catch (_) {} // v229/v230: só manda com autorização do dono
   await eqFichaPedir(env, cf).catch(() => {});
   if (opt.porDono) return { rel };
   await pontoAvisarDono(env, `✅ *${cf.nome}* confirmou que é da equipe e foi cadastrado com o WhatsApp ${fmtNumero(num)}.${rel ? ' O relatório dele está esperando a sua autorização (mensagem abaixo).' : ''} Pedi a ficha dele (nome completo, nascimento, CPF e Pix).`).catch(() => {});
@@ -30442,6 +30462,7 @@ async function rotaBotPonto(req, env, url) {
       const trava = `ponto:relenv:${f.id}:${b.df}`;
       if (!b.enviarAgora && await env.HR_KV.get(trava)) return jsonR({ ok: true, via: 'em andamento' }); // v49: o app mandou duas vezes
       await env.HR_KV.put(trava, '1', { expirationTtl: 600 });
+      if (!b.enviarAgora && cfg.relAutorizar !== false) { await relPedirAutorizacao(env, cfg, f, per); return jsonR({ ok: true, via: 'aguardando autorização do dono' }); } // v230: o dono confere antes
       via = await pontoRelEnviar(env, cfg, f, per, { reenvio: !!b.enviarAgora });
       if (!via) await pontoRelFalhaDono(env, f, per, await pontoRelUltimo(env, f.id));
       else if (!b.enviarAgora) await pontoAvisarDono(env, `📋 Relatório de ponto do ${per.label} de *${f.nome}*: ${via === 'WhatsApp' ? 'enviado no WhatsApp ✅' : via === 'app' ? 'enviado só pelo app de ponto (ele não falou com o bot nas últimas 24 h)' : 'não consegui entregar ⚠️'}.`);
