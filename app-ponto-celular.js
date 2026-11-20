@@ -373,6 +373,8 @@
       lista.forEach(function (f) {
         seq = seq.then(function () {
           var at = periodoAtual(f.id), per = opts.qual === 'atual' ? at : periodoAnterior(at);
+          // v19: no ÚLTIMO dia do período, depois do expediente (17h; meio período: 12h), o período atual já fechou — manda no mesmo dia (dia de pagamento)
+          if (!opts.qual && hoje() === at.df) { var hh = new Date().getHours(), exU = null; try { var e0 = lerJ('hr_excecoes'); Object.keys(e0).some(function (k) { if (e0[k] && e0[k].data === at.df) { exU = e0[k]; return true; } }); } catch (e) {} var folgaU = exU && exU.tipo === 'feriado' && !exU.meioperiodo, meioU = exU && exU.tipo === 'feriado' && exU.meioperiodo; if (folgaU || hh >= (meioU || new Date().getDay() === 6 ? 12 : 17)) per = at; }
           var chave = 'hr_relpdf_' + f.id + '_' + per.df;
           if (!opts.forcar && (localStorage.getItem(chave) || (info.rel && info.rel[f.id] && info.rel[f.id].df === per.df))) return;
           if (!opts.forcar && (Date.now() - new Date(per.df + 'T23:59:00-03:00').getTime() > 6 * 86400000)) return; // período velho: não manda sozinho
