@@ -21136,6 +21136,14 @@ async function rtpEnviar(env, from, reg) {
 function rtpCorpoModelo(t) { // a Meta não aceita quebra de linha nem 4+ espaços no parâmetro; a saudação já está no modelo
   return semEmoji(String(t || '')).replace(/^\s*(oi+|ol[aá]|bom dia|boa tarde|boa noite|e a[ií])[^,.!?]{0,30}[,.!?]+\s*/i, '').replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').replace(/^[a-zà-ú]/, c => c.toUpperCase()).trim().slice(0, 700);
 }
+async function relGarantirModelo(env) { // v220
+  if (await env.HR_KV.get('tpl:cria:hrrel')) return;
+  await env.HR_KV.put('tpl:cria:hrrel', '1', { expirationTtl: 6 * 3600 });
+  const l = await tplLista(env, true).catch(() => null); if (!l || l.find(x => x.nome === 'hr_relatorio_ponto')) return;
+  const waba = await tplWaba(env); if (!waba) return;
+  await graphJson(env, `https://graph.facebook.com/${gv(env)}/${waba}/message_templates`, { method: 'POST', headers: { ...authBearer(env), 'Content-Type': 'application/json' }, body: JSON.stringify(TPL_PADRAO.find(x => x.name === 'hr_relatorio_ponto')) });
+  await env.HR_KV.delete('tpl:lista');
+}
 async function rtpGarantirModelo(env) { // cria o modelo na Meta uma vez (aprovação costuma levar minutos)
   if (await env.HR_KV.get('tpl:cria:hrca')) return;
   await env.HR_KV.put('tpl:cria:hrca', '1', { expirationTtl: 6 * 3600 });
@@ -22785,6 +22793,9 @@ async function tplAutoEnv(env, ctx) {
   }
 }
 const TPL_PADRAO = [
+  { name: 'hr_relatorio_ponto', category: 'UTILITY', language: 'pt_BR', components: [ // v220: relatório de ponto fora das 24 h
+    { type: 'BODY', text: 'Olá, {{1}}! Seu relatório de ponto do {{2}} está pronto. Valor: {{3}}. Toque em Ver relatório para conferir os dias e as horas extras.', example: { body_text: [['Lucas', '2º decêndio (11/11 a 20/11)', 'R$ 367,17']] } },
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Ver relatório' }] }] },
   { name: 'hr_orcamento_pronto', category: 'UTILITY', language: 'pt_BR', components: [
     { type: 'BODY', text: 'Olá, {{1}}! Aqui é a HR Mármores e Granitos. O orçamento de {{2}} que você pediu está pronto. Posso te enviar por aqui?', example: { body_text: [['Eliane', 'peitoris em Preto São Gabriel']] } },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Pode enviar' }, { type: 'QUICK_REPLY', text: 'Agora não' }] }] },
@@ -28812,7 +28823,11 @@ async function pontoRelEnviar(env, cfg, f, per, opts = {}) {
         if (mid) comp.unshift({ type: 'header', parameters: [{ type: 'document', document: { id: mid, filename: pdf.arquivo || 'relatorio_ponto.pdf' } }] });
         await postarMsg(env, f.tel, { type: 'template', template: { name: env.TEMPLATE_RELATORIO, language: { code: env.TEMPLATE_IDIOMA || 'pt_BR' }, components: comp } });
         via = 'WhatsApp';
-      } else erro = 'sem modelo';
+      } else if (await tplAprovado(env, 'hr_relatorio_ponto').catch(() => null)) { // v220
+        await postarMsg(env, f.tel, { type: 'template', template: { name: 'hr_relatorio_ponto', language: { code: 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: nome }, { type: 'text', text: `${per.label} (${per2})` }, { type: 'text', text: valorTxt || 'veja no relatório' }] }] } });
+        await env.HR_KV.put('ponto:relpend:' + f.id, JSON.stringify(per), { expirationTtl: 10 * 86400 });
+        via = 'WhatsApp';
+      } else { erro = 'sem modelo'; await env.HR_KV.put('ponto:relpend:' + f.id, JSON.stringify(per), { expirationTtl: 10 * 86400 }); relGarantirModelo(env).catch(() => {}); }
     } catch (e) { erro = e.message; console.log('[PONTO] relatório WhatsApp', f.nome, e.message); }
   }
   const sub = JSON.parse((await env.HR_KV.get('ponto:push:' + f.id)) || 'null');
@@ -29268,6 +29283,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {}); // v154: janela de 24 h também para a equipe
   if (await eqPendente(env, from).catch(() => false)) { const t0 = normaliza(m.type === 'text' ? String(m.text?.body || '') : ''); if (m.type === 'button' || m.type !== 'text' || t0.length < 25) return true; } // v154/v162: manual guardado; "sim"/"ok" só abre o manual
   const nome = apelidoFunc(cfg, f); // v45: como a equipe chama
+  { const pend = await env.HR_KV.get('ponto:relpend:' + f.id); if (pend) { await env.HR_KV.delete('ponto:relpend:' + f.id); try { await pontoRelEnviar(env, cfg, f, JSON.parse(pend), { reenvio: true }); } catch (e) { console.log('[PONTO] rel pendente:', e.message); } const tb = normaliza(m.type === 'button' ? String(m.button?.text || '') : m.type === 'text' ? String(m.text?.body || '') : ''); if (/^ver relatorio$/.test(tb)) return true; } } // v220
   let idB = m.type === 'interactive' ? (m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '') : m.type === 'button' ? String(m.button?.payload || '') : '';
   // v44: "Ver aviso" (modelo) ou qualquer mensagem dele: entrega o que estava guardado
   if (idB.startsWith('av_ver|') || (m.type === 'button' && /ver (aviso|recado)/.test(normaliza(m.button?.text || '')))) {
