@@ -7871,6 +7871,61 @@ async function funcPerguntas(env, f, from, texto, nome, msg) {
   }
   return false;
 }
+// v216: O DONO DIZ QUEM FAZ O QUÊ — lido sem IA (a IA marcava "vai fazer" como feito e dava pontos).
+// "Fabrício tá cortando os lavatórios de Cássio Borges, Lucas tá ajudando, e Lucas também vai terminar os peitoris de Joel,
+//  eu, Gibson e Jefferson vamos iniciar a instalação da cozinha de Poliano" → 3 designações, cada um avisado.
+// Só age quando TODA frase foi entendida (pessoa + o que vai fazer + cliente); senão a IA cuida, como antes.
+async function donoPlanoEquipe(env, from, bruto) {
+  const cfg = await pontoCfg(env); if (!cfg.funcs.length) return false;
+  const msg0 = normaliza(bruto).replace(/[!?]/g, ' ').replace(/\s+/g, ' ').trim(); if (msg0.length < 12 || msg0.length > 700) return false;
+  const nomes = []; for (const f of cfg.funcs) for (const n of new Set([normaliza(String(f.nome).split(' ')[0]), normaliza(apelidoFunc(cfg, f))])) if (n && n.length >= 3) nomes.push({ n, f });
+  const reN = new RegExp('\\b(' + [...nomes.map(x => x.n), 'eu'].sort((a, b) => b.length - a.length).join('|') + ')\\b', 'g');
+  // passado ou pergunta: não é plano → IA
+  if (/\b(terminou|terminaram|cortou|cortaram|instalou|instalaram|entregou|entregaram|acabou|acabaram|fez|fizeram|finalizou|finalizaram|colou|colaram)\b/.test(msg0) && !/\b(vai|vao|quando)\b/.test(msg0)) return false;
+  if (/\b(quanto|quantos|qual|quem|cade|como esta|como ta)\b/.test(msg0)) return false;
+  // grupos de sujeitos: "eu, Gibson e Jefferson" / "Fabrício"
+  const ms = [...msg0.matchAll(reN)]; if (!ms.length) return false;
+  const grupos = []; let g = null;
+  for (const m of ms) { const entre = g ? msg0.slice(g.fim, m.index) : null; if (g && /^\s*(,|e|,\s*e)?\s*$/.test(entre)) { g.quem.push(m[1]); g.fim = m.index + m[0].length; } else { g = { ini: m.index, fim: m.index + m[0].length, quem: [m[1]] }; grupos.push(g); } }
+  const pre = msg0.slice(0, grupos[0].ini).replace(/\b(bom dia|boa tarde|boa noite|sr|chefe|olha|entao|hoje|ai|pessoal|anota|anote|registra|registre)\b/g, '').replace(/[,.:;\s]/g, ''); if (pre.length > 12) return false;
+  const peds = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado');
+  let ultCli = null; { let h = []; try { h = JSON.parse((await env.HR_KV.get('ag:hist')) || '[]') || []; } catch (_) {} const ua = h.filter(x => x && x.role === 'assistant').slice(-2).map(x => typeof x.content === 'string' ? x.content : JSON.stringify(x.content)).join(' '); const c = nomeMelhores(peds, tokensPedra(ua)); if (c.length === 1) ultCli = c[0]; }
+  const etapaDe = (t, f) => /instal|montag|montar|assent/.test(t) ? 'instalacao' : /entreg|levar|leva\b/.test(t) ? 'entrega' : /sainha|cuba|recorte|rebaixo|\b45\b|colar|cola\b|colagem|fabric/.test(t) ? 'fabricacao' : /acabament|acabar\b|polir|polimento|lustr/.test(t) ? 'acabamento' : /cort/.test(t) ? 'corte' : (/\b(projeto|servico|obra|pedido|iniciar|comecar|terminar|fazer)\b/.test(t) ? '?' : '');
+  const tarefaDe = t => { const l = []; if (/sainha/.test(t)) l.push(/cort|col/.test(t) ? 'o corte e a colagem das sainhas' : 'as sainhas'); if (/recorte|cuba/.test(t)) l.push('o recorte das cubas'); if (/\b45\b/.test(t)) l.push('o 45°'); if (/rebaixo/.test(t)) l.push('o rebaixo'); return l.length > 1 ? l.slice(0, -1).join(', ') + ' e ' + l[l.length - 1] : (l[0] || ''); };
+  const plano = []; let anterior = null;
+  for (let i = 0; i < grupos.length; i++) {
+    const gr = grupos[i], fimTxt = i + 1 < grupos.length ? grupos[i + 1].ini : msg0.length, corpo = msg0.slice(gr.fim, fimTxt);
+    const fs = gr.quem.filter(q => q !== 'eu').map(q => nomes.find(x => x.n === q).f).filter((f, k, a) => a.findIndex(y => y.id === f.id) === k);
+    const partes = corpo.split(/\bquando (terminar|acabar)\b|\bdepois\b/).filter(x => x && !/^(terminar|acabar)$/.test(x));
+    for (const parte of partes) {
+      const t = parte.trim().replace(/^[,.;e ]+|[,.;]+$/g, ''); if (!t) continue;
+      if (!fs.length) continue; // "eu" sozinho
+      if (/\b(ajudando|ajuda|junto|ajudar)\b/.test(t) && !nomeMelhores(peds, tokensPedra(t)).length) { if (!anterior) return false; plano.push({ ...anterior, fs, ajuda: true }); continue; }
+      if (!/\b(vai|vao|vamos|vou|ta|tao|esta|estao|to|fica|ficam|pode|precisa|tem que|hoje|amanha|agora)\b|\w+ndo\b|\b(iniciar|comecar|terminar|cortar|fazer|instalar|acabar|montar|colar|abrir|polir|entregar|levar)\b/.test(t)) return false;
+      const amanha = /\bamanha\b/.test(t);
+      let cli = nomeMelhores(peds, tokensPedra(t.replace(reN, ' ')));
+      if (cli.length !== 1 && /\b(esse|este|desse|deste|nesse|neste|o mesmo)\b.*\b(projeto|servico|obra|pedido|cliente)\b|\b(dele|dela)\b/.test(t) && ultCli) cli = [ultCli];
+      if (cli.length !== 1) return false;
+      let et = etapaDe(t);
+      if (et === '?' || !et) { const fsx = (await funcoesEquipe(env)).map[fs[0].id] || []; const p = cli[0]; et = !p.corteEm && fsx.includes('corte') ? 'corte' : fsx.some(x => ['instalacao', 'entrega'].includes(x)) && !fsx.some(x => ['fabricacao', '45', 'cuba'].includes(x)) ? 'instalacao' : pedComplexo(p) && fsx.some(x => ['fabricacao', '45', 'cuba', 'rebaixo'].includes(x)) ? 'fabricacao' : 'acabamento'; }
+      const item = { cli: cli[0], et, fs, tarefa: tarefaDe(t), amanha, frase: t, depois: /depois|quando/.test(corpo) && partes.indexOf(parte) > 0 };
+      plano.push(item); anterior = item;
+    }
+  }
+  if (!plano.length) return false;
+  // executa
+  const linhas = [], amanhaIso = isoSomaDias(dataBahia(), 1);
+  for (const it of plano) {
+    if (it.ajuda) { if (['instalacao', 'entrega'].includes(it.et)) { const p = await lerPedido(env, it.cli.id); p.entAjud = [...new Set([...(p.entAjud || []), ...it.fs.map(f => String(f.id))])]; await salvarPedido(env, p); } for (const f of it.fs) { const t = await respTel(env, f.id); if (t) await enviar(env, t, `${avisoTeste(env)}📋 ${apelidoFunc(cfg, f)}, hoje você ajuda no serviço de *${it.cli.nome}*.`).catch(() => {}); } linhas.push(`• ${it.fs.map(f => apelidoFunc(cfg, f)).join(' e ')}: ajudando em ${it.cli.nome}`); continue; }
+    env._agBruto = it.frase;
+    const r = await producaoStatusTool(env, { cliente: it.cli.nome, etapa: it.et, funcionarios: it.fs.map(f => apelidoFunc(cfg, f)), vai_fazer: true, ...(it.tarefa ? { tarefa: it.tarefa } : {}), ...(it.amanha ? { data: amanhaIso } : {}) }).catch(e => ({ erro: true, texto: e.message }));
+    const oque = it.tarefa || ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', instalacao: 'instalação', entrega: 'entrega' })[it.et];
+    linhas.push(`• ${it.fs.map(f => apelidoFunc(cfg, f)).join(' e ')}: ${oque} de ${it.cli.nome}${it.amanha ? ' (amanhã)' : ''}${it.depois ? ' (depois do anterior)' : ''}${r && r.erro ? ' — ⚠️ ' + String(r.texto).slice(0, 80) : ''}`);
+  }
+  await enviar(env, from, ['Anotado, Sr. Hangel. Cada um já foi avisado:', ...linhas, '', 'Os pontos só entram quando eles disserem que terminaram.'].join('\n'));
+  try { let h = JSON.parse((await env.HR_KV.get('ag:hist')) || '[]') || []; h = h.concat([{ role: 'user', content: String(bruto).slice(0, 800) }, { role: 'assistant', content: 'Anotado (plano da equipe): ' + linhas.join(' ') }]).slice(-30); await env.HR_KV.put('ag:hist', JSON.stringify(h), { expirationTtl: 3 * 86400 }); } catch (_) {}
+  return true;
+}
 function acharPorNome(lista, texto) {
   const tk = tokensPedra(texto || '');
   const ach = nomeMelhores(lista, tk); // v215: exato primeiro; sem exato, o parecido
@@ -10057,7 +10112,7 @@ async function prodDesignar(env, ped, ids, _, a, naoAchou, novo) {
   await salvarPedido(env, ped);
   const oque = a.tarefa ? String(a.tarefa) : ({ corte: 'o corte', acabamento: 'o acabamento', fabricacao: 'a fabricação', finalizado: 'a fabricação', instalacao: 'a instalação', entrega: 'a entrega', inicio: 'o serviço' })[etapa] || 'o serviço';
   const cortado = ped.corteEm ? ' As peças já estão cortadas.' : '';
-  const fim = (etapa === 'instalacao' || etapa === 'entrega') ? `Quando terminar, me diga: _instalei o da ${String(ped.nome).split(' ')[0]}_ e mande a foto.` : `Quando terminar, me diga: _terminei o da ${String(ped.nome).split(' ')[0]}_.`;
+  const fim = (etapa === 'instalacao' || etapa === 'entrega') ? `Quando terminar, me diga: _instalei o de ${String(ped.nome).split(' ')[0]}_ e mande a foto.` : `Quando terminar, me diga: _terminei o de ${String(ped.nome).split(' ')[0]}_.`;
   let avisou = false;
   if (tel) { await enviar(env, tel, `${avisoTeste(env)}📋 ${nm}, ${a.data && isoOk(a.data) ? 'no dia ' + dataBR(a.data) : 'hoje'} ${oque} de *${ped.nome}* (${resumoPecas(ped)}) é com você.${cortado} ${fim}`).then(() => { avisou = true; }).catch(() => {}); }
   const ajud = []; for (const id2 of ids.slice(1)) { const t2 = await respTel(env, id2), n2 = await respNome(env, id2); ajud.push(n2); if (t2) await enviar(env, t2, `${avisoTeste(env)}📋 ${n2}, ${a.data && isoOk(a.data) ? 'no dia ' + dataBR(a.data) : 'hoje'} você vai com ${nm} fazer ${oque} de *${ped.nome}*. ${fim}`).catch(() => {}); } // v214
@@ -19382,6 +19437,7 @@ async function tratarMensagemBase(env, m, ctx) {
         if (!ult || !/\?\s*$|\?[^?]{0,80}$/.test(String(ult.content || '').slice(-200))) { await enviar(env, from, '👍'); return; }
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
+      if (await donoPlanoEquipe(env, from, bruto).catch(e => { console.log('[PLANO] dono:', e.message); return false; })) return; // v216
       { const junto = await juntarMsgsDono(env, bruto); if (junto === null) return; await responderAgente(env, from, junto, F, voz); } // v193: mensagens seguidas viram uma só
       return;
     }
