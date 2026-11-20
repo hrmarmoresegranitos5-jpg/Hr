@@ -6877,6 +6877,7 @@ async function pedirAvaliacoes(env) {
       const from = k.name.slice(3);
       let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
       if (!c || !c.ultimaEm || !Array.isArray(c.hist)) continue;
+      { if (!globalThis.__eqCfgR || Date.now() - globalThis.__eqCfgR.em > 60000) globalThis.__eqCfgR = { em: Date.now(), cfg: await pontoCfg(env).catch(() => ({ funcs: [] })) }; if (pontoFuncPorFone(globalThis.__eqCfgR.cfg, from)) { await env.HR_KV.delete(k.name).catch(() => {}); continue; } } // v214: funcionário não é cliente
       if (c.hist.filter(h => h.role === 'user').length < 2) continue;                 // conversa de verdade, não só um "oi"
       const ociosoC = agora - c.ultimaEm;
       if (!c.resumoDono && !c.concluido && ociosoC >= AVAL_OCIOSO_MS && ociosoC <= 3 * 86400000 && !ehDono(env, from) && !(await env.HR_KV.get('humano:' + from)) && !(await pedidoIdDoCliente(env, from))
@@ -7859,7 +7860,23 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   if (!idB && await prodItensResposta(env, f, from, texto, nome).catch(e => { console.log('[ITENS] resposta:', e.message); return false; })) return true; // v182
   if (!idB && papel !== 'entrega' && await prodItensFuncionario(env, f, from, texto, nome).catch(e => { console.log('[ITENS]', e.message); return false; })) return true; // v182: "terminei 2 lavatórios da Maria"
   if (papel !== 'entrega' && /\bcortei\b/.test(msg) && await prodCorteParcial(env, f, from, texto, nome, msg)) return true; // v156
-  if (papel !== 'fabrica' && /\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
+  if (papel !== 'fabrica' && /\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
+  { // v214: "não tá pronto ainda" e "Pronto, aí beleza... iniciei o do Caveira" NÃO são peça pronta
+    const negP = /\b(nao|ainda nao|nem)\b[^.!?]{0,20}\b(pront[oa]s?|termin\w*|acab\w*|finaliz\w*)\b|\bfalta\w* (terminar|acabar|pouco)\b/.test(msg);
+    const forte = /\b(terminei|acabei|finalizei|conclui|terminamos|acabamos|ficou pront\w*|(ta|esta|estao|tao|ja) pront\w*|ta feito|esta feito)\b/.test(msg);
+    const iniP = /\b(iniciei|iniciando|inicio|comecei|comecando|comecamos|vou comecar|vou iniciar|to comecando|estou comecando|peguei)\b/.test(msg);
+    if (papel !== 'entrega' && negP) { await enviar(env, from, `Certo, ${nome}: anotado que ainda não terminou. Quando terminar, me diga: _terminei o da (cliente)_.`); return true; }
+    if (iniP && !forte) {
+      const l0 = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), tkT = tokensPedra(texto);
+      const ach = l0.filter(p => tokensPedra(p.nome || '').some(w => w.length >= 3 && tkT.includes(w)));
+      if (ach.length) { const ts = Date.now(); for (const p of ach.slice(0, 4)) { p.iniciadoEm = p.iniciadoEm || ts; p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : []; p.prodLog.push({ e: 'inicio', por: [String(f.id)], ts }); await salvarPedido(env, p); }
+        const nms = ach.slice(0, 4).map(p => String(p.nome || '').split(' ').slice(0, 2).join(' '));
+        await enviar(env, from, `Anotado, ${nome}: você começou ${nms.join(' e ')}. Quando terminar, me diga: _terminei o da ${nms[0].split(' ')[0]}_.`);
+        await pontoAvisarDono(env, `▶️ *${nome}* começou: ${nms.join(', ')}.`).catch(() => {}); return true; }
+      if (await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return false; // foto com legenda: o fluxo da foto pergunta
+      await enviar(env, from, `Anotado que você começou, ${nome}. De qual cliente é? Me diga assim: _iniciei o da Maria_.`); return true;
+    }
+  }
   if (papel !== 'entrega' && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
     const l0 = await pedidosProducao(env, p => naFabrica(p) || (p.acabResp && !p.acabEm && !p.entregueEm)), mine = l0.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].map(String).includes(String(f.id)) && !(String(p.acabResp) !== String(f.id) && p.corteEm && !naFabrica(p))), l = mine.length ? mine : l0;
     const tkT = tokensPedra(texto); let ach = mine.length ? acharPorNome(l, texto) : l.filter(p => tokensPedra(p.nome || '').some(w => w.length >= 3 && tkT.includes(w))); // v180: sem tarefa dele, só pelo nome do cliente (nunca "a única da fábrica") if (!ach.length) ach = await prodPorApelido(env, l, texto); if (!ach.length && mine.length === 1) ach = mine; // v161: apelido do cliente ou a única tarefa dele
@@ -9372,8 +9389,8 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   let pe = null; try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
   const leg = String((m.image && m.image.caption) || '').trim();
   if (leg && !pe && await prodItensFuncionario(env, f, from, leg, nome, { mid: m.image.id }).catch(e => { console.log('[ITENS] foto:', e.message); return false; })) return true; // v182: "frontões do Papinha finalizados"
-  if (leg && !pe && !/\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalando|entreguei|entregando|terminei|terminando|pronto|pronta|acabei|cortei|montando|montei)\b/.test(normaliza(leg))) return prodFotoPerguntar(env, f, from, m, nome, leg); // v176: legenda só com o cliente ("Serviços da dona Renata") → lista desse cliente, sem passar pela IA
-  if (leg && (!pe || /\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
+  if (leg && !pe && !/\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalando|entreguei|entregando|terminei|terminando|pronto|pronta|acabei|cortei|montando|montei)\b/.test(normaliza(leg))) return prodFotoPerguntar(env, f, from, m, nome, leg); // v176: legenda só com o cliente ("Serviços da dona Renata") → lista desse cliente, sem passar pela IA
+  if (leg && (!pe || /\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
     await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); // v161: a foto espera ele dizer qual é
     await producaoFuncionario(env, f, from, leg, '', nome).catch(e => console.log('[FOTO] legenda:', e.message));
@@ -19041,7 +19058,21 @@ async function tratarMensagemBase(env, m, ctx) {
     dono = false;
   }
   if (dono && m.type === 'contacts') { if (await eqContatoDono(env, from, m).catch(e => { console.log('[EQ] contato:', e.message); return false; })) return; await commsTratarDono(env, from, 'cartão de contato', m); return; } // v155
-  if (!dono && (m.type === 'text' || m.type === 'interactive' || m.type === 'audio' || m.type === 'button' || m.type === 'image') && await rhAtenderFuncionario(env, from, m, ctx).catch(e => { console.log('[RH] funcionário:', e.message); return false; })) return; // v40
+  if (!dono) { // v214: número da equipe NUNCA cai no atendimento de cliente (Hugo e Gibson recebiam "qual pedra você deseja?" e "nome completo")
+    const cfgEq = await pontoCfg(env).catch(() => null), fEq = cfgEq && pontoFuncPorFone(cfgEq, from);
+    if (fEq) {
+      ctx.cliente = false; await env.HR_KV.delete('ca:' + from).catch(() => {}); // v214: some o atendimento de cliente que abriu por engano
+      if (m.type === 'video' || m.type === 'document') { const cap = String((m[m.type] && m[m.type].caption) || '').trim(); if (cap) { m._texto = cap; m._midia = m.type; } }
+      let ok = false;
+      if (['text', 'interactive', 'audio', 'button', 'image'].includes(m.type) || m._texto) ok = await rhAtenderFuncionario(env, from, m, ctx).catch(e => { console.log('[RH] funcionário:', e.message); return 'erro'; });
+      if (ok !== true && !['reaction', 'sticker', 'unsupported'].includes(m.type)) {
+        const nm = apelidoFunc(cfgEq, fEq) || String(fEq.nome || '').split(' ')[0];
+        await enviar(env, from, m.type === 'video' || m.type === 'document' ? `Recebi, ${nm}. Se for de um serviço, me escreva de qual cliente e o que foi feito (ex.: _iniciei os lavatórios do Ésio_ ou _terminei o da Maria_).` : `Recebi, ${nm}. Não entendi direito: me diga de qual cliente e o que foi feito (ex.: _iniciei o da Maria_, _terminei o da Maria_).`).catch(() => {});
+        if (ok === 'erro') await pontoAvisarDono(env, `⚠️ Mensagem de *${fEq.nome}* que o bot não conseguiu tratar (${m.type}${m._texto || m.text?.body ? ': "' + String(m._texto || m.text?.body).slice(0, 200) + '"' : ''}).`).catch(() => {});
+      }
+      return;
+    }
+  }
   if (!dono && !atenderClientes(env)) return; // modo só-dono: ignora os demais, sem responder
   ctx.cliente = !dono;
   // v24: estas três marcas só gravam quando mudaram (antes eram 3 gravações em TODA mensagem de cliente)
