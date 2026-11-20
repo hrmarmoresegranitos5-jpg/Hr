@@ -885,7 +885,10 @@ var HR_FUNC = (function () {
         return r.funcionarioId === funcId
             && r.data < hoje
             && !r.autoCompletado
-            && (!r.entrada || !r.saida);
+            // v3: só "esqueceu UMA batida" (tem entrada OU saída). Dia sem nenhuma batida (falta, atestado, abono,
+            // feriado, folga) NÃO é esquecimento — antes virava dia trabalhado 07:00–17:00 com penalidade.
+            && ['abonado', 'falta', 'feriado', 'acordo', 'folga_banco'].indexOf(r.tipo) < 0
+            && (!!r.entrada !== !!r.saida);
       })
       .sort(function(a,b){ return a.data.localeCompare(b.data); })
       .forEach(function(r){
@@ -900,7 +903,8 @@ var HR_FUNC = (function () {
     var ocors = getOcorrencias();
     return Object.values(ocors)
       .filter(function(o){ return o.funcionarioId === funcId; })
-      .sort(function(a,b){ return b.data.localeCompare(a.data); });
+      .sort(function(a,b){ return b.data.localeCompare(a.data); })
+      .filter(function(o, i, arr){ return arr.findIndex(function(x){ return x.data === o.data && x.tipoFalha === o.tipoFalha; }) === i; }); // v3: o mesmo dia aparecia 2 vezes
   }
 
   // Bloco HTML resumido de penalidades para exibir no perfil
