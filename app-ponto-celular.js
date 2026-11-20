@@ -383,10 +383,11 @@
           return Promise.race([HR_RELATORIO_PONTO.gerarParaBot(f.id, per.di, per.df, info.bot || ''), new Promise(function (_, er) { setTimeout(function () { er(new Error('demorou')); }, 40000); })])
             .then(function (r) {
               // trava: dia de trabalho sem registro (falta ou relógio não importado) não sai sozinho — o dono confere e manda
-              var vazios = (r.dias || []).filter(function (d) { return d.esp > 0 && !(d.trab > 0) && d.tipo !== 'feriado' && d.tipo !== 'acordo'; }).map(function (d) { return d.data.slice(8) + '/' + d.data.slice(5, 7); });
+              var vaziosIso = (r.dias || []).filter(function (d) { return d.esp > 0 && !(d.trab > 0) && d.tipo !== 'feriado' && d.tipo !== 'acordo' && d.tipo !== 'abonado' && d.tipo !== 'falta'; }).map(function (d) { return d.data; });
+              var vazios = vaziosIso.map(function (d) { return d.slice(8) + '/' + d.slice(5, 7); });
               if (vazios.length && !opts.forcar) {
                 var ka = 'hr_relpdf_aviso_' + f.id + '_' + per.df;
-                if (!localStorage.getItem(ka)) { try { localStorage.setItem(ka, '1'); } catch (e) {} api('/bot/ponto/aviso-dono', { texto: '📋 Não mandei o relatório de ponto do ' + per.label + ' de *' + f.nome + '*: tem dia de trabalho sem registro (' + vazios.join(', ') + '). Se o senhor lançar esses dias no RH, o relatório sai sozinho na próxima vez que abrir o app (não precisa fazer mais nada). Se foi falta mesmo, toque em *Reenviar* no RH → Ponto e ajustes → Relatório de horas.' }).catch(function () {}); }
+                if (!localStorage.getItem(ka)) { try { localStorage.setItem(ka, '1'); } catch (e) {} api('/bot/ponto/aviso-dono', { texto: '📋 Não mandei o relatório de ponto do ' + per.label + ' de *' + f.nome + '*: tem dia de trabalho sem registro (' + vazios.join(', ') + '). Se o senhor lançar esses dias no RH, o relatório sai sozinho na próxima vez que abrir o app (não precisa fazer mais nada). Se foi falta mesmo, toque em *Reenviar* no RH → Ponto e ajustes → Relatório de horas.' , funcId: f.id, dias: vaziosIso }).catch(function () {}); }
                 throw new Error('dias sem registro: ' + vazios.join(', '));
               }
               return blob64(r.blob).then(function (b64) { return { r: r, b64: b64 }; });
@@ -480,7 +481,7 @@
     return api('/bot/ponto/equipe', { funcs: h === eqHash && !forcar ? [] : lista }).then(function (j) {
       eqHash = h;
       var eds = (j && j.edits) || []; if (!eds.length) return;
-      var CAMPO = { tel: 'telefone', nasc: 'nascimento', adm: 'admissao', fIni: 'feriasInicio', fFim: 'feriasFim', cargo: 'cargo' }, feitos = [];
+      var CAMPO = { tel: 'telefone', nasc: 'nascimento', adm: 'admissao', fIni: 'feriasInicio', fFim: 'feriasFim', cargo: 'cargo', nome: 'nome', cpf: 'cpf', pix: 'pix', banco: 'banco' }, feitos = [];
       eds.forEach(function (e) {
         var f = raw[e.funcId] || Object.keys(raw).map(function (k) { return raw[k]; }).filter(function (x) { return x && String(x.id) === String(e.funcId); })[0];
         if (f) Object.keys(e.muda || {}).forEach(function (k) { if (CAMPO[k]) f[CAMPO[k]] = e.muda[k]; });

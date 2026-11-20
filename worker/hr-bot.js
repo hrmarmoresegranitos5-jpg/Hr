@@ -2334,6 +2334,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^acdp_(ok|no)\|/.test(id)) return acdBotaoDono(env, from, id); // v153
   if (/^acdm_no\|/.test(id)) { const a = await acdLer(env, id.split('|')[1]); if (a && await janela24h(env, a.num)) await enviar(env, a.num, `${nomeDeTratamento(a.nome) || 'Olá'}, falei com o Sr. Hangel e o acordo continua como combinado: ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' e ')}. Qualquer dúvida, estou aqui. 😊`).catch(() => {}); await enviar(env, from, 'Certo, mantive o acordo e avisei a cliente.'); return true; } // v162
   if (/^eqc_(ok|no)\|/.test(id)) return eqContatoBotao(env, from, id); // v155
+  if (/^eqd_(ok|no)\|/.test(id)) return eqDescobrirBotao(env, from, id); // v223
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -8807,7 +8808,7 @@ async function equipeConsultar(env) {
   if (!d.funcs.length) return { texto: 'A ficha da equipe ainda não chegou do app. Peça ao Sr. Hangel para abrir o RH do app por 1 minuto.' };
   return { texto: `Ficha da equipe (hoje ${dataBR(hoje)}; atualizada pelo app em ${d.em ? new Date(d.em).toLocaleDateString('pt-BR', { timeZone: 'America/Bahia' }) : '?'}):\n` + d.funcs.map(f => equipeLinha(f, hoje, true).replace(/\*/g, '')).join('\n') + '\nResponda só o que ele perguntou, curto.' };
 }
-const EQ_CAMPOS = { telefone: 'tel', nascimento: 'nasc', admissao: 'adm', ferias_inicio: 'fIni', ferias_fim: 'fFim', cargo: 'cargo' };
+const EQ_CAMPOS = { telefone: 'tel', nascimento: 'nasc', admissao: 'adm', ferias_inicio: 'fIni', ferias_fim: 'fFim', cargo: 'cargo', nome_completo: 'nome', cpf: 'cpf', pix: 'pix', banco: 'banco' };
 async function equipeAtualizar(env, a) {
   const d = await equipeLer(env); if (!d.funcs.length) return { erro: true, texto: 'A ficha da equipe ainda não chegou do app.' };
   const tk = tokensPedra(String(a.funcionario || '')), f = d.funcs.find(x => tk.length && tk.every(w => tokensPedra(x.nome).includes(w))) || d.funcs.find(x => tk.length && tokensPedra(x.nome)[0] === tk[0]);
@@ -8817,8 +8818,9 @@ async function equipeAtualizar(env, a) {
     if (a[k] == null || a[k] === '') continue;
     let v = String(a[k]).trim();
     if (campo === 'tel') { v = v.replace(/\D/g, ''); if (v.length < 10) return { erro: true, texto: 'Telefone incompleto (DDD + número).' }; }
-    else if (campo !== 'cargo') { if (!isoOk(v)) return { erro: true, texto: `Data inválida em ${k} (use AAAA-MM-DD).` }; }
-    muda[campo] = v.slice(0, 40);
+    else if (['nasc', 'adm', 'fIni', 'fFim'].includes(campo)) { if (!isoOk(v)) return { erro: true, texto: `Data inválida em ${k} (use AAAA-MM-DD).` }; }
+    else if (campo === 'cpf') { v = v.replace(/\D/g, ''); if (v.length !== 11) return { erro: true, texto: 'CPF precisa ter 11 números.' }; v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'); }
+    muda[campo] = v.slice(0, campo === 'nome' ? 70 : 60);
   }
   if (!Object.keys(muda).length) return { erro: true, texto: 'Diga o que mudar (telefone, nascimento, admissão, férias ou cargo).' };
   Object.assign(f, muda); d.em = d.em || Date.now(); await env.HR_KV.put(EQ_K, JSON.stringify(d));
@@ -8826,7 +8828,7 @@ async function equipeAtualizar(env, a) {
   ed.push({ id: String(Date.now()) + Math.random().toString(36).slice(2, 5), funcId: f.id, muda, em: Date.now() });
   await env.HR_KV.put(EQ_ED, JSON.stringify(ed.slice(-50)), { expirationTtl: 30 * 86400 });
   if (muda.tel) { const cfg = await pontoCfg(env); const cf = cfg.funcs.find(x => x.id === f.id); if (cf) { cf.tel = muda.tel; await pontoCfgSalvar(env, cfg); } }
-  return { texto: `Atualizado na ficha de ${f.nome}: ${Object.entries(muda).map(([k, v]) => `${({ tel: 'telefone', nasc: 'nascimento', adm: 'admissão', fIni: 'início das férias', fFim: 'fim das férias', cargo: 'cargo' })[k]} ${/^\d{4}-/.test(v) ? dataBR(v) : v}`).join(', ')}. Vai para o RH do app na próxima vez que ele abrir. Confirme em UMA frase.` };
+  return { texto: `Atualizado na ficha de ${f.nome}: ${Object.entries(muda).map(([k, v]) => `${({ tel: 'telefone', nasc: 'nascimento', adm: 'admissão', fIni: 'início das férias', fFim: 'fim das férias', cargo: 'cargo', nome: 'nome completo', cpf: 'CPF', pix: 'chave Pix', banco: 'banco' })[k]} ${/^\d{4}-/.test(v) ? dataBR(v) : v}`).join(', ')}. Vai para o RH do app na próxima vez que ele abrir. Confirme em UMA frase.` };
 }
 // rotina diária (7h–10h): aniversários, tempo de casa e férias
 async function equipeRotina(env) {
@@ -19486,6 +19488,9 @@ async function tratarMensagemBase(env, m, ctx) {
         if (!ult || !/\?\s*$|\?[^?]{0,80}$/.test(String(ult.content || '').slice(-200))) { await enviar(env, from, '👍'); return; }
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
+      { const mq = normaliza(bruto); // v223
+        if (/\b(ach\w*|descobr\w*|cadastr\w*|busc\w*|procur\w*|pega\w*)\b.*\b(numero|numeros|whatsapp|zap|contato)s?\b.*\b(equipe|funcionarios?)\b|\b(cadastr\w*) (a |os )?(equipe|funcionarios)\b/.test(mq)) { await eqDescobrirOferecer(env, true); return; }
+        if (/\b(pe(ga|de|dir)|colet\w*|complet\w*)\b.*\b(ficha|dados|cadastro)s?\b.*\b(equipe|funcionarios?)\b/.test(mq)) { const cfgF = await pontoCfg(env), com = cfgF.funcs.filter(x => x.tel); for (const x of com) await eqFichaPedir(env, x).catch(() => {}); await enviar(env, from, com.length ? `Pedi a ficha (nome completo, nascimento, CPF e Pix) para: ${com.map(x => apelidoFunc(cfgF, x)).join(', ')}. Quando responderem, gravo no RH e te aviso.${cfgF.funcs.length > com.length ? ' Sem WhatsApp: ' + cfgF.funcs.filter(x => !x.tel).map(x => apelidoFunc(cfgF, x)).join(', ') + ' — mande *achar números da equipe*.' : ''}` : 'Ninguém da equipe tem WhatsApp cadastrado ainda. Mande: *achar números da equipe*.'); return; } }
       if (await donoPlanoEquipe(env, from, bruto).catch(e => { console.log('[PLANO] dono:', e.message); return false; })) return; // v216
       { const junto = await juntarMsgsDono(env, bruto); if (junto === null) return; await responderAgente(env, from, junto, F, voz); } // v193: mensagens seguidas viram uma só
       return;
@@ -28674,7 +28679,8 @@ async function pontoCfg(env) {
   r.lemb = Object.assign({ ligado: true, entrada: '07:15', saida: '17:45', sabado: '12:15', almoco: 80 }, r.lemb || {}); // v35
   if (typeof r.facial !== 'boolean') r.facial = true; // v36: exige rosto cadastrado e conferido em toda batida
   let t2 = {}; try { t2 = JSON.parse((await env.HR_KV.get('eq:tels2')) || '{}') || {}; } catch (_) {}
-  Object.defineProperty(r, '_tel2', { value: t2, enumerable: false }); // v218: outro número do funcionário (ex.: o do Gibson de entrega), aprendido sozinho
+  Object.defineProperty(r, '_tel2', { value: t2, enumerable: false });
+  for (const f of r.funcs) if (!f.tel) { const u = Object.keys(t2).find(k => !/^n:/.test(k) && String(t2[k]) === String(f.id)); if (u && t2['n:' + u]) f.tel = t2['n:' + u]; } // v223 // v218: outro número do funcionário (ex.: o do Gibson de entrega), aprendido sozinho
   return r;
 }
 async function pontoCfgSalvar(env, c) { await env.HR_KV.put('ponto:cfg', JSON.stringify(c)); }
@@ -28758,7 +28764,7 @@ function pontoRostoRotulo(d) { return d == null ? '' : d <= 0.52 ? 'confere' : d
 // KV: ponto:rel:<funcId>:<df> · ponto:relenv:<df> · rh:hist:<funcId>
 // ══════════════════════════════════════════════════════════════════════
 const hmPonto = m => m == null ? '—' : Math.floor(Math.round(m) / 60) + ':' + String(Math.round(m) % 60).padStart(2, '0');
-function pontoFuncPorFone(cfg, fone) { const u = ultimos8(fone); if (u.length !== 8) return null; return cfg.funcs.find(f => f.tel && ultimos8(f.tel) === u) || (cfg._tel2 && cfg._tel2[u] != null ? cfg.funcs.find(f => String(f.id) === String(cfg._tel2[u])) : null) || null; }
+function pontoFuncPorFone(cfg, fone) { const u = ultimos8(fone); if (u.length !== 8) return null; return cfg.funcs.find(f => f.tel && ultimos8(f.tel) === u) || (cfg._tel2 && cfg._tel2[u] != null && !/^\d{10,}$/.test(String(cfg._tel2[u])) ? cfg.funcs.find(f => String(f.id) === String(cfg._tel2[u])) : null) || null; }
 // v218: número da equipe que não está na ficha do ponto (o Gibson escreve do número de entrega). Reconhece pelo número de
 // fábrica/entrega configurado + nome do perfil/contato, ou por nome do perfil igual ao de um funcionário que já recebeu tarefa por esse número.
 async function eqAprenderNumero(env, from, perfil) {
@@ -28770,7 +28776,7 @@ async function eqAprenderNumero(env, from, perfil) {
   let f = cfg.funcs.find(x => nomes.some(nm => nm.split(' ')[0] === normaliza(String(x.nome)).split(' ')[0] || nm.split(' ')[0] === normaliza(apelidoFunc(cfg, x))));
   if (!f) { const fx = await funcoesEquipe(env).catch(() => null); const papel = n.entrega && ultimos8(n.entrega) === u ? ['instalacao', 'entrega'] : ['corte', 'fabricacao']; const c = cfg.funcs.filter(x => ((fx && fx.map[x.id]) || []).some(r => papel.includes(r))); if (c.length === 1) f = c[0]; }
   if (!f) return null;
-  const t2 = Object.assign({}, cfg._tel2 || {}); t2[u] = String(f.id); await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
+  const t2 = Object.assign({}, cfg._tel2 || {}); t2[u] = String(f.id); t2['n:' + u] = normalizarBR(String(from)); await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
   await env.HR_KV.delete('ca:' + from).catch(() => {});
   await pontoAvisarDono(env, `ℹ️ Reconheci o número final ${u.slice(-4)} como sendo do *${apelidoFunc(cfg, f)}* (equipe). Daqui pra frente ele não é tratado como cliente.`).catch(() => {});
   return f;
@@ -28840,6 +28846,138 @@ async function pontoRelEnviar(env, cfg, f, per, opts = {}) {
   if (sub && !via) { try { const x = await pushEnviar(env, sub, { title: 'Relatório de ponto', body: `${nome}, seu relatório do ${per.label} chegou${valorTxt ? ' (' + valorTxt + ')' : ''}. Toque para conferir.`, tag: 'ponto-rel' }); if (x.ok) via = 'app'; } catch (_) {} }
   rel.via = via; rel.erroZap = erro; await pontoRelSalvar(env, rel);
   return via;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// v223 · EQUIPE SE CADASTRA SOZINHA + ESQUECEU DE BATER O PONTO (inteligente)
+// 1) Número de WhatsApp: quem não tem telefone no RH é procurado nas conversas do bot (crm_ct: nome/perfil);
+//    o Sr. Hangel confirma com um toque e o número vai para o RH do app.
+// 2) Ficha: o bot pede a cada um nome completo, nascimento, CPF e chave Pix e grava no RH.
+// 3) Ponto esquecido: o bot pergunta ao funcionário a hora (no dia, e no fechamento para dias sem batida);
+//    a resposta vira pedido de correção com [Aprovar] para o dono, com a hora da 1ª mensagem dele no dia como prova.
+// ══════════════════════════════════════════════════════════════════════
+async function eqDescobrirNumeros(env) {
+  const cfg = await pontoCfg(env), falta = cfg.funcs.filter(f => !f.tel); if (!falta.length || !env.HR_DB) return [];
+  let cts = []; try { await crmTabela(env); cts = ((await env.HR_DB.prepare('SELECT num, nome, perfil, ult FROM crm_ct ORDER BY ult DESC LIMIT 3000').all()).results || []); } catch (e) { console.log('[EQ] descobrir:', e.message); return []; }
+  const usados = new Set(cfg.funcs.filter(f => f.tel).map(f => ultimos8(f.tel))); usados.add(ultimos8(numeroDono(env) || ''));
+  const out = [];
+  for (const f of falta) {
+    const tf = tokensPedra(f.nome || ''), ap = normaliza(apelidoFunc(cfg, f) || ''), cand = [];
+    for (const c of cts) {
+      const u = ultimos8(c.num); if (!u || usados.has(u)) continue;
+      const tc = tokensPedra([c.nome, c.perfil].filter(Boolean).join(' ')); if (!tc.length) continue;
+      const pri = tf[0] && (tc[0] === tf[0] || tkCasa(tc[0], tf[0]) > 0 || (ap && tc[0] === tokensPedra(ap)[0]));
+      if (!pri) continue;
+      const sob = tf.slice(1).some(w => w.length >= 3 && tc.slice(1).some(x => x === w || tkCasa(x, w) > 0));
+      cand.push({ num: normalizarBR(c.num), nome: c.nome || c.perfil, sob, ult: +c.ult || 0 });
+    }
+    const fortes = cand.filter(x => x.sob), esc = fortes.length === 1 ? fortes[0] : (!fortes.length && cand.length === 1 ? cand[0] : null);
+    if (esc) { out.push({ f, tel: esc.num, nome: esc.nome, forte: !!esc.sob }); usados.add(ultimos8(esc.num)); }
+  }
+  return out;
+}
+async function eqDescobrirOferecer(env, forcar) {
+  const hoje = dataBahia(); if (!forcar && await env.HR_KV.get('eq:desc:' + hoje)) return false;
+  await env.HR_KV.put('eq:desc:' + hoje, '1', { expirationTtl: 86400 });
+  const achou = await eqDescobrirNumeros(env), cfg = await pontoCfg(env), semNum = cfg.funcs.filter(f => !f.tel && !achou.some(a => a.f.id === f.id));
+  if (!achou.length) { if (forcar) await enviar(env, numeroDono(env), semNum.length ? `Não achei nas conversas o WhatsApp de: ${semNum.map(f => apelidoFunc(cfg, f)).join(', ')}. Mande o contato de cada um aqui (compartilhar contato) ou escreva: _o número do Lucas é 74 99999-0000_.` : 'Toda a equipe já tem WhatsApp cadastrado.'); return false; }
+  const k = 'eq:descok:' + Date.now().toString(36);
+  await env.HR_KV.put(k, JSON.stringify(achou.map(a => ({ fid: a.f.id, tel: a.tel, nome: a.nome }))), { expirationTtl: 3 * 86400 });
+  await enviarComBotoes(env, numeroDono(env), cartaoDono('Equipe · números do WhatsApp', [
+    'Achei nas conversas do bot:', ...achou.map(a => `• ${apelidoFunc(cfg, a.f)}: ${fmtNumero(a.tel)} (no WhatsApp: "${a.nome}")`),
+    semNum.length ? `Sem número ainda: ${semNum.map(f => apelidoFunc(cfg, f)).join(', ')} — mande o contato deles aqui.` : '',
+    'Confirmando, eu gravo no RH, mando o relatório que ficou parado e peço a ficha de cada um (nome completo, nascimento, CPF e Pix).'].filter(Boolean)),
+    [{ id: 'eqd_ok|' + k, titulo: 'Estão certos' }, { id: 'eqd_no|' + k, titulo: 'Tem errado' }]);
+  return true;
+}
+async function eqDescobrirBotao(env, from, id) {
+  const [ac, k] = id.split('|'); let itens = null; try { itens = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (!itens) { await enviar(env, from, 'Essa lista expirou. Mande: *achar números da equipe*.'); return true; }
+  await env.HR_KV.delete(k);
+  if (ac === 'eqd_no') { await enviar(env, from, 'Certo, não gravei nada. Mande o contato de cada um aqui (compartilhar contato) ou escreva: _o número do Lucas é 74 99999-0000_.'); return true; }
+  const cfg = await pontoCfg(env), linhas = [];
+  for (const it of itens) {
+    const f = cfg.funcs.find(x => String(x.id) === String(it.fid)); if (!f) continue;
+    f.tel = it.tel; await pontoCfgSalvar(env, cfg);
+    await equipeAtualizar(env, { funcionario: f.nome, telefone: it.tel }).catch(() => null);
+    const t2 = Object.assign({}, cfg._tel2 || {}), u = ultimos8(it.tel); t2[u] = String(f.id); t2['n:' + u] = it.tel; await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
+    await env.HR_KV.delete('ca:' + it.tel).catch(() => {});
+    // relatório que ficou parado por falta do número
+    let rel = ''; try { const per = JSON.parse((await env.HR_KV.get('ponto:resant:' + f.id)) || 'null'); if (per && await pontoRelPdf(env, f.id, per.df)) { const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }); rel = v ? ' · relatório enviado' : ''; } } catch (_) {}
+    await eqFichaPedir(env, f).catch(() => {});
+    linhas.push(`• ${apelidoFunc(cfg, f)}: ${fmtNumero(it.tel)} gravado${rel} · pedi a ficha`);
+  }
+  await enviar(env, from, ['✅ Pronto!', ...linhas, '', 'Quando cada um responder a ficha, eu gravo no RH e te aviso.'].join('\n'));
+  return true;
+}
+async function eqFichaPedir(env, f) {
+  if (!f.tel) return '';
+  const cfg = await pontoCfg(env), nome = apelidoFunc(cfg, f) || String(f.nome).split(' ')[0];
+  await env.HR_KV.put('eq:fichapend:' + f.id, String(Date.now()), { expirationTtl: 10 * 86400 });
+  return falarComFuncionario(env, f, `Oi, ${nome}! Para deixar sua ficha completa na HR, me mande numa mensagem só:\n• Nome completo\n• Data de nascimento\n• CPF\n• Chave Pix (para receber)\n\nExemplo: _Lucas Alves da Silva, 12/03/1995, 123.456.789-00, Pix 74 99999-0000_`, { titulo: 'Sua ficha na HR' });
+}
+async function eqFichaResposta(env, cfg, f, from, texto, nome) {
+  const pend = +(await env.HR_KV.get('eq:fichapend:' + f.id)) || 0; if (!pend) return false;
+  const n = normaliza(texto); if (texto.length < 6 || !(/\d{2}/.test(n) || n.split(' ').length >= 3)) return false;
+  if (/\b(cheguei|sai|entrei|bati|esqueci|almoco|faltei|terminei|instalei|iniciei|cortei)\b/.test(n) && !/\b(cpf|pix|nasc\w*|nome completo)\b/.test(n)) return false; // é ponto/produção, não ficha
+  let r = null;
+  try { r = lerJsonIA(await chamarIA(env, `Extraia dados de cadastro de um funcionário. Responda só JSON: {"nome_completo":"","nascimento":"AAAA-MM-DD","cpf":"só números","pix":"","banco":""}. Deixe vazio o que não estiver na mensagem. Não invente. Se a mensagem não for de cadastro, devolva tudo vazio.`, [], texto, { timeoutMs: 15000 })); } catch (e) { console.log('[EQ] ficha IA:', e.message); return false; }
+  if (!r || !['nome_completo', 'nascimento', 'cpf', 'pix', 'banco'].some(k => String(r[k] || '').trim())) return false;
+  const gravado = [], erros = [];
+  const nomeC = String(r.nome_completo || '').trim(); if (nomeC && nomeC.split(' ').length < 2) r.nome_completo = '';
+  for (const [k, campo] of [['nome_completo', 'nome'], ['nascimento', 'nasc'], ['cpf', 'cpf'], ['pix', 'pix'], ['banco', 'banco']]) {
+    const v = String(r[k] || '').trim(); if (!v) continue;
+    const x = await equipeAtualizar(env, { funcionario: f.nome, [k]: v }).catch(e => ({ erro: true, texto: e.message }));
+    if (x && x.erro) erros.push(x.texto); else gravado.push(({ nome: 'nome completo', nasc: 'nascimento', cpf: 'CPF', pix: 'Pix', banco: 'banco' })[campo]);
+  }
+  const faltam = ['nome completo', 'nascimento', 'CPF', 'Pix'].filter(x => !gravado.includes(x));
+  if (!faltam.length) await env.HR_KV.delete('eq:fichapend:' + f.id);
+  await enviar(env, from, gravado.length ? `Obrigada, ${nome}! Gravei na sua ficha: ${gravado.join(', ')}.${faltam.length ? ' Ainda falta: ' + faltam.join(', ') + '.' : ''}${erros.length ? ' (' + erros[0] + ')' : ''}` : `${nome}, não consegui gravar: ${erros[0] || 'confira os dados'}.`);
+  if (gravado.length) await pontoAvisarDono(env, `🗂️ *${f.nome}* completou a ficha: ${gravado.join(', ')}.${faltam.length ? ' Falta: ' + faltam.join(', ') + '.' : ''}`).catch(() => {});
+  return true;
+}
+async function eqFichaRotina(env) { // uma vez: pede a ficha a quem já tem número
+  const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 17 * 60) return;
+  if (!(await umaVez(env, 'eqficha:v1', 365))) return;
+  const cfg = await pontoCfg(env); for (const f of cfg.funcs) if (f.tel) await eqFichaPedir(env, f).catch(() => {});
+}
+// prova: primeira mensagem do funcionário no WhatsApp naquele dia
+async function pontoPrimeiraMsg(env, tel, data) {
+  if (!env.HR_DB || !tel) return '';
+  try { const ini = Date.parse(data + 'T00:00:00-03:00'), r = await env.HR_DB.prepare("SELECT MIN(ts) AS t, MAX(ts) AS u FROM crm_msg WHERE num = ? AND q = 'c' AND ts >= ? AND ts < ?").bind(normalizarBR(tel), ini, ini + 86400000).first(); return r && r.t ? `1ª mensagem dele no WhatsApp nesse dia: ${pontoHora(r.t)}, última: ${pontoHora(r.u)}` : ''; } catch (_) { return ''; }
+}
+// resposta com horário: dúvida do relatório, pergunta do dia ("que horas chegou?") ou dias sem batida do fechamento
+async function pontoCorrecaoTexto(env, cfg, f, from, texto, nome) {
+  const n = normaliza(texto);
+  let perg = null, dias = null; try { perg = JSON.parse((await env.HR_KV.get('ponto:perg:' + f.id)) || 'null'); dias = JSON.parse((await env.HR_KV.get('ponto:pergdias:' + f.id)) || 'null'); } catch (_) {}
+  const u = await pontoRelUltimo(env, f.id), duv = u && u.status === 'duvida' && Date.now() - (u.duvidaEm || u.em || 0) < 4 * 86400000;
+  if (!perg && !dias && !duv) return false;
+  if (dias && /\b(faltei|nao trabalhei|nao vim|folguei|estava doente|atestado)\b/.test(n)) {
+    await env.HR_KV.delete('ponto:pergdias:' + f.id);
+    await enviar(env, from, `Certo, ${nome}. Passei para o Sr. Hangel.${/atestado|doente/.test(n) ? ' Se tiver atestado, mande a foto aqui.' : ''}`);
+    await pontoAvisarDono(env, `📋 *${f.nome}* disse sobre ${dias.dias.map(pontoDataBR).join(', ')}: "${texto.slice(0, 200)}". Se for falta, marque no *Pagar equipe* (✗ Faltou ou 🩺 Atestado).`).catch(() => {});
+    return true;
+  }
+  if (!/\d{1,2}\s*(:|h|hs|horas?)\s*\d{0,2}|\b\d{1,2}\s*(e meia|da manha|da tarde)\b/.test(n)) return false;
+  const ctx = perg ? `Perguntamos hoje (${perg.data}) a hora da batida "${perg.batida}" que ele esqueceu.` : dias ? `Perguntamos sobre os dias sem batida: ${dias.dias.join(', ')}.` : `Ele tem dúvida no relatório de ${u.di} a ${u.df}.`;
+  let itens = [], motivo = texto.slice(0, 160);
+  try {
+    const r = lerJsonIA(await chamarIA(env, `Você extrai correções de ponto de um funcionário. ${ctx} Hoje é ${dataBahia()}. Responda só JSON: {"itens":[{"data":"AAAA-MM-DD","batida":"entrada|saida_almoco|volta_almoco|saida","hora":"HH:MM"}],"motivo":"resumo curto"}. "Cheguei" = entrada; "saí"/"fui embora" no fim do dia = saida; "das 7 às 11" = entrada 07:00 e saida 11:00. Sem data, use a data perguntada. Sem horário claro, itens vazio.`, [], texto, { timeoutMs: 15000 }));
+    itens = (r && Array.isArray(r.itens) ? r.itens : []).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.data || '') && PONTO_TIPOS[x.batida] && /^\d{2}:\d{2}$/.test(x.hora || '')).slice(0, 6);
+    if (r && r.motivo) motivo = String(r.motivo).slice(0, 160);
+  } catch (e) { console.log('[PONTO] correção IA:', e.message); return false; }
+  if (!itens.length) return false;
+  const feitos = [], erros = [];
+  for (const it of itens) {
+    const prova = await pontoPrimeiraMsg(env, f.tel || from, it.data);
+    const x = await pontoPedidoCriar(env, cfg, f.id, f.nome, { tipo: 'esqueci', data: it.data, batida: it.batida, hora: it.hora, motivo: (perg ? 'Esqueceu de bater' : dias ? 'Dia sem batida' : 'Dúvida no relatório') + ': ' + motivo + (prova ? ' · ' + prova : '') });
+    if (x.erro) erros.push(x.erro); else feitos.push(`${pontoDataBR(it.data)} · ${PONTO_TIPOS[it.batida]} ${it.hora}`);
+  }
+  if (perg) await env.HR_KV.delete('ponto:perg:' + f.id);
+  if (dias) await env.HR_KV.delete('ponto:pergdias:' + f.id);
+  if (!feitos.length) { await enviar(env, from, `${nome}, não consegui registrar: ${erros[0] || 'confira o dia e o horário'}.`); return true; }
+  await enviar(env, from, `Certo, ${nome}! Pedi ao Sr. Hangel para lançar:\n${feitos.map(x => '• ' + x).join('\n')}\n\nQuando ele aprovar, o dia é corrigido e eu te aviso.`);
+  return true;
 }
 // v222: "TENHO DÚVIDA" que vira correção — o funcionário escreve "dia 14 eu saí 17h" e o bot cria o pedido de ajuste
 // (o mesmo do app de ponto); o Sr. Hangel recebe com [Aprovar] [Recusar] e, aprovado, o dia é corrigido.
@@ -29341,8 +29479,9 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   if (!idB && m.type === 'text' && /^\s*\d{1,3}\s*(pecas?|peças?|unidades?)?\s*$/i.test(String(m.text?.body || ''))) { let c = null; try { c = JSON.parse((await env.HR_KV.get('prod:contar:' + ultimos8(from))) || 'null'); } catch (_) {} if (c) return contarFinalizar(env, f, from, c, parseInt(String(m.text.body), 10), nome); } // v174
   if (!texto && idB && /^(fpr|fen|fgr|fgs|fgn|frs|acb|fdia)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
   if (!texto) { await enviar(env, from, `${nome}, por aqui eu só consigo ler texto e áudio sobre o seu ponto, as suas horas e os pedidos.`); return true; }
+  if (await eqFichaResposta(env, cfg, f, from, texto, nome).catch(e => { console.log('[EQ] ficha:', e.message); return false; })) return true; // v223
+  if (await pontoCorrecaoTexto(env, cfg, f, from, texto, nome).catch(e => { console.log('[PONTO] correção:', e.message); return false; })) return true; // v222/v223
   if (entregues) return true; // ele escreveu e havia recado guardado: primeiro lê o recado
-  if (await relDuvidaCorrecao(env, cfg, f, from, texto, nome).catch(e => { console.log('[REL] dúvida:', e.message); return false; })) return true; // v222
   if (await producaoFuncionario(env, f, from, texto, idB, nome).catch(e => { console.log('[PROD] funcionário:', e.message); return false; })) return true; // v133
   if (await rhPedidoVale(env, cfg, f, from, texto, nome)) return true; // v46
   // v44: resposta a um recado do dono (até 24 h depois): repassa ao dono
@@ -29403,6 +29542,7 @@ async function pontoRelFalhaDono(env, f, per, rel) {
   const nome = String(f.nome).split(' ')[0];
   const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null);
   const valorTxt = pdf ? (pdf.status === 'pago' ? 'já quitado' : brl(pdf.valor)) : '';
+  if (!f.tel) eqDescobrirOferecer(env, false).catch(e => console.log('[EQ] descobrir:', e.message)); // v223
   const motivo = !f.tel ? 'ele não tem WhatsApp cadastrado no app de ponto'
     : `ele não falou com o bot nas últimas 24 h${env.TEMPLATE_RELATORIO ? ' e a Meta recusou o modelo' + (rel && rel.erroZap ? ' (' + String(rel.erroZap).slice(0, 80) + ')' : '') : ' e o modelo *relatorio_ponto* ainda não está ativo (TEMPLATE_RELATORIO)'}`;
   try {
@@ -29946,9 +30086,11 @@ async function pontoLembretes(env, cfg) {
     else if (ult && ult.tipo === 'saida_almoco' && !pontoDiaCurto(cfg, hoje)) { const [h, mi] = ult.hora.split(':').map(Number); if (ag.min - (h * 60 + mi) >= alm) { k = 'almoco'; t = 'Volta do almoço'; c = `${nome}, não esqueça de bater a volta do almoço (saiu às ${ult.hora}).`; } }
     else if (ult && (ult.tipo === 'entrada' || ult.tipo === 'volta_almoco') && isFinite(sai) && ag.min >= sai) { k = 'saida'; t = 'Vai sair?'; c = `${nome}, antes de ir embora bata a saída no HR Ponto.`; }
     if (!k) continue;
+    if (k === 'entrada' || k === 'saida' || k === 'almoco') c += ` Se já ${k === 'entrada' ? 'chegou' : k === 'saida' ? 'saiu' : 'voltou'} e esqueceu, me responda no WhatsApp a hora (ex.: 07:05).`; // v223
     const chave = `ponto:lemb:${hoje}:${f.id}:${k}`;
     if (await env.HR_KV.get(chave)) continue;
     await env.HR_KV.put(chave, '1', { expirationTtl: 172800 });
+    await env.HR_KV.put('ponto:perg:' + f.id, JSON.stringify({ data: hoje, batida: k === 'almoco' ? 'volta_almoco' : k }), { expirationTtl: 14 * 3600 }); // v223
     await pontoNotificar(env, f, t, c, 'ponto-' + k);
   }
 }
@@ -29957,6 +30099,7 @@ async function pontoRotina(env) {
   const cfg = await pontoCfg(env);
   await pontoLembretes(env, cfg).catch(e => console.log('lembrete ponto', e && e.message)); // v35
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
+  await eqFichaRotina(env).catch(e => console.log('ficha equipe', e && e.message)); // v223
   await rhAvisos(env).catch(e => console.log('rh avisos', e && e.message)); // v81
   await pvRotina(env).catch(e => console.log('pós-venda', e && e.message)); // v46
   if (!cfg.funcs.length || !cfg.aviso) return;
@@ -30035,6 +30178,14 @@ async function rotaBotPonto(req, env, url) {
   if (p === '/bot/ponto/aviso-dono' && req.method === 'POST') { // v41: aviso do app do dono para o WhatsApp dele
     const b = await req.json().catch(() => ({}));
     if (b.texto) await pontoAvisarDono(env, String(b.texto).slice(0, 900));
+    if (b.funcId && Array.isArray(b.dias) && b.dias.length) { // v223: dia sem batida no fechamento → pergunta ao funcionário
+      const fx = cfg.funcs.find(x => String(x.id) === String(b.funcId)), dias = b.dias.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 6);
+      if (fx && fx.tel && dias.length && !(await env.HR_KV.get('ponto:pergdias:' + fx.id))) {
+        await env.HR_KV.put('ponto:pergdias:' + fx.id, JSON.stringify({ dias, em: Date.now() }), { expirationTtl: 5 * 86400 });
+        const nm = apelidoFunc(cfg, fx) || String(fx.nome).split(' ')[0];
+        await falarComFuncionario(env, fx, `${nm}, no seu ponto não aparece batida em ${dias.map(pontoDataBR).join(', ')}. Você trabalhou? Me responda o horário (ex.: _${pontoDataBR(dias[0])} das 07:00 às 11:00_) ou _faltei_. Assim seu relatório sai certo.`, { titulo: 'Seu ponto' }).catch(() => {});
+      }
+    }
     return jsonR({ ok: true });
   }
   if (p === '/bot/ponto/previa' && req.method === 'POST') { // v80: prévia da folha do período atual (o app calcula igual ao relatório de ponto)

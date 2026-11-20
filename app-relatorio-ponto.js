@@ -1203,39 +1203,27 @@ var HR_RELATORIO_PONTO = (function () {
     function fmtData(iso) { return iso.slice(8,10)+'/'+iso.slice(5,7); }
     function fmtMoeda(v) { return 'R$ '+parseFloat(v||0).toFixed(2).replace('.',','); }
 
+    // v2: tabela fácil de ler — 4 colunas, letra maior, resultado escrito por extenso
+    function hm(min) { var abs = Math.abs(Math.round(min)); return Math.floor(abs/60)+'h'+String(abs%60).padStart(2,'0'); }
     var rowsHtml = '';
     linhas.forEach(function(l, idx) {
-      var bg = idx%2===0?'#fff':'#fafafa';
-      if (l.tipo==='feriado'||l.tipo==='acordo') bg='#e6f2ff';
-      else if (l.extraMin>0&&!l.destinoBanco)    bg='#f0fff0';
-      else if (l.saldoMin<-5)                    bg='#fff2f2';
-      else if (l.autoComp)                       bg='#fffce6';
-
-      var saldoDiaHtml;
-      if (l.extraMin>0 && !l.destinoBanco) {
-        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+'</span>';
-      } else if (l.saldoMin<-5) {
-        saldoDiaHtml = '<span style="color:#b43c3c;font-weight:700;">'+fmtMin(l.saldoMin)+'</span>';
-      } else {
-        saldoDiaHtml = '<span style="color:#aaa;">—</span>';
-      }
-
+      var semPonto = (!l.trabMin && l.esperadoMin > 0 && l.tipo !== 'abonado');
+      var bg = '#fff', res, cor;
+      if (l.tipo === 'abonado' || /abonad/.test(l.obs || '')) { res = 'atestado'; cor = '#5a7fa8'; bg = '#eef4fb'; }
+      else if (semPonto) { res = l.esperadoMin ? 'sem ponto · faltou ' + hm(l.esperadoMin) : 'sem ponto'; cor = '#b43c3c'; bg = '#fff0f0'; }
+      else if (l.extraMin > 0 && !l.destinoBanco) { res = '+' + hm(l.extraMin) + ' a mais' + (l.extra200Min > 0 ? ' <span style="font-size:11px;">(' + hm(l.extra200Min) + ' ×3)</span>' : ''); cor = '#2a8a46'; bg = '#f1fbf3'; }
+      else if (l.saldoMin < -5) { res = 'faltou ' + hm(l.saldoMin); cor = '#b43c3c'; bg = '#fff4f4'; }
+      else { res = 'certo'; cor = '#888'; }
+      if ((l.tipo === 'feriado' || l.tipo === 'acordo') && !l.trabMin && !l.esperadoMin) { res = 'folga/feriado'; cor = '#5a7fa8'; bg = '#eef4fb'; }
+      var almoco = l.almocoDireta ? 'sem batida de almoço' : (l.almocoDiretoConf ? 'sem almoço' : (l.saidaAlm && l.saidaAlm !== '—' ? 'almoço ' + l.saidaAlm + '–' + l.voltaAlm : ''));
+      var meio = l.esperadoMin > 0 && l.esperadoMin < 480 && l.diaTxt !== 'Sáb' ? ' <span style="font-size:11px;color:#5a7fa8;">(meio período)</span>' : '';
+      var horario = l.entrada && l.entrada !== '—' ? '<b>' + l.entrada + '</b> → <b>' + l.saida + '</b>' + (almoco ? '<div style="font-size:11.5px;color:#888;margin-top:2px;">' + almoco + '</div>' : '') : '<span style="color:#aaa;">—</span>';
       rowsHtml +=
-        '<tr style="background:'+bg+';">'+
-        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtData(l.data)+'</td>'+
-        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.diaTxt+'</td>'+
-        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.entrada+'</td>'+
-        (l.almocoDireta
-          ? '<td colspan="2" style="text-align:center;padding:7px 5px;font-size:12px;font-style:italic;color:#999;">Batida direta</td>'
-          : (l.almocoDiretoConf
-              ? '<td colspan="2" style="text-align:center;padding:7px 5px;font-size:12px;font-style:italic;color:#7a9a85;">Direto (confirmado)</td>'
-              : '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saidaAlm+'</td>'+
-                '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.voltaAlm+'</td>'
-            )
-        )+
-        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saida+'</td>'+
-        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtMin(l.trabMin)+'</td>'+
-        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+saldoDiaHtml+'</td>'+
+        '<tr style="background:'+bg+';border-bottom:1px solid #e3e8ee;">'+
+        '<td style="padding:9px 6px;font-size:15px;white-space:nowrap;"><b>'+fmtData(l.data)+'</b> <span style="font-size:12px;color:#888;">'+l.diaTxt+'</span>'+meio+'</td>'+
+        '<td style="padding:9px 6px;font-size:15px;">'+horario+'</td>'+
+        '<td style="padding:9px 6px;font-size:15px;text-align:center;">'+(l.trabMin ? hm(l.trabMin) : '—')+'</td>'+
+        '<td style="padding:9px 6px;font-size:15px;text-align:right;color:'+cor+';font-weight:700;">'+res+'</td>'+
         '</tr>';
     });
 
@@ -1286,14 +1274,10 @@ var HR_RELATORIO_PONTO = (function () {
 
     // Colunas da tabela — Saída/Volta Almoço só entram se alguém realmente bate almoço
     var colsHead =
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Data</th>'+
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Dia</th>'+
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Entrada</th>'+
-      (temAlmoco ? '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída<br>Almoço</th>' : '')+
-      (temAlmoco ? '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Volta<br>Almoço</th>' : '')+
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída</th>'+
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhado</th>'+
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhou a mais<br>/ Faltou</th>';
+      '<th style="padding:9px 6px;font-size:13px;text-align:left;">Dia</th>'+
+      '<th style="padding:9px 6px;font-size:13px;text-align:left;">Entrou → Saiu</th>'+
+      '<th style="padding:9px 6px;font-size:13px;text-align:center;">Trabalhou</th>'+
+      '<th style="padding:9px 6px;font-size:13px;text-align:right;">Resultado</th>';
 
     // Rodapé técnico — só o essencial (déficit, se houver), sem jargão.
     // O resto (valor hora, ×2, ×3) já está explicado no card do topo.
