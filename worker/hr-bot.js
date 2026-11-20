@@ -28841,6 +28841,28 @@ async function pontoRelEnviar(env, cfg, f, per, opts = {}) {
   rel.via = via; rel.erroZap = erro; await pontoRelSalvar(env, rel);
   return via;
 }
+// v222: "TENHO DÚVIDA" que vira correção — o funcionário escreve "dia 14 eu saí 17h" e o bot cria o pedido de ajuste
+// (o mesmo do app de ponto); o Sr. Hangel recebe com [Aprovar] [Recusar] e, aprovado, o dia é corrigido.
+async function relDuvidaCorrecao(env, cfg, f, from, texto, nome) {
+  const u = await pontoRelUltimo(env, f.id);
+  if (!u || u.status !== 'duvida' || Date.now() - (u.duvidaEm || u.em || 0) > 4 * 86400000) return false;
+  const n = normaliza(texto);
+  if (!/\d/.test(n) && !/\b(segunda|terca|quarta|quinta|sexta|sabado|ontem)\b/.test(n)) return false;
+  if (!/\b(entr\w*|cheguei|sai|saí|sa[ií]da|almoc\w*|volt\w*|bati|esqueci|fiquei|trabalhei|faltei|hora|horas|extra)\b/.test(n)) return false;
+  let itens = [];
+  try {
+    const sys = `Você extrai pedidos de correção de ponto de um funcionário. O relatório é do período ${u.di} a ${u.df}. Hoje é ${dataBahia()}. Responda só JSON: {"itens":[{"data":"AAAA-MM-DD","batida":"entrada|saida_almoco|volta_almoco|saida","hora":"HH:MM"}],"motivo":"resumo curto"}. Dia do mês sem mês = mês do período. "Saí" no fim do dia = saida. Se ele não disser um horário claro, devolva itens vazio.`;
+    const r = lerJsonIA(await chamarIA(env, sys, [], texto, { timeoutMs: 15000 }));
+    itens = (r && Array.isArray(r.itens) ? r.itens : []).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.data || '') && PONTO_TIPOS[x.batida] && /^\d{2}:\d{2}$/.test(x.hora || '')).slice(0, 4);
+    var motivo = String((r && r.motivo) || texto).slice(0, 200);
+  } catch (e) { console.log('[REL] dúvida IA:', e.message); return false; }
+  if (!itens.length) return false;
+  const feitos = [], erros = [];
+  for (const it of itens) { const x = await pontoPedidoCriar(env, cfg, f.id, f.nome, { tipo: 'esqueci', data: it.data, batida: it.batida, hora: it.hora, motivo: 'Dúvida no relatório: ' + motivo }); if (x.erro) erros.push(x.erro); else feitos.push(`${pontoDataBR(it.data)} · ${PONTO_TIPOS[it.batida]} ${it.hora}`); }
+  if (!feitos.length) { await enviar(env, from, `${nome}, não consegui registrar: ${erros[0] || 'confira o dia e o horário'}.`); return true; }
+  await enviar(env, from, `Certo, ${nome}! Pedi ao Sr. Hangel para corrigir:\n${feitos.map(x => '• ' + x).join('\n')}\n\nQuando ele aprovar, o dia é corrigido e eu te aviso.`);
+  return true;
+}
 async function pontoRelDecidir(env, cfg, f, df, acao, texto) {
   const rel = JSON.parse((await env.HR_KV.get(`ponto:rel:${f.id}:${df}`)) || 'null');
   if (!rel) return null;
@@ -29320,6 +29342,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   if (!texto && idB && /^(fpr|fen|fgr|fgs|fgn|frs|acb|fdia)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
   if (!texto) { await enviar(env, from, `${nome}, por aqui eu só consigo ler texto e áudio sobre o seu ponto, as suas horas e os pedidos.`); return true; }
   if (entregues) return true; // ele escreveu e havia recado guardado: primeiro lê o recado
+  if (await relDuvidaCorrecao(env, cfg, f, from, texto, nome).catch(e => { console.log('[REL] dúvida:', e.message); return false; })) return true; // v222
   if (await producaoFuncionario(env, f, from, texto, idB, nome).catch(e => { console.log('[PROD] funcionário:', e.message); return false; })) return true; // v133
   if (await rhPedidoVale(env, cfg, f, from, texto, nome)) return true; // v46
   // v44: resposta a um recado do dono (até 24 h depois): repassa ao dono
