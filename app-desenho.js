@@ -740,7 +740,7 @@
     + '.des-ic{background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.22);color:#e8c96a;min-width:38px;height:38px;border-radius:12px;font-size:1rem;cursor:pointer;flex:none;padding:0 10px}'
     + '.des-main{flex:1;overflow:auto;display:flex;flex-wrap:wrap;gap:12px;padding:12px 12px 110px;align-items:flex-start}'
     + '.des-cv{flex:1 1 360px;max-width:560px;background:#f6f6f4;border-radius:12px;overflow:hidden;position:relative;cursor:zoom-in;box-shadow:0 6px 24px rgba(0,0,0,.4)}.des-cv svg{width:100%;height:auto;display:block}'
-    + '.des-cv .lupa{position:absolute;right:8px;top:8px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:10px;padding:7px 11px;font-size:.76rem;cursor:pointer}.des-cv{cursor:default!important}.des-cv svg{touch-action:pan-y pinch-zoom}'
+    + '.des-cv .lupa{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:10px;padding:7px 11px;font-size:.76rem;cursor:pointer}.des-cv{cursor:default!important}.des-cv svg{touch-action:pan-y pinch-zoom}'
     + '.des-tip{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);background:rgba(26,20,8,.92);color:#f0d78c;padding:8px 13px;border-radius:11px;font-size:.82rem;font-weight:700;display:none;pointer-events:none;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.35)}'
     + '.des-mods{display:flex;gap:8px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none}.des-mods.g{display:grid;grid-template-columns:repeat(3,1fr);overflow:visible}.des-mod{flex:0 0 100px;display:flex;flex-direction:column;align-items:center;gap:4px;border-radius:12px;background:#f6f6f4;border:2px solid transparent;padding:6px 4px 7px;color:#33302a;font-size:.66rem;font-weight:700;line-height:1.15;cursor:pointer;font-family:inherit}.des-mod:active{border-color:#c9a84c}.des-mod svg{width:100%;height:54px}'
     + '.des-tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:9px}.des-tabs button{flex:0 0 auto;padding:7px 11px;border-radius:20px;border:1px solid rgba(201,168,76,.3);background:transparent;color:#c9bfa6;font-size:.76rem;font-weight:700;cursor:pointer}.des-tabs button.on{background:#c9a84c;color:#1a1408}'
@@ -761,6 +761,7 @@
     + '.des-dica{font-size:.74rem;color:#9a917e;margin-top:6px;line-height:1.4}.des-txt{min-height:120px;font-size:1rem;line-height:1.45}'
     + '.des-ent{font-size:.82rem;color:#d7f0dc;background:rgba(74,222,128,.07);border:1px solid rgba(74,222,128,.25);border-radius:10px;padding:7px 9px;margin-top:7px;line-height:1.4}.des-ex{margin-top:9px;font-size:.78rem;color:#c9a84c}.des-ex summary{cursor:pointer}.des-exi{margin-top:6px;padding:8px;border-radius:9px;background:#16130e;color:#c9bfa6;cursor:pointer;line-height:1.35}'
     + '.des-bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(10,9,8,.96);border-top:1px solid rgba(201,168,76,.18);z-index:2}.des-bar .des-bt{margin:0;padding:12px 6px;font-size:.84rem}'
+    + '#hrDesIA{position:fixed;inset:0;z-index:9994;background:#0a0908;color:#efe9dc;display:flex;flex-direction:column}.ia-top{display:flex;align-items:center;gap:10px;padding:12px;padding-top:max(12px,env(safe-area-inset-top));border-bottom:1px solid rgba(201,168,76,.18)}.ia-cv{flex:1;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:8px}.ia-cv canvas{max-width:100%;max-height:100%;touch-action:none;border-radius:10px;background:#fff}.ia-vazio{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:24px;background:#0a0908}.ia-ferr{display:flex;gap:6px;padding:8px 12px}.ia-ferr button{flex:1;padding:11px 4px;border-radius:11px;border:1px solid rgba(201,168,76,.3);background:#16130e;color:#c9bfa6;font-weight:800;font-size:.85rem}.ia-ferr button.on{background:#c9a84c;color:#1a1408}.ia-bx{padding:0 12px max(12px,env(safe-area-inset-bottom))}'
     + '#hrDesZoom{position:fixed;inset:0;z-index:9995;background:#2a2a2a;overflow:hidden;touch-action:none}#hrDesZoom .in{transform-origin:0 0;position:absolute;left:0;top:0}#hrDesZoom .fx{position:absolute;right:12px;top:max(12px,env(safe-area-inset-top));z-index:2;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:12px;padding:10px 14px;font-size:1rem}'
     + '.des-card-sec{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border-radius:16px;padding:14px;margin:10px 0;background:linear-gradient(135deg,rgba(96,165,250,.14),rgba(201,168,76,.05));border:1px solid rgba(96,165,250,.35);color:#efe9dc;cursor:pointer}.des-card-sec .ic{font-size:1.5rem}.des-card-sec .t{font-weight:800}.des-card-sec .s{font-size:.72rem;color:#9a917e}';
   function css() { if (document.getElementById('hrDesCss2')) return; var o = document.getElementById('hrDesCss'); if (o) o.remove(); var s = document.createElement('style'); s.id = 'hrDesCss2'; s.textContent = CSS; document.head.appendChild(s); }
@@ -851,10 +852,10 @@
   function painel() {
     var d = st.d, ps = d.pecas || [], h = '<div id="desCvSlot"></div>';
     if (st.sel >= ps.length) st.sel = ps.length - 1; if (st.sel < 0 && ps.length) st.sel = 0;
-    if (!ps.length) h += '<div class="des-sec"><h4>🧩 Escolha um módulo</h4>' + modsHtml(true) + '<div class="des-dica">Depois é só tocar no desenho: arrastar a cuba, o rebaixo e o cooktop, e tocar nos números para mudar as medidas.</div></div>';
+    if (!ps.length) h += '<div class="des-sec"><h4>🧩 Escolha um módulo</h4><button class="des-bt des-bt2" data-acao="ia" style="margin:0 0 10px">📷 Ou desenhe por foto ou rabisco</button>' + modsHtml(true) + '<div class="des-dica">Depois é só tocar no desenho: arrastar a cuba, o rebaixo e o cooktop, e tocar nos números para mudar as medidas.</div></div>';
     else {
       h += barraPeca(ps[st.sel], st.sel);
-      h += '<div class="des-sec"><h4>＋ Adicionar módulo</h4>' + modsHtml(false) + '</div>';
+      h += '<div class="des-sec"><h4>＋ Adicionar módulo</h4>' + modsHtml(false) + '<button class="des-bt des-bt2" data-acao="ia" style="margin-top:10px">📷 Adicionar por foto ou rabisco</button></div>';
     }
     h += '<div class="des-sec"><div class="des-g2" style="margin-top:0">' + campo('cliente', 'Cliente', d.cliente) + campo('material', 'Material', d.material, false, 'ex.: preto São Gabriel') + '</div></div>';
     h += '<button class="des-bt des-bt2" data-acao="esc" style="margin:0 0 10px">' + (st.esc ? '▾ Esconder' : '✍️ Prefere escrever ou ditar o projeto?') + '</button>';
@@ -952,7 +953,7 @@
   }
   function telaLista() {
     var m = document.getElementById('desMain'); if (!m) return; var l = lista(), bar = document.getElementById('desBar'); if (bar) bar.style.display = 'none';
-    m.innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt" data-acao="novo">＋ Novo projeto</button><button class="des-bt des-bt2" data-acao="ped">🏭 Puxar de um pedido</button><button class="des-bt des-bt2" data-acao="orc">📋 Puxar de um orçamento</button><div style="height:10px"></div>' + (l.length ? l.map(function (d) { return '<div class="des-li" data-abre="' + esc(d.id) + '"><span style="font-size:1.4rem">📐</span><div style="flex:1"><b>' + esc(d.cliente || 'Sem cliente') + '</b><div class="des-sub">' + esc(vazio(d.desc) ? descAuto(d) : d.desc) + (d.material ? ' · ' + esc(d.material) : '') + ' · ' + new Date(d.em).toLocaleDateString('pt-BR') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica" style="text-align:center;padding:30px">Nenhum projeto ainda. Toque em <b>Novo projeto</b>.</div>') + '</div>';
+    m.innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt" data-acao="novo">＋ Novo projeto</button><button class="des-bt" data-acao="ia" style="background:linear-gradient(135deg,#7dd3a8,#4d6b54);color:#fff">📷 Desenhar por foto ou rabisco</button><button class="des-bt des-bt2" data-acao="ped">🏭 Puxar de um pedido</button><button class="des-bt des-bt2" data-acao="orc">📋 Puxar de um orçamento</button><div style="height:10px"></div>' + (l.length ? l.map(function (d) { return '<div class="des-li" data-abre="' + esc(d.id) + '"><span style="font-size:1.4rem">📐</span><div style="flex:1"><b>' + esc(d.cliente || 'Sem cliente') + '</b><div class="des-sub">' + esc(vazio(d.desc) ? descAuto(d) : d.desc) + (d.material ? ' · ' + esc(d.material) : '') + ' · ' + new Date(d.em).toLocaleDateString('pt-BR') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica" style="text-align:center;padding:30px">Nenhum projeto ainda. Toque em <b>Novo projeto</b>.</div>') + '</div>';
   }
   function render() { var sub = document.getElementById('desSub'); if (st.tela === 'lista') { if (sub) sub.textContent = 'Projeto 2D sob medida, no padrão da HR'; telaLista(); } else { if (sub) sub.textContent = st.d.cliente || 'Novo projeto'; telaEditor(); } }
   function pcDe(el) { var p = el.closest('[data-pc]'); return p ? st.d.pecas[+p.getAttribute('data-pc')] : null; }
@@ -986,6 +987,66 @@
         return api('/bot/desenho', { pid: ped ? ped.id : '', nome: d.cliente || (ped && ped.nome) || 'Projeto', png: png, usarPecas: usar, itens: itens, para: para, legenda: (vazio(d.desc) ? descAuto(d) : d.desc) + (d.material ? ' · ' + d.material : '') + ' · medidas em cm.' });
       }).then(function (r) { d.pid = ped ? ped.id : d.pid; guardar(d); aviso('✅ ' + (r.trocou ? 'Peças do pedido atualizadas. ' : '') + (r.enviados.length ? 'Enviado a ' + r.enviados.join(', ') + '. ' : '') + (r.fora.length ? 'Fora das 24 h: ' + r.fora.join(', ') + ' (avisados para pedir).' : '') + (r.erro ? ' ' + r.erro : '')); });
     }).catch(function (e) { aviso('⚠️ ' + e.message); });
+  }
+  // ── por foto ou rabisco: tira a foto (ou não), rabisca por cima com as medidas e a IA monta as peças ──
+  function deIA(o) {
+    o = o || {}; var T0 = ['bancada', 'L', 'lavatorio', 'prateleira', 'nicho', 'placa'], t = T0.indexOf(o.tipo) >= 0 ? o.tipo : 'bancada', p = novaPeca(t), n = function (v) { var x = parseFloat(v); return isFinite(x) && x > 0 ? Math.round(x * 10) / 10 : null; };
+    ['A', 'p', 'B', 'pB', 'H', 'prof', 'saiaAlt', 'fr', 'peAlt', 'qtd'].forEach(function (k) { var v = n(o[k]); if (v != null) p[k] = v; });
+    if (t === 'L') p.Bv = 2;
+    if (o.nome) p.nome = String(o.nome).slice(0, 40); if (o.obs) p.obs = String(o.obs).slice(0, 160);
+    if (['cozinha', 'balcao', 'banheiro', 'soleira', 'escada', 'piscina', 'outro'].indexOf(o.amb) >= 0) p.amb = o.amb;
+    if (['reta', 'slim', '45', 'boleada', 'nenhuma'].indexOf(String(o.saia)) >= 0) p.saia = String(o.saia);
+    if (o.perna === 'esq' || o.perna === 'dir') p.perna = o.perna;
+    if (['nenhum', 'esq', 'dir'].indexOf(o.pe) >= 0) p.pe = o.pe;
+    ['frF', 'frE', 'frD'].forEach(function (k) { if (typeof o[k] === 'boolean') p[k] = o[k]; });
+    var c = o.cuba || {}; if (c && typeof c === 'object') { if (['nenhuma', 'retangular', 'redonda', 'oval', 'esculpida', 'rampada'].indexOf(c.tipo) >= 0) p.cuba.tipo = c.tipo; if (['embutida', 'sobrepor', 'flush'].indexOf(c.inst) >= 0) p.cuba.inst = c.inst; if (n(c.w)) p.cuba.w = n(c.w); if (n(c.h)) p.cuba.h = n(c.h); if (n(c.x)) { p.cuba.x = n(c.x); p.cuba.ref = 'esq'; } }
+    var r = o.reb || {}; if (r.on) { p.reb.on = true; p.reb.tipo = r.tipo === 'normal' ? 'normal' : 'americano'; if (n(r.c)) p.reb.c = n(r.c); if (n(r.l)) p.reb.l = n(r.l); if (n(r.x)) p.reb.x = n(r.x); }
+    var k = o.cook || {}; if (k.on) { p.cook.on = true; if (n(k.w)) p.cook.w = n(k.w); if (n(k.h)) p.cook.h = n(k.h); if (n(k.x)) p.cook.x = n(k.x); }
+    if (ambDe(p) !== 'cozinha') { p.reb.on = false; p.cook.on = false; }
+    return p;
+  }
+  function telaIA() {
+    var o = document.createElement('div'); o.id = 'hrDesIA';
+    o.innerHTML = '<div class="ia-top"><button class="des-ic" data-ia="sair">✕</button><div style="flex:1"><b>📷 Desenhar por foto ou rabisco</b><div class="des-sub" id="iaPasso">1. Tire a foto (ou comece em branco)</div></div></div>'
+      + '<div class="ia-cv"><canvas id="iaCv"></canvas><div class="ia-vazio" id="iaVazio"><button class="des-bt" data-ia="foto">📷 Tirar ou escolher foto</button><button class="des-bt des-bt2" data-ia="branco">⬜ Rabiscar em branco</button><div class="des-dica" style="text-align:center;margin-top:10px">Foto de referência (um lavatório diferente, por exemplo) ou foto do ambiente na casa do cliente. Depois é só rabiscar por cima e escrever as medidas.</div></div></div>'
+      + '<div class="ia-ferr"><button data-ia="caneta" class="on">✏️ Rabiscar</button><button data-ia="medida">123 Medida</button><button data-ia="desfaz">↶</button><button data-ia="limpa">🗑</button><button data-ia="foto">📷</button></div>'
+      + '<div class="ia-bx"><input class="des-i" id="iaDica" placeholder="Dica (opcional): ex. lavatório com cuba esculpida, sainha 45"><button class="des-bt" data-ia="gerar" style="margin-top:8px">✨ Gerar desenho</button></div>'
+      + '<input type="file" id="iaArq" accept="image/*" style="display:none">';
+    document.body.appendChild(o);
+    var cv = o.querySelector('#iaCv'), cx = cv.getContext('2d'), bg = null, tr = [], tx = [], hist = [], modo = 'caneta', at = null, temImg = false;
+    var tam = function () { var W = 1200, H = 900; if (bg) { var k = Math.min(1400 / bg.width, 1400 / bg.height, 1); W = Math.round(bg.width * k); H = Math.round(bg.height * k); } cv.width = W; cv.height = H; };
+    var des = function () {
+      cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); if (bg) cx.drawImage(bg, 0, 0, cv.width, cv.height);
+      var lw = Math.max(5, cv.width / 180); cx.lineCap = cx.lineJoin = 'round';
+      tr.forEach(function (t) { if (t.length < 2) return; cx.strokeStyle = 'rgba(255,255,255,.9)'; cx.lineWidth = lw + 4; cx.beginPath(); t.forEach(function (q, i) { i ? cx.lineTo(q[0], q[1]) : cx.moveTo(q[0], q[1]); }); cx.stroke(); cx.strokeStyle = '#e0242b'; cx.lineWidth = lw; cx.stroke(); });
+      var fz = Math.max(34, cv.width / 26); cx.font = '800 ' + fz + 'px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      tx.forEach(function (t) { cx.lineWidth = fz / 5; cx.strokeStyle = '#fff'; cx.strokeText(t.t, t.x, t.y); cx.fillStyle = '#e0242b'; cx.fillText(t.t, t.x, t.y); });
+    };
+    var pos = function (e) { var r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+    var comecar = function () { o.querySelector('#iaVazio').style.display = 'none'; temImg = true; tam(); des(); o.querySelector('#iaPasso').textContent = '2. Rabisque as peças e toque em 123 para escrever as medidas'; };
+    cv.addEventListener('pointerdown', function (e) { if (!temImg) return; e.preventDefault(); if (modo === 'medida') { var q = pos(e); pedirNum('Medida neste ponto', '', function (v) { tx.push({ x: q[0], y: q[1], t: f1(v) }); hist.push('t'); des(); }); return; } at = [pos(e)]; tr.push(at); hist.push('s'); try { cv.setPointerCapture(e.pointerId); } catch (er) {} });
+    cv.addEventListener('pointermove', function (e) { if (!at) return; e.preventDefault(); at.push(pos(e)); des(); });
+    var fim = function () { at = null; }; cv.addEventListener('pointerup', fim); cv.addEventListener('pointercancel', fim);
+    o.querySelector('#iaArq').addEventListener('change', function (e) { var f = e.target.files && e.target.files[0]; if (!f) return; var u = URL.createObjectURL(f), im = new Image(); im.onload = function () { bg = im; tr = []; tx = []; hist = []; comecar(); }; im.src = u; });
+    o.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-ia]'); if (!b) return; var a = b.getAttribute('data-ia');
+      if (a === 'sair') { o.remove(); return; }
+      if (a === 'foto') { o.querySelector('#iaArq').click(); return; }
+      if (a === 'branco') { bg = null; comecar(); return; }
+      if (a === 'caneta' || a === 'medida') { modo = a; o.querySelectorAll('.ia-ferr [data-ia="caneta"],.ia-ferr [data-ia="medida"]').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-ia') === a); }); if (a === 'medida') aviso('Toque no desenho onde vai a medida'); return; }
+      if (a === 'desfaz') { var u = hist.pop(); if (u === 't') tx.pop(); else if (u === 's') tr.pop(); des(); return; }
+      if (a === 'limpa') { tr = []; tx = []; hist = []; des(); return; }
+      if (a === 'gerar') {
+        if (!temImg) { aviso('Tire a foto ou comece em branco'); return; }
+        b.disabled = true; b.textContent = '⏳ Montando o desenho… (até 30 s)';
+        api('/bot/desenho/ia', { img: cv.toDataURL('image/jpeg', 0.82), modo: tr.length || tx.length ? 'rabisco' : 'foto', dica: o.querySelector('#iaDica').value }).then(function (r) {
+          var ps = (r.pecas || []).map(deIA); if (!ps.length) throw new Error('Não achei peças na imagem.');
+          if (st.tela === 'editor' && st.d) { ps.forEach(function (p) { st.d.pecas.push(p); }); st.sel = st.d.pecas.length - 1; }
+          else { st.d = novo(); st.d.pecas = ps; st.d.desc = ''; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; }
+          o.remove(); render(); aviso('✨ Desenho montado. Confira e ajuste: toque nos números e arraste a cuba.' + (r.avisos && r.avisos.length ? ' Atenção: ' + r.avisos.join(' · ') : ''));
+        }).catch(function (er) { b.disabled = false; b.textContent = '✨ Gerar desenho'; aviso('⚠️ ' + er.message); });
+      }
+    });
   }
   function abrir() {
     css(); var v = document.getElementById('hrDes'); if (v) v.remove(); st.tela = 'lista';
@@ -1021,6 +1082,7 @@
       if (k3 === 'voltar') { if (st.tela === 'editor') { guardar(st.d); st.tela = 'lista'; render(); } else el.remove(); return; }
       if (k3 === 'orc') { var os = orcamentos(); document.getElementById('desMain').innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt des-bt2" data-acao="voltarLista">← Voltar</button><div class="des-dica" style="margin:10px 0">Escolha o orçamento: o desenho sai com as medidas, a cuba, a sainha e o rebaixo dele.</div>' + (os.length ? os.map(function (q, i) { return '<div class="des-li" data-orc="' + i + '"><span style="font-size:1.4rem">📋</span><div style="flex:1"><b>' + esc(q.cli || 'Sem cliente') + '</b><div class="des-sub">' + esc((q.ambSnap || []).map(function (a) { return a.tipo; }).join(' + ')) + (q.mat ? ' · ' + esc(q.mat) : '') + (q.date || q.data ? ' · ' + esc(String(q.date || q.data).slice(0, 10)) : '') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica">Nenhum orçamento salvo no app ainda.</div>') + '</div>'; st.orcs = os; return; }
       if (k3 === 'voltarLista') { render(); return; }
+      if (k3 === 'ia') { telaIA(); return; }
       if (k3 === 'ped') { var mn = document.getElementById('desMain'); mn.innerHTML = '<div class="des-dica" style="padding:30px;text-align:center">Carregando os pedidos…</div>';
         api('/bot/producao').then(function (pr) { st.peds = pr.pedidos || []; mn.innerHTML = '<div style="flex:1 1 100%;max-width:720px;margin:0 auto"><button class="des-bt des-bt2" data-acao="voltarLista">← Voltar</button><div class="des-dica" style="margin:10px 0">Escolha o pedido: o desenho sai com o ambiente, as medidas, a sainha, o frontão e a cuba (de sobrepor ou de embutir) dele.</div>' + (st.peds.length ? st.peds.map(function (p, i) { return '<div class="des-li" data-pedx="' + i + '"><span style="font-size:1.4rem">🏭</span><div style="flex:1"><b>' + esc(p.nome) + '</b><div class="des-sub">' + esc((p.itens || []).map(function (x) { return x.ambiente; }).join(' + ')) + (p.pedra ? ' · ' + esc(p.pedra) : '') + '</div></div><span style="color:#c9a84c">›</span></div>'; }).join('') : '<div class="des-dica">Nenhum pedido em produção.</div>') + '</div>'; }).catch(function (er) { aviso('⚠️ ' + er.message); render(); }); return; }
       if (k3 === 'novo') { st.d = novo(); st.aberta = 0; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render(); return; }
