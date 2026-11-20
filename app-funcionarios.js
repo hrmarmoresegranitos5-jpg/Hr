@@ -1951,6 +1951,8 @@ var HR_FUNC = (function () {
           emAberto = { label: '3º decêndio', valor: dec3, sub: 'Vence fim do mês' }; numAberto = 3;
         }
 
+        // v2: o cartão mostra o MESMO valor da tela de pagamento (salário + extras − faltas − vales), não só o fixo
+        if (emAberto && numAberto) { try { var _ppA = _periodoDecendio(numAberto, mesRef, f); var _ssA = calcSaldoFuncionario(f.id, _ppA.di, _ppA.df); var _vvA = _calcValorAPagar(_ssA, f, true, numAberto, mesRef); if (isFinite(_vvA)) { emAberto.valor = _vvA; emAberto.real = true; } } catch (_eA) {} }
         // Se nada em aberto, mostra o próximo a vencer
         if (!emAberto) {
           var nd = _proximoDecendio(f);
@@ -1976,7 +1978,7 @@ var HR_FUNC = (function () {
           '</div>'+
           '<div style="text-align:right;">'+
             '<div style="font-size:1rem;font-weight:800;color:'+cor+';">'+_fmtMoeda(emAberto.valor)+'</div>'+
-            '<div style="font-size:.6rem;color:'+T3+';">valor sugerido</div>'+
+            '<div style="font-size:.6rem;color:'+T3+';">'+(emAberto.real ? 'já com extras e descontos' : 'valor fixo')+'</div>'+
           '</div>'+
         '</button>';
       })()+
