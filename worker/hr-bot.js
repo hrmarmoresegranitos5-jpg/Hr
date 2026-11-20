@@ -28990,8 +28990,25 @@ async function eqAutoCadastroRotina(env, forcar) { // procura e convida quem est
 
 // v229: relatório que o BOT quer mandar fora da hora (cadastro novo, reenvio do que ficou parado) só sai com a autorização do dono
 
+function relAuditoria(pdf) { // v232: confere a própria conta do PDF antes de chegar ao funcionário
+  const out = []; if (!pdf) return out;
+  const fin = Array.isArray(pdf.fin) ? pdf.fin : [], cent = v => Math.round((+v || 0) * 100);
+  const princ = fin.filter(r => !r.sub);
+  if (princ.length) {
+    const soma = princ.reduce((t, r) => t + (r.sinal === '-' ? -cent(r.valor) : cent(r.valor)), 0);
+    if (pdf.status !== 'pago' && Math.abs(soma - cent(pdf.valor)) > 2 && soma > 0) out.push(`A conta do PDF não fecha: as linhas somam ${brl(soma / 100)}, mas o total diz ${brl(pdf.valor)}. Gere o relatório de novo antes de mandar.`);
+    const ix = fin.findIndex(r => !r.sub && /^Horas extras/.test(r.label || ''));
+    if (ix >= 0) { const subs = []; for (let i = ix + 1; i < fin.length && fin[i].sub; i++) subs.push(fin[i]); const ss = subs.reduce((t, r) => t + cent(r.valor), 0); if (subs.length && Math.abs(ss - cent(fin[ix].valor)) > 2) out.push(`Extras em dobro + triplo (${brl(ss / 100)}) não batem com o total de extras (${brl(fin[ix].valor)}).`); }
+  }
+  const dias = Array.isArray(pdf.dias) ? pdf.dias : [], vistos = new Set();
+  for (const d of dias) { if (vistos.has(d.data)) out.push(`O dia ${String(d.data).slice(8, 10)}/${String(d.data).slice(5, 7)} aparece duas vezes.`); vistos.add(d.data); if (pdf.di && pdf.df && (d.data < pdf.di || d.data > pdf.df)) out.push(`O dia ${d.data} está fora do período.`); }
+  for (const d of dias) { const hm2 = x => /^\d{2}:\d{2}$/.test(x || '') ? +x.slice(0, 2) * 60 + +x.slice(3) : null, e = hm2(d.e), sa = hm2(d.s), ai = hm2(d.ai), af = hm2(d.af);
+    if (e != null && sa != null && sa <= e) out.push(`${String(d.data).slice(8, 10)}/${String(d.data).slice(5, 7)}: a saída (${d.s}) está antes da entrada (${d.e}).`);
+    else if (ai != null && af != null && af < ai) out.push(`${String(d.data).slice(8, 10)}/${String(d.data).slice(5, 7)}: a volta do almoço (${d.af}) está antes da saída (${d.ai}).`); }
+  return out;
+}
 function relPontosConferir(pdf) { // dias que merecem um olhar do dono antes de mandar
-  const out = [], hm = m => `${Math.floor(Math.abs(m) / 60)}h${String(Math.round(Math.abs(m)) % 60).padStart(2, '0')}`, dd = d => `${String(d).slice(8, 10)}/${String(d).slice(5, 7)}`;
+  const out = relAuditoria(pdf).map(x => 'ATENÇÃO: ' + x), hm = m => `${Math.floor(Math.abs(m) / 60)}h${String(Math.round(Math.abs(m)) % 60).padStart(2, '0')}`, dd = d => `${String(d).slice(8, 10)}/${String(d).slice(5, 7)}`;
   for (const d of (pdf && pdf.dias) || []) {
     const tem = x => x && x !== '—' && x !== '-', esp = +d.esp || 0, trab = +d.trab || 0, tipo = String(d.tipo || '');
     if (/abonado|feriado|acordo|folga/.test(tipo) && !trab) continue;
@@ -29009,7 +29026,7 @@ async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para
   const pdf0 = await pontoRelPdf(env, f.id, per.df).catch(() => null), assin = pdf0 ? String(pdf0.valor) + ':' + String(pdf0.status || '') + ':' + JSON.stringify(pdf0.dias || []).length + ':' + JSON.stringify(pdf0.fin || []).length : ''; // muda só se o conteúdo mudar
   const pend = await env.HR_KV.get('ponto:relautsig:' + k); if (pend && pend === assin && await env.HR_KV.get('ponto:relaut:' + k)) return false; // já está esperando (mesmo PDF)
   await env.HR_KV.put('ponto:relautsig:' + k, assin, { expirationTtl: 15 * 86400 });
-  await env.HR_KV.put('ponto:relaut:' + k, JSON.stringify(per), { expirationTtl: 15 * 86400 });
+  await env.HR_KV.put('ponto:relaut:' + k, JSON.stringify(Object.assign({}, per, { _em: Date.now() })), { expirationTtl: 15 * 86400 });
   const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null), val = pdf ? (pdf.status === 'pago' ? 'já quitado' : brl(pdf.valor)) : '';
   const dd = x => `${String(x || '').slice(8, 10)}/${String(x || '').slice(5, 7)}`;
   const nome = apelidoFunc(cfg, f);
@@ -29053,6 +29070,8 @@ async function eqRelParado(env, fid) {
 async function eqCadastrarConfirmado(env, f, num, from, opt) {
   opt = opt || {};
   const cfg = await pontoCfg(env), cf = cfg.funcs.find(x => String(x.id) === String(f.id)) || f; num = normalizarBR(num);
+  const outro = cfg.funcs.find(x => x.id !== cf.id && x.tel && ultimos8(x.tel) === ultimos8(num)); // v232: um número, uma pessoa
+  if (outro) { await pontoAvisarDono(env, `Não cadastrei ${fmtNumero(num)} para ${cf.nome}: esse número já é de ${outro.nome}. Se mudou, mande o contato certo de cada um.`).catch(() => {}); return null; }
   cf.tel = num; await pontoCfgSalvar(env, cfg);
   { let tf = {}; try { tf = JSON.parse((await env.HR_KV.get('eq:telfix')) || '{}') || {}; } catch (_) {} tf[cf.id] = num; await env.HR_KV.put('eq:telfix', JSON.stringify(tf)); }
   await equipeAtualizar(env, { funcionario: cf.nome, telefone: num }).catch(() => null);
@@ -30362,6 +30381,11 @@ async function pontoRotina(env) {
   await pontoLembretes(env, cfg).catch(e => console.log('lembrete ponto', e && e.message)); // v35
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
   await eqFichaRotina(env).catch(e => console.log('ficha equipe', e && e.message)); // v223
+  { const agR = agoraBahia(); if (agR.dia !== 0 && agR.min >= 8 * 60 && agR.min < 18 * 60 && await umaVez(env, 'relautlemb:' + dataBahia(), 1)) { // v232: relatório esperando o dono há 2 dias
+    const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }), cfgL = await pontoCfg(env), velhos = [];
+    for (const k of l.keys) { let per = null; try { per = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (per && per._em && Date.now() - per._em > 48 * 3600000) { const f = cfgL.funcs.find(x => String(x.id) === k.name.slice('ponto:relaut:'.length).split('~')[0]); if (f) velhos.push(apelidoFunc(cfgL, f)); } }
+    if (velhos.length) await pontoAvisarDono(env, `Relatórios de ponto esperando a sua autorização há mais de 2 dias: ${velhos.join(', ')}. Toque em "Pode mandar" em cada um ou escreva: pode mandar todos os relatórios.`).catch(() => {});
+  } }
   if (await umaVez(env, 'eqctth:v226', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
 
   await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
