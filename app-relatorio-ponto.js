@@ -661,8 +661,8 @@ var HR_RELATORIO_PONTO = (function () {
     rows.push({ label: 'Salário do período', valor: fin.decValor, sinal: '', cor: NEUTRO });
     if ((info.e50Min + info.e200Min) > 0) {
       rows.push({ label: 'Horas extras (' + _hmC(info.e50Min + info.e200Min) + ')', valor: info.v50 + info.v200, sinal: '+', cor: VERDE });
-      if (info.e50Min > 0)  rows.push({ sub: true, label: 'dobradas (×2): ' + _fmtMin(info.e50Min),   valor: info.v50 });
-      if (info.e200Min > 0) rows.push({ sub: true, label: 'triplicadas (×3): ' + _fmtMin(info.e200Min), valor: info.v200 });
+      if (info.e50Min > 0)  rows.push({ sub: true, label: _hmC(info.e50Min) + ' em dobro (×2)',   valor: info.v50 });
+      if (info.e200Min > 0) rows.push({ sub: true, label: _hmC(info.e200Min) + ' em triplo (×3)', valor: info.v200 });
     }
     // Quanto as horas negativas tiraram do valor: a parte que abateu as extras
     // (extras brutas − extras líquidas) + a parte que sobrou e saiu do salário.
@@ -851,11 +851,11 @@ var HR_RELATORIO_PONTO = (function () {
     y += 3; doc.setDrawColor.apply(doc, COR_HEADER); doc.setLineWidth(0.8); doc.line(mL, y, pW - mR, y);
     y += 6;
     // cartão do valor + a conta
-    var contaRows = resumo.rows.filter(function (r) { return !r.sub && !r.nota; });
+    var contaRows = resumo.rows.filter(function (r) { return !r.nota; });
     var notaRows = resumo.rows.filter(function (r) { return r.nota; });
     doc.setFontSize(7.5);
     notaRows.forEach(function (r) { r.ls = doc.splitTextToSize(r.nota, cW - 12); });
-    var cardH = 22 + contaRows.length * 6.4 + notaRows.reduce(function (t, r) { return t + r.ls.length * 3.4 + 1; }, 0) + 2;
+    var cardH = 22 + contaRows.reduce(function (t, r) { return t + (r.sub ? 4.8 : 6.4); }, 0) + notaRows.reduce(function (t, r) { return t + r.ls.length * 3.4 + 1; }, 0) + 2;
     doc.setDrawColor.apply(doc, corP); doc.setLineWidth(0.6); doc.setFillColor(255, 255, 255);
     doc.roundedRect(mL, y, cW, cardH, 2.5, 2.5, 'FD');
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
@@ -864,6 +864,7 @@ var HR_RELATORIO_PONTO = (function () {
     doc.text(_fmtMoeda(pago && fin.totalPago > 0 ? fin.totalPago : Math.abs(fin.saldoFinal)), mL + 6, y + 17);
     var fy = y + 22;
     contaRows.forEach(function (r) {
+      if (r.sub) { doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(110, 110, 110); doc.text(r.label, mL + 11, fy + 3.4); doc.text(_fmtMoeda(r.valor), pW - mR - 6, fy + 3.4, { align: 'right' }); fy += 4.8; return; }
       doc.setDrawColor(230, 230, 230); doc.setLineWidth(0.2); doc.line(mL + 6, fy, pW - mR - 6, fy);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(70, 70, 70);
       doc.text(r.label, mL + 6, fy + 4.6);
@@ -906,7 +907,8 @@ var HR_RELATORIO_PONTO = (function () {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130); _tx(0, v.sem + (v.marca ? ' · ' + v.marca : ''), y2);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(35, 35, 35); _tx(1, v.horario || '—', y1);
       if (v.detalhe) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130); _tx(1, v.detalhe, y2); }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor.apply(doc, v.cor); _tx(2, v.res, y + 6.2);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor.apply(doc, v.cor); _tx(2, v.res, v.res2 ? y1 : y + 6.2);
+      if (v.res2) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130); _tx(2, v.res2, y2); }
       y += rowH;
     });
     y += 5;
@@ -980,7 +982,7 @@ var HR_RELATORIO_PONTO = (function () {
     var semPonto = (!l.trabMin && l.esperadoMin > 0 && l.tipo !== 'abonado');
     if (l.tipo === 'abonado' || /abonad/.test(l.obs || '')) { v.res = 'atestado'; v.cor = [70, 110, 160]; v.bg = [238, 244, 251]; }
     else if (semPonto) { v.res = 'faltou ' + _hmC(l.esperadoMin); v.cor = [180, 50, 50]; v.bg = [255, 240, 240]; v.horario = v.horario || 'sem ponto'; }
-    else if (l.extraMin > 0 && !l.destinoBanco) { v.res = '+' + _hmC(l.extraMin) + ' extra'; v.cor = [30, 130, 60]; }
+    else if (l.extraMin > 0 && !l.destinoBanco) { v.res = '+' + _hmC(l.extraMin) + ' extra'; v.cor = [30, 130, 60]; var x3 = Math.round(l.extra200Min || 0), x2 = Math.round(l.extraMin) - x3; v.res2 = x3 <= 0 ? 'em dobro' : x2 <= 0 ? 'em triplo' : _hmC(x2) + ' dobro · ' + _hmC(x3) + ' triplo'; }
     else if (l.saldoMin < -5) { v.res = 'faltou ' + _hmC(l.saldoMin); v.cor = [180, 50, 50]; v.bg = [255, 244, 244]; }
     else if (l.trabMin) { v.res = 'completo'; v.cor = [120, 120, 120]; }
     if ((l.tipo === 'feriado' || l.tipo === 'acordo' || !l.esperadoMin) && !l.trabMin && !semPonto) { v.res = 'folga'; v.cor = [70, 110, 160]; v.bg = [244, 247, 252]; v.horario = v.horario || '—'; }
@@ -1031,10 +1033,11 @@ var HR_RELATORIO_PONTO = (function () {
       return '<tr style="background:' + (v.bg ? rgbC(v.bg) : '#fff') + ';border-bottom:1px solid #e6eaf0;">' +
         '<td style="padding:10px 8px;width:118px;vertical-align:top;"><div style="font-size:17px;font-weight:700;color:#222;">' + v.dia + '</div><div style="font-size:12.5px;color:#888;">' + v.sem + (v.marca ? ' · <span style="color:#3d6aa0;">' + v.marca + '</span>' : '') + '</div></td>' +
         '<td style="padding:10px 8px;vertical-align:top;"><div style="font-size:17px;font-weight:700;color:#222;">' + _esc(v.horario || '—') + '</div>' + (v.detalhe ? '<div style="font-size:12.5px;color:#888;margin-top:2px;">' + _esc(v.detalhe) + '</div>' : '') + '</td>' +
-        '<td style="padding:10px 8px;text-align:right;vertical-align:top;font-size:16px;font-weight:700;color:' + rgbC(v.cor) + ';white-space:nowrap;">' + _esc(v.res) + '</td></tr>';
+        '<td style="padding:10px 8px;text-align:right;vertical-align:top;font-size:16px;font-weight:700;color:' + rgbC(v.cor) + ';white-space:nowrap;">' + _esc(v.res) + (v.res2 ? '<div style="font-size:12px;font-weight:400;color:#888;margin-top:2px;">' + _esc(v.res2) + '</div>' : '') + '</td></tr>';
     }).join('');
 
-    var conta1 = resumo.rows.filter(function (r) { return !r.sub && !r.nota; }).map(function (r) {
+    var conta1 = resumo.rows.filter(function (r) { return !r.nota; }).map(function (r) {
+      if (r.sub) return '<div style="display:flex;justify-content:space-between;padding:0 0 6px 18px;font-size:13.5px;color:#666;"><span>' + _esc(r.label) + '</span><span>' + fmtMoeda(r.valor) + '</span></div>';
       return '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:15.5px;border-top:1px solid rgba(0,0,0,.07);"><span style="color:#444;">' + _esc(r.label) + '</span><span style="font-weight:700;color:' + rgbC(r.cor || [30, 30, 30]) + ';">' + (r.sinal ? r.sinal + ' ' : '') + fmtMoeda(r.valor) + '</span></div>';
     }).join('');
     var notas = resumo.rows.filter(function (r) { return r.nota; }).map(function (r) { return '<div style="font-size:12px;color:#888;margin-top:6px;">' + _esc(r.nota) + '</div>'; }).join('');
