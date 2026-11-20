@@ -105,7 +105,7 @@
     h += sec('📝 Pedidos dos funcionários');
     h += '<div style="font-size:.74rem;color:' + T3 + ';line-height:1.5;">No app do ponto, o funcionário pode pedir <b>"Esqueci de bater"</b> ou <b>"Justificar falta"</b> (com foto do atestado). O senhor aprova aqui ou pelos botões no WhatsApp. Falta abonada entra no RH sem desconto.</div><div id="hpPeds" style="font-size:.8rem;">Carregando…</div>';
     setTimeout(listarPedidos, 0);
-    h += '<button onclick="HRPonto.corrigir()" style="width:100%;margin-top:6px;padding:11px;border-radius:10px;border:1px dashed ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">✍️ Corrigir horários (esqueceu de bater ou bateu errado)</button>';
+    h += '<button onclick="HRPonto.corrigir()" style="width:100%;margin-top:6px;padding:11px;border-radius:10px;border:1px dashed ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">⚠️ Erros de ponto da equipe · corrigir</button>';
     // levar ao RH
     // relatórios de horas
     h += sec('4. Relatório de horas para o funcionário');
@@ -220,12 +220,13 @@
   // Cada mudança fica registrada com o motivo e a hora original (o relatório mostra "corrigida de 07:42").
   var TP_OPT = [['entrada', 'Entrada'], ['saida_almoco', 'Saída almoço'], ['volta_almoco', 'Volta almoço'], ['saida', 'Saída']];
   function corrigir(funcId, data) {
+    var equipe = !funcId; // v24: sem funcionário = erros da equipe toda
     var inp = 'padding:9px;border-radius:9px;border:1px solid ' + BD + ';background:#14141c;color:#fff;box-sizing:border-box;font-family:Outfit,sans-serif;';
     var fs = (estado.funcs && estado.funcs.length ? estado.funcs : ((estado.cfg && estado.cfg.funcs && estado.cfg.funcs.length) ? estado.cfg.funcs : funcsRH()));
     var opts = fs.map(function (f) { return '<option value="' + f.id + '"' + (String(f.id) === String(funcId) ? ' selected' : '') + '>' + esc(f.nome) + '</option>'; }).join('');
     var d = document.createElement('div'); d.id = 'hpCorr'; d.style.cssText = 'position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;justify-content:center;';
     d.innerHTML = '<div style="width:100%;max-width:480px;max-height:92vh;overflow:auto;background:#0d0d14;border-radius:16px 16px 0 0;padding:16px;color:#fff;font-family:Outfit,sans-serif;">'
-      + '<b style="color:' + GOLD + ';">✏️ Corrigir horários do ponto</b><div style="font-size:.72rem;color:' + T3 + ';margin:4px 0 10px;line-height:1.5;">Para quando o funcionário esqueceu de bater ou bateu errado. O horário original e o motivo ficam guardados no registro.</div>'
+      + '<b style="color:' + GOLD + ';">✏️ Corrigir horários do ponto' + (equipe ? ' · equipe' : '') + '</b><div style="font-size:.72rem;color:' + T3 + ';margin:4px 0 10px;line-height:1.5;">Para quando o funcionário esqueceu de bater ou bateu errado. O horário original e o motivo ficam guardados no registro.</div>'
       + '<div style="display:flex;gap:8px;margin-bottom:10px;"><select id="crF" style="' + inp + 'flex:1.3;">' + opts + '</select><input id="crD" type="date" value="' + (data || hoje()) + '" max="' + hoje() + '" style="' + inp + 'flex:1;"></div>'
       + '<div id="crP" style="margin-bottom:10px;"></div>'
       + '<div id="crAv" style="font-size:.72rem;color:#f59e0b;margin-bottom:6px;line-height:1.45;"></div>'
@@ -268,21 +269,49 @@
       for (var i = 1; i < v.length; i++) { var ord = ['entrada', 'saida_almoco', 'volta_almoco', 'saida']; if (ord.indexOf(v[i].tipo) < ord.indexOf(v[i - 1].tipo)) return { txt: 'batidas fora de ordem (' + v.map(function (b) { return b.hora; }).join(', ') + ')', sug: [], troca: {}, mot: 'Batidas em ordem' }; }
       return null;
     }
+    var costumes = {};
     function carregarProblemas() {
-      var f = d.querySelector('#crF').value, P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.7rem;color:' + T3 + ';">Procurando erros dos últimos 12 dias…</div>';
+      var fSel = d.querySelector('#crF').value, P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.7rem;color:' + T3 + ';">Procurando erros dos últimos 12 dias…</div>';
       api('/bot/ponto/registros?de=' + diaMenos(12) + '&ate=' + hoje()).then(function (j) {
-        var col = { e: [], ai: [], af: [], s: [] };
-        Object.keys(j.dias || {}).forEach(function (dt) { var l = (j.dias[dt][f] || []).filter(function (b) { return b.status === 'ok'; }); l.forEach(function (b) { var m = mn(b.hora); if (b.tipo === 'entrada' && m < 600) col.e.push(m); else if (b.tipo === 'saida_almoco' && m >= 600 && m <= 810) col.ai.push(m); else if (b.tipo === 'volta_almoco' && m >= 660 && m <= 900) col.af.push(m); else if (b.tipo === 'saida' && m >= 900) col.s.push(m); }); });
-        ['e', 'ai', 'af', 's'].forEach(function (k) { var a = col[k].sort(function (x, y) { return x - y; }); if (a.length >= 2) costume[k] = a[Math.floor(a.length / 2)]; });
+        var nomes = {}; (j.funcs || []).forEach(function (x) { nomes[x.id] = x.nome; });
+        var alvo = equipe ? Object.keys(nomes) : [fSel];
         problemas = [];
-        Object.keys(j.dias || {}).sort().forEach(function (dt) { var r = analisar(j.dias[dt][f] || [], dt); if (r) { r.data = dt; problemas.push(r); } });
-        if (!problemas.length) { P.innerHTML = '<div style="font-size:.72rem;color:#4ade80;padding:6px 0;">✓ Nenhum erro de ponto nos últimos 12 dias.</div>'; return; }
-        P.innerHTML = '<div style="font-size:.66rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Erros encontrados · toque para corrigir</div>' + problemas.map(function (r, i) {
-          return '<button data-pb="' + i + '" style="display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;margin-bottom:6px;padding:9px 10px;border-radius:10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.78rem;"><span><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b> · ' + esc(r.txt) + '</span><span style="color:' + GOLD + ';font-weight:700;white-space:nowrap;">Corrigir ›</span></button>';
-        }).join('');
+        alvo.forEach(function (f) {
+          var col = { e: [], ai: [], af: [], s: [] }, cst = { e: 420, ai: 720, af: 800, s: 1020 };
+          Object.keys(j.dias || {}).forEach(function (dt) { ((j.dias[dt] || {})[f] || []).filter(function (b) { return b.status === 'ok'; }).forEach(function (b) { var m = mn(b.hora); if (b.tipo === 'entrada' && m < 600) col.e.push(m); else if (b.tipo === 'saida_almoco' && m >= 600 && m <= 810) col.ai.push(m); else if (b.tipo === 'volta_almoco' && m >= 660 && m <= 900) col.af.push(m); else if (b.tipo === 'saida' && m >= 900) col.s.push(m); }); });
+          ['e', 'ai', 'af', 's'].forEach(function (k) { var a2 = col[k].sort(function (x, y) { return x - y; }); if (a2.length >= 2) cst[k] = a2[Math.floor(a2.length / 2)]; });
+          costumes[f] = cst; costume = cst;
+          Object.keys(j.dias || {}).sort().forEach(function (dt) { var r = analisar(((j.dias[dt] || {})[f]) || [], dt); if (r) { r.data = dt; r.fid = f; r.nome = (nomes[f] || '').split(' ')[0]; problemas.push(r); } });
+        });
+        costume = costumes[fSel] || costume;
+        if (!problemas.length) { P.innerHTML = '<div style="font-size:.72rem;color:#4ade80;padding:6px 0;">✓ Nenhum erro de ponto nos últimos 12 dias' + (equipe ? ' na equipe' : '') + '.</div>'; return; }
+        var auto = problemas.filter(function (r) { return r.sug.length || Object.keys(r.troca).length; });
+        P.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><span style="font-size:.66rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;">' + problemas.length + ' erro(s) · toque para corrigir</span>'
+          + (auto.length > 1 ? '<button data-todos="1" style="padding:5px 10px;border-radius:8px;border:none;background:' + GOLD + ';color:#000;font-weight:800;font-size:.7rem;">Corrigir todos (' + auto.length + ')</button>' : '') + '</div>'
+          + problemas.map(function (r, i) {
+            return '<div style="display:flex;gap:6px;margin-bottom:6px;"><button data-pb="' + i + '" style="flex:1;display:flex;justify-content:space-between;gap:8px;text-align:left;padding:9px 10px;border-radius:10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.78rem;"><span><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b>' + (equipe ? ' · ' + esc(r.nome) : '') + ' · ' + esc(r.txt) + '</span><span style="color:' + GOLD + ';font-weight:700;white-space:nowrap;">Corrigir ›</span></button>'
+              + (r.sug.length ? '<button data-pq="' + i + '" title="Perguntar a ele no WhatsApp" style="padding:0 10px;border-radius:10px;border:1px solid ' + BD + ';background:none;color:#fff;font-size:.9rem;">📱</button>' : '') + '</div>';
+          }).join('') + '<div style="font-size:.64rem;color:' + T3 + ';margin-top:2px;">📱 = o bot pergunta o horário a ele; a resposta chega para o senhor aprovar.</div>';
       }).catch(function () { P.innerHTML = ''; });
     }
+    function corrigirTodos() {
+      var auto = problemas.filter(function (r) { return r.sug.length || Object.keys(r.troca).length; });
+      if (!confirm('Corrigir ' + auto.length + ' dia(s) pelo horário de costume?\n\n' + auto.map(function (r) { return r.data.slice(8) + '/' + r.data.slice(5, 7) + (equipe ? ' ' + r.nome : '') + ': ' + r.sug.map(function (x) { return TP_OPT.filter(function (o) { return o[0] === x.tipo; })[0][1] + ' ' + x.hora; }).concat(Object.keys(r.troca).length ? ['13h vira volta do almoço'] : []).join(', '); }).join('\n'))) return;
+      var ops = [];
+      auto.forEach(function (r) {
+        var f = r.fid || d.querySelector('#crF').value;
+        Object.keys(r.troca).forEach(function (id) { ops.push(function () { return api('/bot/ponto/registros?de=' + r.data + '&ate=' + r.data).then(function (j) { var b = (((j.dias || {})[r.data] || {})[f] || []).filter(function (x) { return x.id === id; })[0]; if (b) return api('/bot/ponto/ajuste', { funcId: f, data: r.data, id: id, acao: 'editar', tipo: r.troca[id], hora: b.hora, motivo: r.mot }); }); }); });
+        r.sug.forEach(function (sg) { ops.push(function () { return api('/bot/ponto/ajuste', { funcId: f, data: r.data, tipo: sg.tipo, hora: sg.hora, motivo: r.mot + ' (horário de costume)' }); }); });
+      });
+      var P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.72rem;color:' + GOLD + ';">Corrigindo ' + auto.length + ' dia(s)…</div>';
+      ops.reduce(function (p, fn) { return p.then(fn); }, Promise.resolve()).then(function () { toastP('✓ ' + auto.length + ' dia(s) corrigido(s)'); carregar(); carregarProblemas(); recarregar(); try { sincronizarAuto && sincronizarAuto(true); } catch (e) {} }).catch(function (e) { toastP(e.message); carregarProblemas(); });
+    }
+    function perguntar(r) {
+      var f = r.fid || d.querySelector('#crF').value;
+      api('/bot/ponto/perguntar', { funcId: f, data: r.data, falta: r.sug.map(function (x) { return x.tipo; }), troca: r.troca, txt: r.txt }).then(function (j) { toastP(j.ok ? '📱 Perguntei a ' + (r.nome || 'ele') + ' no WhatsApp' : (j.error || 'Não consegui')); }).catch(function (e) { toastP(e.message); });
+    }
     function aplicarSugestao(r) {
+      if (r.fid) { d.querySelector('#crF').value = r.fid; costume = costumes[r.fid] || costume; }
       d.querySelector('#crD').value = r.data;
       carregar(function () {
         linhas.forEach(function (x) { if (x.id && r.troca[x.id]) x.tipo = r.troca[x.id]; });
@@ -308,8 +337,8 @@
         desenhar(); if (typeof cb === 'function') cb();
       }).catch(function (e) { d.querySelector('#crL').textContent = e.message; });
     }
-    d.querySelector('#crF').onchange = function () { carregar(); carregarProblemas(); }; d.querySelector('#crD').onchange = function () { carregar(); };
-    d.querySelector('#crP').onclick = function (ev) { var b = ev.target.closest('[data-pb]'); if (b) aplicarSugestao(problemas[+b.getAttribute('data-pb')]); };
+    d.querySelector('#crF').onchange = function () { costume = costumes[d.querySelector('#crF').value] || costume; carregar(); if (!equipe) carregarProblemas(); }; d.querySelector('#crD').onchange = function () { carregar(); };
+    d.querySelector('#crP').onclick = function (ev) { var b = ev.target.closest('[data-pb]'); if (b) return aplicarSugestao(problemas[+b.getAttribute('data-pb')]); var q = ev.target.closest('[data-pq]'); if (q) return perguntar(problemas[+q.getAttribute('data-pq')]); if (ev.target.closest('[data-todos]')) corrigirTodos(); };
     d.querySelector('#crL').addEventListener('change', function () { lerCampos(); avisoAoVivo(); });
     d.querySelector('#crL').onclick = function (ev) { var b = ev.target.closest('[data-rm]'); if (!b) return; lerCampos(); var x = linhas[+b.getAttribute('data-rm')]; if (x.id) x.remover = true; else linhas.splice(+b.getAttribute('data-rm'), 1); desenhar(); };
     d.querySelector('#crAdd').onclick = function () { lerCampos(); var tem = linhas.filter(function (x) { return !x.remover; }).map(function (x) { return x.tipo; }); var prox = TP_OPT.map(function (o) { return o[0]; }).filter(function (t) { return tem.indexOf(t) < 0; })[0] || 'saida'; linhas.push({ tipo: prox, hora: '' }); desenhar(); };
