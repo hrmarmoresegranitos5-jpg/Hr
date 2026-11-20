@@ -11922,6 +11922,29 @@ async function mig195Garantia(env) {
 }
 // v194: DESENHO TÉCNICO do app → produção: guarda o desenho no pedido, pode trocar a lista de peças do pedido pela do desenho
 // (medidas reais: bancadas, frontões, saias, tampo do rebaixo) e manda a imagem para quem faz cada etapa.
+// v211: Projeto 2D por foto ou rabisco — a IA olha a foto (de referência ou do ambiente, com o rabisco por cima) e devolve as peças no modelo do desenho
+const DES_IA_SIS = `Você é o projetista de uma marmoraria (HR Mármores e Granitos). Recebe uma imagem: pode ser a FOTO de uma peça pronta de referência (ex.: um lavatório diferente que o cliente quer), a FOTO de um ambiente na casa do cliente com um RABISCO por cima (traços vermelhos e números escritos à mão = medidas em cm), ou só um RABISCO em fundo branco.
+Transforme em peças de pedra no modelo abaixo. Use as medidas escritas no rabisco quando houver (números em cm). Sem medida escrita, estime pelo tamanho real dos objetos da foto e pelos padrões: pia de cozinha 60 de largura, lavatório 45 a 55, frontão 10, sainha reta 4, sainha 45° 6, cuba de cozinha 56x34, cuba de lavatório 45x30.
+Modelo de cada peça (só os campos que fizerem sentido):
+{"tipo":"bancada|L|lavatorio|prateleira|nicho|placa","amb":"cozinha|balcao|banheiro|soleira|escada|piscina|outro","nome":"texto curto (ex.: Pia, Lavatório, Balcão, Soleira, Degrau)","qtd":1,
+ "A":comprimento cm (em L: o fundo),"p":largura/profundidade cm,"B":(só L) comprimento da perna SEM a largura do fundo,"pB":(só L) largura da perna,"perna":"esq|dir",
+ "H":(nicho/placa) altura cm,"prof":(nicho) profundidade,
+ "saia":"reta|slim|45|boleada|nenhuma","saiaAlt":altura da sainha cm,
+ "fr":altura do frontão cm,"frF":true/false frontão no fundo,"frE":lado esquerdo,"frD":lado direito,
+ "cuba":{"tipo":"nenhuma|retangular|redonda|oval|esculpida|rampada","inst":"embutida|sobrepor|flush","w":comprimento,"h":largura,"x":centro da cuba a partir do canto esquerdo},
+ "reb":{"on":true,"tipo":"americano|normal","c":comprimento,"l":largura,"x":início a partir do canto esquerdo},
+ "cook":{"on":true,"w":56,"h":49,"x":centro a partir do canto esquerdo},
+ "pe":"nenhum|esq|dir","peAlt":altura do pé,"obs":"detalhe que o modelo não desenha (ex.: nicho embaixo, prateleira inferior, recorte especial)"}
+Regras: lavatório nunca tem rebaixo nem cooktop; cuba de sobrepor no lavatório = só furo do ralo e da torneira. Balcão/ilha sem cuba. Cozinha em L = um só item tipo L. Lavatório esculpido = cuba "esculpida" (rampada se tiver rampa). Peças que não encaixam no modelo: aproxime pela mais parecida e explique em "obs".
+Responda SÓ JSON: {"pecas":[...],"desc":"descrição curta do projeto","avisos":["o que você não teve certeza, em português simples"]}`;
+async function desenhoIA(env, b) {
+  const img = String(b.img || '').replace(/^data:[^,]+,/, ''); if (img.length < 200 || img.length > 8e6) return { ok: false, erro: 'Imagem inválida.' };
+  if (!env.AI_KEY) return { ok: false, erro: 'A IA não está configurada no bot.' };
+  const modo = b.modo === 'rabisco' ? 'Rabisco (com ou sem foto por baixo).' : 'Foto de referência.';
+  const o = await iaVisaoJSON(env, DES_IA_SIS, [{ mime: 'image/jpeg', buf: base64ParaBytes(img) }], `${modo}${b.dica ? ' Dica do dono: ' + String(b.dica).slice(0, 300) : ''}`, 3000);
+  if (!o || !Array.isArray(o.pecas)) return { ok: false, erro: 'Não consegui entender a imagem. Tente uma foto mais de frente ou escreva as medidas no rabisco.' };
+  return { ok: true, pecas: o.pecas.slice(0, 12), desc: String(o.desc || '').slice(0, 200), avisos: (o.avisos || []).map(String).slice(0, 6) };
+}
 async function desenhoReceber(env, b) {
   const png = String(b.png || ''); if (png.length < 100 || png.length > 6e6) return { ok: false, erro: 'Imagem inválida.' };
   const bytes = base64ParaBytes(png), nome = String(b.nome || 'Desenho').slice(0, 60);
@@ -23643,6 +23666,7 @@ async function rotaBotInterna(req, env, url) {
   if (p.startsWith('/bot/bonus')) { const r = await rotaBonus(req, env, url); if (r) return r; } // v164
   if (p === '/bot/retencao') { if (req.method === 'POST') { const b = await req.json().catch(() => ({})); const c = await retencaoCfg(env); if (+b.larg > 0 && +b.larg < 30) c.larg = Math.round(+b.larg * 10) / 10; await env.HR_KV.put('cfg:retencao', JSON.stringify(c)); return jsonR({ ok: true, ...c }); } return jsonR({ ok: true, ...(await retencaoCfg(env)) }); } // v192
   if (p === '/bot/desenho' && req.method === 'POST') return jsonR(await desenhoReceber(env, await req.json().catch(() => ({})))); // v194
+  if (p === '/bot/desenho/ia' && req.method === 'POST') { try { return jsonR(await desenhoIA(env, await req.json().catch(() => ({})))); } catch (e) { return jsonR({ ok: false, erro: 'IA: ' + e.message }); } } // v211
   if (p === '/bot/producao' && req.method === 'GET') return jsonR(await producaoPainel(env)); // v190
   if (p === '/bot/producao/ficha' && req.method === 'POST') return jsonR(await producaoFichaSalvar(env, await req.json().catch(() => ({})))); // v190
   if (p === '/bot/desempenho' && req.method === 'GET') { const d = Math.max(7, Math.min(120, +url.searchParams.get('dias') || 30)); const a = await analiseComTendencia(env, d); for (const x of a.func) x.aumento = avaliarAumento(x); return jsonR({ ok: true, ...a, mult: (await dsmCfg(env)).mult }); } // v179
