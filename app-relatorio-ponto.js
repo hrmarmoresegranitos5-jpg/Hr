@@ -966,135 +966,58 @@ var HR_RELATORIO_PONTO = (function () {
     // cells abaixo) em vez de sumir a coluna inteira.
     var temAlmoco = true;
 
-    // ── TABELA DE PONTO ─────────────────────────────────────────────────────
+    // ── TABELA DE PONTO (v13: igual à da tela — 4 colunas, resultado por extenso) ──
     var cols = [
-      { header: 'Data',        w: 15, align: 'center' },
-      { header: 'Dia',         w: 11, align: 'center' },
-      { header: 'Entrada',     w: 19, align: 'center' },
-      { header: 'Saída\nAlmoço', w: 19, align: 'center' },
-      { header: 'Volta\nAlmoço', w: 19, align: 'center' },
-      { header: 'Saída',       w: 19, align: 'center' },
-      { header: 'Trabalhado',  w: 28, align: 'center' },
-      { header: 'Trabalhou a\nmais / Faltou',w: 38, align: 'center' },
+      { header: 'Dia',           w: 34, align: 'left' },
+      { header: 'Entrada e saída', w: 62, align: 'left' },
+      { header: 'Trabalhou',     w: 26, align: 'center' },
+      { header: 'Resultado',     w: 46, align: 'right' },
     ];
     var totalW = cols.reduce(function(s, c){ return s + c.w; }, 0);
-    var diff   = cW - totalW;
-    cols[cols.length - 1].w += diff;
-
-    var colX = [];
-    var cx = mL;
-    cols.forEach(function(c){ colX.push(cx); cx += c.w; });
-
-    var rowH  = 6.3;
-    var thH   = 8.6;
-
+    cols[cols.length - 1].w += (cW - totalW);
+    var colX = []; var cx = mL; cols.forEach(function(c){ colX.push(cx); cx += c.w; });
+    var rowH = 10.2, thH = 7.5;
+    function _hm(min) { var abs = Math.abs(Math.round(min || 0)); return Math.floor(abs/60) + 'h' + String(abs%60).padStart(2,'0'); }
+    function _tx(i, txt, yy) { var c = cols[i]; var x = c.align === 'left' ? colX[i] + 2.5 : c.align === 'right' ? colX[i] + c.w - 2.5 : colX[i] + c.w / 2; doc.text(txt, x, yy, { align: c.align === 'left' ? 'left' : c.align }); }
     function _headerTabela() {
-      doc.setFillColor.apply(doc, COR_TH_BG);
-      doc.rect(mL, y, cW, thH, 'F');
-      doc.setDrawColor(180, 190, 210);
-      doc.setLineWidth(0.2);
-      doc.rect(mL, y, cW, thH, 'S');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.4);
-      doc.setTextColor(30, 50, 90);
-      cols.forEach(function(c, i) {
-        var lines = c.header.split('\n');
-        var tx = colX[i] + c.w / 2;
-        var baseY = y + (lines.length === 2 ? 3.4 : 5.6);
-        lines.forEach(function(line, li) {
-          doc.text(line, tx, baseY + li * 3.3, { align: 'center' });
-        });
-      });
+      doc.setFillColor.apply(doc, COR_TH_BG); doc.rect(mL, y, cW, thH, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(30, 50, 90);
+      cols.forEach(function(c, i) { _tx(i, c.header, y + 5); });
       y += thH;
     }
-
     _headerTabela();
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.6);
-
-    var saldoIdx = cols.length - 1;
-
     linhas.forEach(function (l, idx) {
-      if (y + rowH > pH - 18) {
-        doc.addPage();
-        y = 12;
-        _headerTabela();
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.6);
-      }
-
-      if (l.tipo === 'feriado' || l.tipo === 'acordo') {
-        doc.setFillColor.apply(doc, COR_LINHA_AZ);
-        doc.rect(mL, y, cW, rowH, 'F');
-      } else if (l.extraMin > 0 && !l.destinoBanco) {
-        doc.setFillColor.apply(doc, COR_LINHA_AL);
-        doc.rect(mL, y, cW, rowH, 'F');
-      } else if (l.saldoMin < -5) {
-        doc.setFillColor.apply(doc, COR_LINHA_VM);
-        doc.rect(mL, y, cW, rowH, 'F');
-      } else if (l.autoComp) {
-        doc.setFillColor.apply(doc, COR_LINHA_AM);
-        doc.rect(mL, y, cW, rowH, 'F');
-      } else if (idx % 2 === 0) {
-        doc.setFillColor(252, 252, 252);
-        doc.rect(mL, y, cW, rowH, 'F');
-      }
-
-      doc.setDrawColor(210, 215, 220);
-      doc.setLineWidth(0.1);
-      doc.line(mL, y + rowH, mL + cW, y + rowH);
-
-      var cy = y + rowH - 1.9;
-      var corTexto = [40, 40, 40];
-      if (l.tipo === 'ausente') corTexto = [180, 60, 60];
-      else if (l.autoComp)      corTexto = [160, 120, 20];
-      doc.setTextColor.apply(doc, corTexto);
-
-      var cells = [
-        _fmtData(l.data), l.diaTxt, l.entrada, l.saidaAlm, l.voltaAlm, l.saida,
-        _fmtMin(l.trabMin),
-      ];
-      cells.forEach(function (txt, i) {
-        // Colunas 3 e 4 (Saída/Volta Almoço) — dia trabalhado sem batida de
-        // almoço vira uma célula mesclada: "Batida direta" (itálico, cinza
-        // de alerta) se ainda não foi revisado, ou "Direto" (neutro) se o
-        // dono já confirmou na tela de correção que foi intencional.
-        if ((l.almocoDireta || l.almocoDiretoConf) && i === 3) {
-          doc.setFont('helvetica', 'italic');
-          doc.setTextColor.apply(doc, l.almocoDireta ? [140, 140, 140] : [130, 150, 140]);
-          doc.setFontSize(7.4);
-          var wSpan = cols[3].w + cols[4].w;
-          doc.text(l.almocoDireta ? 'Batida direta' : 'Direto (confirmado)', colX[3] + wSpan / 2, cy, { align: 'center' });
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8.6);
-          doc.setTextColor.apply(doc, corTexto);
-          return;
-        }
-        if ((l.almocoDireta || l.almocoDiretoConf) && i === 4) return; // já desenhado mesclado acima
-        var c = cols[i];
-        doc.text(txt, colX[i] + c.w / 2, cy, { align: 'center' });
-      });
-
-      // Coluna final "Saldo do Dia" — uma célula só, colorida
-      var saldoTxt, saldoCor;
-      if (l.extraMin > 0 && !l.destinoBanco) {
-        saldoTxt = '+' + _fmtMin(l.extraMin);
-        saldoCor = [40, 130, 70];
-      } else if (l.saldoMin < -5) {
-        saldoTxt = _fmtMin(l.saldoMin);
-        saldoCor = [180, 60, 60];
-      } else {
-        saldoTxt = '—';
-        saldoCor = [150, 150, 150];
-      }
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.6);
-      doc.setTextColor.apply(doc, saldoCor);
-      doc.text(saldoTxt, colX[saldoIdx] + cols[saldoIdx].w / 2, cy, { align: 'center' });
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.6);
-
+      if (y + rowH > pH - 18) { doc.addPage(); y = 12; _headerTabela(); }
+      var semPonto = (!l.trabMin && l.esperadoMin > 0 && l.tipo !== 'abonado');
+      var res, cor = [136, 136, 136], bg = null;
+      if (l.tipo === 'abonado' || /abonad/.test(l.obs || '')) { res = 'atestado'; cor = [90, 127, 168]; bg = [238, 244, 251]; }
+      else if (semPonto) { res = 'sem ponto · faltou ' + _hm(l.esperadoMin); cor = [180, 60, 60]; bg = [255, 240, 240]; }
+      else if (l.extraMin > 0 && !l.destinoBanco) { res = '+' + _hm(l.extraMin) + ' a mais' + (l.extra200Min > 0 ? ' (' + _hm(l.extra200Min) + ' ×3)' : ''); cor = [42, 138, 70]; bg = [241, 251, 243]; }
+      else if (l.saldoMin < -5) { res = 'faltou ' + _hm(l.saldoMin); cor = [180, 60, 60]; bg = [255, 244, 244]; }
+      else res = 'certo';
+      if ((l.tipo === 'feriado' || l.tipo === 'acordo') && !l.trabMin && !l.esperadoMin) { res = 'folga/feriado'; cor = [90, 127, 168]; bg = [238, 244, 251]; }
+      if (bg) { doc.setFillColor.apply(doc, bg); doc.rect(mL, y, cW, rowH, 'F'); }
+      doc.setDrawColor(220, 225, 232); doc.setLineWidth(0.15); doc.line(mL, y + rowH, mL + cW, y + rowH);
+      var y1 = y + 4.6, y2 = y + 8.4;
+      // Dia
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
+      _tx(0, _fmtData(l.data), y1);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130);
+      var meio = l.esperadoMin > 0 && l.esperadoMin < 480 && l.diaTxt !== 'Sáb';
+      _tx(0, l.diaTxt + (meio ? ' · meio período' : ''), y2);
+      // Entrou → Saiu
+      var almoco = l.almocoDireta ? 'sem batida de almoço' : (l.almocoDiretoConf ? 'sem almoço' : (l.saidaAlm && l.saidaAlm !== '—' ? 'almoço ' + l.saidaAlm + '–' + l.voltaAlm : ''));
+      if (l.entrada && l.entrada !== '—') {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
+        _tx(1, l.entrada + ' às ' + (l.saida || '—'), y1);
+        if (almoco) { doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(130, 130, 130); _tx(1, almoco, y2); }
+      } else { doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(170, 170, 170); _tx(1, '—', y1); }
+      // Trabalhou
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
+      _tx(2, l.trabMin ? _hm(l.trabMin) : '—', y1 + 1.6);
+      // Resultado
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.6); doc.setTextColor.apply(doc, cor);
+      _tx(3, res, y1 + 1.6);
       y += rowH;
     });
 
