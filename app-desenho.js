@@ -169,7 +169,7 @@
     return { x0: Math.min.apply(0, xs), x1: Math.max.apply(0, xs), y0: Math.min.apply(0, ys), y1: Math.max.apply(0, ys) };
   }
   function bboxPeca(pc) {
-    if (oblq(pc)) { var b = bboxOb(pc); return { w: b.x1 - b.x0, h: b.y1 - b.y0, mL: 78, mR: 78, mT: 62, mB: pc.tipo === 'L' || num(pc.qtd) > 1 ? 58 : 18 }; }
+    if (oblq(pc)) { var b = bboxOb(pc); return { w: b.x1 - b.x0, h: b.y1 - b.y0, mL: 78, mR: 78, mT: pc.reb && pc.reb.on && pc.tipo !== 'prateleira' ? 135 : 78, mB: pc.tipo === 'L' || num(pc.qtd) > 1 ? 70 : 24 }; }
     var A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H));
     return pc.tipo === 'nicho' ? { w: A + 16, h: H + 16, mL: 20, mR: 50, mT: 20, mB: 20 } : { w: A, h: H, mL: 20, mR: 70, mT: 20, mB: 50 };
   }
@@ -182,6 +182,22 @@
     if (MINI) return ''; var h = txt(x, y, t, fs, anc); if (!INTER || !key) return h;
     var w = String(t).length * fs * 0.58 + 22, a = anc || 'middle', x0 = a === 'middle' ? x - w / 2 : a === 'end' ? x - w + 11 : x - 11;
     return '<g data-dim="' + key + '" style="cursor:pointer"><rect x="' + x0.toFixed(1) + '" y="' + (y - fs * 0.86).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + (fs * 1.12).toFixed(1) + '" rx="10" fill="#e8c96a" fill-opacity=".2" stroke="#c9a84c" stroke-opacity=".7" stroke-dasharray="6 4" stroke-width="1.6"/>' + h + '</g>';
+  }
+  function cota(a, b, n, d, t, fs, key, semIniExt, semFimExt) { // a,b: pontos na tela; n: direção para fora; d: afastamento
+    if (MINI) return '';
+    var o1 = [a[0] + n[0] * d, a[1] + n[1] * d], o2 = [b[0] + n[0] * d, b[1] + n[1] * d], ln = 'stroke="' + COR.tr + '" stroke-width="1.3" fill="none"', h = '';
+    var ext = function (p, o) { return '<line x1="' + (p[0] + n[0] * 6).toFixed(1) + '" y1="' + (p[1] + n[1] * 6).toFixed(1) + '" x2="' + (o[0] + n[0] * 8).toFixed(1) + '" y2="' + (o[1] + n[1] * 8).toFixed(1) + '" ' + ln + '/>'; };
+    if (!semIniExt) h += ext(a, o1); if (!semFimExt) h += ext(b, o2);
+    var vx = o2[0] - o1[0], vy = o2[1] - o1[1], L0 = Math.hypot(vx, vy) || 1, u = [vx / L0, vy / L0];
+    h += '<line x1="' + (o1[0] - u[0] * 8).toFixed(1) + '" y1="' + (o1[1] - u[1] * 8).toFixed(1) + '" x2="' + (o2[0] + u[0] * 8).toFixed(1) + '" y2="' + (o2[1] + u[1] * 8).toFixed(1) + '" ' + ln + '/>';
+    var tick = function (o) { var k = 7, tx = (u[0] + n[0]) * k, ty = (u[1] + n[1]) * k; return '<line x1="' + (o[0] - tx).toFixed(1) + '" y1="' + (o[1] - ty).toFixed(1) + '" x2="' + (o[0] + tx).toFixed(1) + '" y2="' + (o[1] + ty).toFixed(1) + '" stroke="' + COR.tr + '" stroke-width="2.4"/>'; };
+    h += tick(o1) + tick(o2);
+    var ang = Math.atan2(u[1], u[0]) * 180 / Math.PI; if (ang > 90) ang -= 180; if (ang < -90) ang += 180;
+    var mx = (o1[0] + o2[0]) / 2 + n[0] * (fs * 0.35), my = (o1[1] + o2[1]) / 2 + n[1] * (fs * 0.35), up = Math.abs(ang) < 1 ? -1 : 0;
+    if (Math.abs(ang) < 1 && n[1] > 0) { my = (o1[1] + o2[1]) / 2 + fs * 0.95; } else if (Math.abs(ang) < 1) my = (o1[1] + o2[1]) / 2 - 8;
+    else if (Math.abs(Math.abs(ang) - 90) < 1) { mx = (o1[0] + o2[0]) / 2 + n[0] * 12; my = (o1[1] + o2[1]) / 2 + fs * 0.35; return h + dimTxt(mx, my, t, fs, n[0] > 0 ? 'start' : 'end', key); }
+    else { mx = (o1[0] + o2[0]) / 2 + n[0] * (fs * 0.55); my = (o1[1] + o2[1]) / 2 + n[1] * (fs * 0.55) + fs * 0.35; }
+    return h + (Math.abs(ang) < 1 ? dimTxt(mx, my, t, fs, 'middle', key) : '<g transform="rotate(' + ang.toFixed(1) + ' ' + mx.toFixed(1) + ' ' + (my - fs * 0.35).toFixed(1) + ')">' + dimTxt(mx, my, t, fs, 'middle', key) + '</g>');
   }
   function antes(a, b, c) { // a fica atrás de b?
     var yov = a.y0 < b.y1 && b.y0 < a.y1;
@@ -245,23 +261,32 @@
     lajes.forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); if (b.k === 'main') R.forEach(function (r) { h += recorteSvg(r, P, s, ox, oy, g.T, sw * 0.85); }); });
     if (g.rebZ !== g.T) R.forEach(function (r) { if (!r.n) h += recorteSvg(r, P, s, ox, oy, zR(r), sw * 0.85); });
     ordenar(grp('fr'), c).forEach(function (b) { h += caixa(b, P, c, s, ox, oy, sw); });
-    // medidas (números verdes, como à mão)
-    var fs = 40, fs2 = 34, m = g.main, frH = num(pc.fr) > 0 && pc.frF && pc.tipo !== 'prateleira' ? num(pc.fr) : 0;
-    var topo = S((0 + g.A) / 2, g.Ymax, g.T + frH);
-    h += dimTxt(topo[0], topo[1] - 22, f1(g.A), fs, 'middle', it && idx + '|A');
-    var ladoEsq = pc.tipo !== 'L' || pc.perna !== 'esq';
-    if (pc.tipo === 'L') {
-      var dir = pc.perna !== 'esq', xo = dir ? g.A : 0, a1 = S(xo, 0, 0), a2 = S(xo, g.Ymax - g.p, 0), mx = (a1[0] + a2[0]) / 2, my = (a1[1] + a2[1]) / 2;
-      h += dimTxt(mx + (dir ? 34 : -34), my, f1(num(pc.B)), fs, dir ? 'start' : 'end', it && idx + '|B');
-      var xe = dir ? 0 : g.A, b1 = S(xe, g.Ymax - g.p, 0), b2 = S(xe, g.Ymax, 0);
-      h += dimTxt((b1[0] + b2[0]) / 2 + (dir ? -30 : 30), (b1[1] + b2[1]) / 2 + 12, f1(g.p), fs2, dir ? 'end' : 'start', it && idx + '|p');
-      var pB = Math.min(g.A - 5, num(pc.pB, g.p)), f0 = S(dir ? g.A - pB : 0, 0, 0), f2 = S(dir ? g.A : pB, 0, 0);
-      h += dimTxt((f0[0] + f2[0]) / 2, Math.max(f0[1], f2[1]) + 46, f1(pB), fs2, 'middle', it && idx + '|pB');
-    } else {
-      var e1 = S(ladoEsq ? 0 : g.A, 0, 0), e2 = S(ladoEsq ? 0 : g.A, g.p, g.T);
-      var lx = Math.min(e1[0], e2[0]), ly = (e1[1] + e2[1]) / 2 + 12;
-      h += dimTxt(lx - 22, ly, f1(g.p), fs, 'end', it && idx + '|p');
+    // medidas no estilo de projeto de arquiteto: linha de cota com linhas de chamada e tracinhos, número verde em cima
+    var fs = 36, fs2 = 30, frH = num(pc.fr) > 0 && pc.frF && pc.tipo !== 'prateleira' ? num(pc.fr) : 0, zTop = g.T + frH;
+    var rbs = R.filter(function (r) { return r.t === 'reb'; })[0], cortes = [];
+    if (rbs) { if (rbs.x0 > 0.5) cortes.push(rbs.x0); if (g.A - rbs.x1 > 0.5) cortes.push(rbs.x1); }
+    var temPar = cortes.length > 0, d1 = 34, d2 = temPar ? 92 : 34;
+    if (temPar) {
+      var xs = [0].concat(cortes, [g.A]);
+      for (var ci = 0; ci < xs.length - 1; ci++) {
+        var a0 = xs[ci], a1x = xs[ci + 1], kk = a0 === rbs.x0 ? 'rebc' : a1x === rbs.x0 ? 'rx0' : 'rx1';
+        h += cota(S(a0, g.Ymax, zTop), S(a1x, g.Ymax, zTop), [0, -1], d1, f1(a1x - a0), fs2, it && idx + '|' + kk);
+      }
     }
+    h += cota(S(0, g.Ymax, zTop), S(g.A, g.Ymax, zTop), [0, -1], d2, f1(g.A), fs, it && idx + '|A');
+    var fora = function (a, b, sx) { var vx = b[0] - a[0], vy = b[1] - a[1], L0 = Math.hypot(vx, vy) || 1, n0 = [vy / L0, -vx / L0]; if (n0[0] * sx < 0) n0 = [-n0[0], -n0[1]]; return n0; };
+    if (pc.tipo === 'L') {
+      var dir = pc.perna !== 'esq', xo = dir ? g.A : 0, a1 = S(xo, 0, 0), a2 = S(xo, g.Ymax - g.p, 0);
+      h += cota(a1, a2, fora(a1, a2, dir ? 1 : -1), 30, f1(num(pc.B)), fs, it && idx + '|B');
+      var xe = dir ? 0 : g.A, b1 = S(xe, g.Ymax - g.p, 0), b2 = S(xe, g.Ymax, 0);
+      h += cota(b1, b2, fora(b1, b2, dir ? -1 : 1), 30, f1(g.p), fs2, it && idx + '|p');
+      var pB = Math.min(g.A - 5, num(pc.pB, g.p)), f0 = S(dir ? g.A - pB : 0, 0, 0), f2 = S(dir ? g.A : pB, 0, 0);
+      h += cota(f0, f2, [0, 1], 30, f1(pB), fs2, it && idx + '|pB');
+    } else {
+      var esq = sentido(pc) > 0, xl = esq ? 0 : g.A, e1 = S(xl, 0, 0), e2 = S(xl, g.p, 0);
+      h += cota(e1, e2, fora(e1, e2, esq ? -1 : 1), 30, f1(g.p), fs2, it && idx + '|p');
+    }
+    if (frH && !MINI) { var xf = sentido(pc) > 0 ? g.A : 0, h1 = S(xf, g.Ymax, g.T), h2 = S(xf, g.Ymax, zTop); h += cota(h1, h2, [sentido(pc) > 0 ? 1 : -1, 0], 26, f1(frH), 24, it && idx + '|fr'); }
     if (num(pc.qtd) > 1 && !MINI) { var q1 = S(g.A / 2, 0, 0); h += txt(q1[0], q1[1] + 48, num(pc.qtd) + 'x', fs2, 'middle', COR.vd, ' font-weight="700"'); }
     if (it) { // áreas de arrastar: cuba, rebaixo e cooktop
       R.forEach(function (r) {
@@ -746,7 +771,7 @@
     return h;
   }
   // ── no próprio desenho: arrastar recortes e tocar nas medidas ──
-  var NDIM = { A: 'Comprimento', p: 'Largura', B: 'Perna do L (sem a largura da pia)', pB: 'Largura da perna', H: 'Altura', prof: 'Profundidade' };
+  var NDIM = { A: 'Comprimento', p: 'Largura', B: 'Perna do L (sem a largura da pia)', pB: 'Largura da perna', H: 'Altura', prof: 'Profundidade', fr: 'Altura do frontão' };
   function pedirNum(rot, v, cb) {
     var o = document.createElement('div'); o.className = 'des-num';
     o.innerHTML = '<div class="cx"><div class="t">' + esc(rot) + ' (cm)</div><input type="text" inputmode="decimal" value="' + esc(v) + '"><div class="b"><button type="button" data-n="0">Cancelar</button><button type="button" data-n="1" class="ok">OK</button></div></div>';
@@ -760,6 +785,15 @@
     var pr = key.split('|'), i = +pr[0], k = pr[1], pc = st.d.pecas[i]; if (!pc) return;
     var rot = (pc.tipo === 'L' && k === 'A' ? 'Comprimento do fundo' : pc.tipo === 'nicho' && k === 'A' ? 'Largura' : NDIM[k] || k) + ' — ' + nomePeca(pc);
     st.sel = i;
+    if (/^(rx0|rx1|rebc)$/.test(k)) { // medidas da área molhada
+      var g = geo(pc), rb = recortes(pc, g).filter(function (r) { return r.t === 'reb'; })[0]; if (!rb) return;
+      var at = k === 'rx0' ? rb.x0 : k === 'rebc' ? rb.x1 - rb.x0 : g.A - rb.x1;
+      pedirNum(k === 'rx0' ? 'Da esquerda até o rebaixo' : k === 'rebc' ? 'Comprimento do rebaixo (área molhada)' : 'Do rebaixo até a direita', Math.round(at * 10) / 10, function (v) {
+        if (k === 'rx0') pc.reb.x = v; else if (k === 'rebc') { pc.reb.c = v; pc.reb.x = rb.x0; } else pc.reb.x = Math.max(0, g.A - v - (rb.x1 - rb.x0));
+        var c = pc.cuba || {}, cb = recortes(pc, g).filter(function (r) { return r.t === 'cuba'; })[0]; if (cb && cb.cx > rb.x0 && cb.cx < rb.x1) c.x = ''; // a cuba acompanha o rebaixo desenharCv(); atualizarPainel();
+      });
+      return;
+    }
     pedirNum(rot, num(pc[k]), function (v) { pc[k] = v; desenharCv(); atualizarPainel(); });
   }
   var arr = null, arrRaf = 0;
