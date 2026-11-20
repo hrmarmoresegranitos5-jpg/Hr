@@ -23666,6 +23666,13 @@ async function rotaBotInterna(req, env, url) {
   if (p.startsWith('/bot/bonus')) { const r = await rotaBonus(req, env, url); if (r) return r; } // v164
   if (p === '/bot/retencao') { if (req.method === 'POST') { const b = await req.json().catch(() => ({})); const c = await retencaoCfg(env); if (+b.larg > 0 && +b.larg < 30) c.larg = Math.round(+b.larg * 10) / 10; await env.HR_KV.put('cfg:retencao', JSON.stringify(c)); return jsonR({ ok: true, ...c }); } return jsonR({ ok: true, ...(await retencaoCfg(env)) }); } // v192
   if (p === '/bot/desenho' && req.method === 'POST') return jsonR(await desenhoReceber(env, await req.json().catch(() => ({})))); // v194
+  if (p === '/bot/sobras') { // v212: plano de corte do Projeto 2D (reaproveitamento)
+    if (req.method === 'GET') return jsonR({ ok: true, sobras: (await sobrasLivres(env)).map(x => ({ id: x.id, material: x.material, comp: +x.comp, larg: +x.larg, qtd: +x.qtd || 1, origem: x.origem || '' })) });
+    const b = await req.json().catch(() => ({})); let n = 0;
+    if (b.acao === 'guardar') for (const x of (b.itens || []).slice(0, 30)) { if (+x.comp >= 10 && +x.larg >= 5 && x.material) { await sobraRegistrar(env, { material: x.material, comp: Math.max(+x.comp, +x.larg), larg: Math.min(+x.comp, +x.larg), qtd: 1, origem: String(x.origem || 'plano de corte').slice(0, 80), por: 'dono' }); n++; } }
+    if (b.acao === 'usar' && (await v151Tabelas(env))) for (const id of (b.ids || []).slice(0, 30)) { await env.HR_DB.prepare('UPDATE sobra SET usada = 1, usadaEm = ?, usadaPid = ? WHERE id = ? AND usada = 0').bind(Date.now(), String(b.pid || 'desenho'), +id).run(); n++; }
+    return jsonR({ ok: true, n });
+  }
   if (p === '/bot/desenho/ia' && req.method === 'POST') { try { return jsonR(await desenhoIA(env, await req.json().catch(() => ({})))); } catch (e) { return jsonR({ ok: false, erro: 'IA: ' + e.message }); } } // v211
   if (p === '/bot/producao' && req.method === 'GET') return jsonR(await producaoPainel(env)); // v190
   if (p === '/bot/producao/ficha' && req.method === 'POST') return jsonR(await producaoFichaSalvar(env, await req.json().catch(() => ({})))); // v190

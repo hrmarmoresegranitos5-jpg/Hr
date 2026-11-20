@@ -154,37 +154,82 @@
     (d.pecas || []).forEach(function (pc) { corte(pc).forEach(function (x) { r.m2 += x.c * x.l * x.qtd / 10000; r.pecas += x.qtd; if (x.tipo === 'saia') r.saia += x.c * x.qtd / 100; if (x.tipo === 'frontao') r.fr += x.c * x.qtd / 100; }); });
     return r;
   }
-  function planoCorte(d) { // encaixe simples em prateleiras, girando a peça se precisar (0,5 cm de serra)
-    var ch = chapa(), K = 0.5, its = [], grandes = [], chs = [];
-    (d.pecas || []).forEach(function (pc) { corte(pc).forEach(function (x) { for (var i = 0; i < x.qtd; i++) its.push({ nome: x.nome, c: x.c, l: x.l, tipo: x.tipo }); }); });
-    its.sort(function (a, b) { return b.l - a.l || b.c - a.c; });
-    its.forEach(function (it) {
-      var ori = [[it.c, it.l], [it.l, it.c]].filter(function (o) { return o[0] <= ch.c && o[1] <= ch.l; });
-      if (!ori.length) { grandes.push(it); return; }
-      var ok = false;
-      for (var k = 0; k < chs.length && !ok; k++) { var C = chs[k];
-        for (var si = 0; si < C.sh.length && !ok; si++) { var S0 = C.sh[si]; ori.forEach(function (o) { if (ok) return; if (o[1] <= S0.h && S0.x + o[0] <= ch.c) { C.p.push({ x: S0.x, y: S0.y, w: o[0], h: o[1], it: it }); S0.x += o[0] + K; ok = true; } }); }
-        if (!ok) ori.forEach(function (o) { if (ok) return; if (C.y + o[1] <= ch.l) { var ns = { y: C.y, h: o[1], x: o[0] + K }; C.sh.push(ns); C.p.push({ x: 0, y: C.y, w: o[0], h: o[1], it: it }); C.y += o[1] + K; ok = true; } });
+  function mesmaPedraD(a, b) { var tk = function (t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z]+/).filter(function (w) { return w.length > 2 && !/^(granito|marmore|quartzo|pedra|dos|das)$/.test(w); }); }, x = tk(a), y = tk(b); return x.length && y.length && x.filter(function (w) { return y.indexOf(w) >= 0; }).length >= Math.min(2, x.length, y.length); }
+  // plano de corte: usa primeiro as sobras do estoque (reaproveitamento); com paginação, cada peça sai junto com a sua sainha e o seu frontão, no mesmo sentido do veio
+  function planoCorte(d, sobras, op) {
+    op = op || {}; var ch = chapa(), K = 0.5, bins = [], grandes = [], pag = op.pag !== false;
+    (op.usarSobras === false ? [] : (sobras || [])).filter(function (x) { return mesmaPedraD(x.material, d.material); }).sort(function (a, b) { return a.comp * a.larg - b.comp * b.larg; })
+      .forEach(function (x) { for (var i = 0; i < (x.qtd || 1); i++) bins.push({ tipo: 'sobra', id: x.id, W: x.comp, H: x.larg, livre: [{ x: 0, y: 0, w: x.comp, h: x.larg }], p: [], origem: x.origem }); });
+    var novaChapa = function () { var b = { tipo: 'chapa', W: ch.c, H: ch.l, livre: [{ x: 0, y: 0, w: ch.c, h: ch.l }], p: [] }; bins.push(b); return b; };
+    var dividir = function (b, f, w, h) { // guilhotina: o que sobra vira dois retângulos livres
+      b.livre.splice(b.livre.indexOf(f), 1);
+      var rw = f.w - w - K, rh = f.h - h - K, A1, A2;
+      if (rw < rh) { A1 = { x: f.x + w + K, y: f.y, w: rw, h: h }; A2 = { x: f.x, y: f.y + h + K, w: f.w, h: rh }; } else { A1 = { x: f.x + w + K, y: f.y, w: rw, h: f.h }; A2 = { x: f.x, y: f.y + h + K, w: w, h: rh }; }
+      [A1, A2].forEach(function (r) { if (r.w > 1 && r.h > 1) b.livre.push(r); });
+    };
+    var cabeEm = function (b, w, h) { // o retângulo livre que melhor encaixa (menos perda)
+      var best = null; b.livre.forEach(function (f) { if (w <= f.w + 0.01 && h <= f.h + 0.01) { var sc = f.w * f.h - w * h; if (!best || sc < best.sc || (sc === best.sc && f.y < best.f.y)) best = { f: f, sc: sc }; } });
+      if (!best) return null; var r = { x: best.f.x, y: best.f.y }; dividir(b, best.f, w, h); return r;
+    };
+    var colocar = function (w, h, rot, f) { // f(bin, x, y, girou)
+      var oris = [[w, h, false]]; if (rot && w !== h) oris.push([h, w, true]);
+      for (var i = 0; i < bins.length; i++) for (var j = 0; j < oris.length; j++) { var q = cabeEm(bins[i], oris[j][0], oris[j][1]); if (q) { f(bins[i], q.x, q.y, oris[j][2]); return true; } }
+      for (var j2 = 0; j2 < oris.length; j2++) if (oris[j2][0] <= ch.c && oris[j2][1] <= ch.l) { var b = novaChapa(), q2 = cabeEm(b, oris[j2][0], oris[j2][1]); f(b, q2.x, q2.y, oris[j2][2]); return true; }
+      return false;
+    };
+    var ordem = { bancada: 0, tampo: 1, frontao: 2, saia: 3, outro: 4 };
+    (d.pecas || []).forEach(function (pc, gi) {
+      var its = []; corte(pc).forEach(function (x) { for (var i = 0; i < x.qtd; i++) its.push({ nome: x.nome, c: x.c, l: x.l, tipo: x.tipo, g: gi, de: nomePeca(pc) }); });
+      its.sort(function (a, b) { return (ordem[a.tipo] - ordem[b.tipo]) || b.c - a.c; });
+      if (pag && its.length > 1) { // bloco da peça: tudo empilhado no mesmo sentido, para o veio continuar
+        var bw = Math.max.apply(0, its.map(function (x) { return x.c; })), bh = its.reduce(function (t, x) { return t + x.l + K; }, -K);
+        if (bw <= ch.c && bh <= ch.l && colocar(bw, bh, false, function (b, x, y) { var yy = y; its.forEach(function (it) { b.p.push({ x: x, y: yy, w: it.c, h: it.l, it: it }); if (bw - it.c - K > 1) b.livre.push({ x: x + it.c + K, y: yy, w: bw - it.c - K, h: it.l }); yy += it.l + K; }); })) return;
       }
-      if (!ok) { var o = ori[0], C2 = { sh: [{ y: 0, h: o[1], x: o[0] + K }], p: [{ x: 0, y: 0, w: o[0], h: o[1], it: it }], y: o[1] + K }; chs.push(C2); }
+      its.forEach(function (it) { if (!colocar(it.c, it.l, !pag, function (b, x, y, gir) { b.p.push({ x: x, y: y, w: gir ? it.l : it.c, h: gir ? it.c : it.l, it: it }); })) grandes.push(it); });
     });
-    chs.forEach(function (C) { C.uso = C.p.reduce(function (t, q) { return t + q.w * q.h; }, 0) / (ch.c * ch.l); });
-    return { ch: ch, chapas: chs, grandes: grandes };
+    var usados = bins.filter(function (b) { return b.p.length; }), novas = [];
+    usados.forEach(function (b) {
+      b.uso = b.p.reduce(function (t, q) { return t + q.w * q.h; }, 0) / (b.W * b.H);
+      if (b.tipo !== 'chapa') return;
+      b.livre.forEach(function (f) { var c = Math.max(f.w, f.h), l = Math.min(f.w, f.h); if (c >= 25 && l >= 8) novas.push({ comp: Math.floor(c), larg: Math.floor(l), b: b }); });
+    });
+    novas.sort(function (a, b) { return b.comp * b.larg - a.comp * a.larg; });
+    return { ch: ch, bins: usados, grandes: grandes, novas: novas, chapas: usados.filter(function (b) { return b.tipo === 'chapa'; }).length, sobrasUsadas: usados.filter(function (b) { return b.tipo === 'sobra'; }) };
   }
   function telaPlano() {
-    var d = st.d, pl = planoCorte(d), ch = pl.ch, rs = resumo(d), o = document.createElement('div'); o.id = 'hrDesPl';
-    var cores = { bancada: '#e9dfc7', frontao: '#cfe0d4', saia: '#dcd6ec', tampo: '#f1d0c4', outro: '#d6e4ee' };
-    var h = '<div class="ia-top"><button class="des-ic" data-pl="sair">✕</button><div style="flex:1"><b>🪚 Plano de corte nas chapas</b><div class="des-sub">' + pl.chapas.length + (pl.chapas.length === 1 ? ' chapa' : ' chapas') + ' de ' + ch.c + '×' + ch.l + ' · ' + f1(Math.round(rs.m2 * 100) / 100) + ' m² de pedra</div></div></div><div style="flex:1;overflow:auto;padding:12px">';
-    h += '<div class="des-sec"><div class="des-g2" style="margin-top:0"><div><span class="des-l">Chapa: comprimento</span><input class="des-i" id="plC" inputmode="decimal" value="' + ch.c + '"></div><div><span class="des-l">Chapa: largura</span><input class="des-i" id="plL" inputmode="decimal" value="' + ch.l + '"></div></div><button class="des-bt des-bt2" data-pl="recalc">Recalcular</button></div>';
-    if (pl.grandes.length) h += '<div class="des-av">⚠️ Não cabe numa chapa: ' + pl.grandes.map(function (g) { return esc(g.nome) + ' ' + f1(g.c) + '×' + f1(g.l); }).join(', ') + '. Coloque uma emenda na peça.</div>';
-    pl.chapas.forEach(function (C, i) {
-      var k = 330 / ch.c, sv = '<svg viewBox="0 0 ' + (ch.c * k + 2) + ' ' + (ch.l * k + 2) + '" style="width:100%;height:auto;display:block"><rect x="1" y="1" width="' + ch.c * k + '" height="' + ch.l * k + '" fill="#3a352c" rx="3"/>';
-      C.p.forEach(function (q) { sv += '<rect x="' + (1 + q.x * k) + '" y="' + (1 + q.y * k) + '" width="' + q.w * k + '" height="' + q.h * k + '" fill="' + (cores[q.it.tipo] || '#e9dfc7') + '" stroke="#1a1408" stroke-width=".8"/>'; if (q.w * k > 34 && q.h * k > 11) sv += '<text x="' + (1 + (q.x + q.w / 2) * k) + '" y="' + (1 + (q.y + q.h / 2) * k + 3) + '" font-size="' + Math.min(9, q.h * k * 0.55) + '" text-anchor="middle" fill="#1a1408">' + esc(f1(q.w) + '×' + f1(q.h)) + '</text>'; });
-      h += '<div class="des-sec"><h4>Chapa ' + (i + 1) + ' <span style="margin-left:auto;color:#9a917e;text-transform:none;letter-spacing:0">' + Math.round(C.uso * 100) + '% usada</span></h4>' + sv + '</svg>' + C.p.map(function (q) { return '<div class="des-pc"><span>' + esc(q.it.nome) + '</span><b>' + f1(q.w) + ' × ' + f1(q.h) + '</b></div>'; }).join('') + '</div>';
+    var d = st.d, o = document.createElement('div'); o.id = 'hrDesPl'; document.body.appendChild(o);
+    st.plOp = st.plOp || { pag: true, usarSobras: true };
+    o.innerHTML = '<div class="des-dica" style="padding:40px;text-align:center">Carregando as sobras do estoque…</div>';
+    var desenhar = function (sobras, semRede) {
+      var pl = planoCorte(d, sobras, st.plOp), ch = pl.ch, rs = resumo(d), P = ['#e9dfc7', '#cfe0d4', '#dcd6ec', '#f1d0c4', '#d6e4ee', '#efe2b0', '#e6cfe0', '#cfe7e6'];
+      var h = '<div class="ia-top"><button class="des-ic" data-pl="sair">✕</button><div style="flex:1"><b>🪚 Plano de corte</b><div class="des-sub">' + (pl.sobrasUsadas.length ? '♻️ ' + pl.sobrasUsadas.length + (pl.sobrasUsadas.length > 1 ? ' sobras' : ' sobra') + ' + ' : '') + pl.chapas + (pl.chapas === 1 ? ' chapa nova' : ' chapas novas') + ' · ' + f1(Math.round(rs.m2 * 100) / 100) + ' m²</div></div></div><div style="flex:1;overflow:auto;padding:12px">';
+      h += '<div class="des-sec"><div class="des-ch" style="margin-top:0">' + '<button type="button" data-pl="pag" class="' + (st.plOp.pag ? 'on' : '') + '">' + (st.plOp.pag ? '✓ ' : '') + 'Paginação (veio contínuo)</button><button type="button" data-pl="sob" class="' + (st.plOp.usarSobras ? 'on' : '') + '">' + (st.plOp.usarSobras ? '✓ ' : '') + '♻️ Usar sobras</button></div>'
+        + '<div class="des-g2"><div><span class="des-l">Chapa: comprimento</span><input class="des-i" id="plC" inputmode="decimal" value="' + ch.c + '"></div><div><span class="des-l">Chapa: largura</span><input class="des-i" id="plL" inputmode="decimal" value="' + ch.l + '"></div></div><button class="des-bt des-bt2" data-pl="recalc">Recalcular</button>'
+        + (!d.material ? '<div class="des-av">⚠️ Escreva o material do projeto para eu achar as sobras da mesma pedra.</div>' : semRede ? '<div class="des-av">⚠️ Não consegui ver o estoque de sobras agora.</div>' : '') + '</div>';
+      if (pl.grandes.length) h += '<div class="des-av">⚠️ Não cabe numa chapa: ' + pl.grandes.map(function (g) { return esc(g.nome) + ' ' + f1(g.c) + '×' + f1(g.l); }).join(', ') + '. Coloque uma emenda na peça.</div>';
+      var nC = 0;
+      pl.bins.forEach(function (b) {
+        var k = 330 / Math.max(b.W, ch.c * 0.6), sv = '<svg viewBox="0 0 ' + (b.W * k + 2) + ' ' + (b.H * k + (st.plOp.pag ? 16 : 2)) + '" style="width:' + Math.min(100, b.W / ch.c * 100 + 8) + '%;height:auto;display:block"><rect x="1" y="1" width="' + b.W * k + '" height="' + b.H * k + '" fill="' + (b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
+        b.p.forEach(function (q) { sv += '<rect x="' + (1 + q.x * k) + '" y="' + (1 + q.y * k) + '" width="' + q.w * k + '" height="' + q.h * k + '" fill="' + P[q.it.g % P.length] + '" stroke="#1a1408" stroke-width=".8"/>'; if (q.w * k > 30 && q.h * k > 10) sv += '<text x="' + (1 + (q.x + q.w / 2) * k) + '" y="' + (1 + (q.y + q.h / 2) * k + 3) + '" font-size="' + Math.min(9, q.h * k * 0.55) + '" text-anchor="middle" fill="#1a1408">' + esc((st.plOp.pag ? 'P' + (q.it.g + 1) + ' ' : '') + f1(q.w) + '×' + f1(q.h)) + '</text>'; });
+        if (st.plOp.pag) sv += '<text x="' + (b.W * k) + '" y="' + (b.H * k + 13) + '" font-size="9" text-anchor="end" fill="#c9a84c">veio →</text>';
+        var tit = b.tipo === 'sobra' ? '♻️ Sobra ' + f1(b.W) + '×' + f1(b.H) + (b.origem ? ' <span style="text-transform:none;letter-spacing:0;color:#9a917e">· ' + esc(b.origem) + '</span>' : '') : 'Chapa ' + (++nC) + ' (' + f1(b.W) + '×' + f1(b.H) + ')';
+        h += '<div class="des-sec"><h4>' + tit + ' <span style="margin-left:auto;color:#9a917e;text-transform:none;letter-spacing:0">' + Math.round(b.uso * 100) + '% usada</span></h4>' + sv + '</svg>' + b.p.map(function (q) { return '<div class="des-pc"><span>' + (st.plOp.pag ? '<b style="color:#c9a84c">P' + (q.it.g + 1) + '</b> ' : '') + esc(q.it.nome) + ((d.pecas || []).length > 1 ? ' <span class="des-sub">(' + esc(q.it.de) + ')</span>' : '') + '</span><b>' + f1(q.w) + ' × ' + f1(q.h) + '</b></div>'; }).join('') + '</div>';
+      });
+      if (pl.sobrasUsadas.length) h += '<button class="des-bt des-bt2" data-pl="usar">♻️ Marcar ' + (pl.sobrasUsadas.length > 1 ? 'essas sobras como usadas' : 'essa sobra como usada') + '</button>';
+      if (pl.novas.length) h += '<div class="des-sec" style="margin-top:10px"><h4>♻️ Sobras que vão ficar</h4>' + pl.novas.map(function (x) { return '<div class="des-pc"><span>' + esc(d.material || 'Pedra') + '</span><b>' + x.comp + ' × ' + x.larg + '</b></div>'; }).join('') + '<button class="des-bt" data-pl="guardar">Guardar no estoque de sobras</button></div>';
+      h += '<div class="des-dica" style="text-align:center;margin-top:8px">' + (st.plOp.pag ? 'Paginação: cada peça (P1, P2…) sai junto com a sua sainha e o seu frontão, tudo no mesmo sentido do veio, para o desenho da pedra continuar. ' : '') + 'Confira o veio e as falhas da chapa antes de cortar.</div></div>';
+      o.innerHTML = h; o.__pl = pl;
+    };
+    var carregar = function () { if (!d.material || !base()) { desenhar([], !!d.material); return; } api('/bot/sobras').then(function (r) { st.sobras = r.sobras || []; desenhar(st.sobras); }).catch(function () { desenhar([], true); }); };
+    o.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-pl]'); if (!b) return; var a = b.getAttribute('data-pl'), pl = o.__pl;
+      if (a === 'sair') { o.remove(); return; }
+      if (a === 'pag' || a === 'sob') { if (a === 'pag') st.plOp.pag = !st.plOp.pag; else st.plOp.usarSobras = !st.plOp.usarSobras; desenhar(st.sobras || []); return; }
+      if (a === 'recalc') { var c = num(o.querySelector('#plC').value), l = num(o.querySelector('#plL').value); if (c > 50 && l > 30) { try { localStorage.setItem('hr_chapa', JSON.stringify({ c: c, l: l })); } catch (er) {} } desenhar(st.sobras || []); desenharCv(); atualizarPainel(); return; }
+      if (a === 'guardar' && pl) { if (!d.material) { aviso('Escreva o material do projeto primeiro.'); return; } api('/bot/sobras', { acao: 'guardar', itens: pl.novas.map(function (x) { return { material: d.material, comp: x.comp, larg: x.larg, origem: 'sobra do projeto ' + (d.cliente || '') }; }) }).then(function (r) { aviso('♻️ ' + r.n + ' sobra(s) guardada(s) no estoque'); b.remove(); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
+      if (a === 'usar' && pl) { api('/bot/sobras', { acao: 'usar', ids: pl.sobrasUsadas.map(function (x) { return x.id; }), pid: d.pid || '' }).then(function () { aviso('♻️ Sobra marcada como usada'); b.remove(); }).catch(function (er) { aviso('⚠️ ' + er.message); }); }
     });
-    h += '<div class="des-dica" style="text-align:center">Cores: bancada (bege), frontão (verde), sainha (lilás), tampo do rebaixo (rosa). É uma sugestão: confira o veio e as falhas da chapa antes de cortar.</div></div>';
-    o.innerHTML = h; document.body.appendChild(o);
-    o.addEventListener('click', function (e) { var b = e.target.closest('[data-pl]'); if (!b) return; var a = b.getAttribute('data-pl'); if (a === 'sair') o.remove(); if (a === 'recalc') { var c = num(o.querySelector('#plC').value), l = num(o.querySelector('#plL').value); if (c > 50 && l > 30) { try { localStorage.setItem('hr_chapa', JSON.stringify({ c: c, l: l })); } catch (er) {} } o.remove(); telaPlano(); desenharCv(); atualizarPainel(); } });
+    carregar();
   }
   function avisos(pc) {
     var gr = [], ch = chapa(); corte(pc).forEach(function (x) { if ((x.c > ch.c || x.l > ch.l) && (x.c > ch.l || x.l > ch.c) || x.c > Math.max(ch.c, ch.l)) gr.push(x.nome + ' ' + f1(x.c) + '×' + f1(x.l)); });
@@ -1190,5 +1235,5 @@
   }
   function iniciar() { var sb = document.getElementById('secBody'); if (!sb) return setTimeout(iniciar, 1500); cartaoSec(); new MutationObserver(cartaoSec).observe(sb, { childList: true }); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
-  window.abrirDesenho = abrir; window.__hrDesTeste = { pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
+  window.abrirDesenho = abrir; window.__hrDesTeste = { planoCorte: planoCorte, pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
 })();
