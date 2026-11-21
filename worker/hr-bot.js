@@ -15689,7 +15689,8 @@ async function relCancelar(env, nomeTxt) {
   const rel = await pontoRelUltimo(env, f.id), nm = apelidoFunc(cfg, f);
   if (!rel) return `Não achei relatório enviado para ${nm}.`;
   rel.status = 'cancelado'; rel.canceladoEm = Date.now(); await pontoRelSalvar(env, rel);
-  await falarComFuncionario(env, f, `${nm}, desconsidere o relatório do ${rel.label} (${pontoDataBR(rel.di)} a ${pontoDataBR(rel.df)}) que te mandei: foi engano. O relatório certo chega depois que o Sr. Hangel conferir.`).catch(() => {});
+  await falarComFuncionario(env, f, `${nm}, desconsidere o relatório do ${rel.label} (${pontoDataBR(rel.di)} a ${pontoDataBR(rel.df)}) que te mandei: foi enviado por engano. Pedimos desculpas pelo transtorno. O relatório certo chega depois que o Sr. Hangel conferir.`).catch(() => {});
+  await env.HR_KV.put('ponto:relcancdesc:' + f.id, '1', { expirationTtl: 30 * 86400 });
   return `Cancelei o relatório do ${rel.label} de ${nm} e avisei ele que foi engano. Para mandar o certo: relatório do ${nm}.`;
 }
 // v237: "manda o relatório" do dono — manda DE VERDADE (antes a IA dizia que mandou sem mandar)
@@ -30602,6 +30603,11 @@ async function pontoRotina(env) {
     for (const k of l.keys) { let per = null; try { per = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (per && per._em && Date.now() - per._em > 48 * 3600000) { const f = cfgL.funcs.find(x => String(x.id) === k.name.slice('ponto:relaut:'.length).split('~')[0]); if (f) velhos.push(apelidoFunc(cfgL, f)); } }
     if (velhos.length) await pontoAvisarDono(env, `Relatórios de ponto esperando a sua autorização há mais de 2 dias: ${velhos.join(', ')}. Toque em "Pode mandar" em cada um ou escreva: pode mandar todos os relatórios.`).catch(() => {});
   } }
+  if (await umaVez(env, 'fixhugo2:v243', 30)) { // v243: se o aviso ao Hugo já saiu sem o pedido de desculpas, manda as desculpas (pedido do Sr. Hangel)
+    try { const cfgH = await pontoCfg(env), fH = eqFuncPorNomeTexto(cfgH, 'Hugo'), relH = fH && await pontoRelUltimo(env, fH.id);
+      if (fH && relH && relH.status === 'cancelado' && !(await env.HR_KV.get('ponto:relcancdesc:' + fH.id))) { await falarComFuncionario(env, fH, `${apelidoFunc(cfgH, fH)}, pedimos desculpas pelo transtorno com o relatório enviado por engano. Já corrigimos para não acontecer de novo.`); await env.HR_KV.put('ponto:relcancdesc:' + fH.id, '1', { expirationTtl: 30 * 86400 }); await pontoAvisarDono(env, 'Mandei ao Hugo o pedido de desculpas pelo relatório enviado por engano.').catch(() => {}); }
+    } catch (e) { console.log('[FIX] hugo2:', e.message); }
+  }
   if (await umaVez(env, 'fixhugo:v242', 30)) { // v242: o Sr. Hangel pediu (20/11 22:24) — desfaz o relatório do 1º decêndio mandado por engano ao Hugo e traz o do 2º para ele conferir
     try {
       const cfgH = await pontoCfg(env), fH = eqFuncPorNomeTexto(cfgH, 'Hugo'), relH = fH && await pontoRelUltimo(env, fH.id);
