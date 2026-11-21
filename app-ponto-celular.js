@@ -632,12 +632,12 @@
     var raw = lerJ('hr_funcionarios');
     var lista = Object.keys(raw).map(function (k) { var f = raw[k]; if (f && f.id == null) f.id = k; return f; })
       .filter(function (f) { return f && f.nome && f.ativo !== false; })
-      .map(function (f) { return { id: String(f.id), nome: String(f.nome).trim(), tel: String(f.telefone || f.tel || '').replace(/\D/g, ''), cargo: f.cargo || '', nasc: f.nascimento || '', adm: f.admissao || '', fIni: f.feriasInicio || '', fFim: f.feriasFim || '', ferias: f.ativo === 'ferias', socio: !!f.socio }; });
+      .map(function (f) { return { id: String(f.id), nome: String(f.nome).trim(), tel: String(f.telefone || f.tel || '').replace(/\D/g, ''), cargo: f.cargo || '', nasc: f.nascimento || '', adm: f.admissao || '', fIni: f.feriasInicio || '', fFim: f.feriasFim || '', ferias: f.ativo === 'ferias', socio: !!f.socio, temCpf: !!f.cpf, temPix: !!f.pix, temBanco: !!f.banco, temFoto: !!f.foto }; }); // v29: só diz SE tem (o bot pergunta o que falta)
     var h = JSON.stringify(lista);
     return api('/bot/ponto/equipe', { funcs: h === eqHash && !forcar ? [] : lista }).then(function (j) {
       eqHash = h;
       var eds = (j && j.edits) || []; if (!eds.length) return;
-      var CAMPO = { tel: 'telefone', nasc: 'nascimento', adm: 'admissao', fIni: 'feriasInicio', fFim: 'feriasFim', cargo: 'cargo', nome: 'nome', cpf: 'cpf', pix: 'pix', banco: 'banco' }, feitos = [];
+      var CAMPO = { tel: 'telefone', nasc: 'nascimento', adm: 'admissao', fIni: 'feriasInicio', fFim: 'feriasFim', cargo: 'cargo', nome: 'nome', cpf: 'cpf', pix: 'pix', banco: 'banco', foto: 'foto' }, feitos = [];
       eds.forEach(function (e) {
         var f = raw[e.funcId] || Object.keys(raw).map(function (k) { return raw[k]; }).filter(function (x) { return x && String(x.id) === String(e.funcId); })[0];
         if (f) Object.keys(e.muda || {}).forEach(function (k) { if (CAMPO[k]) f[CAMPO[k]] = e.muda[k]; });
