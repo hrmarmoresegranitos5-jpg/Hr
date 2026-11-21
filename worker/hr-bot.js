@@ -30799,15 +30799,20 @@ async function rotaBotPonto(req, env, url) {
     if (b.liberar === false) await env.HR_KV.delete(k); else await env.HR_KV.put(k, '1', { expirationTtl: 3 * 86400 });
     return jsonR({ ok: true });
   }
-  if (p === '/bot/ponto/registros' && req.method === 'GET') {
-    const de = url.searchParams.get('de') || dataBahia(), ate = url.searchParams.get('ate') || de;
-    const dias = {}; let d = de, n = 0;
-    while (d <= ate && n < 62) {
-      for (const f of cfg.funcs) { const l = await pontoDia(env, d, f.id); if (l.length) (dias[d] = dias[d] || {})[f.id] = l.map(b => Object.assign(pontoPublico(b), { lat: b.lat, lng: b.lng, acc: b.acc, ip: b.ip, temFoto: true })); }
-      const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d = x.toISOString().slice(0, 10); n++;
-    }
-    const ativos = {}, push = {}, rostos = {}; for (const f of cfg.funcs) { ativos[f.id] = !!(await env.HR_KV.get('ponto:fd:' + f.id)); push[f.id] = ativos[f.id] && !!(await env.HR_KV.get('ponto:push:' + f.id)); rostos[f.id] = !!(await env.HR_KV.get('ponto:face:' + f.id)); }
-    const abonos = {}, saidas = {}; { let d2 = de, n2 = 0; while (d2 <= ate && n2 < 62) { for (const f of cfg.funcs) { const a = await env.HR_KV.get(`ponto:abono:${d2}:${f.id}`); if (a) (abonos[d2] = abonos[d2] || {})[f.id] = JSON.parse(a); const sl = (await saiLista(env, d2, f.id)).filter(x => x.status === 'voltou' || x.status === 'fora'); if (sl.length) (saidas[d2] = saidas[d2] || {})[f.id] = sl.map(saiPublico); } const x = new Date(d2 + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d2 = x.toISOString().slice(0, 10); n2++; } }
+  if (p === '/bot/ponto/registros' && req.method === 'GET') { // v240: leituras em paralelo (12 dias × equipe ficava lento); ?leve=1 só batidas; ?funcId= um só
+    const de = url.searchParams.get('de') || dataBahia(), ate = url.searchParams.get('ate') || de, leve = url.searchParams.get('leve') === '1', fId = url.searchParams.get('funcId') || '';
+    const fs = fId ? cfg.funcs.filter(f => String(f.id) === fId) : cfg.funcs, ds = []; { let d = de, n = 0; while (d <= ate && n++ < 62) { ds.push(d); const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d = x.toISOString().slice(0, 10); } }
+    const pares = []; for (const d of ds) for (const f of fs) pares.push([d, f]);
+    const dias = {}, abonos = {}, saidas = {};
+    await Promise.all(pares.map(async ([d, f]) => {
+      const l = await pontoDia(env, d, f.id); if (l.length) (dias[d] = dias[d] || {})[f.id] = l.map(b => Object.assign(pontoPublico(b), { lat: b.lat, lng: b.lng, acc: b.acc, ip: b.ip, temFoto: true }));
+      if (leve) return;
+      const [a, sl0] = await Promise.all([env.HR_KV.get(`ponto:abono:${d}:${f.id}`), saiLista(env, d, f.id)]);
+      if (a) (abonos[d] = abonos[d] || {})[f.id] = JSON.parse(a);
+      const sl = (sl0 || []).filter(x => x.status === 'voltou' || x.status === 'fora'); if (sl.length) (saidas[d] = saidas[d] || {})[f.id] = sl.map(saiPublico);
+    }));
+    const ativos = {}, push = {}, rostos = {};
+    if (!leve) await Promise.all(fs.map(async f => { const [a1, p1, r1] = await Promise.all([env.HR_KV.get('ponto:fd:' + f.id), env.HR_KV.get('ponto:push:' + f.id), env.HR_KV.get('ponto:face:' + f.id)]); ativos[f.id] = !!a1; push[f.id] = !!a1 && !!p1; rostos[f.id] = !!r1; }));
     return jsonR({ ok: true, funcs: cfg.funcs, ativos, push, rostos, facial: cfg.facial !== false, dias, abonos, saidas });
   }
   if (p === '/bot/ponto/agora' && req.method === 'GET') return jsonR(Object.assign({ ok: true }, await pontoAgora(env))); // v85
