@@ -2217,6 +2217,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('conf_pronto|')) { if (ehDono(env, from)) await confComandoDono(env, from, 'pronto', 'pronto'); return true; }
   if (id.startsWith('conf_cancelar|')) { if (ehDono(env, from)) await confComandoDono(env, from, 'cancelar conferencia', 'cancelar conferencia'); return true; }
   if (id.startsWith('conf|') || id.startsWith('confc|')) { if (ehDono(env, from)) await confBotao(env, from, id); return true; } // v72
+  if (id.startsWith('aid|')) { if (ehDono(env, from)) await aidBotao(env, from, id); return true; } // v249
   if (id.startsWith('igp|')) { if (ehDono(env, from)) await estBotao(env, from, id); return true; } // v69
   if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
   if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep' || id === 'folha_ja') return rhFolhaBotao(env, from, id); // v81
@@ -15716,6 +15717,36 @@ async function relEnviarAgora(env, nomeTxt) { // v239: NUNCA manda direto ao fun
   await pontoMarcarRegerar(env, f.id, per.df);
   return `Pedi ao app para gerar o relatório do ${per.label} (${pontoDataBR(per.di)} a ${pontoDataBR(per.df)}) de ${nm}. Com o app aberto, chega aqui em até 2 minutos para o senhor conferir. Nada vai para ele sem o senhor tocar em Pode mandar.`;
 }
+
+// v249: gastos "A identificar" (o senhor tocou em Não lembro) voltam uma vez por semana, com as pistas, para fechar a conta
+async function aidPerguntar(env, forcar) {
+  const ag = agoraBahia(); if (!forcar && (ag.dia !== 1 || ag.min < 9 * 60 || ag.min > 11 * 60)) return 0;
+  if (!forcar && !(await umaVez(env, 'aid:' + dataBahia(), 2))) return 0;
+  const lst = await listarTodas(env, 'fin:'), itens = [], lim = somaDias(dataBahia(), -45);
+  for (const k of lst.keys) { let r = null; try { r = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (r && r.type === 'out' && /^A identificar/i.test(r.desc || '') && r.date >= lim) itens.push(r); }
+  itens.sort((a, b) => b.date.localeCompare(a.date));
+  for (const r of itens.slice(0, 5)) {
+    const nome = String(r.desc).replace(/^A identificar\s*[—-]\s*/i, '').replace(/\s*\(mercado pago\)\s*$/i, '');
+    const pi = await finPistas(env, { desc: nome, data: r.date, valor: r.value }).catch(() => ({ sug: null, linhas: [] }));
+    const ordem = [...(pi.sug && CATS[pi.sug] ? [pi.sug] : []), ...Object.keys(CATS).filter(k => k !== pi.sug)].slice(0, 8);
+    const linhas = ordem.map(c => ({ id: `aid|${r.k}|${c}`, titulo: CATS[c].slice(0, 24), descricao: c === pi.sug ? 'Sugestão' : undefined }));
+    linhas.push({ id: `aid|${r.k}|nl`, titulo: 'Ainda não sei', descricao: 'Fica como A identificar' });
+    await enviarLista(env, numeroDono(env), `Gasto *A identificar*: R$ ${reais(r.value)} para *${nome}*\n${pi.linhas.map(x => '• ' + x).join('\n')}\n\nLembrou com o que foi?`, 'Escolher', linhas, true).catch(e => console.log('[AID]', e.message));
+  }
+  if (itens.length > 5) await enviar(env, numeroDono(env), `Há mais ${itens.length - 5} gasto(s) "A identificar" no app (Finanças).`).catch(() => {});
+  return itens.length;
+}
+async function aidBotao(env, from, id) {
+  const [, k, c] = id.split('|'); let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (!r || !/^A identificar/i.test(r.desc || '')) { await enviar(env, from, 'Esse gasto já foi resolvido.'); return true; }
+  if (c === 'nl' || !CATS[c]) { await enviar(env, from, 'Certo, continua como "A identificar".'); return true; }
+  const nome = String(r.desc).replace(/^A identificar\s*[—-]\s*/i, '').replace(/\s*\(mercado pago\)\s*$/i, '');
+  const novaDesc = (`${CATS[c]} — ${nome} (Mercado Pago)`).slice(0, 80);
+  if (r.importado || r.waId) { await pedirCorrecaoCat(env, k, r, c); const id2 = 'cor:' + r.waId + ':desc'; await env.HR_KV.put(id2, JSON.stringify({ id: id2, k, waId: String(r.waId), campo: 'desc', novo: novaDesc, antes: r.desc, desc: r.desc, value: r.value, status: 'pendente', ts: Date.now() }), { expirationTtl: COR_TTL }); await env.HR_KV.put('cfg:flag:cor', String(Date.now()), { expirationTtl: 86400 }).catch(() => {}); }
+  r.cat = c; r.desc = novaDesc; await env.HR_KV.put(k, JSON.stringify(r), { expirationTtl: FIN_TTL });
+  await enviar(env, from, `Pronto: R$ ${reais(r.value)} de ${nome} agora está em ${CATS[c]}.`);
+  return true;
+}
 // v236: pistas para lembrar de um gasto — dia da semana e hora, se o nome é de alguém da equipe ou de um cliente,
 // o que a equipe fez naquele dia (instalação/entrega) e a categoria mais provável pelo nome
 async function finPistas(env, r) {
@@ -19683,6 +19714,7 @@ async function tratarMensagemBase(env, m, ctx) {
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
+      if (/^(gastos? )?a identificar\??$|^(quais|ver|mostra) (os )?gastos? a identificar\??$/.test(normaliza(bruto))) { const n = await aidPerguntar(env, true); if (!n) await enviar(env, from, 'Não tem gasto "A identificar" nos últimos 45 dias.'); return; } // v249
       if (/^(?:quais (?:sao )?(?:os )?)?(?:contatos|numeros|telefones|whatsapps?|zaps?)(?: salvos)? da equipe\??$|^(?:lista|mostra|ver)(?: os)? (?:contatos|numeros|telefones) da equipe\??$/.test(normaliza(bruto))) { await enviar(env, from, await eqContatosTexto(env)); return; } // v246
       if (await relCorrTexto(env, from, bruto).catch(e => { console.log('[REL] corr texto:', e.message); return false; })) return; // v238
       { const mc = normaliza(bruto).match(/^(?:desconsider\w*|cancel\w*|anul\w*|desfaz\w*)(?: o)? relatorio(?: (?:de ponto|do ponto))?(?: (?:de|do|da|pro|pra))? ?(.*?)[.!? ]*$/); if (mc) { await enviar(env, from, await relCancelar(env, mc[1] || '')); return; } } // v241
@@ -30688,6 +30720,7 @@ async function pontoRotina(env) {
       if (linhas.length) await pontoAvisarDono(env, linhas.join('\n')).catch(() => {});
     } catch (e) { console.log('[FIX] hugo:', e.message); }
   }
+  await aidPerguntar(env, false).catch(e => console.log('aid', e && e.message)); // v249
   if (await umaVez(env, 'telfix:v246', 3650)) { const cfgT = await pontoCfg(env); for (const f of cfgT.funcs) if (f.tel) await eqTelGravar(env, f.id, f.tel, 'já cadastrado').catch(() => {}); } // v246
   if (await umaVez(env, 'eqctth:v226', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
 
