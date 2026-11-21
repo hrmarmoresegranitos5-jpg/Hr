@@ -461,7 +461,7 @@
           // v19: no ÚLTIMO dia do período, depois do expediente (17h; meio período: 12h), o período atual já fechou — manda no mesmo dia (dia de pagamento)
           if (!opts.qual && hoje() === at.df) { var hh = new Date().getHours(), exU = null; try { var e0 = lerJ('hr_excecoes'); Object.keys(e0).some(function (k) { if (e0[k] && e0[k].data === at.df) { exU = e0[k]; return true; } }); } catch (e) {} var folgaU = exU && exU.tipo === 'feriado' && !exU.meioperiodo, meioU = exU && exU.tipo === 'feriado' && exU.meioperiodo; if (folgaU || hh >= (meioU || new Date().getDay() === 6 ? 12 : 17)) per = at; }
           var chave = 'hr_relpdf_' + f.id + '_' + per.df;
-          if (!opts.forcar && (localStorage.getItem(chave) || (info.rel && info.rel[f.id] && info.rel[f.id].df === per.df))) return;
+          if (!opts.forcar && !opts.regerar && (localStorage.getItem(chave) || (info.rel && info.rel[f.id] && info.rel[f.id].df === per.df))) return;
           if (!opts.forcar && (Date.now() - new Date(per.df + 'T23:59:00-03:00').getTime() > 6 * 86400000)) return; // período velho: não manda sozinho
           var temReg = Object.keys(lerJ('hr_registros')).some(function (k) { var g = lerJ('hr_registros')[k]; return g && String(g.funcionarioId) === String(f.id) && g.data >= per.di && g.data <= per.df; });
           if (!temReg) { res[f.id] = 'sem registros no período'; return; }
@@ -774,6 +774,20 @@
   setInterval(function () { if (!document.hidden) enviarPrevias(false); }, 10 * 60000);
   window.HRPontoPrevias = enviarPrevias;
   setInterval(function () { if (!document.hidden) sincronizarAuto(false); }, 10 * 60000);
+  // v25: o Sr. Hangel corrigiu o ponto pelo WhatsApp (cartão do relatório) → refaz o PDF e o bot manda de novo para ele aprovar
+  var regerando = false;
+  function checarRegerar() {
+    if (!bot() || regerando || gerandoPdf) return;
+    api('/bot/ponto/relatorios').then(function (j) {
+      var l = (j && j.regerar) || []; if (!l.length) return;
+      regerando = true;
+      return (sincronizarAuto(false) || Promise.resolve()).then(function () {
+        return l.reduce(function (p, x) { return p.then(function () { var at = periodoAtual(x.fid); return enviarPdfs({ funcId: x.fid, qual: x.df >= at.di ? 'atual' : 'anterior', regerar: true }); }); }, Promise.resolve());
+      });
+    }).catch(function () {}).then(function () { regerando = false; });
+  }
+  setTimeout(checarRegerar, 25000);
+  setInterval(function () { if (!document.hidden) checarRegerar(); }, 2 * 60000);
 
   window.HRPonto = { enviarPdfsBot: function (o) { return enviarResumo(true).then(function () { return enviarPdfs(o); }); }, pedirLemb: pedirLemb, corrigir: corrigir, pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
 })();

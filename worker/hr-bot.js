@@ -2339,6 +2339,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^eqd_(ok|no)\|/.test(id)) return eqDescobrirBotao(env, from, id); // v223
   if (/^rela_(ok|no)\|/.test(id)) return relAutBotao(env, from, id); // v229
   if (/^mpq\|/.test(id)) return mpqBotao(env, from, id); // v236
+  if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -15595,6 +15596,90 @@ async function painelMP(env, dias) {
 }
 
 
+
+// v238: o dono corrige o ponto pelo próprio cartão do relatório (WhatsApp): usar sugestão, perguntar ao funcionário ou digitar o horário
+function pontoAnalisarDia(l, dt, cst) {
+  const mn = h => { const m = /^(\d{1,2}):(\d{2})/.exec(h || ''); return m ? +m[1] * 60 + +m[2] : NaN; }, hh = x => { x = Math.max(0, Math.min(1439, Math.round(x))); return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'); };
+  const v = l.filter(b => b.status !== 'recusada').sort((a, b) => mn(a.hora) - mn(b.hora)); if (!v.length) return null;
+  const por = t => v.find(b => b.tipo === t), e = por('entrada'), ai = por('saida_almoco'), af = por('volta_almoco'), sa = por('saida'), dow = new Date(dt + 'T12:00:00Z').getUTCDay(), passado = dt < dataBahia();
+  const curto = dow === 6 || (sa && e && mn(sa.hora) - mn(e.hora) <= 330 && !ai && !af);
+  if (e && !ai && !af && mn(e.hora) >= 735 && mn(e.hora) <= 885 && dow !== 6) return { txt: `esqueceu a manhã (${e.hora} é a volta do almoço)`, sug: [{ tipo: 'entrada', hora: hh(cst.e) }, { tipo: 'saida_almoco', hora: hh(Math.min(cst.ai, mn(e.hora) - 30)) }], troca: { [e.id]: 'volta_almoco' } };
+  if (af && !e && !ai) return { txt: 'sem entrada e sem saída do almoço', sug: [{ tipo: 'entrada', hora: hh(cst.e) }, { tipo: 'saida_almoco', hora: hh(Math.min(cst.ai, mn(af.hora) - 30)) }], troca: {} };
+  if (e && !sa && passado) { if (ai && !af) return { txt: `só entrada e saída do almoço (foi embora às ${ai.hora}?)`, sug: [], troca: { [ai.id]: 'saida' } }; return { txt: 'entrada sem saída', sug: [{ tipo: 'saida', hora: hh(cst.s) }], troca: {} }; }
+  if (ai && !af && sa) return { txt: 'sem volta do almoço', sug: [{ tipo: 'volta_almoco', hora: hh(mn(ai.hora) + (cst.af - cst.ai)) }], troca: {} };
+  if (af && !ai && e) return { txt: 'sem saída para o almoço', sug: [{ tipo: 'saida_almoco', hora: hh(mn(af.hora) - (cst.af - cst.ai)) }], troca: {} };
+  if (e && sa && !ai && !af && !curto) return { txt: 'sem batida do almoço', sug: [{ tipo: 'saida_almoco', hora: hh(cst.ai) }, { tipo: 'volta_almoco', hora: hh(cst.af) }], troca: {} };
+  return null;
+}
+async function pontoProblemasPeriodo(env, fid, di, df) {
+  const dias = []; let d = di, n = 0; while (d <= df && d <= dataBahia() && n++ < 20) { dias.push(d); d = somaDias(d, 1); }
+  const lst = {}; for (const x of dias) lst[x] = await pontoDia(env, x, fid);
+  const col = { e: [], ai: [], af: [], s: [] }, mn = h => { const m = /^(\d{1,2}):(\d{2})/.exec(h || ''); return m ? +m[1] * 60 + +m[2] : NaN; };
+  for (const x of dias) for (const b of lst[x].filter(b => b.status === 'ok')) { const m = mn(b.hora); if (b.tipo === 'entrada' && m < 600) col.e.push(m); else if (b.tipo === 'saida_almoco' && m >= 600 && m <= 810) col.ai.push(m); else if (b.tipo === 'volta_almoco' && m >= 660 && m <= 900) col.af.push(m); else if (b.tipo === 'saida' && m >= 900) col.s.push(m); }
+  const med = (a, p) => { if (a.length < 2) return p; a.sort((x, y) => x - y); return a[Math.floor(a.length / 2)]; };
+  const cst = { e: med(col.e, 420), ai: med(col.ai, 720), af: med(col.af, 800), s: med(col.s, 1020) }, out = [];
+  for (const x of dias) { const r = pontoAnalisarDia(lst[x], x, cst); if (r) out.push({ ...r, data: x }); }
+  return out;
+}
+async function pontoAplicarCorrecao(env, fid, p, itens, motivo) { // itens [{tipo,hora}]; p.troca {id: tipo}
+  const k = `ponto:d:${p.data}:${fid}`, l = await pontoDia(env, p.data, fid);
+  for (const [id, t] of Object.entries(p.troca || {})) { const x = l.find(y => y.id === id); if (x && PONTO_TIPOS[t]) { if (!x.tipoOriginal) x.tipoOriginal = x.tipo; x.tipo = t; x.ajuste = true; x.motivo = (x.motivo ? x.motivo + ' · ' : '') + 'tipo corrigido pelo Sr. Hangel'; } }
+  for (const it of itens) { const [h, m] = it.hora.split(':').map(Number), ts = Date.parse(p.data + 'T00:00:00-03:00') + (h * 60 + m) * 60000; l.push({ id: ts.toString(36) + pontoHex(3), tipo: it.tipo, ts, hora: it.hora, status: 'ok', ajuste: true, motivo: motivo.slice(0, 120), criadoEm: Date.now(), autor: 'dono' }); }
+  l.sort((a, c) => a.ts - c.ts); await env.HR_KV.put(k, JSON.stringify(l), { expirationTtl: PONTO_TTL });
+}
+async function pontoMarcarRegerar(env, fid, df) {
+  let r = []; try { r = JSON.parse((await env.HR_KV.get('ponto:regerar')) || '[]'); } catch (_) {}
+  r = r.filter(x => !(x.fid === String(fid) && x.df === df)); r.push({ fid: String(fid), df, em: Date.now() });
+  await env.HR_KV.put('ponto:regerar', JSON.stringify(r), { expirationTtl: 7 * 86400 });
+  await env.HR_KV.delete(`ponto:relenv:${fid}:${df}`).catch(() => {}); await env.HR_KV.delete('ponto:relautsig:' + `${fid}~${df}`).catch(() => {});
+}
+async function relCorrBotao(env, from, id) { // relc|k · relcs|k|i · relcp|k|i · relco|k|i
+  const [ac, k, iS] = id.split('|'), fid = k.split('~')[0], df = k.split('~')[1];
+  const cfg = await pontoCfg(env), f = cfg.funcs.find(x => String(x.id) === fid); if (!f) { await enviar(env, from, 'Não achei o funcionário.'); return true; }
+  const nm = apelidoFunc(cfg, f), TN = t => (PONTO_TIPOS[t] || t).toLowerCase();
+  let probs = null; try { probs = JSON.parse((await env.HR_KV.get('ponto:relcorr:' + k)) || 'null'); } catch (_) {}
+  if (ac === 'relc' || !probs) {
+    let per = null; try { per = JSON.parse((await env.HR_KV.get('ponto:relaut:' + k)) || 'null'); } catch (_) {}
+    probs = await pontoProblemasPeriodo(env, fid, (per && per.di) || somaDias(df, -9), df);
+    await env.HR_KV.put('ponto:relcorr:' + k, JSON.stringify(probs), { expirationTtl: 3 * 86400 });
+    if (!probs.length) { await enviar(env, from, `Não achei batida faltando no ponto de ${nm} nesse período. Se o erro for outro, me diga o dia e o horário certo (ex.: ${nm} dia 11 entrou 7h).`); return true; }
+    for (let i = 0; i < Math.min(probs.length, 6); i++) { const p = probs[i];
+      await enviarComBotoes(env, from, `${pontoDataBR(p.data)} · ${nm}: ${p.txt}.${p.sug.length ? `\nSugestão pelo costume dele: ${p.sug.map(x => TN(x.tipo) + ' ' + x.hora).join(', ')}.` : ''}`,
+        [...(p.sug.length || Object.keys(p.troca).length ? [{ id: `relcs|${k}|${i}`, titulo: p.sug.length ? 'Usar sugestão' : 'Confirmar' }] : []), ...(p.sug.length ? [{ id: `relcp|${k}|${i}`, titulo: 'Perguntar a ele' }, { id: `relco|${k}|${i}`, titulo: 'Outro horário' }] : [])]);
+    }
+    return true;
+  }
+  const p = probs[+iS]; if (!p || p.feito) { await enviar(env, from, 'Esse dia já foi resolvido.'); return true; }
+  if (ac === 'relcs') { await pontoAplicarCorrecao(env, fid, p, p.sug, 'Corrigido pelo Sr. Hangel no WhatsApp (horário de costume)'); }
+  else if (ac === 'relcp') {
+    if (Object.keys(p.troca).length) await pontoAplicarCorrecao(env, fid, { data: p.data, troca: p.troca }, [], '');
+    await env.HR_KV.put('ponto:perg:' + fid, JSON.stringify({ data: p.data, batida: p.sug.map(x => x.tipo).join(' e '), caso: p.sug.some(x => x.tipo === 'entrada') ? 'manha' : '', bid: Object.keys(p.troca)[0] || '' }), { expirationTtl: 3 * 86400 });
+    await falarComFuncionario(env, f, `${nm}, no dia ${pontoDataBR(p.data)} ficou faltando no seu ponto: *${p.sug.map(x => TN(x.tipo)).join(' e ')}*. Me diga os horários (ex.: _cheguei 7h, saí pro almoço 12h_). Eu passo para o Sr. Hangel aprovar.`);
+    p.feito = 'perguntado'; await env.HR_KV.put('ponto:relcorr:' + k, JSON.stringify(probs), { expirationTtl: 3 * 86400 });
+    await enviar(env, from, `Perguntei a ${nm}. Quando ele responder, chega para o senhor aprovar.`); return true;
+  }
+  else if (ac === 'relco') { await env.HR_KV.put('dono:relcorrpend', JSON.stringify({ k, i: +iS }), { expirationTtl: 1800 }); await enviar(env, from, `Escreva os horários de ${pontoDataBR(p.data)} nesta ordem: ${p.sug.map(x => TN(x.tipo)).join(', ')} (ex.: ${p.sug.map(x => x.hora.replace(':00', 'h')).join(' e ')}).`); return true; }
+  p.feito = 'ok'; await env.HR_KV.put('ponto:relcorr:' + k, JSON.stringify(probs), { expirationTtl: 3 * 86400 });
+  await pontoMarcarRegerar(env, fid, df);
+  const falta = probs.filter(x => !x.feito).length;
+  await enviar(env, from, `Corrigido ${pontoDataBR(p.data)} de ${nm}.${falta ? ` Falta${falta > 1 ? 'm' : ''} ${falta}.` : ' Quando o app abrir, ele refaz o relatório e eu mando de novo para o senhor aprovar.'}`);
+  return true;
+}
+async function relCorrTexto(env, from, bruto) { // resposta ao "Outro horário"
+  let pend = null; try { pend = JSON.parse((await env.HR_KV.get('dono:relcorrpend')) || 'null'); } catch (_) {} if (!pend) return false;
+  const hs = [...normaliza(bruto).matchAll(/\b(\d{1,2})(?:[:h](\d{2})?|\s*horas?)?\b/g)].map(m => +m[1] <= 23 ? String(+m[1]).padStart(2, '0') + ':' + (m[2] || '00') : null).filter(Boolean);
+  let probs = null; try { probs = JSON.parse((await env.HR_KV.get('ponto:relcorr:' + pend.k)) || 'null'); } catch (_) {}
+  const p = probs && probs[pend.i]; if (!p || hs.length < p.sug.length) return false;
+  await env.HR_KV.delete('dono:relcorrpend');
+  const itens = p.sug.map((x, i) => ({ tipo: x.tipo, hora: hs[i] }));
+  const fid = pend.k.split('~')[0], df = pend.k.split('~')[1];
+  await pontoAplicarCorrecao(env, fid, p, itens, 'Corrigido pelo Sr. Hangel no WhatsApp');
+  p.feito = 'ok'; await env.HR_KV.put('ponto:relcorr:' + pend.k, JSON.stringify(probs), { expirationTtl: 3 * 86400 });
+  await pontoMarcarRegerar(env, fid, df);
+  const falta = probs.filter(x => !x.feito).length;
+  await enviar(env, from, `Lancei ${itens.map(x => (PONTO_TIPOS[x.tipo] || x.tipo).toLowerCase() + ' ' + x.hora).join(', ')} em ${pontoDataBR(p.data)}.${falta ? ` Falta${falta > 1 ? 'm' : ''} ${falta}.` : ' Quando o app abrir, ele refaz o relatório e eu mando de novo para o senhor aprovar.'}`);
+  return true;
+}
 // v237: "manda o relatório" do dono — manda DE VERDADE (antes a IA dizia que mandou sem mandar)
 async function relEnviarAgora(env, nomeTxt) {
   const cfg = await pontoCfg(env);
@@ -19567,6 +19652,7 @@ async function tratarMensagemBase(env, m, ctx) {
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
+      if (await relCorrTexto(env, from, bruto).catch(e => { console.log('[REL] corr texto:', e.message); return false; })) return; // v238
       { const mr = normaliza(bruto).match(/^(?:pode )?(?:mand[ae]r?|envi[ae]r?|reenvi[ae]r?)(?: (?:o|de novo o))? relatorio(?: (?:de ponto|do ponto))?(?: (?:do|da|pro|pra|para o|para a|pro) (.+?))?(?: (?:agora|de novo|pra ele|pra ela))?[.! ]*$/);
         if (mr) { await enviar(env, from, await relEnviarAgora(env, mr[1] || '')); return; } } // v237
       { const mt = normaliza(bruto); // v231: "pode mandar todos os relatórios" / "não manda nenhum"
@@ -29130,7 +29216,8 @@ async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para
   const nome = apelidoFunc(cfg, f);
   const conf = relPontosConferir(pdf); // v231: o que vale olhar antes de aprovar
   const corpo = `Relatório de ponto de ${f.nome} · ${per.label} (${dd(per.di)} a ${dd(per.df)})${val ? '\nValor: ' + val : ''}${conf.length ? '\n\nConfira:\n' + conf.slice(0, 6).map(x => '• ' + x).join('\n') : '\n\nNenhum dia com problema.'}\n\nPosso mandar para ${nome}?${!f.tel ? '\n(Ele ainda não tem WhatsApp cadastrado: mande o contato dele aqui.)' : ''}`;
-  const botoes = [{ type: 'reply', reply: { id: 'rela_ok|' + k, title: 'Pode mandar' } }, { type: 'reply', reply: { id: 'rela_no|' + k, title: 'Não mandar' } }];
+  const probsC = await pontoProblemasPeriodo(env, f.id, per.di || somaDias(per.df, -9), per.df).catch(() => []);
+  const botoes = [{ type: 'reply', reply: { id: 'rela_ok|' + k, title: 'Pode mandar' } }, ...(probsC.length ? [{ type: 'reply', reply: { id: 'relc|' + k, title: `Corrigir (${probsC.length})` } }] : []), { type: 'reply', reply: { id: 'rela_no|' + k, title: 'Não mandar' } }];
   let foi = false;
   if (pdf && pdf.b64) {
     try {
@@ -29138,7 +29225,7 @@ async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para
       if (mid) { await postarMsg(env, numeroDono(env), { type: 'interactive', interactive: { type: 'button', header: { type: 'document', document: { id: mid, filename: pdf.arquivo || 'relatorio_ponto.pdf' } }, body: { text: corpo.slice(0, 1020) }, action: { buttons: botoes } } }); foi = true; }
     } catch (e) { console.log('[REL] PDF p/ dono:', e.message); }
   }
-  if (!foi) await enviarComBotoes(env, numeroDono(env), corpo, [{ id: 'rela_ok|' + k, titulo: 'Pode mandar' }, { id: 'rela_no|' + k, titulo: 'Não mandar' }]);
+  if (!foi) await enviarComBotoes(env, numeroDono(env), corpo, botoes.map(b => ({ id: b.reply.id, titulo: b.reply.title })));
   return true;
 }
 async function relAutBotao(env, from, id) {
@@ -30614,6 +30701,7 @@ async function rotaBotPonto(req, env, url) {
       dias: (Array.isArray(b.dias) ? b.dias : []).slice(0, 31).map(x => ({ data: String(x.data || '').slice(0, 10), e: String(x.e || '').slice(0, 5), ai: String(x.ai || '').slice(0, 5), af: String(x.af || '').slice(0, 5), s: String(x.s || '').slice(0, 5), trab: +x.trab || 0, esp: +x.esp || 0, saldo: +x.saldo || 0, tipo: String(x.tipo || '').slice(0, 12), obs: String(x.obs || '').slice(0, 60) })),
       em: Date.now() };
     await env.HR_KV.put(`ponto:relpdf:${f.id}:${b.df}`, JSON.stringify(reg), { expirationTtl: 60 * 86400 });
+    { let rg = []; try { rg = JSON.parse((await env.HR_KV.get('ponto:regerar')) || '[]'); } catch (_) {} const rg2 = rg.filter(x => !(x.fid === String(f.id) && x.df === b.df)); if (rg2.length !== rg.length) await env.HR_KV.put('ponto:regerar', JSON.stringify(rg2), { expirationTtl: 7 * 86400 }); } // v238
     let via = null;
     if (b.enviarAgora || (agoraBahia().min >= 8 * 60 && cfg.relAuto !== false && !(await env.HR_KV.get(`ponto:rel:${f.id}:${b.df}`)))) {
       let per = JSON.parse((await env.HR_KV.get('ponto:resant:' + f.id)) || 'null');
@@ -30632,7 +30720,8 @@ async function rotaBotPonto(req, env, url) {
   if (p === '/bot/ponto/relatorios' && req.method === 'GET') { // v40: situação dos relatórios
     const out = {};
     for (const f of cfg.funcs) { const r = await pontoRelUltimo(env, f.id); if (r) out[f.id] = { label: r.label, di: r.di, df: r.df, status: r.status, em: r.em, extra: r.total.extra, valor: r.valor, via: r.via || '', duvidas: (r.duvidas || []).slice(-3) }; }
-    return jsonR({ ok: true, relAuto: cfg.relAuto !== false, rel: out, bot: await pontoBotNumero(env), modelo: !!env.TEMPLATE_RELATORIO });
+    let regerar = []; try { regerar = JSON.parse((await env.HR_KV.get('ponto:regerar')) || '[]'); } catch (_) {}
+    return jsonR({ ok: true, relAuto: cfg.relAuto !== false, rel: out, bot: await pontoBotNumero(env), modelo: !!env.TEMPLATE_RELATORIO, regerar });
   }
   if (p === '/bot/ponto/relatorio-enviar' && req.method === 'POST') { // v40: envia/reenvia agora (período que fechou; ou o atual, se pedir)
     const b = await req.json().catch(() => ({}));
