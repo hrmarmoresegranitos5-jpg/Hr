@@ -2340,6 +2340,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^rela_(ok|no)\|/.test(id)) return relAutBotao(env, from, id); // v229
   if (/^mpq\|/.test(id)) return mpqBotao(env, from, id); // v236
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
+  if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -19671,10 +19672,7 @@ async function tratarMensagemBase(env, m, ctx) {
         if (mr && nb.length < 70 && !/\b(vendas|financeiro|financas|obras?|producao|semana|mes|caixa|gastos?)\b/.test(nb)) { await enviar(env, from, await relEnviarAgora(env, mr[1] || '')); return; } } // v237/v239
       { const mt = normaliza(bruto); // v231: "pode mandar todos os relatórios" / "não manda nenhum"
         if (/\b(relatorio|relatorios)\b/.test(mt) && /\b(pode|manda|mande|envia|envie|libera|aprova)\w*\b.*\b(todos|tudo|os relatorios|todos os)\b|\b(manda|mande|envia|envie|libera)\w* (todos|tudo)\b/.test(mt) && !/\bnao\b/.test(mt)) {
-          const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }); const cfgM = await pontoCfg(env), ok = [], sem = [];
-          for (const k of l.keys) { const id = k.name.slice('ponto:relaut:'.length); let per = null; try { per = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} const f = per && cfgM.funcs.find(x => String(x.id) === id.split('~')[0]); if (!f) continue;
-            if (!f.tel) { sem.push(apelidoFunc(cfgM, f)); continue; } await env.HR_KV.delete(k.name); if (await pontoRelEnviar(env, cfgM, f, per, { reenvio: true }).catch(() => null)) ok.push(apelidoFunc(cfgM, f)); }
-          await enviar(env, from, ok.length || sem.length ? [ok.length ? `Mandei os relatórios para: ${ok.join(', ')}.` : '', sem.length ? `Sem WhatsApp cadastrado: ${sem.join(', ')}.` : ''].filter(Boolean).join('\n') : 'Não tem relatório esperando autorização.'); return; } }
+          await enviar(env, from, await relMandarTodos(env)); return; } }
       { const mi = normaliza(bruto).match(/^(?:a |o )?([a-z]+)(?: [a-z]+)? (nao conta|nao e da equipe|nao trabalha|ainda nao conta|nao conta ainda|ignora|agora conta|ja conta|voltou|comecou)\b/); // v227
         if (mi) { const cfgI = await pontoCfg(env), f = eqFuncPorNomeTexto(cfgI, mi[1]);
           if (f) { const ig = await eqIgnorados(env), sai = /nao|ignora/.test(mi[2]); if (sai) ig.add(String(f.id)); else ig.delete(String(f.id)); await env.HR_KV.put('eq:ignora', JSON.stringify([...ig]));
@@ -29217,6 +29215,13 @@ function relPontosConferir(pdf) { // dias que merecem um olhar do dono antes de 
   }
   return out;
 }
+
+async function relMandarTodos(env) { // v244: o dono autorizou todos os que estão esperando
+  const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }); const cfgM = await pontoCfg(env), ok = [], sem = [];
+  for (const k of l.keys) { const id = k.name.slice('ponto:relaut:'.length); let per = null; try { per = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} const f = per && cfgM.funcs.find(x => String(x.id) === id.split('~')[0]); if (!f) continue;
+    if (!f.tel) { sem.push(apelidoFunc(cfgM, f)); continue; } await env.HR_KV.delete(k.name); if (await pontoRelEnviar(env, cfgM, f, per, { reenvio: true }).catch(() => null)) ok.push(apelidoFunc(cfgM, f)); }
+  return ok.length || sem.length ? [ok.length ? `Mandei os relatórios para: ${ok.join(', ')}.` : '', sem.length ? `Sem WhatsApp cadastrado: ${sem.join(', ')}.` : ''].filter(Boolean).join('\n') : 'Não tem relatório esperando autorização.';
+}
 async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para o dono conferir, com os botões
   await env.HR_KV.put('dono:ultfunc', String(f.id), { expirationTtl: 6 * 3600 }).catch(() => {});
   const k = `${f.id}~${per.df}`;
@@ -29521,18 +29526,10 @@ async function pontoRelatorios(env, cfg) {
     if (!f.tel || !(await env.HR_KV.get(`ponto:relpdf:${f.id}:${per.df}`))) { esperando.push(f); continue; } // v41: o PDF vem do app do dono
     prontos.push([f, per]);
   }
-  for (const [f, per] of prontos) await pontoRelEnviar(env, cfg, f, per).catch(e => console.log('[PONTO] relatório', f.nome, e.message));
-  if (prontos.length) {
-    const per = prontos[0][1], ok = [], app = [], nada = [];
-    for (const [f] of prontos) { const r = await pontoRelUltimo(env, f.id), n = String(f.nome).split(' ')[0]; (r && r.via === 'WhatsApp' ? ok : r && r.via === 'app' ? app : nada).push(n); }
-    let t = `📋 Relatório de ponto do ${per.label}:`;
-    if (ok.length) t += `\n✅ No WhatsApp: ${ok.join(', ')}`;
-    if (app.length) t += `\n📱 Só no app de ponto (não falaram com o bot nas últimas 24 h): ${app.join(', ')}`;
-    if (nada.length) t += `\n⚠️ Não consegui entregar: ${nada.join(', ')} (mando o PDF de cada um logo abaixo para o senhor encaminhar)`;
-    if ((app.length || nada.length) && !env.TEMPLATE_RELATORIO) t += `\n\nPara chegar no WhatsApp de todos sempre, falta o modelo de mensagem aprovado na Meta (TEMPLATE_RELATORIO).`;
-    if (ok.length || app.length) await pontoAvisarDono(env, t + '\n\nAviso quando aprovarem.');
-    for (const [f, p2] of prontos) { const r = await pontoRelUltimo(env, f.id); if (!r || !r.via) await pontoRelFalhaDono(env, f, p2, r); }
-  }
+  // v244: a rotina NUNCA manda direto ao funcionário — cada relatório vai ao dono com o PDF e Pode mandar/Corrigir/Não mandar (não repete o cartão)
+  for (const [f, per] of prontos) await relPedirAutorizacao(env, cfg, f, per).catch(e => console.log('[PONTO] relatório p/ dono', f.nome, e.message));
+  if (prontos.length > 1) { const tot = []; for (const [f, per] of prontos) { const pdf = await pontoRelPdf(env, f.id, per.df).catch(() => null); tot.push(`• ${apelidoFunc(cfg, f)}: ${pdf ? (pdf.status === 'pago' ? 'já quitado' : brl(pdf.valor)) : '—'}`); }
+    await enviarComBotoes(env, numeroDono(env), `Relatórios do ${prontos[0][1].label} esperando o senhor conferir:\n${tot.join('\n')}\n\nConfira os PDFs acima. Se estiver tudo certo, mande todos de uma vez.`, [{ id: 'relt_all', titulo: 'Mandar todos' }]).catch(() => {}); }
   if (esperando.length && ag.min >= 9 * 60 && !(await env.HR_KV.get('ponto:relesp:' + hoje))) {
     await env.HR_KV.put('ponto:relesp:' + hoje, '1', { expirationTtl: 86400 * 2 });
     await pontoAvisarDono(env, `📋 Os relatórios de ponto do período que fechou estão esperando: é só o senhor *abrir o RH no app* que eu gero os PDFs e mando para cada um.`);
