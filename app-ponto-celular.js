@@ -270,46 +270,92 @@
       return null;
     }
     var costumes = {};
+    // v27: os erros vêm do RELATÓRIO DO APP (hr_registros do RH: ponto do celular, relógio importado, manual) — é o que vai no PDF
+    function regsLocais() { var r = {}; try { r = (window.HR_FUNC && HR_FUNC.getRegistros) ? HR_FUNC.getRegistros() : lerJ('hr_registros'); } catch (e) { r = lerJ('hr_registros'); } return r || {}; }
+    function espDia(dt, fid) { try { return (typeof HR_IMPORT !== 'undefined' && HR_IMPORT._jornadaEsperada) ? (HR_IMPORT._jornadaEsperada(dt, fid) || 0) : (new Date(dt + 'T12:00:00').getDay() === 0 ? 0 : new Date(dt + 'T12:00:00').getDay() === 6 ? 240 : 480); } catch (e) { return 0; } }
+    function analisarLocal(r, dt, esp, cst) {
+      var e = mn(r && r.entrada), ai = mn(r && r.saidaAlmoco), af = mn(r && r.voltaAlmoco), sa = mn(r && r.saida), dow = new Date(dt + 'T12:00:00').getDay();
+      if (!r || (!(e >= 0) && !(sa >= 0))) { if (r && (r.tipo === 'falta' || r.tipo === 'abonado' || r.tipo === 'feriado' || r.tipo === 'folga_banco' || r.tipo === 'acordo')) return null; return esp > 0 ? { txt: 'dia sem ponto (conta falta de ' + Math.floor(esp / 60) + 'h' + String(esp % 60).padStart(2, '0') + ')', vazio: true, prop: [cst.e, esp >= 420 ? cst.ai : NaN, esp >= 420 ? cst.af : NaN, esp >= 420 ? cst.s : cst.e + esp] } : null; }
+      if (e >= 735 && e <= 885 && !(ai >= 0) && esp >= 420 && dow !== 6) return { txt: 'esqueceu a manhã (' + r.entrada + ' é a volta do almoço)', prop: [cst.e, Math.min(cst.ai, e - 30), e, sa] };
+      if (e >= 0 && !(sa >= 0)) return { txt: 'entrada sem saída', prop: [e, ai, af, cst.s] };
+      if (!(e >= 0) && sa >= 0) return { txt: 'saída sem entrada', prop: [cst.e, ai, af, sa] };
+      if (sa <= e) return { txt: 'saída (' + r.saida + ') antes da entrada (' + r.entrada + ')', prop: [e, ai, af, sa] };
+      if (ai >= 0 && !(af >= 0)) return { txt: 'sem volta do almoço', prop: [e, ai, ai + (cst.af - cst.ai), sa] };
+      if (af >= 0 && !(ai >= 0)) return { txt: 'sem saída para o almoço', prop: [e, af - (cst.af - cst.ai), af, sa] };
+      if (!(ai >= 0) && !r.semAlmocoConfirmado && esp >= 420 && sa - e > 330 && dow !== 6) return { txt: 'sem batida do almoço', prop: [e, cst.ai, cst.af, sa] };
+      return null;
+    }
     function carregarProblemas() {
-      var fSel = d.querySelector('#crF').value, P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.7rem;color:' + T3 + ';">Procurando erros dos últimos 12 dias…</div>';
-      var tmo = new Promise(function (_, er) { setTimeout(function () { er(new Error('tempo')); }, 25000); });
-      Promise.race([api('/bot/ponto/registros?leve=1&de=' + diaMenos(12) + '&ate=' + hoje() + (equipe ? '' : '&funcId=' + encodeURIComponent(fSel))), tmo]).then(function (j) {
-        var nomes = {}; (j.funcs || []).forEach(function (x) { nomes[x.id] = x.nome; });
-        var alvo = equipe ? Object.keys(nomes) : [fSel];
-        problemas = [];
-        alvo.forEach(function (f) {
-          var col = { e: [], ai: [], af: [], s: [] }, cst = { e: 420, ai: 720, af: 800, s: 1020 };
-          Object.keys(j.dias || {}).forEach(function (dt) { ((j.dias[dt] || {})[f] || []).filter(function (b) { return b.status === 'ok'; }).forEach(function (b) { var m = mn(b.hora); if (b.tipo === 'entrada' && m < 600) col.e.push(m); else if (b.tipo === 'saida_almoco' && m >= 600 && m <= 810) col.ai.push(m); else if (b.tipo === 'volta_almoco' && m >= 660 && m <= 900) col.af.push(m); else if (b.tipo === 'saida' && m >= 900) col.s.push(m); }); });
-          ['e', 'ai', 'af', 's'].forEach(function (k) { var a2 = col[k].sort(function (x, y) { return x - y; }); if (a2.length >= 2) cst[k] = a2[Math.floor(a2.length / 2)]; });
-          costumes[f] = cst; costume = cst;
-          Object.keys(j.dias || {}).sort().forEach(function (dt) { var r = analisar(((j.dias[dt] || {})[f]) || [], dt); if (r) { r.data = dt; r.fid = f; r.nome = (nomes[f] || '').split(' ')[0]; problemas.push(r); } });
-        });
-        costume = costumes[fSel] || costume;
-        if (!problemas.length) { P.innerHTML = '<div style="font-size:.72rem;color:#4ade80;padding:6px 0;">✓ Nenhum erro de ponto nos últimos 12 dias' + (equipe ? ' na equipe' : '') + '.</div>'; return; }
-        var auto = problemas.filter(function (r) { return r.sug.length || Object.keys(r.troca).length; });
-        P.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><span style="font-size:.66rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;">' + problemas.length + ' erro(s) · toque para corrigir</span>'
-          + (auto.length > 1 ? '<button data-todos="1" style="padding:5px 10px;border-radius:8px;border:none;background:' + GOLD + ';color:#000;font-weight:800;font-size:.7rem;">Corrigir todos (' + auto.length + ')</button>' : '') + '</div>'
-          + problemas.map(function (r, i) {
-            return '<div style="display:flex;gap:6px;margin-bottom:6px;"><button data-pb="' + i + '" style="flex:1;display:flex;justify-content:space-between;gap:8px;text-align:left;padding:9px 10px;border-radius:10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.78rem;"><span><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b>' + (equipe ? ' · ' + esc(r.nome) : '') + ' · ' + esc(r.txt) + '</span><span style="color:' + GOLD + ';font-weight:700;white-space:nowrap;">Corrigir ›</span></button>'
-              + (r.sug.length ? '<button data-pq="' + i + '" title="Perguntar a ele no WhatsApp" style="padding:0 10px;border-radius:10px;border:1px solid ' + BD + ';background:none;color:#fff;font-size:.9rem;">📱</button>' : '') + '</div>';
-          }).join('') + '<div style="font-size:.64rem;color:' + T3 + ';margin-top:2px;">📱 = o bot pergunta o horário a ele; a resposta chega para o senhor aprovar.</div>';
-      }).catch(function (e) { P.innerHTML = '<div style="font-size:.72rem;color:#f87171;">Não consegui procurar os erros agora (' + esc(e.message) + '). <button onclick="this.parentNode.textContent=\'\'" style="display:none"></button></div>'; });
+      var fSel = d.querySelector('#crF').value, P = d.querySelector('#crP');
+      var regs = regsLocais(), alvo = equipe ? fs.map(function (x) { return String(x.id); }) : [String(fSel)], nomes = {}; fs.forEach(function (x) { nomes[x.id] = x.nome; });
+      var porF = {}; Object.keys(regs).forEach(function (k) { var g = regs[k]; if (!g || alvo.indexOf(String(g.funcionarioId)) < 0) return; (porF[g.funcionarioId] = porF[g.funcionarioId] || {})[g.data] = g; });
+      problemas = []; var ate = new Date().getHours() >= 17 ? hoje() : diaMenos(1);
+      alvo.forEach(function (f) {
+        var at0 = periodoAtual(f), de = at0.di; if ((new Date(hoje() + 'T12:00:00') - new Date(at0.di + 'T12:00:00')) / 86400000 < 3) de = periodoAnterior(at0).di; // período atual (no começo do período, o anterior também)
+        var col = { e: [], ai: [], af: [], s: [] }, cst = { e: 420, ai: 720, af: 800, s: 1020 }, mine = porF[f] || {};
+        Object.keys(mine).forEach(function (dt) { var g = mine[dt], e = mn(g.entrada), ai = mn(g.saidaAlmoco), af = mn(g.voltaAlmoco), sa = mn(g.saida); if (e < 600) col.e.push(e); if (ai >= 600 && ai <= 810 && af > ai) { col.ai.push(ai); col.af.push(af); } if (sa >= 900) col.s.push(sa); });
+        ['e', 'ai', 'af', 's'].forEach(function (k) { var a2 = col[k].sort(function (x, y) { return x - y; }); if (a2.length >= 2) cst[k] = a2[Math.floor(a2.length / 2)]; });
+        costumes[f] = cst;
+        var dt = de, g2 = 0;
+        while (dt <= ate && g2++ < 25) { var r = analisarLocal(mine[dt], dt, espDia(dt, f), cst); if (r) { r.data = dt; r.fid = f; r.nome = String(nomes[f] || '').split(' ')[0]; r.reg = mine[dt] || null; problemas.push(r); } var x = new Date(dt + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); dt = x.toISOString().slice(0, 10); }
+      });
+      costume = costumes[fSel] || costume;
+      problemas.sort(function (a, c) { return a.data < c.data ? -1 : a.data > c.data ? 1 : 0; });
+      if (!problemas.length) { P.innerHTML = '<div style="font-size:.72rem;color:#4ade80;padding:6px 0;">✓ Nenhum erro no relatório dos últimos 12 dias' + (equipe ? ' na equipe' : '') + '.</div>'; return; }
+      P.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><span style="font-size:.66rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;">' + problemas.length + ' erro(s) no relatório · toque para corrigir</span>'
+        + (problemas.length > 1 ? '<button data-todos="1" style="padding:5px 10px;border-radius:8px;border:none;background:' + GOLD + ';color:#000;font-weight:800;font-size:.7rem;">Corrigir todos (' + problemas.length + ')</button>' : '') + '</div>'
+        + problemas.map(function (r, i) {
+          var h = r.reg && (r.reg.entrada || r.reg.saida) ? ' <span style="color:' + T3 + ';">(' + [r.reg.entrada, r.reg.saidaAlmoco, r.reg.voltaAlmoco, r.reg.saida].filter(Boolean).join(' · ') + ')</span>' : '';
+          return '<div style="display:flex;gap:6px;margin-bottom:6px;"><button data-pb="' + i + '" style="flex:1;display:flex;justify-content:space-between;gap:8px;text-align:left;padding:9px 10px;border-radius:10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.78rem;"><span><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b>' + (equipe ? ' · ' + esc(r.nome) : '') + ' · ' + esc(r.txt) + h + '</span><span style="color:' + GOLD + ';font-weight:700;white-space:nowrap;">Corrigir ›</span></button>'
+            + '<button data-pq="' + i + '" title="Perguntar a ele no WhatsApp" style="padding:0 10px;border-radius:10px;border:1px solid ' + BD + ';background:none;color:#fff;font-size:.9rem;">📱</button>'
+            + (r.vazio ? '<button data-pf="' + i + '" title="Faltou" style="padding:0 9px;border-radius:10px;border:1px solid rgba(248,113,113,.5);background:none;color:#f87171;font-size:.72rem;font-weight:700;">Faltou</button>' : '') + '</div>';
+        }).join('') + '<div style="font-size:.64rem;color:' + T3 + ';margin-top:2px;">Vem do relatório do RH (o mesmo do PDF). 📱 = o bot pergunta o horário a ele.</div>';
+    }
+    // grava o dia no RH (o que vai no relatório) com o mesmo cálculo da importação
+    function gravarLocal(fid, dt, t, obs) { // t = [entrada, saidaAlm, voltaAlm, saida] em minutos (NaN = sem)
+      var regs = regsLocais(), ex = null; Object.keys(regs).some(function (k) { var g = regs[k]; if (g && String(g.funcionarioId) === String(fid) && g.data === dt) { ex = g; return true; } });
+      var e = t[0], ai = t[1], af = t[2], sa = t[3], alm = (ai >= 0 && af > ai) ? af - ai : 0;
+      if (!(e >= 0) || !(sa > e)) return 'Horário inválido';
+      var c = (typeof HR_IMPORT !== 'undefined' && HR_IMPORT._calcDia) ? HR_IMPORT._calcDia(e, sa, dt, alm, fid) : { trab: sa - e - alm, extra: 0 };
+      var cls = (typeof HR_IMPORT !== 'undefined' && HR_IMPORT._classificarHE) ? HR_IMPORT._classificarHE({ data: dt, extra: c.extra, funcId: fid, entrada: hh(e), saida: hh(sa) }) : { extra50: 1, extra200: 0 };
+      var reg = ex || { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), funcionarioId: fid, data: dt, destinoExtra: 'pagar', producao: '', instalacao: '', ieo: '', loteId: 'corr_' + dt, criadoEm: new Date().toISOString() };
+      reg.entrada = hh(e); reg.saida = hh(sa); reg.saidaAlmoco = alm ? hh(ai) : ''; reg.voltaAlmoco = alm ? hh(af) : ''; reg.semAlmocoConfirmado = !alm;
+      reg.horas = +(c.trab / 60).toFixed(4); reg.extra = +((c.extra || 0) / 60).toFixed(4); reg.tipo = (reg.tipo === 'falta' || reg.tipo === 'abonado' || !reg.tipo) ? 'normal' : reg.tipo; reg.tipoExtra = (cls.extra200 > 0 && cls.extra50 === 0) ? 'especial' : 'normal';
+      reg.origem = 'manual'; reg.observacao = (obs || 'Corrigido no ponto') + (ex && ex.origem === 'ponto-celular' ? ' · era do ponto do celular' : ''); reg.atualizadoEm = new Date().toISOString();
+      regs[reg.id] = reg; try { localStorage.setItem('hr_registros', JSON.stringify(regs)); if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (er) { return er.message; }
+      return '';
+    }
+    function corrigirLocal(r) {
+      var c = costumes[r.fid] || costume, p = r.prop.map(function (x) { return x >= 0 ? hh(x) : ''; });
+      var cheio = p[1] && p[2];
+      var t = prompt((r.nome ? r.nome + ' · ' : '') + r.data.slice(8) + '/' + r.data.slice(5, 7) + ': ' + r.txt + '\n\nConfira os horários (entrada, saída almoço, volta almoço, saída)' + (cheio ? '' : '\nSem almoço: só entrada e saída') + ':', p.filter(Boolean).join(' '));
+      if (t == null) return;
+      var hs = String(t).match(/\d{1,2}[:h]?\d{0,2}/g) || [], mm = hs.map(function (x) { var q = /^(\d{1,2})[:h]?(\d{2})?$/.exec(x); return q ? (+q[1]) * 60 + (+(q[2] || 0)) : NaN; });
+      var arr = mm.length >= 4 ? [mm[0], mm[1], mm[2], mm[3]] : mm.length === 2 ? [mm[0], NaN, NaN, mm[1]] : null;
+      if (!arr) { toastP('Use 2 horários (entrada e saída) ou 4 (com o almoço)'); return; }
+      var er = gravarLocal(r.fid, r.data, arr, 'Corrigido no ponto: ' + r.txt);
+      if (er) { toastP(er); return; }
+      toastP('✓ ' + r.data.slice(8) + '/' + r.data.slice(5, 7) + ' corrigido no relatório'); carregarProblemas(); recarregar();
     }
     function corrigirTodos() {
-      var auto = problemas.filter(function (r) { return r.sug.length || Object.keys(r.troca).length; });
-      if (!confirm('Corrigir ' + auto.length + ' dia(s) pelo horário de costume?\n\n' + auto.map(function (r) { return r.data.slice(8) + '/' + r.data.slice(5, 7) + (equipe ? ' ' + r.nome : '') + ': ' + r.sug.map(function (x) { return TP_OPT.filter(function (o) { return o[0] === x.tipo; })[0][1] + ' ' + x.hora; }).concat(Object.keys(r.troca).length ? ['13h vira volta do almoço'] : []).join(', '); }).join('\n'))) return;
-      var ops = [];
-      auto.forEach(function (r) {
-        var f = r.fid || d.querySelector('#crF').value;
-        Object.keys(r.troca).forEach(function (id) { ops.push(function () { return api('/bot/ponto/registros?leve=1&de=' + r.data + '&ate=' + r.data + '&funcId=' + encodeURIComponent(f)).then(function (j) { var b = (((j.dias || {})[r.data] || {})[f] || []).filter(function (x) { return x.id === id; })[0]; if (b) return api('/bot/ponto/ajuste', { funcId: f, data: r.data, id: id, acao: 'editar', tipo: r.troca[id], hora: b.hora, motivo: r.mot }); }); }); });
-        r.sug.forEach(function (sg) { ops.push(function () { return api('/bot/ponto/ajuste', { funcId: f, data: r.data, tipo: sg.tipo, hora: sg.hora, motivo: r.mot + ' (horário de costume)' }); }); });
-      });
-      var P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.72rem;color:' + GOLD + ';">Corrigindo ' + auto.length + ' dia(s)…</div>';
-      ops.reduce(function (p, fn) { return p.then(fn); }, Promise.resolve()).then(function () { toastP('✓ ' + auto.length + ' dia(s) corrigido(s)'); carregar(); carregarProblemas(); recarregar(); try { sincronizarAuto && sincronizarAuto(true); } catch (e) {} }).catch(function (e) { toastP(e.message); carregarProblemas(); });
+      var ok = problemas.filter(function (r) { return !r.vazio; }), vz = problemas.length - ok.length;
+      if (!ok.length) { toastP('Os dias sem ponto precisam de você: toque em cada um (trabalhou ou faltou)'); return; }
+      if (!confirm('Corrigir ' + ok.length + ' dia(s) pelo horário de costume?\n\n' + ok.map(function (r) { return r.data.slice(8) + '/' + r.data.slice(5, 7) + (equipe ? ' ' + r.nome : '') + ': ' + r.prop.filter(function (x) { return x >= 0; }).map(hh).join(' · '); }).join('\n') + (vz ? '\n\n(' + vz + ' dia(s) sem ponto ficam para você decidir)' : ''))) return;
+      var n = 0; ok.forEach(function (r) { if (!gravarLocal(r.fid, r.data, r.prop, 'Corrigido pelo horário de costume: ' + r.txt)) n++; });
+      toastP('✓ ' + n + ' dia(s) corrigido(s) no relatório'); carregarProblemas(); recarregar();
+    }
+    function marcarFalta(r) {
+      if (!confirm('Confirmar FALTA de ' + r.nome + ' em ' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '? (desconta o dia)')) return;
+      var regs = regsLocais(), ex = null; Object.keys(regs).some(function (k) { var g = regs[k]; if (g && String(g.funcionarioId) === String(r.fid) && g.data === r.data) { ex = g; return true; } });
+      var reg = ex || { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), funcionarioId: r.fid, data: r.data, destinoExtra: 'pagar', loteId: 'corr_' + r.data, criadoEm: new Date().toISOString() };
+      reg.tipo = 'falta'; reg.entrada = ''; reg.saida = ''; reg.saidaAlmoco = ''; reg.voltaAlmoco = ''; reg.horas = 0; reg.extra = 0; reg.origem = 'manual'; reg.observacao = 'Falta confirmada (corrigir ponto)'; reg.atualizadoEm = new Date().toISOString();
+      regs[reg.id] = reg; try { localStorage.setItem('hr_registros', JSON.stringify(regs)); if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (e) {}
+      toastP('✓ Falta lançada'); carregarProblemas(); recarregar();
     }
     function perguntar(r) {
       var f = r.fid || d.querySelector('#crF').value;
-      api('/bot/ponto/perguntar', { funcId: f, data: r.data, falta: r.sug.map(function (x) { return x.tipo; }), troca: r.troca, txt: r.txt }).then(function (j) { toastP(j.ok ? '📱 Perguntei a ' + (r.nome || 'ele') + ' no WhatsApp' : (j.error || 'Não consegui')); }).catch(function (e) { toastP(e.message); });
+      var fl = r.sug ? r.sug.map(function (x) { return x.tipo; }) : (r.vazio ? ['entrada', 'saida_almoco', 'volta_almoco', 'saida'] : /manhã/.test(r.txt) ? ['entrada', 'saida_almoco'] : /sem saída para/.test(r.txt) ? ['saida_almoco'] : /volta/.test(r.txt) ? ['volta_almoco'] : /almoço/.test(r.txt) ? ['saida_almoco', 'volta_almoco'] : /sem saída|entrada sem/.test(r.txt) ? ['saida'] : ['entrada']);
+      api('/bot/ponto/perguntar', { funcId: f, data: r.data, falta: fl, troca: r.troca || {}, txt: r.txt }).then(function (j) { toastP(j.ok ? '📱 Perguntei a ' + (r.nome || 'ele') + ' no WhatsApp' : (j.error || 'Não consegui')); }).catch(function (e) { toastP(e.message); });
     }
     function aplicarSugestao(r) {
       if (r.fid) { d.querySelector('#crF').value = r.fid; costume = costumes[r.fid] || costume; }
@@ -339,7 +385,7 @@
       }).catch(function (e) { d.querySelector('#crL').textContent = e.message; });
     }
     d.querySelector('#crF').onchange = function () { costume = costumes[d.querySelector('#crF').value] || costume; carregar(); if (!equipe) carregarProblemas(); }; d.querySelector('#crD').onchange = function () { carregar(); };
-    d.querySelector('#crP').onclick = function (ev) { var b = ev.target.closest('[data-pb]'); if (b) return aplicarSugestao(problemas[+b.getAttribute('data-pb')]); var q = ev.target.closest('[data-pq]'); if (q) return perguntar(problemas[+q.getAttribute('data-pq')]); if (ev.target.closest('[data-todos]')) corrigirTodos(); };
+    d.querySelector('#crP').onclick = function (ev) { var b = ev.target.closest('[data-pb]'); if (b) return corrigirLocal(problemas[+b.getAttribute('data-pb')]); var pf = ev.target.closest('[data-pf]'); if (pf) return marcarFalta(problemas[+pf.getAttribute('data-pf')]); var q = ev.target.closest('[data-pq]'); if (q) return perguntar(problemas[+q.getAttribute('data-pq')]); if (ev.target.closest('[data-todos]')) corrigirTodos(); };
     d.querySelector('#crL').addEventListener('change', function () { lerCampos(); avisoAoVivo(); });
     d.querySelector('#crL').onclick = function (ev) { var b = ev.target.closest('[data-rm]'); if (!b) return; lerCampos(); var x = linhas[+b.getAttribute('data-rm')]; if (x.id) x.remover = true; else linhas.splice(+b.getAttribute('data-rm'), 1); desenhar(); };
     d.querySelector('#crAdd').onclick = function () { lerCampos(); var tem = linhas.filter(function (x) { return !x.remover; }).map(function (x) { return x.tipo; }); var prox = TP_OPT.map(function (o) { return o[0]; }).filter(function (t) { return tem.indexOf(t) < 0; })[0] || 'saida'; linhas.push({ tipo: prox, hora: '' }); desenhar(); };
