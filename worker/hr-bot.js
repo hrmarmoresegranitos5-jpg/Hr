@@ -8772,7 +8772,7 @@ async function equipeLer(env) { try { return JSON.parse((await env.HR_KV.get(EQ_
 const isoOk = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '';
 function equipeLimpar(l) {
   return (Array.isArray(l) ? l : []).filter(f => f && f.id != null && f.nome).slice(0, 80).map(f => ({ id: String(f.id).slice(0, 40), nome: String(f.nome).slice(0, 60), tel: String(f.tel || '').replace(/\D/g, '').slice(0, 13), cargo: String(f.cargo || '').slice(0, 40),
-    nasc: isoOk(f.nasc), adm: isoOk(f.adm), fIni: isoOk(f.fIni), fFim: isoOk(f.fFim), ferias: !!f.ferias, socio: !!f.socio }));
+    nasc: isoOk(f.nasc), adm: isoOk(f.adm), fIni: isoOk(f.fIni), fFim: isoOk(f.fFim), ferias: !!f.ferias, socio: !!f.socio, temCpf: !!f.temCpf, temPix: !!f.temPix, temBanco: !!f.temBanco, temFoto: !!f.temFoto, flags: f.temCpf !== undefined }));
 }
 const anosEntre = (de, ate) => { const [a, b] = [de, ate].map(x => x.split('-').map(Number)); let n = b[0] - a[0]; if (b[1] < a[1] || (b[1] === a[1] && b[2] < a[2])) n--; return n; };
 function tempoCasa(adm, hoje) {
@@ -8814,7 +8814,7 @@ async function equipeConsultar(env) {
   if (!d.funcs.length) return { texto: 'A ficha da equipe ainda não chegou do app. Peça ao Sr. Hangel para abrir o RH do app por 1 minuto.' };
   return { texto: `Ficha da equipe (hoje ${dataBR(hoje)}; atualizada pelo app em ${d.em ? new Date(d.em).toLocaleDateString('pt-BR', { timeZone: 'America/Bahia' }) : '?'}):\n` + d.funcs.map(f => equipeLinha(f, hoje, true).replace(/\*/g, '')).join('\n') + '\nResponda só o que ele perguntou, curto.' };
 }
-const EQ_CAMPOS = { telefone: 'tel', nascimento: 'nasc', admissao: 'adm', ferias_inicio: 'fIni', ferias_fim: 'fFim', cargo: 'cargo', nome_completo: 'nome', cpf: 'cpf', pix: 'pix', banco: 'banco' };
+const EQ_CAMPOS = { telefone: 'tel', nascimento: 'nasc', admissao: 'adm', ferias_inicio: 'fIni', ferias_fim: 'fFim', cargo: 'cargo', nome_completo: 'nome', cpf: 'cpf', pix: 'pix', banco: 'banco', foto: 'foto' };
 async function equipeAtualizar(env, a) {
   const d = await equipeLer(env); if (!d.funcs.length) return { erro: true, texto: 'A ficha da equipe ainda não chegou do app.' };
   const tk = tokensPedra(String(a.funcionario || '')), f = d.funcs.find(x => tk.length && tk.every(w => tokensPedra(x.nome).includes(w))) || d.funcs.find(x => tk.length && tokensPedra(x.nome)[0] === tk[0]);
@@ -8826,15 +8826,16 @@ async function equipeAtualizar(env, a) {
     if (campo === 'tel') { v = v.replace(/\D/g, ''); if (v.length < 10) return { erro: true, texto: 'Telefone incompleto (DDD + número).' }; }
     else if (['nasc', 'adm', 'fIni', 'fFim'].includes(campo)) { if (!isoOk(v)) return { erro: true, texto: `Data inválida em ${k} (use AAAA-MM-DD).` }; }
     else if (campo === 'cpf') { v = v.replace(/\D/g, ''); if (v.length !== 11) return { erro: true, texto: 'CPF precisa ter 11 números.' }; v = v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4'); }
+    if (campo === 'foto') { if (!/^data:image\/jpeg;base64,/.test(v) || v.length > 300000) continue; muda.foto = v; continue; } // v245: foto do rosto do ponto
     muda[campo] = v.slice(0, campo === 'nome' ? 70 : 60);
   }
   if (!Object.keys(muda).length) return { erro: true, texto: 'Diga o que mudar (telefone, nascimento, admissão, férias ou cargo).' };
-  Object.assign(f, muda); d.em = d.em || Date.now(); await env.HR_KV.put(EQ_K, JSON.stringify(d));
+  Object.assign(f, muda); if (muda.cpf) f.temCpf = true; if (muda.pix) f.temPix = true; if (muda.banco) f.temBanco = true; if (muda.foto) { f.temFoto = true; delete f.foto; } d.em = d.em || Date.now(); await env.HR_KV.put(EQ_K, JSON.stringify(d));
   let ed = []; try { ed = JSON.parse((await env.HR_KV.get(EQ_ED)) || '[]'); } catch (_) {}
   ed.push({ id: String(Date.now()) + Math.random().toString(36).slice(2, 5), funcId: f.id, muda, em: Date.now() });
   await env.HR_KV.put(EQ_ED, JSON.stringify(ed.slice(-50)), { expirationTtl: 30 * 86400 });
   if (muda.tel) { const cfg = await pontoCfg(env); const cf = cfg.funcs.find(x => x.id === f.id); if (cf) { cf.tel = muda.tel; await pontoCfgSalvar(env, cfg); } }
-  return { texto: `Atualizado na ficha de ${f.nome}: ${Object.entries(muda).map(([k, v]) => `${({ tel: 'telefone', nasc: 'nascimento', adm: 'admissão', fIni: 'início das férias', fFim: 'fim das férias', cargo: 'cargo', nome: 'nome completo', cpf: 'CPF', pix: 'chave Pix', banco: 'banco' })[k]} ${/^\d{4}-/.test(v) ? dataBR(v) : v}`).join(', ')}. Vai para o RH do app na próxima vez que ele abrir. Confirme em UMA frase.` };
+  return { texto: `Atualizado na ficha de ${f.nome}: ${Object.entries(muda).filter(([k]) => k !== 'foto').map(([k, v]) => `${({ tel: 'telefone', nasc: 'nascimento', adm: 'admissão', fIni: 'início das férias', fFim: 'fim das férias', cargo: 'cargo', nome: 'nome completo', cpf: 'CPF', pix: 'chave Pix', banco: 'banco' })[k]} ${/^\d{4}-/.test(v) ? dataBR(v) : v}`).join(', ')}. Vai para o RH do app na próxima vez que ele abrir. Confirme em UMA frase.` };
 }
 // rotina diária (7h–10h): aniversários, tempo de casa e férias
 async function equipeRotina(env) {
@@ -29121,36 +29122,74 @@ async function eqDescobrirBotao(env, from, id) {
   await enviar(env, from, ['✅ Pronto!', ...linhas, '', 'Quando cada um responder a ficha, eu gravo no RH e te aviso.'].join('\n'));
   return true;
 }
+// v245: FICHA COMPLETA PELO BOT — pergunta UMA coisa por vez, só o que falta, e grava tudo no RH do app sozinho
+const EQ_FICHA = [ // [chave, campo do equipeAtualizar, pergunta]
+  ['nome', 'nome_completo', 'Qual é o seu *nome completo*?'],
+  ['nasc', 'nascimento', 'Qual a sua *data de nascimento*? (ex.: 12/03/1995)'],
+  ['cpf', 'cpf', 'Qual o seu *CPF*?'],
+  ['pix', 'pix', 'Qual a sua *chave Pix* para receber o pagamento?'],
+  ['banco', 'banco', 'Qual o *banco* dessa conta? (ex.: Nubank, Caixa, Bradesco)'],
+  ['cargo', 'cargo', 'Qual a sua *função* na HR? (ex.: marmorista, ajudante, instalador)'],
+  ['adm', 'admissao', 'Desde quando você trabalha na HR? (o mês e o ano já servem, ex.: março de 2024)'],
+];
+async function eqFichaFaltando(env, f) {
+  const d = await equipeLer(env), x = d.funcs.find(y => String(y.id) === String(f.id)) || {};
+  const sem = !x.flags; // app antigo: não sabemos se já tem CPF/Pix/banco — não pergunta de novo
+  const tem = { nome: String(x.nome || f.nome || '').trim().split(/\s+/).length >= 2, nasc: !!x.nasc, cpf: sem || !!x.temCpf, pix: sem || !!x.temPix, banco: sem || !!x.temBanco, cargo: !!x.cargo, adm: !!x.adm };
+  let feitos = []; try { feitos = JSON.parse((await env.HR_KV.get('eq:fichafeito:' + f.id)) || '[]'); } catch (_) {}
+  return EQ_FICHA.filter(([k]) => !tem[k] && !feitos.includes(k)).map(([k]) => k);
+}
 async function eqFichaPedir(env, f) {
   if (!f.tel) return '';
   const cfg = await pontoCfg(env), nome = apelidoFunc(cfg, f) || String(f.nome).split(' ')[0];
-  await env.HR_KV.put('eq:fichapend:' + f.id, String(Date.now()), { expirationTtl: 10 * 86400 });
-  return falarComFuncionario(env, f, `Oi, ${nome}! Para deixar sua ficha completa na HR, me mande numa mensagem só:\n• Nome completo\n• Data de nascimento\n• CPF\n• Chave Pix (para receber)\n\nExemplo: _Lucas Alves da Silva, 12/03/1995, 123.456.789-00, Pix 74 99999-0000_`, { titulo: 'Sua ficha na HR' });
+  const falta = await eqFichaFaltando(env, f); if (!falta.length) { await env.HR_KV.delete('eq:fichapend:' + f.id); return ''; }
+  await env.HR_KV.put('eq:fichapend:' + f.id, JSON.stringify({ em: Date.now(), falta, atual: falta[0] }), { expirationTtl: 10 * 86400 });
+  const q = EQ_FICHA.find(x => x[0] === falta[0])[2];
+  return falarComFuncionario(env, f, `Oi, ${nome}! Vou completar a sua ficha na HR, é rapidinho (${falta.length} pergunta${falta.length > 1 ? 's' : ''}).\n\n${q}`, { titulo: 'Sua ficha na HR' });
 }
 async function eqFichaResposta(env, cfg, f, from, texto, nome) {
-  const pend = +(await env.HR_KV.get('eq:fichapend:' + f.id)) || 0; if (!pend) return false;
-  const n = normaliza(texto); if (texto.length < 6 || !(/\d{2}/.test(n) || n.split(' ').length >= 3)) return false;
-  if (/\b(cheguei|sai|entrei|bati|esqueci|almoco|faltei|terminei|instalei|iniciei|cortei)\b/.test(n) && !/\b(cpf|pix|nasc\w*|nome completo)\b/.test(n)) return false; // é ponto/produção, não ficha
+  let pend = null; const raw = await env.HR_KV.get('eq:fichapend:' + f.id); if (!raw) return false;
+  try { pend = JSON.parse(raw); } catch (_) {} if (!pend || typeof pend !== 'object') pend = { em: +raw || Date.now(), falta: await eqFichaFaltando(env, f), atual: '' };
+  if (!pend.atual) pend.atual = (pend.falta || [])[0] || '';
+  const n = normaliza(texto); if (!n || texto.length < 2) return false;
+  if (/\b(cheguei|sai|entrei|bati|esqueci|almoco|faltei|terminei|instalei|iniciei|cortei|cliente|pedido|foto|pronto)\b/.test(n) && !/\b(cpf|pix|nasc\w*|nome completo|banco)\b/.test(n)) return false; // é ponto/produção, não ficha
+  const perg = (EQ_FICHA.find(x => x[0] === pend.atual) || [])[2] || '';
+  const pula = /^(nao (tenho|sei|lembro)|n sei|nao|pular|depois)\b/.test(n);
   let r = null;
-  try { r = lerJsonIA(await chamarIA(env, `Extraia dados de cadastro de um funcionário. Responda só JSON: {"nome_completo":"","nascimento":"AAAA-MM-DD","cpf":"só números","pix":"","banco":""}. Deixe vazio o que não estiver na mensagem. Não invente. Se a mensagem não for de cadastro, devolva tudo vazio.`, [], texto, { timeoutMs: 15000 })); } catch (e) { console.log('[EQ] ficha IA:', e.message); return false; }
-  if (!r || !['nome_completo', 'nascimento', 'cpf', 'pix', 'banco'].some(k => String(r[k] || '').trim())) return false;
+  if (!pula) try { r = lerJsonIA(await chamarIA(env, `Extraia dados de cadastro de um funcionário da resposta dele. A pergunta feita foi: "${perg.replace(/\*/g, '')}". Hoje é ${dataBahia()}. Responda só JSON: {"nome_completo":"","nascimento":"AAAA-MM-DD","cpf":"só números","pix":"","banco":"","cargo":"","admissao":"AAAA-MM-DD (se disser só mês e ano, use o dia 01)"}. Deixe vazio o que não estiver na resposta. Uma resposta curta responde à pergunta feita (ex.: "Nubank" = banco; "ajudante" = cargo). Não invente.`, [], texto, { maxTokens: 200, cat: 'equipe' })); } catch (e) { console.log('[EQ] ficha IA:', e.message); }
+  const vals = {}; if (r) for (const [k, c] of EQ_FICHA) { const v = String(r[c] || '').trim(); if (v) vals[k] = v; }
+  if (vals.nome && vals.nome.split(/\s+/).length < 2) delete vals.nome;
+  if (!pula && !Object.keys(vals).length) return false; // não era resposta da ficha
   const gravado = [], erros = [];
-  const nomeC = String(r.nome_completo || '').trim(); if (nomeC && nomeC.split(' ').length < 2) r.nome_completo = '';
-  for (const [k, campo] of [['nome_completo', 'nome'], ['nascimento', 'nasc'], ['cpf', 'cpf'], ['pix', 'pix'], ['banco', 'banco']]) {
-    const v = String(r[k] || '').trim(); if (!v) continue;
-    const x = await equipeAtualizar(env, { funcionario: f.nome, [k]: v }).catch(e => ({ erro: true, texto: e.message }));
-    if (x && x.erro) erros.push(x.texto); else gravado.push(({ nome: 'nome completo', nasc: 'nascimento', cpf: 'CPF', pix: 'Pix', banco: 'banco' })[campo]);
+  for (const [k, c] of EQ_FICHA) { if (!vals[k]) continue; const x = await equipeAtualizar(env, { funcionario: f.nome, [c]: vals[k] }).catch(e => ({ erro: true, texto: e.message })); if (x && x.erro) erros.push(x.texto); else gravado.push(k); }
+  let feitos = []; try { feitos = JSON.parse((await env.HR_KV.get('eq:fichafeito:' + f.id)) || '[]'); } catch (_) {}
+  feitos = [...new Set([...feitos, ...gravado, ...(pula && pend.atual ? [pend.atual] : [])])]; await env.HR_KV.put('eq:fichafeito:' + f.id, JSON.stringify(feitos), { expirationTtl: 120 * 86400 });
+  pend.pulou = [...new Set([...(pend.pulou || []), ...(pula && pend.atual ? [pend.atual] : [])])];
+  const falta = (pend.falta || []).filter(k => !feitos.includes(k));
+  const rot = { nome: 'nome completo', nasc: 'nascimento', cpf: 'CPF', pix: 'Pix', banco: 'banco', cargo: 'função', adm: 'início na HR' };
+  if (erros.length && !gravado.length) { await enviar(env, from, `${nome}, ${erros[0]} ${perg}`); return true; }
+  if (!falta.length) {
+    await env.HR_KV.delete('eq:fichapend:' + f.id);
+    await enviar(env, from, `Pronto, ${nome}! Sua ficha na HR está completa. Obrigada! 😊`);
+    const todos = feitos.filter(k => rot[k] && !pend.pulou.includes(k)).map(k => rot[k]), pl = pend.pulou.map(k => rot[k]).filter(Boolean);
+    await pontoAvisarDono(env, `🗂️ *${f.nome}* completou a ficha pelo WhatsApp: ${todos.join(', ')}.${pl.length ? ` Não soube responder: ${pl.join(', ')}.` : ''} Já está no RH do app.`).catch(() => {});
+    await eqFotoDoPonto(env, f).catch(() => {});
+    return true;
   }
-  const faltam = ['nome completo', 'nascimento', 'CPF', 'Pix'].filter(x => !gravado.includes(x));
-  if (!faltam.length) await env.HR_KV.delete('eq:fichapend:' + f.id);
-  await enviar(env, from, gravado.length ? `Obrigada, ${nome}! Gravei na sua ficha: ${gravado.join(', ')}.${faltam.length ? ' Ainda falta: ' + faltam.join(', ') + '.' : ''}${erros.length ? ' (' + erros[0] + ')' : ''}` : `${nome}, não consegui gravar: ${erros[0] || 'confira os dados'}.`);
-  if (gravado.length) await pontoAvisarDono(env, `🗂️ *${f.nome}* completou a ficha: ${gravado.join(', ')}.${faltam.length ? ' Falta: ' + faltam.join(', ') + '.' : ''}`).catch(() => {});
+  pend.falta = falta; pend.atual = falta[0]; await env.HR_KV.put('eq:fichapend:' + f.id, JSON.stringify(pend), { expirationTtl: 10 * 86400 });
+  await enviar(env, from, `${gravado.length ? 'Anotado ✅ ' : ''}${EQ_FICHA.find(x => x[0] === falta[0])[2]}`);
   return true;
+}
+async function eqFotoDoPonto(env, f) { // foto do rosto cadastrada no HR Ponto vira a foto da ficha (se a ficha não tem)
+  const d = await equipeLer(env), x = d.funcs.find(y => String(y.id) === String(f.id)); if (!x || x.temFoto || !x.flags) return;
+  const foto = await env.HR_KV.get('ponto:rf:' + f.id); if (!foto || !/^data:image\/jpeg;base64,/.test(foto)) return;
+  await equipeAtualizar(env, { funcionario: f.nome, foto });
 }
 async function eqFichaRotina(env) { // uma vez: pede a ficha a quem já tem número
   const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 17 * 60) return;
   const cfg = await pontoCfg(env);
-  if (await umaVez(env, 'eqficha:v1', 365)) { for (const f of cfg.funcs) if (f.tel) await eqFichaPedir(env, f).catch(() => {}); return; }
+  const dEq = await equipeLer(env); if (!dEq.funcs.some(x => x.flags)) return; // espera o app novo mandar o que já tem (CPF, Pix, banco, foto) para não perguntar de novo
+  if (await umaVez(env, 'eqficha:v2', 365)) { const ign = await eqIgnorados(env); for (const f of cfg.funcs) { if (!f.tel || ign.has(String(f.id))) continue; await eqFotoDoPonto(env, f).catch(() => {}); if (!(await env.HR_KV.get('eq:fichapend:' + f.id))) await eqFichaPedir(env, f).catch(() => {}); } return; } // v245: campos novos (banco, função, admissão) e foto do ponto
   if (!(await umaVez(env, 'eqfichalemb:' + dataBahia(), 1))) return;
   for (const f of cfg.funcs) { // v224: quem não completou em 2 dias recebe um lembrete (uma vez)
     const pend = +(await env.HR_KV.get('eq:fichapend:' + f.id)) || 0;
