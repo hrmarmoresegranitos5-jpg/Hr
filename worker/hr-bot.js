@@ -13511,6 +13511,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { funcionarios: { type: 'array', items: { type: 'string' }, description: 'vazio = todos com valor a receber' }, forma: { type: 'string', enum: ['dinheiro', 'pix', 'ted'] }, data: { type: 'string', description: 'AAAA-MM-DD; vazio = hoje' } } },
   },
   {
+    name: 'enviar_relatorio_ponto',
+    description: 'MANDA O RELATÓRIO DE PONTO (PDF) para um funcionário no WhatsApp dele, quando o Sr. Hangel pedir ("manda o relatório do Fabrício", "pode mandar o relatório", "manda"). Sem nome: usa o funcionário da conversa recente. NUNCA diga que mandou sem chamar esta ferramenta; repita ao Sr. Hangel exatamente o resultado.',
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome como ele falou; vazio = o da conversa recente' } } },
+  },
+  {
     name: 'ponto_funcionario',
     description: 'PONTO DOS FUNCIONÁRIOS (HR Ponto): mostra as batidas de um dia (entrada, almoço, volta, saída) e LANÇA horários que o Sr. Hangel informar (ex.: "Fabrício e Lucas vão fazer extra hoje, entraram 7h e saem 16h"). Sem horários, só mostra o que já foi batido e diz o que falta. Os horários lançados entram no RH e no relatório de ponto. Pode lançar para vários funcionários de uma vez.',
     input_schema: { type: 'object', properties: {
@@ -13998,6 +14003,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'desempenho_equipe') { const t = a.aumento && !a.funcionario ? await aumentoTexto(env) : await desempenhoEquipeTexto(env, a.dias || (a.funcionario ? 30 : 30), a.funcionario || ''); return { texto: t + '\n\nRepasse ao Sr. Hangel este relatório como está (pode resumir se ele pediu algo específico). Não invente números.' }; } // v179
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
+  if (nome === 'enviar_relatorio_ponto') return { texto: await relEnviarAgora(env, String(a.funcionario || '')) + ' Repita isso ao Sr. Hangel em uma frase.' }; // v237
   if (nome === 'pagar_folha') return await rhFolhaPreparar(env, from, a); // v81
   if (nome === 'ponto_agora') { const a = await pontoAgora(env); return { texto: pontoAgoraTexto(a).replace(/\*/g, '') }; } // v85
   if (nome === 'revisar_boletos') { await bolRevIniciar(env, from); return { texto: 'A revisão dos boletos já começou com botões. Responda apenas: "Vamos lá."' }; } // v84
@@ -15588,6 +15594,28 @@ async function painelMP(env, dias) {
   return out;
 }
 
+
+// v237: "manda o relatório" do dono — manda DE VERDADE (antes a IA dizia que mandou sem mandar)
+async function relEnviarAgora(env, nomeTxt) {
+  const cfg = await pontoCfg(env);
+  let f = nomeTxt ? eqFuncPorNomeTexto(cfg, nomeTxt) : null;
+  if (!f) { const id = await env.HR_KV.get('dono:ultfunc'); f = id ? cfg.funcs.find(x => String(x.id) === id) : null; }
+  if (!f) { // só um esperando autorização? é esse
+    const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }); const ids = [...new Set(l.keys.map(k => k.name.slice('ponto:relaut:'.length).split('~')[0]))];
+    if (ids.length === 1) f = cfg.funcs.find(x => String(x.id) === ids[0]);
+  }
+  if (!f) return 'Não sei de qual funcionário é o relatório. Diga o nome (ex.: manda o relatório do Fabrício).';
+  const nm = apelidoFunc(cfg, f);
+  if (!f.tel) return `${nm} não tem WhatsApp cadastrado. Mande o contato dele aqui que eu cadastro e mando.`;
+  let per = null, k = '';
+  const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' + f.id + '~' });
+  if (l.keys.length) { k = l.keys.sort((a, b) => b.name.localeCompare(a.name))[0].name; try { per = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {} }
+  if (!per) { for (const pre of ['ponto:res:', 'ponto:relpend:', 'ponto:resant:']) { try { const x = JSON.parse((await env.HR_KV.get(pre + f.id)) || 'null'); if (x && x.df && await pontoRelPdf(env, f.id, x.df)) { per = x; break; } } catch (_) {} } }
+  if (!per) return `Ainda não tenho o PDF do relatório de ${nm}. Abra o app (Pagar equipe → ${nm} → Mandar a conta) que ele gera e manda.`;
+  const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }).catch(e => { console.log('[REL] agora:', e.message); return null; });
+  if (k && v) await env.HR_KV.delete(k);
+  return v ? `Mandei para ${nm} o relatório do ${per.label} (${pontoDataBR(per.di)} a ${pontoDataBR(per.df)})${v === 'WhatsApp' ? ' no WhatsApp' : v === 'modelo' ? ' (pelo modelo; o PDF chega quando ele responder)' : ''}.` : `Não consegui mandar o relatório para ${nm} agora.`;
+}
 // v236: pistas para lembrar de um gasto — dia da semana e hora, se o nome é de alguém da equipe ou de um cliente,
 // o que a equipe fez naquele dia (instalação/entrega) e a categoria mais provável pelo nome
 async function finPistas(env, r) {
@@ -19539,6 +19567,8 @@ async function tratarMensagemBase(env, m, ctx) {
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
+      { const mr = normaliza(bruto).match(/^(?:pode )?(?:mand[ae]r?|envi[ae]r?|reenvi[ae]r?)(?: (?:o|de novo o))? relatorio(?: (?:de ponto|do ponto))?(?: (?:do|da|pro|pra|para o|para a|pro) (.+?))?(?: (?:agora|de novo|pra ele|pra ela))?[.! ]*$/);
+        if (mr) { await enviar(env, from, await relEnviarAgora(env, mr[1] || '')); return; } } // v237
       { const mt = normaliza(bruto); // v231: "pode mandar todos os relatórios" / "não manda nenhum"
         if (/\b(relatorio|relatorios)\b/.test(mt) && /\b(pode|manda|mande|envia|envie|libera|aprova)\w*\b.*\b(todos|tudo|os relatorios|todos os)\b|\b(manda|mande|envia|envie|libera)\w* (todos|tudo)\b/.test(mt) && !/\bnao\b/.test(mt)) {
           const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }); const cfgM = await pontoCfg(env), ok = [], sem = [];
@@ -29088,6 +29118,7 @@ function relPontosConferir(pdf) { // dias que merecem um olhar do dono antes de 
   return out;
 }
 async function relPedirAutorizacao(env, cfg, f, per) { // v230: manda o PDF para o dono conferir, com os botões
+  await env.HR_KV.put('dono:ultfunc', String(f.id), { expirationTtl: 6 * 3600 }).catch(() => {});
   const k = `${f.id}~${per.df}`;
   if (await env.HR_KV.get('ponto:relautno:' + k)) return false; // o dono já disse para não mandar
   const pdf0 = await pontoRelPdf(env, f.id, per.df).catch(() => null), assin = pdf0 ? String(pdf0.valor) + ':' + String(pdf0.status || '') + ':' + JSON.stringify(pdf0.dias || []).length + ':' + JSON.stringify(pdf0.fin || []).length : ''; // muda só se o conteúdo mudar
@@ -29884,6 +29915,7 @@ Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resum
   const doPonto = String(out.assunto || 'ponto') !== 'outro'; // v228
   if (rel && out.aprovou) await pontoRelDecidir(env, cfg, f, rel.df, 'ok');
   else if (doPonto && rel && rel.status !== 'aprovado' && out.escalar) await pontoRelDecidir(env, cfg, f, rel.df, 'duvida', texto);
+  if (out.escalar) await env.HR_KV.put('dono:ultfunc', String(f.id), { expirationTtl: 6 * 3600 }).catch(() => {});
   if (out.escalar) await pontoAvisarDono(env, doPonto ? `❓ *${f.nome}* (RH${rel && rel.status !== 'aprovado' ? ', relatório do ' + rel.label : ''}): ${String(out.resumo_para_dono || texto).slice(0, 600)}\n\nCorrija em RH → Ponto e ajustes e toque em *Reenviar relatório*.` : `💬 *${f.nome}* disse: "${String(texto).slice(0, 500)}"`);
   return true;
 }
