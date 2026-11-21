@@ -29188,6 +29188,7 @@ async function eqFotoDoPonto(env, f) { // foto do rosto cadastrada no HR Ponto v
 async function eqFichaRotina(env) { // uma vez: pede a ficha a quem já tem número
   const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 17 * 60) return;
   const cfg = await pontoCfg(env);
+  if ((cfg.excBot || []).some(x => x.data === dataBahia() && x.tipo === 'folga')) return; // dia de folga: não incomoda a equipe
   const dEq = await equipeLer(env); if (!dEq.funcs.some(x => x.flags)) return; // espera o app novo mandar o que já tem (CPF, Pix, banco, foto) para não perguntar de novo
   if (await umaVez(env, 'eqficha:v2', 365)) { const ign = await eqIgnorados(env); for (const f of cfg.funcs) { if (!f.tel || ign.has(String(f.id))) continue; await eqFotoDoPonto(env, f).catch(() => {}); if (!(await env.HR_KV.get('eq:fichapend:' + f.id))) await eqFichaPedir(env, f).catch(() => {}); } return; } // v245: campos novos (banco, função, admissão) e foto do ponto
   if (!(await umaVez(env, 'eqfichalemb:' + dataBahia(), 1))) return;
