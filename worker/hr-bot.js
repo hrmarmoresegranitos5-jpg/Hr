@@ -15401,7 +15401,7 @@ const notaAppMPX = ts => (!ts || Date.now() - ts > 48 * 3600 * 1000) ? '_As fina
 // gastos que NÃO vieram do extrato (digitados pelo senhor ou pelo WhatsApp): servem para flagrar lançamento em dobro
 async function gastosDigitadosMPX(env, de, ate) {
   const u = await lancamentosUnificados(env, de, ate);
-  return u.itens.filter(x => x.type === 'out' && x.origem !== 'mpx').map(x => ({ date: x.date, value: x.value, desc: x.desc }));
+  return u.itens.filter(x => x.type === 'out' && x.origem !== 'mpx' && !/\(mercado pago\)/i.test(x.desc || '')).map(x => ({ date: x.date, value: x.value, desc: x.desc, cat: x.cat || '' }));
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -16064,8 +16064,15 @@ async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
     if (r.sentido === 'out' && !r.alerta) {
       if (igual[chaveIgual(r)] > 1) r.alerta = 'Há outra movimentação igual (mesmo valor, data e descrição) neste extrato. Pode ser repetida.';
       else {
-        if (!outsFin) outsFin = await gastosDigitadosMPX(env, de, ate);
-        const m = outsFin.find(f => f.date === r.data && Math.abs(f.value - r.valor) < 0.01);
+        if (!outsFin) outsFin = await gastosDigitadosMPX(env, somaDias(de, -1), somaDias(ate, 1));
+        const cands = outsFin.filter(f => !f.usado && Math.abs(f.value - r.valor) < 0.01 && Math.abs(Date.parse(f.date + 'T12:00:00Z') - Date.parse(r.data + 'T12:00:00Z')) <= 86400000);
+        if (cands.length === 1) { // v247: o senhor já anotou esse gasto (mesmo valor, mesmo dia ou um dia antes/depois) → é o mesmo: não pergunta e não lança duas vezes; aprende o favorecido
+          const m = cands[0]; m.usado = true;
+          const catK = CATS[m.cat] ? m.cat : (Object.keys(CATS).find(k => normaliza(CATS[k]) === normaliza(m.cat || '') || normaliza(CATS[k]).startsWith(normaliza(m.cat || '-').split(' ')[0])) || ''); m.cat = catK || m.cat;
+          const ch = chaveMPX(r); if (ch && CATS[catK]) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: catK, n: 2, nome: String(r.desc || '').slice(0, 40), med: r.valor, descr: String(m.desc || '').slice(0, 40) }), { expirationTtl: MPX_REGRA_TTL }).catch(() => {});
+          await marca(h, 'lancado'); autos.push({ valor: r.valor, nome: String(m.desc || '').slice(0, 30), cat: m.cat || 'outros', ja: true }); continue;
+        }
+        const m = cands[0];
         if (m) r.alerta = `Já existe um gasto de R$ ${reais(m.value)} lançado nesse dia (${String(m.desc).slice(0, 40)}). Se for o mesmo, escolha *Não é gasto*.`;
       }
     }
@@ -16286,6 +16293,8 @@ async function extratoMPTick(env, opts = {}) {
   const linhas = [`*Extrato do Mercado Pago, ${dataBR(est.de)} a ${dataBR(est.ate)}*`, '',
     `Movimentações lidas: ${res.total}`, `Já lançadas nas finanças: ${res.jaLancados}`,
     res.novos ? `Para o senhor decidir: ${res.novos} (${res.entradas} entrada(s), ${res.saidas} saída(s))` : 'Nada novo para lançar.'];
+  const jaAn = res.autos.filter(a => a.ja); if (jaAn.length) linhas.push('', `Já estavam anotados pelo senhor (não lancei de novo): ${jaAn.length}`, ...jaAn.slice(0, 6).map(a => `• R$ ${reais(a.valor)} ${a.nome}`));
+  res.autos = res.autos.filter(a => !a.ja);
   if (res.autos.length) {
     const soma = res.autos.reduce((s, a) => s + a.valor, 0);
     linhas.push('', `Lancei sozinho (regras aprendidas): ${res.autos.length}, R$ ${reais(soma)}`, ...res.autos.slice(0, 8).map(a => `• R$ ${reais(a.valor)} ${a.nome} → ${CATS[a.cat] || a.cat}`));
