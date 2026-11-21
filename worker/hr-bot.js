@@ -13513,8 +13513,8 @@ const FERRAMENTAS = [
   },
   {
     name: 'enviar_relatorio_ponto',
-    description: 'MANDA O RELATÓRIO DE PONTO (PDF) para um funcionário no WhatsApp dele, quando o Sr. Hangel pedir ("manda o relatório do Fabrício", "pode mandar o relatório", "manda"). Sem nome: usa o funcionário da conversa recente. NUNCA diga que mandou sem chamar esta ferramenta; repita ao Sr. Hangel exatamente o resultado.',
-    input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome como ele falou; vazio = o da conversa recente' } } },
+    description: 'RELATÓRIO DE PONTO de um funcionário: MOSTRA ao Sr. Hangel o PDF com os botões Pode mandar / Corrigir / Não mandar (nunca manda direto ao funcionário). Use quando ele pedir "relatório do Hugo", "manda o relatório", "quero o do 2º decêndio". Sem nome: usa o funcionário da conversa recente. Em "funcionario" passe o que ele disse, incluindo o período (ex.: "Hugo 2º decêndio"). NUNCA diga que mandou ou gerou sem chamar esta ferramenta; repita exatamente o resultado.',
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome e período como ele falou; vazio = o da conversa recente' } } },
   },
   {
     name: 'ponto_funcionario',
@@ -15681,25 +15681,25 @@ async function relCorrTexto(env, from, bruto) { // resposta ao "Outro horário"
   return true;
 }
 // v237: "manda o relatório" do dono — manda DE VERDADE (antes a IA dizia que mandou sem mandar)
-async function relEnviarAgora(env, nomeTxt) {
-  const cfg = await pontoCfg(env);
-  let f = nomeTxt ? eqFuncPorNomeTexto(cfg, nomeTxt) : null;
+async function relEnviarAgora(env, nomeTxt) { // v239: NUNCA manda direto ao funcionário — mostra ao dono (PDF + Pode mandar/Corrigir/Não mandar)
+  const cfg = await pontoCfg(env), t = normaliza(nomeTxt || '');
+  let f = t ? eqFuncPorNomeTexto(cfg, t.replace(/\b(1|2|3|primeiro|segundo|terceiro|decendio|periodo|anterior|atual|o|do|da|de)\b/g, ' ')) : null;
   if (!f) { const id = await env.HR_KV.get('dono:ultfunc'); f = id ? cfg.funcs.find(x => String(x.id) === id) : null; }
-  if (!f) { // só um esperando autorização? é esse
-    const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }); const ids = [...new Set(l.keys.map(k => k.name.slice('ponto:relaut:'.length).split('~')[0]))];
-    if (ids.length === 1) f = cfg.funcs.find(x => String(x.id) === ids[0]);
-  }
-  if (!f) return 'Não sei de qual funcionário é o relatório. Diga o nome (ex.: manda o relatório do Fabrício).';
+  if (!f) return 'De qual funcionário? Ex.: relatório do Hugo.';
   const nm = apelidoFunc(cfg, f);
-  if (!f.tel) return `${nm} não tem WhatsApp cadastrado. Mande o contato dele aqui que eu cadastro e mando.`;
-  let per = null, k = '';
-  const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' + f.id + '~' });
-  if (l.keys.length) { k = l.keys.sort((a, b) => b.name.localeCompare(a.name))[0].name; try { per = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {} }
-  if (!per) { for (const pre of ['ponto:res:', 'ponto:relpend:', 'ponto:resant:']) { try { const x = JSON.parse((await env.HR_KV.get(pre + f.id)) || 'null'); if (x && x.df && await pontoRelPdf(env, f.id, x.df)) { per = x; break; } } catch (_) {} } }
-  if (!per) return `Ainda não tenho o PDF do relatório de ${nm}. Abra o app (Pagar equipe → ${nm} → Mandar a conta) que ele gera e manda.`;
-  const v = await pontoRelEnviar(env, cfg, f, per, { reenvio: true }).catch(e => { console.log('[REL] agora:', e.message); return null; });
-  if (k && v) await env.HR_KV.delete(k);
-  return v ? `Mandei para ${nm} o relatório do ${per.label} (${pontoDataBR(per.di)} a ${pontoDataBR(per.df)})${v === 'WhatsApp' ? ' no WhatsApp' : v === 'modelo' ? ' (pelo modelo; o PDF chega quando ele responder)' : ''}.` : `Não consegui mandar o relatório para ${nm} agora.`;
+  await env.HR_KV.put('dono:ultfunc', String(f.id), { expirationTtl: 6 * 3600 });
+  let at = null, an = null; try { at = JSON.parse((await env.HR_KV.get('ponto:res:' + f.id)) || 'null'); an = JSON.parse((await env.HR_KV.get('ponto:resant:' + f.id)) || 'null'); } catch (_) {}
+  const mN = t.match(/\b(1|2|3)(?:o|a)?\b|\b(primeir|segund|terceir)/), num = mN ? (mN[1] || { primeir: '1', segund: '2', terceir: '3' }[mN[2]]) : '';
+  const ini = x => String((x && x.label) || '').trim().charAt(0);
+  const per = /\b(anterior|passado)\b/.test(t) ? (an || at) : num ? (ini(at) === num ? at : ini(an) === num ? an : at) : at;
+  if (!per) return `Ainda não tenho o período de ${nm}. Abra o app uma vez que ele manda.`;
+  if (await pontoRelPdf(env, f.id, per.df)) {
+    await env.HR_KV.delete('ponto:relautsig:' + `${f.id}~${per.df}`).catch(() => {}); await env.HR_KV.delete('ponto:relautno:' + `${f.id}~${per.df}`).catch(() => {});
+    await relPedirAutorizacao(env, cfg, f, per);
+    return `Mandei aqui para o senhor o relatório do ${per.label} (${pontoDataBR(per.di)} a ${pontoDataBR(per.df)}) de ${nm}. Só vai para ele se o senhor tocar em Pode mandar.`;
+  }
+  await pontoMarcarRegerar(env, f.id, per.df);
+  return `Pedi ao app para gerar o relatório do ${per.label} (${pontoDataBR(per.di)} a ${pontoDataBR(per.df)}) de ${nm}. Com o app aberto, chega aqui em até 2 minutos para o senhor conferir. Nada vai para ele sem o senhor tocar em Pode mandar.`;
 }
 // v236: pistas para lembrar de um gasto — dia da semana e hora, se o nome é de alguém da equipe ou de um cliente,
 // o que a equipe fez naquele dia (instalação/entrega) e a categoria mais provável pelo nome
@@ -19653,8 +19653,8 @@ async function tratarMensagemBase(env, m, ctx) {
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
       if (await relCorrTexto(env, from, bruto).catch(e => { console.log('[REL] corr texto:', e.message); return false; })) return; // v238
-      { const mr = normaliza(bruto).match(/^(?:pode )?(?:mand[ae]r?|envi[ae]r?|reenvi[ae]r?)(?: (?:o|de novo o))? relatorio(?: (?:de ponto|do ponto))?(?: (?:do|da|pro|pra|para o|para a|pro) (.+?))?(?: (?:agora|de novo|pra ele|pra ela))?[.! ]*$/);
-        if (mr) { await enviar(env, from, await relEnviarAgora(env, mr[1] || '')); return; } } // v237
+      { const nb = normaliza(bruto), mr = nb.match(/^(?:(?:pode |me )?(?:mand[ae]r?|envi[ae]r?|reenvi[ae]r?|mostr[ae]r?|ver|quero(?: ver)?|ger[ae]r?|faz|faca)(?: o| de novo o| me)? )?relatorio(?: (?:de ponto|do ponto))?(?: (?:de|do|da|pro|pra|para o|para a))? ?(.*?)[.!? ]*$/);
+        if (mr && nb.length < 70 && !/\b(vendas|financeiro|financas|obras?|producao|semana|mes|caixa|gastos?)\b/.test(nb)) { await enviar(env, from, await relEnviarAgora(env, mr[1] || '')); return; } } // v237/v239
       { const mt = normaliza(bruto); // v231: "pode mandar todos os relatórios" / "não manda nenhum"
         if (/\b(relatorio|relatorios)\b/.test(mt) && /\b(pode|manda|mande|envia|envie|libera|aprova)\w*\b.*\b(todos|tudo|os relatorios|todos os)\b|\b(manda|mande|envia|envie|libera)\w* (todos|tudo)\b/.test(mt) && !/\bnao\b/.test(mt)) {
           const l = await env.HR_KV.list({ prefix: 'ponto:relaut:' }); const cfgM = await pontoCfg(env), ok = [], sem = [];
@@ -30701,8 +30701,9 @@ async function rotaBotPonto(req, env, url) {
       dias: (Array.isArray(b.dias) ? b.dias : []).slice(0, 31).map(x => ({ data: String(x.data || '').slice(0, 10), e: String(x.e || '').slice(0, 5), ai: String(x.ai || '').slice(0, 5), af: String(x.af || '').slice(0, 5), s: String(x.s || '').slice(0, 5), trab: +x.trab || 0, esp: +x.esp || 0, saldo: +x.saldo || 0, tipo: String(x.tipo || '').slice(0, 12), obs: String(x.obs || '').slice(0, 60) })),
       em: Date.now() };
     await env.HR_KV.put(`ponto:relpdf:${f.id}:${b.df}`, JSON.stringify(reg), { expirationTtl: 60 * 86400 });
-    { let rg = []; try { rg = JSON.parse((await env.HR_KV.get('ponto:regerar')) || '[]'); } catch (_) {} const rg2 = rg.filter(x => !(x.fid === String(f.id) && x.df === b.df)); if (rg2.length !== rg.length) await env.HR_KV.put('ponto:regerar', JSON.stringify(rg2), { expirationTtl: 7 * 86400 }); } // v238
+    let pedidoDono = false; { let rg = []; try { rg = JSON.parse((await env.HR_KV.get('ponto:regerar')) || '[]'); } catch (_) {} const rg2 = rg.filter(x => !(x.fid === String(f.id) && x.df === b.df)); if (rg2.length !== rg.length) { pedidoDono = true; await env.HR_KV.put('ponto:regerar', JSON.stringify(rg2), { expirationTtl: 7 * 86400 }); } } // v238/v239
     let via = null;
+    if (pedidoDono && !b.enviarAgora) { let per = JSON.parse((await env.HR_KV.get('ponto:res:' + f.id)) || 'null'); if (!per || per.df !== b.df) per = JSON.parse((await env.HR_KV.get('ponto:resant:' + f.id)) || 'null'); if (!per || per.df !== b.df) per = { label: String(b.label || 'período'), di: b.di, df: b.df, dias: {} }; await relPedirAutorizacao(env, cfg, f, per); return jsonR({ ok: true, via: 'aguardando autorização do dono' }); } // v239: o dono pediu para ver
     if (b.enviarAgora || (agoraBahia().min >= 8 * 60 && cfg.relAuto !== false && !(await env.HR_KV.get(`ponto:rel:${f.id}:${b.df}`)))) {
       let per = JSON.parse((await env.HR_KV.get('ponto:resant:' + f.id)) || 'null');
       if (!per || per.df !== b.df) { per = JSON.parse((await env.HR_KV.get('ponto:res:' + f.id)) || 'null'); }
