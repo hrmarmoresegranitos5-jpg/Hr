@@ -15724,6 +15724,12 @@ async function finPistas(env, r) {
   try { const dw = new Date(r.data + 'T12:00:00Z').getUTCDay(); out.linhas.push(`${dias[dw]} ${dataBR(r.data).slice(0, 5)}${r.hora ? ' às ' + r.hora : ''}`); } catch (_) {}
   const nome = String(r.desc || '').replace(/^pix enviado( para)?\s*/i, '').trim();
   try { const cfg = await pontoCfg(env), f = nome && eqFuncPorNomeTexto(cfg, nome); if (f) { out.linhas.push(`${apelidoFunc(cfg, f)} é da equipe (vale, diária ou adiantamento?)`); out.sug = 'mao_obra'; } } catch (_) {}
+  try { const rg = await lerRegraMPX(env, r); if (rg && CATS[rg.cat] && !out.sug) { out.sug = rg.cat; out.linhas.push(`da última vez foi ${CATS[rg.cat]}${rg.descr ? ' (' + rg.descr + ')' : ''}`); } } catch (_) {}
+  try { // v248: o que já pagou para esse nome nos últimos 90 dias
+    const tk = tokensPedra(nome).filter(w => w.length >= 3 && !/^(pix|enviado|para|pagamento)$/.test(w)).slice(0, 2);
+    if (tk.length) { const u = await lancamentosUnificados(env, somaDias(dataBahia(), -90), dataBahia()); const ant = u.itens.filter(x => x.type === 'out' && tk.every(w => normaliza(x.desc || '').includes(w)) && !(x.date === r.data && Math.abs(x.value - r.valor) < 0.01)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+      if (ant.length) out.linhas.push('já pagou antes: ' + ant.map(x => `${dataBR(x.date).slice(0, 5)} R$ ${reais(x.value)} (${String(x.desc || '').replace(/\s*\(mercado pago\)\s*/i, '').replace(/^pix enviado( para)?\s*/i, '').slice(0, 28)}${x.cat ? ' · ' + x.cat : ''})`).join('; ')); }
+  } catch (_) {}
   if (!out.sug) { const c = categoriaDe(nome.replace(/\b(d[aeo]s?|e)\b/gi, ' ')); if (c !== 'outros') out.sug = c; } // "Maria das Graças" não é o imposto DAS
   try {
     const ini = Date.parse(r.data + 'T00:00:00-03:00'), fim = ini + 86400000, fez = [];
@@ -16069,7 +16075,8 @@ async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
         if (cands.length === 1) { // v247: o senhor já anotou esse gasto (mesmo valor, mesmo dia ou um dia antes/depois) → é o mesmo: não pergunta e não lança duas vezes; aprende o favorecido
           const m = cands[0]; m.usado = true;
           const catK = CATS[m.cat] ? m.cat : (Object.keys(CATS).find(k => normaliza(CATS[k]) === normaliza(m.cat || '') || normaliza(CATS[k]).startsWith(normaliza(m.cat || '-').split(' ')[0])) || ''); m.cat = catK || m.cat;
-          const ch = chaveMPX(r); if (ch && CATS[catK]) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: catK, n: 2, nome: String(r.desc || '').slice(0, 40), med: r.valor, descr: String(m.desc || '').slice(0, 40) }), { expirationTtl: MPX_REGRA_TTL }).catch(() => {});
+          const pessoa = !/\b(LTDA|EIRELI|ME|MEI|S\.?A|COMERCIO|COM|DISTRIB\w*|POSTO|MERCADO|SUPERMERCADO|ATACAD\w*|FARMACIA|AUTO|PECAS|MATERIA\w*|CONSTRU\w*|MARMOR\w*|GRANIT\w*|LOJA|CASA|SERVICOS?|TRANSPORT\w*|ENERGIA|TELECOM|INTERNET|BANCO|PAGAMENTOS?)\b/i.test(nhMPX(r.desc).replace(/_/g, ' ')) && nhMPX(r.desc).replace(/^PIX_ENVIADO_?(PARA_)?/, '').split('_').filter(Boolean).length >= 2;
+          const ch = chaveMPX(r); if (ch && CATS[catK]) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: catK, n: pessoa ? 1 : 2, nome: String(r.desc || '').slice(0, 40), med: r.valor, descr: String(m.desc || '').slice(0, 40) }), { expirationTtl: MPX_REGRA_TTL }).catch(() => {});
           await marca(h, 'lancado'); autos.push({ valor: r.valor, nome: String(m.desc || '').slice(0, 30), cat: m.cat || 'outros', ja: true }); continue;
         }
         const m = cands[0];
