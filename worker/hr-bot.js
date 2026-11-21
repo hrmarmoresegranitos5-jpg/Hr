@@ -30602,6 +30602,15 @@ async function pontoRotina(env) {
     for (const k of l.keys) { let per = null; try { per = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (per && per._em && Date.now() - per._em > 48 * 3600000) { const f = cfgL.funcs.find(x => String(x.id) === k.name.slice('ponto:relaut:'.length).split('~')[0]); if (f) velhos.push(apelidoFunc(cfgL, f)); } }
     if (velhos.length) await pontoAvisarDono(env, `Relatórios de ponto esperando a sua autorização há mais de 2 dias: ${velhos.join(', ')}. Toque em "Pode mandar" em cada um ou escreva: pode mandar todos os relatórios.`).catch(() => {});
   } }
+  if (await umaVez(env, 'fixhugo:v242', 30)) { // v242: o Sr. Hangel pediu (20/11 22:24) — desfaz o relatório do 1º decêndio mandado por engano ao Hugo e traz o do 2º para ele conferir
+    try {
+      const cfgH = await pontoCfg(env), fH = eqFuncPorNomeTexto(cfgH, 'Hugo'), relH = fH && await pontoRelUltimo(env, fH.id);
+      const linhas = [];
+      if (relH && relH.status !== 'cancelado' && relH.df === '2026-11-10') linhas.push(await relCancelar(env, 'Hugo'));
+      if (fH) linhas.push(await relEnviarAgora(env, 'Hugo'));
+      if (linhas.length) await pontoAvisarDono(env, linhas.join('\n')).catch(() => {});
+    } catch (e) { console.log('[FIX] hugo:', e.message); }
+  }
   if (await umaVez(env, 'eqctth:v226', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
 
   await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
