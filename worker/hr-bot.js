@@ -15680,6 +15680,18 @@ async function relCorrTexto(env, from, bruto) { // resposta ao "Outro horário"
   await enviar(env, from, `Lancei ${itens.map(x => (PONTO_TIPOS[x.tipo] || x.tipo).toLowerCase() + ' ' + x.hora).join(', ')} em ${pontoDataBR(p.data)}.${falta ? ` Falta${falta > 1 ? 'm' : ''} ${falta}.` : ' Quando o app abrir, ele refaz o relatório e eu mando de novo para o senhor aprovar.'}`);
   return true;
 }
+
+// v241: o dono cancela um relatório que foi por engano ("desconsidera o relatório do Hugo")
+async function relCancelar(env, nomeTxt) {
+  const cfg = await pontoCfg(env); let f = nomeTxt ? eqFuncPorNomeTexto(cfg, nomeTxt) : null;
+  if (!f) { const id = await env.HR_KV.get('dono:ultfunc'); f = id ? cfg.funcs.find(x => String(x.id) === id) : null; }
+  if (!f) return 'De qual funcionário? Ex.: desconsidera o relatório do Hugo.';
+  const rel = await pontoRelUltimo(env, f.id), nm = apelidoFunc(cfg, f);
+  if (!rel) return `Não achei relatório enviado para ${nm}.`;
+  rel.status = 'cancelado'; rel.canceladoEm = Date.now(); await pontoRelSalvar(env, rel);
+  await falarComFuncionario(env, f, `${nm}, desconsidere o relatório do ${rel.label} (${pontoDataBR(rel.di)} a ${pontoDataBR(rel.df)}) que te mandei: foi engano. O relatório certo chega depois que o Sr. Hangel conferir.`).catch(() => {});
+  return `Cancelei o relatório do ${rel.label} de ${nm} e avisei ele que foi engano. Para mandar o certo: relatório do ${nm}.`;
+}
 // v237: "manda o relatório" do dono — manda DE VERDADE (antes a IA dizia que mandou sem mandar)
 async function relEnviarAgora(env, nomeTxt) { // v239: NUNCA manda direto ao funcionário — mostra ao dono (PDF + Pode mandar/Corrigir/Não mandar)
   const cfg = await pontoCfg(env), t = normaliza(nomeTxt || '');
@@ -19653,6 +19665,7 @@ async function tratarMensagemBase(env, m, ctx) {
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
       if (await relCorrTexto(env, from, bruto).catch(e => { console.log('[REL] corr texto:', e.message); return false; })) return; // v238
+      { const mc = normaliza(bruto).match(/^(?:desconsider\w*|cancel\w*|anul\w*|desfaz\w*)(?: o)? relatorio(?: (?:de ponto|do ponto))?(?: (?:de|do|da|pro|pra))? ?(.*?)[.!? ]*$/); if (mc) { await enviar(env, from, await relCancelar(env, mc[1] || '')); return; } } // v241
       { const nb = normaliza(bruto), mr = nb.match(/^(?:(?:pode |me )?(?:mand[ae]r?|envi[ae]r?|reenvi[ae]r?|mostr[ae]r?|ver|quero(?: ver)?|ger[ae]r?|faz|faca)(?: o| de novo o| me)? )?relatorio(?: (?:de ponto|do ponto))?(?: (?:de|do|da|pro|pra|para o|para a))? ?(.*?)[.!? ]*$/);
         if (mr && nb.length < 70 && !/\b(vendas|financeiro|financas|obras?|producao|semana|mes|caixa|gastos?)\b/.test(nb)) { await enviar(env, from, await relEnviarAgora(env, mr[1] || '')); return; } } // v237/v239
       { const mt = normaliza(bruto); // v231: "pode mandar todos os relatórios" / "não manda nenhum"
@@ -29476,6 +29489,7 @@ async function pontoRelDecidir(env, cfg, f, df, acao, texto) {
   const rel = JSON.parse((await env.HR_KV.get(`ponto:rel:${f.id}:${df}`)) || 'null');
   if (!rel) return null;
   const nome = String(f.nome).split(' ')[0];
+  if (rel.status === 'cancelado') { const tl = f.tel ? normalizarBR(f.tel) : ''; if (tl) await enviar(env, tl, `${nome}, esse relatório foi enviado por engano e foi cancelado. O certo chega depois que o Sr. Hangel conferir.`).catch(() => {}); return rel; } // v241
   if (acao === 'ok') {
     if (rel.status === 'aprovado') return rel;
     rel.status = 'aprovado'; rel.aprovadoEm = Date.now(); await pontoRelSalvar(env, rel);
