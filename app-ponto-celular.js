@@ -301,15 +301,34 @@
       });
       costume = costumes[fSel] || costume;
       problemas.sort(function (a, c) { return a.data < c.data ? -1 : a.data > c.data ? 1 : 0; });
-      if (!problemas.length) { P.innerHTML = '<div style="font-size:.72rem;color:#4ade80;padding:6px 0;">✓ Nenhum erro no relatório dos últimos 12 dias' + (equipe ? ' na equipe' : '') + '.</div>'; return; }
-      P.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><span style="font-size:.66rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;">' + problemas.length + ' erro(s) no relatório · toque para corrigir</span>'
-        + (problemas.length > 1 ? '<button data-todos="1" style="padding:5px 10px;border-radius:8px;border:none;background:' + GOLD + ';color:#000;font-weight:800;font-size:.7rem;">Corrigir todos (' + problemas.length + ')</button>' : '') + '</div>'
-        + problemas.map(function (r, i) {
-          var h = r.reg && (r.reg.entrada || r.reg.saida) ? ' <span style="color:' + T3 + ';">(' + [r.reg.entrada, r.reg.saidaAlmoco, r.reg.voltaAlmoco, r.reg.saida].filter(Boolean).join(' · ') + ')</span>' : '';
-          return '<div style="display:flex;gap:6px;margin-bottom:6px;"><button data-pb="' + i + '" style="flex:1;display:flex;justify-content:space-between;gap:8px;text-align:left;padding:9px 10px;border-radius:10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.78rem;"><span><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b>' + (equipe ? ' · ' + esc(r.nome) : '') + ' · ' + esc(r.txt) + h + '</span><span style="color:' + GOLD + ';font-weight:700;white-space:nowrap;">Corrigir ›</span></button>'
-            + '<button data-pq="' + i + '" title="Perguntar a ele no WhatsApp" style="padding:0 10px;border-radius:10px;border:1px solid ' + BD + ';background:none;color:#fff;font-size:.9rem;">📱</button>'
-            + (r.vazio ? '<button data-pf="' + i + '" title="Faltou" style="padding:0 9px;border-radius:10px;border:1px solid rgba(248,113,113,.5);background:none;color:#f87171;font-size:.72rem;font-weight:700;">Faltou</button>' : '') + '</div>';
-        }).join('') + '<div style="font-size:.64rem;color:' + T3 + ';margin-top:2px;">Vem do relatório do RH (o mesmo do PDF). 📱 = o bot pergunta o horário a ele.</div>';
+      if (!problemas.length) { P.innerHTML = '<div style="font-size:.8rem;color:#4ade80;padding:8px 0;">✓ Nenhum erro no relatório do período' + (equipe ? ' na equipe' : '') + '.</div>'; return; }
+      // v28: organizado por funcionário — batidas faltando em lista; dias sem ponto em fichinhas
+      var DS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'], dm = function (x) { return x.slice(8) + '/' + x.slice(5, 7); }, sem = function (x) { return DS[new Date(x + 'T12:00:00').getDay()]; };
+      var grupos = {}; problemas.forEach(function (r, i) { r.i = i; (grupos[r.fid] = grupos[r.fid] || []).push(r); });
+      var semErro = equipe ? alvo.filter(function (f) { return !grupos[f]; }).map(function (f) { return String(nomes[f] || '').split(' ')[0]; }).filter(Boolean) : [];
+      var nCorr = problemas.filter(function (r) { return !r.vazio; }).length;
+      var btn = function (attr, txt, cor, bg) { return '<button ' + attr + ' style="padding:7px 11px;border-radius:9px;border:1px solid ' + cor + ';background:' + (bg || 'none') + ';color:' + (bg ? '#000' : cor) + ';font-family:Outfit,sans-serif;font-size:.74rem;font-weight:700;white-space:nowrap;">' + txt + '</button>'; };
+      var h = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin:2px 0 10px;"><div style="font-size:.82rem;color:#fff;font-weight:700;">' + problemas.length + ' erro' + (problemas.length > 1 ? 's' : '') + ' no relatório</div>' + (nCorr > 1 ? btn('data-todos="1"', 'Corrigir todos (' + nCorr + ')', GOLD, GOLD) : '') + '</div>';
+      Object.keys(grupos).forEach(function (f) {
+        var g = grupos[f], bat = g.filter(function (r) { return !r.vazio; }), vz = g.filter(function (r) { return r.vazio; });
+        h += '<div style="border:1px solid ' + BD + ';border-radius:12px;padding:10px 11px;margin-bottom:10px;background:#12121a;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b style="font-size:.9rem;color:' + GOLD + ';">' + esc(String(nomes[f] || g[0].nome)) + '</b><span style="font-size:.68rem;color:' + T3 + ';">' + g.length + ' erro' + (g.length > 1 ? 's' : '') + '</span></div>';
+        bat.forEach(function (r) {
+          var hr = r.reg ? [r.reg.entrada, r.reg.saidaAlmoco, r.reg.voltaAlmoco, r.reg.saida].filter(Boolean).join(' · ') : '';
+          h += '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid ' + BD + ';">'
+            + '<div style="min-width:44px;text-align:center;"><div style="font-size:.86rem;font-weight:800;color:#fff;">' + dm(r.data) + '</div><div style="font-size:.62rem;color:' + T3 + ';">' + sem(r.data) + '</div></div>'
+            + '<div style="flex:1;min-width:0;"><div style="font-size:.78rem;color:#f59e0b;font-weight:600;">' + esc(r.txt.replace(/\s*\(.*\)$/, '')) + '</div>' + (hr ? '<div style="font-size:.68rem;color:' + T3 + ';margin-top:1px;">no relatório: ' + esc(hr) + '</div>' : '') + '</div>'
+            + btn('data-pb="' + r.i + '"', 'Corrigir', GOLD) + '<button data-pq="' + r.i + '" title="Perguntar a ele" style="padding:6px 8px;border-radius:9px;border:1px solid ' + BD + ';background:none;color:#fff;">📱</button></div>';
+        });
+        if (vz.length) {
+          h += '<div style="padding:8px 0 2px;border-top:1px solid ' + BD + ';"><div style="font-size:.74rem;color:#f87171;font-weight:600;margin-bottom:6px;">Sem ponto (' + vz.length + ' dia' + (vz.length > 1 ? 's' : '') + ') · toque no dia</div><div style="display:flex;flex-wrap:wrap;gap:6px;">'
+            + vz.map(function (r) { return '<button data-pv="' + r.i + '" style="padding:6px 9px;border-radius:9px;border:1px solid rgba(248,113,113,.45);background:rgba(248,113,113,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.74rem;"><b>' + dm(r.data) + '</b> <span style="color:' + T3 + ';font-size:.64rem;">' + sem(r.data) + '</span></button>'; }).join('')
+            + '</div><div data-pvbox="' + f + '"></div></div>';
+        }
+        h += '</div>';
+      });
+      if (semErro.length) h += '<div style="font-size:.72rem;color:#4ade80;margin:-2px 0 6px;">✓ Sem erros: ' + esc(semErro.join(', ')) + '</div>';
+      P.innerHTML = h;
     }
     // grava o dia no RH (o que vai no relatório) com o mesmo cálculo da importação
     function gravarLocal(fid, dt, t, obs) { // t = [entrada, saidaAlm, voltaAlm, saida] em minutos (NaN = sem)
@@ -385,7 +404,9 @@
       }).catch(function (e) { d.querySelector('#crL').textContent = e.message; });
     }
     d.querySelector('#crF').onchange = function () { costume = costumes[d.querySelector('#crF').value] || costume; carregar(); if (!equipe) carregarProblemas(); }; d.querySelector('#crD').onchange = function () { carregar(); };
-    d.querySelector('#crP').onclick = function (ev) { var b = ev.target.closest('[data-pb]'); if (b) return corrigirLocal(problemas[+b.getAttribute('data-pb')]); var pf = ev.target.closest('[data-pf]'); if (pf) return marcarFalta(problemas[+pf.getAttribute('data-pf')]); var q = ev.target.closest('[data-pq]'); if (q) return perguntar(problemas[+q.getAttribute('data-pq')]); if (ev.target.closest('[data-todos]')) corrigirTodos(); };
+    d.querySelector('#crP').onclick = function (ev) {
+      var pv = ev.target.closest('[data-pv]'); if (pv) { var r = problemas[+pv.getAttribute('data-pv')], box = d.querySelector('[data-pvbox="' + r.fid + '"]'); if (box) box.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;padding:8px;border-radius:10px;background:#1a1a24;"><span style="font-size:.74rem;color:#fff;margin-right:4px;"><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b>:</span><button data-pb="' + r.i + '" style="padding:6px 10px;border-radius:8px;border:1px solid #4ade80;background:none;color:#4ade80;font-weight:700;font-size:.72rem;">✓ Trabalhou</button><button data-pf="' + r.i + '" style="padding:6px 10px;border-radius:8px;border:1px solid #f87171;background:none;color:#f87171;font-weight:700;font-size:.72rem;">✗ Faltou</button><button data-pq="' + r.i + '" style="padding:6px 10px;border-radius:8px;border:1px solid ' + BD + ';background:none;color:#fff;font-size:.72rem;">📱 Perguntar</button></div>'; return; }
+      var b = ev.target.closest('[data-pb]'); if (b) return corrigirLocal(problemas[+b.getAttribute('data-pb')]); var pf = ev.target.closest('[data-pf]'); if (pf) return marcarFalta(problemas[+pf.getAttribute('data-pf')]); var q = ev.target.closest('[data-pq]'); if (q) return perguntar(problemas[+q.getAttribute('data-pq')]); if (ev.target.closest('[data-todos]')) corrigirTodos(); };
     d.querySelector('#crL').addEventListener('change', function () { lerCampos(); avisoAoVivo(); });
     d.querySelector('#crL').onclick = function (ev) { var b = ev.target.closest('[data-rm]'); if (!b) return; lerCampos(); var x = linhas[+b.getAttribute('data-rm')]; if (x.id) x.remover = true; else linhas.splice(+b.getAttribute('data-rm'), 1); desenhar(); };
     d.querySelector('#crAdd').onclick = function () { lerCampos(); var tem = linhas.filter(function (x) { return !x.remover; }).map(function (x) { return x.tipo; }); var prox = TP_OPT.map(function (o) { return o[0]; }).filter(function (t) { return tem.indexOf(t) < 0; })[0] || 'saida'; linhas.push({ tipo: prox, hora: '' }); desenhar(); };
@@ -408,6 +429,9 @@
         .then(function () { toastP('✓ ' + ops.length + ' correção(ões) salva(s)'); bt.disabled = false; bt.textContent = 'Salvar correções'; d.querySelector('#crM').value = ''; carregar(); carregarProblemas(); recarregar(); try { sincronizarAuto && sincronizarAuto(true); } catch (e) {} })
         .catch(function (e) { bt.disabled = false; bt.textContent = 'Salvar correções'; toastP(e.message); });
     };
+    // v28: na tela da equipe só a lista de erros (o editor de batidas do celular fica na tela de cada funcionário)
+    if (equipe) { ['#crL', '#crAdd', '#crM', '#crOk', '#crAv'].forEach(function (q) { var el = d.querySelector(q); if (el) el.style.display = 'none'; }); var rowFD = d.querySelector('#crF').parentNode; rowFD.style.display = 'none'; d.querySelector('#crC').textContent = 'Fechar'; }
+    else { var tit = document.createElement('div'); tit.style.cssText = 'font-size:.66rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin:6px 0 6px;border-top:1px solid ' + BD + ';padding-top:10px;'; tit.textContent = 'Batidas do celular no dia escolhido'; d.querySelector('#crAv').parentNode.insertBefore(tit, d.querySelector('#crAv')); }
     carregar(); carregarProblemas();
   }
   function ajuste() {
