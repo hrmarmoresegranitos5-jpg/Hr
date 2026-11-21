@@ -8834,7 +8834,7 @@ async function equipeAtualizar(env, a) {
   let ed = []; try { ed = JSON.parse((await env.HR_KV.get(EQ_ED)) || '[]'); } catch (_) {}
   ed.push({ id: String(Date.now()) + Math.random().toString(36).slice(2, 5), funcId: f.id, muda, em: Date.now() });
   await env.HR_KV.put(EQ_ED, JSON.stringify(ed.slice(-50)), { expirationTtl: 30 * 86400 });
-  if (muda.tel) { const cfg = await pontoCfg(env); const cf = cfg.funcs.find(x => x.id === f.id); if (cf) { cf.tel = muda.tel; await pontoCfgSalvar(env, cfg); } }
+  if (muda.tel) { const cfg = await pontoCfg(env); const cf = cfg.funcs.find(x => x.id === f.id); if (cf) { cf.tel = muda.tel; await pontoCfgSalvar(env, cfg); } await eqTelGravar(env, f.id, muda.tel, 'ficha'); }
   return { texto: `Atualizado na ficha de ${f.nome}: ${Object.entries(muda).filter(([k]) => k !== 'foto').map(([k, v]) => `${({ tel: 'telefone', nasc: 'nascimento', adm: 'admissão', fIni: 'início das férias', fFim: 'fim das férias', cargo: 'cargo', nome: 'nome completo', cpf: 'CPF', pix: 'chave Pix', banco: 'banco' })[k]} ${/^\d{4}-/.test(v) ? dataBR(v) : v}`).join(', ')}. Vai para o RH do app na próxima vez que ele abrir. Confirme em UMA frase.` };
 }
 // rotina diária (7h–10h): aniversários, tempo de casa e férias
@@ -10751,7 +10751,7 @@ async function eqContatoBotao(env, from, id) {
   for (const it of d.itens) {
     const f = cfg.funcs.find(x => String(x.id) === String(it.fid)); if (!f) continue;
     f.tel = it.tel; await pontoCfgSalvar(env, cfg);
-    { let tf = {}; try { tf = JSON.parse((await env.HR_KV.get('eq:telfix')) || '{}') || {}; } catch (_) {} tf[f.id] = it.tel; await env.HR_KV.put('eq:telfix', JSON.stringify(tf)); } // v226
+    await eqTelGravar(env, f.id, it.tel, 'contato do dono'); // v246
     await equipeAtualizar(env, { funcionario: f.nome, telefone: it.tel }).catch(() => null); // também vai para o RH do app
     const r = emTesteEquipe(env) ? 'teste' : await eqManualPara(env, f.id).catch(() => 'falha');
     linhas.push(`• *${apelidoFunc(cfg, f)}*: ${fmtNumero(it.tel)} gravado no RH · ${r === 'ok' ? 'recebeu o manual' : r === 'modelo' ? 'recebeu o aviso (o manual vai quando ele responder)' : r === 'teste' ? 'equipe em teste: manual não enviado (mande _equipe valendo_)' : 'não consegui mandar o manual'}`);
@@ -19667,6 +19667,7 @@ async function tratarMensagemBase(env, m, ctx) {
       }
       if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       if (await eqContatoPendTexto(env, from, bruto).catch(() => false)) return; // v225
+      if (/^(?:quais (?:sao )?(?:os )?)?(?:contatos|numeros|telefones|whatsapps?|zaps?)(?: salvos)? da equipe\??$|^(?:lista|mostra|ver)(?: os)? (?:contatos|numeros|telefones) da equipe\??$/.test(normaliza(bruto))) { await enviar(env, from, await eqContatosTexto(env)); return; } // v246
       if (await relCorrTexto(env, from, bruto).catch(e => { console.log('[REL] corr texto:', e.message); return false; })) return; // v238
       { const mc = normaliza(bruto).match(/^(?:desconsider\w*|cancel\w*|anul\w*|desfaz\w*)(?: o)? relatorio(?: (?:de ponto|do ponto))?(?: (?:de|do|da|pro|pra))? ?(.*?)[.!? ]*$/); if (mc) { await enviar(env, from, await relCancelar(env, mc[1] || '')); return; } } // v241
       { const nb = normaliza(bruto), mr = nb.match(/^(?:(?:pode |me )?(?:mand[ae]r?|envi[ae]r?|reenvi[ae]r?|mostr[ae]r?|ver|quero(?: ver)?|ger[ae]r?|faz|faca)(?: o| de novo o| me)? )?relatorio(?: (?:de ponto|do ponto))?(?: (?:de|do|da|pro|pra|para o|para a))? ?(.*?)[.!? ]*$/);
@@ -28988,7 +28989,7 @@ async function eqAprenderNumero(env, from, perfil) {
   let f = cfg.funcs.find(x => nomes.some(nm => nm.split(' ')[0] === normaliza(String(x.nome)).split(' ')[0] || nm.split(' ')[0] === normaliza(apelidoFunc(cfg, x))));
   if (!f) { const fx = await funcoesEquipe(env).catch(() => null); const papel = n.entrega && ultimos8(n.entrega) === u ? ['instalacao', 'entrega'] : ['corte', 'fabricacao']; const c = cfg.funcs.filter(x => ((fx && fx.map[x.id]) || []).some(r => papel.includes(r))); if (c.length === 1) f = c[0]; }
   if (!f) return null;
-  const t2 = Object.assign({}, cfg._tel2 || {}); t2[u] = String(f.id); t2['n:' + u] = normalizarBR(String(from)); await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
+  const t2 = Object.assign({}, cfg._tel2 || {}); t2[u] = String(f.id); t2['n:' + u] = normalizarBR(String(from)); await env.HR_KV.put('eq:tels2', JSON.stringify(t2)); if (!f.tel) await eqTelGravar(env, f.id, from, 'aprendido nas conversas'); // v246
   await env.HR_KV.delete('ca:' + from).catch(() => {});
   await pontoAvisarDono(env, `ℹ️ Reconheci o número final ${u.slice(-4)} como sendo do *${apelidoFunc(cfg, f)}* (equipe). Daqui pra frente ele não é tratado como cliente.`).catch(() => {});
   return f;
@@ -29198,6 +29199,23 @@ async function eqFichaRotina(env) { // uma vez: pede a ficha a quem já tem núm
   }
 }
 
+
+// v246: WhatsApp da equipe guardado PARA SEMPRE (sem prazo de validade) + histórico de onde veio cada número
+async function eqTelGravar(env, fid, tel, fonte) {
+  tel = normalizarBR(String(tel || '').replace(/\D/g, '')); if (tel.length < 12) return false; fid = String(fid);
+  let tf = {}; try { tf = JSON.parse((await env.HR_KV.get('eq:telfix')) || '{}') || {}; } catch (_) {}
+  let t2 = {}; try { t2 = JSON.parse((await env.HR_KV.get('eq:tels2')) || '{}') || {}; } catch (_) {}
+  const u = ultimos8(tel), mudou = tf[fid] !== tel;
+  tf[fid] = tel; t2[u] = fid; t2['n:' + u] = tel;
+  await env.HR_KV.put('eq:telfix', JSON.stringify(tf)); await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
+  if (mudou) { let h = []; try { h = JSON.parse((await env.HR_KV.get('eq:telhist')) || '[]'); } catch (_) {} h.push({ fid, tel, fonte: String(fonte || '').slice(0, 30), em: Date.now() }); await env.HR_KV.put('eq:telhist', JSON.stringify(h.slice(-200))); }
+  return mudou;
+}
+async function eqContatosTexto(env) {
+  const cfg = await pontoCfg(env), ign = await eqIgnorados(env), com = [], sem = [];
+  for (const f of cfg.funcs) { if (ign.has(String(f.id))) continue; (f.tel ? com : sem).push(f); }
+  return [`*WhatsApp da equipe* (guardado para sempre):`, ...com.map(f => `• ${f.nome}: ${fmtNumero(f.tel)}`), sem.length ? `\nSem número: ${sem.map(f => apelidoFunc(cfg, f)).join(', ')}. Mande o contato aqui e diga quem é.` : ''].filter(Boolean).join('\n');
+}
 // v224: AUTOCADASTRO DA EQUIPE — o bot acha o número nas conversas, pergunta ao PRÓPRIO funcionário se é ele
 // ("Você é o Lucas da equipe da HR?") e, confirmado, cadastra sozinho, pede a ficha e manda o que estava parado.
 // Também reconhece quando alguém da equipe escreve de um número novo (nome do perfil igual ao de quem está sem telefone).
@@ -29317,7 +29335,7 @@ async function eqCadastrarConfirmado(env, f, num, from, opt) {
   const outro = cfg.funcs.find(x => x.id !== cf.id && x.tel && ultimos8(x.tel) === ultimos8(num)); // v232: um número, uma pessoa
   if (outro) { await pontoAvisarDono(env, `Não cadastrei ${fmtNumero(num)} para ${cf.nome}: esse número já é de ${outro.nome}. Se mudou, mande o contato certo de cada um.`).catch(() => {}); return null; }
   cf.tel = num; await pontoCfgSalvar(env, cfg);
-  { let tf = {}; try { tf = JSON.parse((await env.HR_KV.get('eq:telfix')) || '{}') || {}; } catch (_) {} tf[cf.id] = num; await env.HR_KV.put('eq:telfix', JSON.stringify(tf)); }
+  await eqTelGravar(env, cf.id, num, opt.porDono ? 'contato do dono' : 'confirmou pelo WhatsApp'); // v246
   await equipeAtualizar(env, { funcionario: cf.nome, telefone: num }).catch(() => null);
   const t2 = Object.assign({}, cfg._tel2 || {}), u = ultimos8(num); t2[u] = String(cf.id); t2['n:' + u] = num; await env.HR_KV.put('eq:tels2', JSON.stringify(t2));
   if (!opt.porDono) await env.HR_KV.put('ponto:ultzap:' + cf.id, String(Date.now()), { expirationTtl: 2 * 86400 });
@@ -30654,6 +30672,7 @@ async function pontoRotina(env) {
       if (linhas.length) await pontoAvisarDono(env, linhas.join('\n')).catch(() => {});
     } catch (e) { console.log('[FIX] hugo:', e.message); }
   }
+  if (await umaVez(env, 'telfix:v246', 3650)) { const cfgT = await pontoCfg(env); for (const f of cfgT.funcs) if (f.tel) await eqTelGravar(env, f.id, f.tel, 'já cadastrado').catch(() => {}); } // v246
   if (await umaVez(env, 'eqctth:v226', 30)) await eqContatosHistorico(env).then(r => { if (r.feitos.filter(x => !x.ja).length) return pontoAvisarDono(env, `✅ Cadastrei na equipe pelos contatos que o senhor me mandou:\n${eqResumoCadastro(r.cfg, r.feitos.filter(x => !x.ja))}`); }).catch(e => console.log('hist contatos', e && e.message)); // v225
 
   await eqAutoCadastroRotina(env).catch(e => console.log('autocadastro equipe', e && e.message)); // v224
@@ -30683,6 +30702,7 @@ async function rotaBotPonto(req, env, url) {
     const b = await req.json().catch(() => ({})); const funcs = equipeLimpar(b.funcs);
     if (funcs.length) await env.HR_KV.put(EQ_K, JSON.stringify({ em: Date.now(), funcs }));
     let ed = []; try { ed = JSON.parse((await env.HR_KV.get(EQ_ED)) || '[]'); } catch (_) {}
+    for (const f of funcs) if (f.tel && !ed.some(x => String(x.funcId) === String(f.id) && x.muda && x.muda.tel)) await eqTelGravar(env, f.id, f.tel, 'RH do app').catch(() => {}); // v246
     return jsonR({ ok: true, n: funcs.length, edits: ed });
   }
   if (p === '/bot/ponto/equipe/ok' && req.method === 'POST') { // o app aplicou as mudanças feitas pelo WhatsApp
