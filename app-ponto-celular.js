@@ -272,7 +272,8 @@
     var costumes = {};
     function carregarProblemas() {
       var fSel = d.querySelector('#crF').value, P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.7rem;color:' + T3 + ';">Procurando erros dos últimos 12 dias…</div>';
-      api('/bot/ponto/registros?de=' + diaMenos(12) + '&ate=' + hoje()).then(function (j) {
+      var tmo = new Promise(function (_, er) { setTimeout(function () { er(new Error('tempo')); }, 25000); });
+      Promise.race([api('/bot/ponto/registros?leve=1&de=' + diaMenos(12) + '&ate=' + hoje() + (equipe ? '' : '&funcId=' + encodeURIComponent(fSel))), tmo]).then(function (j) {
         var nomes = {}; (j.funcs || []).forEach(function (x) { nomes[x.id] = x.nome; });
         var alvo = equipe ? Object.keys(nomes) : [fSel];
         problemas = [];
@@ -292,7 +293,7 @@
             return '<div style="display:flex;gap:6px;margin-bottom:6px;"><button data-pb="' + i + '" style="flex:1;display:flex;justify-content:space-between;gap:8px;text-align:left;padding:9px 10px;border-radius:10px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.08);color:#fff;font-family:Outfit,sans-serif;font-size:.78rem;"><span><b>' + r.data.slice(8) + '/' + r.data.slice(5, 7) + '</b>' + (equipe ? ' · ' + esc(r.nome) : '') + ' · ' + esc(r.txt) + '</span><span style="color:' + GOLD + ';font-weight:700;white-space:nowrap;">Corrigir ›</span></button>'
               + (r.sug.length ? '<button data-pq="' + i + '" title="Perguntar a ele no WhatsApp" style="padding:0 10px;border-radius:10px;border:1px solid ' + BD + ';background:none;color:#fff;font-size:.9rem;">📱</button>' : '') + '</div>';
           }).join('') + '<div style="font-size:.64rem;color:' + T3 + ';margin-top:2px;">📱 = o bot pergunta o horário a ele; a resposta chega para o senhor aprovar.</div>';
-      }).catch(function () { P.innerHTML = ''; });
+      }).catch(function (e) { P.innerHTML = '<div style="font-size:.72rem;color:#f87171;">Não consegui procurar os erros agora (' + esc(e.message) + '). <button onclick="this.parentNode.textContent=\'\'" style="display:none"></button></div>'; });
     }
     function corrigirTodos() {
       var auto = problemas.filter(function (r) { return r.sug.length || Object.keys(r.troca).length; });
@@ -300,7 +301,7 @@
       var ops = [];
       auto.forEach(function (r) {
         var f = r.fid || d.querySelector('#crF').value;
-        Object.keys(r.troca).forEach(function (id) { ops.push(function () { return api('/bot/ponto/registros?de=' + r.data + '&ate=' + r.data).then(function (j) { var b = (((j.dias || {})[r.data] || {})[f] || []).filter(function (x) { return x.id === id; })[0]; if (b) return api('/bot/ponto/ajuste', { funcId: f, data: r.data, id: id, acao: 'editar', tipo: r.troca[id], hora: b.hora, motivo: r.mot }); }); }); });
+        Object.keys(r.troca).forEach(function (id) { ops.push(function () { return api('/bot/ponto/registros?leve=1&de=' + r.data + '&ate=' + r.data + '&funcId=' + encodeURIComponent(f)).then(function (j) { var b = (((j.dias || {})[r.data] || {})[f] || []).filter(function (x) { return x.id === id; })[0]; if (b) return api('/bot/ponto/ajuste', { funcId: f, data: r.data, id: id, acao: 'editar', tipo: r.troca[id], hora: b.hora, motivo: r.mot }); }); }); });
         r.sug.forEach(function (sg) { ops.push(function () { return api('/bot/ponto/ajuste', { funcId: f, data: r.data, tipo: sg.tipo, hora: sg.hora, motivo: r.mot + ' (horário de costume)' }); }); });
       });
       var P = d.querySelector('#crP'); P.innerHTML = '<div style="font-size:.72rem;color:' + GOLD + ';">Corrigindo ' + auto.length + ' dia(s)…</div>';
@@ -331,7 +332,7 @@
     function lerCampos() { d.querySelectorAll('#crL [data-i]').forEach(function (row) { var x = linhas[+row.getAttribute('data-i')]; x.tipo = row.querySelector('[data-k=tipo]').value; x.hora = row.querySelector('[data-k=hora]').value; }); }
     function carregar(cb) {
       var f = d.querySelector('#crF').value, dt = d.querySelector('#crD').value; d.querySelector('#crL').textContent = 'Carregando…';
-      api('/bot/ponto/registros?de=' + dt + '&ate=' + dt).then(function (j) {
+      api('/bot/ponto/registros?leve=1&de=' + dt + '&ate=' + dt + '&funcId=' + encodeURIComponent(f)).then(function (j) {
         var l = ((j.dias || {})[dt] || {})[f] || [];
         linhas = l.filter(function (b) { return b.status !== 'recusada'; }).map(function (b) { return { id: b.id, tipo: b.tipo, hora: b.hora, tipo0: b.tipo, hora0: b.hora, status: b.status, horaOriginal: b.horaOriginal }; });
         desenhar(); if (typeof cb === 'function') cb();
