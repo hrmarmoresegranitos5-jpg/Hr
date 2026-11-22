@@ -11835,11 +11835,10 @@ async function auditoriaRotina(env) {
 async function premioExigencias(env, fid, mes, ws) {
   const hoje = dataBahia(), dias = {}; let uteis = 0, bateu = 0;
   for (const w of ws) { if (w.futura || !w.meta) continue; const md0 = metaDoDia(w.meta);
-    // v255: serviço grande (cozinha) soma os pontos no dia em que termina: o dia conta como batido se o ACUMULADO da semana até ele cobre a meta dos dias, ou se a semana inteira bateu a meta
     for (let k = 0, cum = 0, cumMeta = 0; k < 6; k++) { const d = isoSomaDias(w.ini, k); const trab = dsmDiaTrab(env, d); const md = d >= MES100_INI ? metaDiaData(env, d) : md0; const pd = (w.tarefasDia || {})[d] || 0;
       if (trab && md > 0 && d <= hoje) { cum += pd; cumMeta += md; }
       if (d.slice(0, 7) !== mes || d > hoje || !trab || !(md > 0)) continue;
-      const ok = pd >= md || cum >= cumMeta || (w.meta > 0 && w.pts >= w.meta); if (d === hoje && !ok) continue; uteis++; if (ok) bateu++; dias[d] = pd; } }
+      const ok = pd >= md; if (d === hoje && !ok) continue; uteis++; if (ok) bateu++; dias[d] = pd; } } // v256: meta do dia volta a ser exigente (só o dia que fez a meta conta); o justo fica por conta dos pontos divididos pelos dias trabalhados (v255b)
   let retrab = 0, perdas = 0, notas = []; const de = mes + '-01', ate = isoSomaDias(isoSomaDias(de, 32).slice(0, 7) + '-01', -1);
   for (const p of await pedidosProducao(env, () => true)) for (const x of (p.prodLog || [])) { const d = diaDe(x.ts); if (d < de || d > ate || !(x.por || []).map(String).includes(String(fid))) continue; if (x.e === 'retrabalho') retrab++; if (x.e === 'avaliacao' && x.nota) notas.push(+x.nota); }
   try { if (env.HR_DB) { const r = await env.HR_DB.prepare('SELECT COUNT(*) n FROM perda WHERE func = ? AND dia BETWEEN ? AND ?').bind(String(fid), de, ate).first(); perdas = +(r && r.n) || 0; } } catch (_) {}
