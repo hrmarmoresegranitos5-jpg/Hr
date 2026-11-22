@@ -6888,6 +6888,7 @@ async function pedirAvaliacoes(env) {
   await dividaLimparPedidosFalsos(env).catch(e => console.log('[DIV] limpar:', e.message)); // v252
   await dividaPromessasRotina(env).catch(e => console.log('[DIV] promessas:', e.message)); // v253
   await quitAntesRotina(env).catch(e => console.log('[QUIT] antes:', e.message)); // v258
+  if (cbAtivo(env)) await dividaAvisoFinalRotina(env).catch(e => console.log('[DIV] aviso final:', e.message)); // v259
   if (horaComercialBahia()) await dividaRadarPix(env).catch(e => console.log('[DIV] radar:', e.message)); // v253
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
@@ -10898,10 +10899,13 @@ async function dividaAcaoBotao(env, from, id) {
   const [tp, a1, a2] = id.split('|'), cid = tp === 'dva' ? a1 : a2;
   const cb = await cbFirst(env, 'SELECT * FROM cobrancas WHERE id = ?', cid).catch(() => null);
   if (!cb || ['pago', 'cancelada'].includes(cb.status)) { await enviar(env, from, 'Essa cobrança já foi paga ou cancelada.'); return; }
-  const saldo = (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0), nm = cb.cliente_nome || 'cliente';
+  const saldo = (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0), nm = cb.cliente_nome || 'cliente'; let saldoAt = saldo; // v259: saldo com encargos de hoje
   if (tp === 'dva') {
-    await enviarComBotoes(env, from, `*${nm}* · ${cb.protocolo || ''}\nSaldo: *${moedaCb(saldo)}* · ${cbTextoAtraso(cbDiasEntre(cb.vencimento, dataBahia()))}${cb.promessa_ate ? '\nPrometeu: ' + dataBR(cb.promessa_ate) : ''}\n\nO que faço?`,
-      [{ id: 'dvx|pix|' + cb.id, titulo: 'Mandar Pix agora' }, { id: 'dvx|prazo|' + cb.id, titulo: 'Prazo final 5 dias' }, { id: 'dvx|pausa|' + cb.id, titulo: 'Pausar lembretes' }]);
+    await enviarLista(env, from, `*${nm}* · ${cb.protocolo || ''}\nSaldo: *${moedaCb(saldo)}* · ${cbTextoAtraso(cbDiasEntre(cb.vencimento, dataBahia()))}${cb.promessa_ate ? '\nPrometeu: ' + dataBR(cb.promessa_ate) : ''}\n\nO que faço?`, 'Escolher', [
+      { id: 'dvx|pix|' + cb.id, titulo: 'Mandar Pix agora', descricao: 'Pix do saldo, na hora' },
+      { id: 'dvx|prazo|' + cb.id, titulo: 'Prazo final 5 dias', descricao: 'Aviso formal + PDF, depois multa e juros' },
+      { id: 'dvx|final|' + cb.id, titulo: 'Aviso final (duro)', descricao: '3 dias úteis; depois medidas de cobrança' },
+      { id: 'dvx|pausa|' + cb.id, titulo: 'Pausar lembretes', descricao: 'O senhor fala com ele' }]);
     return;
   }
   if (a1 === 'pix') {
@@ -10913,7 +10917,72 @@ async function dividaAcaoBotao(env, from, id) {
     return;
   }
   if (a1 === 'prazo') { const r = await quitTool(env, from, { cliente: nm, numero: cb.cliente_numero, total: Math.max(1, (+cb.principal_centavos || saldo) - (+cb.recebido_centavos || 0)) / 100, ja_pago: 0, prazo: isoSomaDias(dataBahia(), 5), descricao: cb.descricao || '' }); if (r && r.erro) await enviar(env, from, r.texto); return; }
+  if (a1 === 'final' || a1 === 'finok') { try { const enc = cbEncargos(env, +cb.principal_centavos || 0, cb.vencimento, dataBahia()); const at = (+cb.principal_centavos || 0) + enc.multaC + enc.jurosC - (+cb.desconto_centavos || 0) - (+cb.recebido_centavos || 0); if (at > 0) saldoAt = at; } catch (_) {} }
+  if (a1 === 'final') { // v259: aviso final, com tom duro e prazo curto — o dono vê o texto antes
+    const prazo = diasUteisDepois(env, dataBahia(), 3);
+    const txt = avisoFinalTexto(env, cb, saldoAt, prazo);
+    await env.HR_KV.put('dvfin:' + cb.id, JSON.stringify({ prazo }), { expirationTtl: 3 * 86400 });
+    await enviar(env, from, `*Aviso final · ${nm}* (prévia, nada foi enviado)\n\n${txt}`);
+    await enviarComBotoes(env, from, 'Mando para ele, com o PDF?', [{ id: 'dvx|finok|' + cb.id, titulo: 'Enviar aviso final' }, { id: 'dvx|finno|' + cb.id, titulo: 'Não enviar' }]);
+    return;
+  }
+  if (a1 === 'finno') { await enviar(env, from, 'Certo, não enviei.'); return; }
+  if (a1 === 'finok') {
+    let pz = null; try { pz = JSON.parse((await env.HR_KV.get('dvfin:' + cb.id)) || 'null'); } catch (_) {}
+    const prazo = (pz && pz.prazo) || diasUteisDepois(env, dataBahia(), 3), num = normalizarBR(cb.cliente_numero);
+    if (!(await janela24h(env, num))) { await cbBumpPro(env, cb, { from, auto: false }); await enviar(env, from, `${nm} está fora das 24 h do WhatsApp: mandei a cobrança pelo modelo aprovado. Quando ele responder (até a resposta automática abre a conversa), toque de novo em Aviso final.`); return; }
+    await enviar(env, num, avisoFinalTexto(env, cb, saldoAt, prazo));
+    try { const pdf = avisoFinalPdf(env, cb, saldoAt, prazo), up = await subirPdfMeta(env, pdf.bytes, pdf.nome); await postarMsg(env, num, { type: 'document', document: { id: up.id, filename: pdf.nome, caption: 'Aviso final de cobrança' } }); } catch (e) { console.log('[DIV] pdf final:', e.message); }
+    await dividaEnviarPix(env, num, { cobs: [cb] }, '').catch(() => {});
+    await cbBatch(env, [cbEvt(env, cb.id, 'aviso_final', `prazo ${prazo}`, 'dono')]).catch(() => {});
+    await anotarNoHistorico(env, num, `[AVISO FINAL enviado: saldo ${moedaCb(saldo)} até ${dataBR(prazo)}. Responda com educação e firmeza; não ofereça prazo, desconto nem parcelamento: isso é com o Sr. Hangel.]`).catch(() => {});
+    await enviar(env, from, `Aviso final enviado a ${nm}, com o PDF e o Pix. Prazo: ${dataBR(prazo)}. Se não pagar até lá, eu aviso o senhor para decidir o próximo passo.`);
+    await env.HR_KV.put('dvfinlemb:' + cb.id, JSON.stringify({ prazo, nome: nm, num }), { expirationTtl: 20 * 86400 });
+    return;
+  }
   if (a1 === 'pausa') { await tratarCobrancaProComando(env, from, 'pausar cobranca ' + String(cb.protocolo || normaliza(nm)).toLowerCase()); return; }
+}
+function diasUteisDepois(env, ini, n) { let d = ini, k = 0; while (k < n) { d = isoSomaDias(d, 1); if (dsmDiaTrab(env, d) && diaSemanaISO(d) !== 6) k++; } return d; }
+function avisoFinalTexto(env, cb, saldoC, prazo) {
+  const emp = env.EMPRESA || 'HR Mármores e Granitos', dias = cbDiasEntre(cb.vencimento, dataBahia());
+  return [
+    `*AVISO FINAL DE COBRANÇA* · ${cb.protocolo || ''}`,
+    `${cb.cliente_nome}, a cobrança da ${emp}${cb.descricao ? ' referente a ' + cb.descricao : ''}${dias > 0 ? ' está vencida há ' + dias + ' dias' : ''}. Ela e os lembretes foram entregues neste WhatsApp, sem pagamento nem resposta.`,
+    `Valor em aberto, com multa e juros até hoje: *${moedaCb(saldoC)}*.`,
+    `Prazo final para pagamento: *${dataBR(prazo)}*. O Pix segue abaixo.`,
+    'Não havendo pagamento até essa data, a cobrança seguirá pelas medidas previstas em lei, que podem incluir protesto e inclusão em cadastros de inadimplentes, sem novo aviso por este canal.',
+    'Se já pagou, envie o comprovante aqui. Para qualquer acerto, responda esta mensagem ainda hoje.',
+  ].join('\n\n');
+}
+function avisoFinalPdf(env, cb, saldoC, prazo) {
+  const G = [0.62, 0.48, 0.16], emp = env.EMPRESA || 'HR Mármores e Granitos', [yy, mm, dd] = dataBahia().split('-');
+  const L = [
+    { t: emp.toUpperCase(), s: 16, b: 1, a: 'c', c: G, g: 0 },
+    { t: `CNPJ ${env.EMPRESA_CNPJ || '64.639.182/0001-28'} · ${ENDERECO_MARMORARIA} · Pilão Arcado – BA`, s: 8, a: 'c', c: [0.4, 0.4, 0.4], g: 8 },
+    { t: '---', g: 18 },
+    { t: 'AVISO FINAL DE COBRANÇA', s: 14, b: 1, a: 'c', g: 0 },
+    { t: `Protocolo ${cb.protocolo || cb.id}`, s: 9, a: 'c', c: [0.4, 0.4, 0.4], g: 14 },
+    { t: `Devedor(a): ${cb.cliente_nome} · WhatsApp ${fmtNumero(normalizarBR(cb.cliente_numero))}`, g: 2 },
+    { t: `Referente a: ${cb.descricao || 'fornecimento de peças em pedra natural'}`, g: 2 },
+    { t: `Vencimento original: ${dataBR(cb.vencimento)}`, g: 10 },
+    { t: '1. VALOR', s: 10, b: 1, c: G, g: 2 },
+    { t: `Valor em aberto, com multa de 2% (art. 52, § 1º, do CDC) e juros de mora de 1% ao mês até a data deste aviso: ${moedaCb(saldoC)}.`, g: 8 },
+    { t: '2. PRAZO FINAL', s: 10, b: 1, c: G, g: 2 },
+    { t: `Pagamento até ${dataBR(prazo)}, por Pix pelo link/QR code enviado pelo WhatsApp oficial da ${emp}. Os juros continuam correndo até o pagamento.`, g: 8 },
+    { t: '3. CONSEQUÊNCIAS', s: 10, b: 1, c: G, g: 2 },
+    { t: 'Não havendo pagamento até a data acima, a cobrança seguirá pelas medidas previstas em lei, que podem incluir protesto e inclusão em cadastros de inadimplentes.', g: 8 },
+    { t: `Pilão Arcado – BA, ${+dd} de ${NOMES_MES[+mm - 1]} de ${yy}.`, a: 'c', g: 6 },
+  ];
+  return { bytes: pdfDocumento(L), nome: `Aviso final ${cb.protocolo || ''} - ${cb.cliente_nome}.pdf` };
+}
+async function dividaAvisoFinalRotina(env) { // depois do prazo do aviso final: avisa o dono para decidir
+  const l = await listarTodas(env, 'dvfinlemb:').catch(() => ({ keys: [] }));
+  for (const k of l.keys) { let x = null; try { x = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (!x || x.prazo >= dataBahia()) continue;
+    await env.HR_KV.delete(k.name); const cid = k.name.slice('dvfinlemb:'.length);
+    const cb = await cbFirst(env, 'SELECT * FROM cobrancas WHERE id = ?', cid).catch(() => null);
+    if (!cb || ['pago', 'cancelada'].includes(cb.status)) { if (cb && cb.status === 'pago') await notificarDono(env, Date.now(), `*${x.nome}* pagou depois do aviso final.`).catch(() => {}); continue; }
+    await notificarDono(env, Date.now(), `*${x.nome}* não pagou até ${dataBR(x.prazo)} (prazo do aviso final). Saldo ${moedaCb((+cb.total_centavos || 0) - (+cb.recebido_centavos || 0))}. Próximo passo é com o senhor: protesto em cartório, negativação pelo seu banco/contador ou conversa direta. Os lembretes automáticos continuam.\nwa.me/${x.num}`).catch(() => {});
+  }
 }
 async function dividaEnviarPix(env, num, d, intro) {
   const cb = d.cobs[0]; if (intro) await enviar(env, num, intro);
@@ -19912,6 +19981,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono) await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {});
   if (!dono && (m.type === 'audio' || m.type === 'text')) await kvGravarSeMudou(env, 'clivoz:' + ultimos8(from), m.type === 'audio' ? '1' : '0', 3 * 24 * 60 * 60).catch(() => {});
   if (!dono) await kvUltimoCliente(env, from).catch(() => {});
+  if (!dono && m.type === 'text' && ehRespostaAutomatica(m.text && m.text.body)) { await tratarRespostaAutomatica(env, from, m.text.body); return; } // v115 · v259: antes de tudo (antes a apresentação ainda saía para a resposta automática)
   if (!dono && await garDadosMsg(env, from, m).catch(e => { console.log('[GAR] dados:', e.message); return false; })) return; // v163
   if (!dono && await rcbClienteMsg(env, from, m).catch(e => { console.log('[RCB] cliente:', e.message); return false; })) return; // v157
   if (!dono && await acdClienteMsg(env, from, m).catch(e => { console.log('[ACD] cliente:', e.message); return false; })) return; // v152
@@ -19925,7 +19995,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && await tratarCobrancaCliente(env, from, m).catch(e => { console.log('[BOT] cobrança do cliente:', e.message); return false; })) return; // botões do cartão de cobrança e data de prazo
   if (!dono && await env.HR_KV.get('humano:' + from)) { await repassarAoDono(env, from, m); return; } // dono assumiu: o bot fica quieto
   if (!dono && await tratarPedidoHumano(env, from, m).catch(e => { console.log('[BOT] pedido de atendente:', e.message); return false; })) return; // v74: cliente pediu uma pessoa: liga o modo humano e avisa o dono
-  if (!dono) await apresentarSePrimeira(env, from, m, ctx).catch(e => console.log('[BOT] apresentação:', e.message)); // 1ª conversa: banner + quem somos + o que fazemos
+  if (!dono && !(await dividaCliente(env, from).catch(() => null))) await apresentarSePrimeira(env, from, m, ctx).catch(e => console.log('[BOT] apresentação:', e.message)); // v259: quem deve não recebe banner de propaganda // 1ª conversa: banner + quem somos + o que fazemos
   if (!dono && m.type === 'text') { // indicação (código) e desistência: antes de qualquer outro fluxo do cliente
     const tb = String(m.text?.body || '').trim(), tm = normaliza(tb);
     if (tm) {
@@ -19935,7 +20005,6 @@ async function tratarMensagemBase(env, m, ctx) {
   }
   if (!dono && m.type === 'interactive' && String(m.interactive?.button_reply?.id || '').startsWith('orcsel|')) { await orcSelCliente(env, from, m.interactive.button_reply.id).catch(e => console.log('[ORC] sel:', e.message)); return; } // v118
   if (!dono && await env.HR_KV.get('naocli:' + normalizarBR(from))) return; // v120: contato comercial: o bot não responde mais (o dono assume se quiser)
-  if (!dono && m.type === 'text' && ehRespostaAutomatica(m.text && m.text.body)) { await tratarRespostaAutomatica(env, from, m.text.body); return; } // v115
   if (!dono && (m.type === 'button' || m.type === 'interactive' || m.type === 'text') && await tratarTplPend(env, from, m)) return; // v73
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && ['image', 'document'].includes(m.type) && await orcComprovanteCliente(env, from, m).catch(e => { console.log('[CMP] orçamento:', e.message); return false; })) return; // v126
