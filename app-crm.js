@@ -1,4 +1,4 @@
-// app-crm.js — v2 (visual preto e dourado, filtros, animações). v1: CRM das conversas do bot (Secretária → "Conversas dos clientes").
+// app-crm.js — v3 (conversa com cara de WhatsApp + caixa de mensagem: a Helena revisa e envia). v2 (visual preto e dourado, filtros, animações). v1: CRM das conversas do bot (Secretária → "Conversas dos clientes").
 // Lista de clientes → toque → conversa inteira num visual de WhatsApp: fotos, áudios (com a transcrição),
 // vídeos, documentos, modelos, botões, localização e os tiques de entregue/lido.
 // Dados: Worker /bot/crm/* (x-bot-key). Os arquivos chegam com a chave do bot e viram blob local.
@@ -122,6 +122,63 @@
     '.crm-jan.ok i{background:#34d399;box-shadow:0 0 8px #34d399;animation:crmPulsa 1.6s ease-in-out infinite;}',
     '.crm-rod a{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(135deg,#2be07a,#1fae5b);color:#05140b;text-decoration:none;font-weight:800;border-radius:22px;padding:10px 16px;font-size:.82rem;white-space:nowrap;box-shadow:0 6px 18px rgba(37,211,102,.3);}',
     '.crm-rod a:active{transform:scale(.96);}',
+    /* v3: conversa idêntica ao WhatsApp (modo escuro) */
+    '#hrCrm.wa{background:#0b141a;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#e9edef;}',
+    '#hrCrm.wa::before{display:none;}',
+    '#hrCrm.wa .crm-top{background:#202c33;border-bottom:none;box-shadow:none;min-height:58px;padding:8px 6px;gap:8px;backdrop-filter:none;-webkit-backdrop-filter:none;}',
+    '#hrCrm.wa .crm-top b{font-family:inherit;font-size:1.02rem;font-weight:500;color:#e9edef;letter-spacing:0;}',
+    '#hrCrm.wa .crm-info{color:#8696a0;font-size:.76rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '#hrCrm.wa .crm-ic{background:none;border:none;color:#aebac1;width:40px;height:40px;border-radius:50%;font-size:1.25rem;}',
+    '#hrCrm.wa .crm-ic:active{background:rgba(255,255,255,.08);}',
+    '#hrCrm.wa .crm-ic svg{width:22px;height:22px;}',
+    '#hrCrm.wa .crm-av{box-shadow:none;}',
+    '#hrCrm.wa .crm-chat{background-color:#0b141a;background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2780%27 height=%2780%27%3E%3Cg fill=%27none%27 stroke=%27%23ffffff%27 stroke-opacity=%27.035%27 stroke-width=%271.2%27%3E%3Ccircle cx=%2712%27 cy=%2714%27 r=%275%27/%3E%3Cpath d=%27M50 8l6 6-6 6-6-6z%27/%3E%3Cpath d=%27M20 52c4-6 10-6 14 0%27/%3E%3Crect x=%2756%27 y=%2748%27 width=%2711%27 height=%279%27 rx=%272%27/%3E%3C/g%3E%3C/svg%3E");padding:8px 4.5% 10px;}',
+    '#hrCrm.wa .crm-dia{margin:10px 0 8px;}',
+    '#hrCrm.wa .crm-dia span{background:#182229;border:none;color:#8696a0;font-size:.74rem;font-weight:400;letter-spacing:0;text-transform:none;padding:5px 12px;border-radius:8px;box-shadow:0 1px .5px rgba(11,20,26,.13);backdrop-filter:none;}',
+    '#hrCrm.wa .crm-row{margin:2px 0;}',
+    '#hrCrm.wa .crm-row.novo{animation:none;}',
+    '#hrCrm.wa .crm-bb{border-radius:7.5px;padding:6px 7px 8px 9px;font-size:.93rem;line-height:1.35;box-shadow:0 1px .5px rgba(11,20,26,.13);border:none;color:#e9edef;}',
+    '#hrCrm.wa .crm-row.c .crm-bb{background:#202c33;border:none;border-top-left-radius:0;}',
+    '#hrCrm.wa .crm-row.b .crm-bb{background:#005c4b;border:none;border-top-right-radius:0;color:#e9edef;}',
+    '#hrCrm.wa .crm-row.c .crm-bb::before{content:"";position:absolute;left:-8px;top:0;border-top:0 solid transparent;border-right:8px solid #202c33;border-bottom:10px solid transparent;}',
+    '#hrCrm.wa .crm-row.b .crm-bb::before{content:"";position:absolute;right:-8px;top:0;border-left:8px solid #005c4b;border-bottom:10px solid transparent;}',
+    '#hrCrm.wa .crm-bb a{color:#53bdeb;}',
+    '#hrCrm.wa .crm-meta{color:#ffffff99;font-size:.68rem;margin:8px 0 -5px 12px;}',
+    '#hrCrm.wa .crm-tk{color:#ffffff99;}',
+    '#hrCrm.wa .crm-tk.lido{color:#53bdeb;}',
+    '#hrCrm.wa .crm-bt,#hrCrm.wa .crm-row.c .crm-bt{background:#202c33;border:none;color:#00a884;border-radius:7.5px;font-weight:500;box-shadow:0 1px .5px rgba(11,20,26,.13);}',
+    '#hrCrm.wa .crm-row.b .crm-bt{background:#005c4b;color:#e9edef;}',
+    '#hrCrm.wa .crm-mdl{background:rgba(0,0,0,.25);color:#8696a0;font-weight:500;}',
+    '#hrCrm.wa .crm-resp{color:#ffffffb3;background:rgba(0,0,0,.18);border-left:4px solid #06cf9c;border-radius:5px;padding:5px 7px;margin-bottom:5px;font-size:.78rem;}',
+    '#hrCrm.wa .crm-trans{border-left-color:#06cf9c;}',
+    '#hrCrm.wa .crm-doc{background:rgba(0,0,0,.2);border:none;}',
+    '#hrCrm.wa .crm-doc .sb{color:#8696a0;}',
+    '#hrCrm.wa .crm-aud{filter:none;}',
+    '#hrCrm.wa .crm-rea{background:#202c33;border:1px solid #0b141a;}',
+    '#hrCrm.wa .crm-mais{background:#182229;color:#8696a0;border:none;}',
+    '#hrCrm.wa .crm-vazio{color:#8696a0;}',
+    '#hrCrm.wa .crm-hel{font-size:.62rem;color:#ffffff80;display:block;margin-bottom:2px;}',
+    /* caixa de mensagem */
+    '.crm-comp{background:#0b141a;padding:6px 6px;padding-bottom:max(6px,env(safe-area-inset-bottom));display:flex;align-items:flex-end;gap:6px;}',
+    '.crm-campo{flex:1;background:#2a3942;border-radius:24px;display:flex;align-items:flex-end;padding:0 14px;min-height:48px;}',
+    '.crm-campo textarea{flex:1;background:none!important;border:none!important;box-shadow:none!important;outline:none;color:#e9edef;font-size:1rem;font-family:inherit;resize:none;padding:13px 0;margin:0;max-height:140px;line-height:1.35;scrollbar-width:none;}',
+    '.crm-campo textarea::-webkit-scrollbar{display:none;}',
+    '.crm-campo textarea::placeholder{color:#8696a0;}',
+    '.crm-env{width:48px;height:48px;border-radius:50%;background:#00a884;border:none;color:#111b21;display:flex;align-items:center;justify-content:center;flex:none;cursor:pointer;transition:transform .12s;}',
+    '.crm-env:active{transform:scale(.92);}',
+    '.crm-env[disabled]{opacity:.6;}',
+    '.crm-env svg{width:24px;height:24px;}',
+    '.crm-gira{width:20px;height:20px;border:2.5px solid #111b21;border-top-color:transparent;border-radius:50%;animation:crmRoda .8s linear infinite;}',
+    '.crm-prev{background:#1f2c34;border-top:1px solid #2a3942;padding:10px 12px 8px;animation:crmSobe .2s ease;}',
+    '.crm-prev .tt{font-size:.74rem;color:#00a884;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;}',
+    '.crm-prev .tt span{color:#8696a0;font-weight:400;}',
+    '.crm-prev textarea{width:100%;background:#005c4b!important;color:#e9edef;border:none!important;border-radius:7.5px;padding:8px 10px;font-size:.93rem;font-family:inherit;line-height:1.35;resize:none;outline:none;min-height:60px;max-height:220px;box-shadow:none!important;margin:0;}',
+    '.crm-prev .bx{display:flex;gap:8px;justify-content:flex-end;margin-top:8px;}',
+    '.crm-prev button{border:none;border-radius:20px;padding:9px 16px;font-size:.86rem;font-weight:600;font-family:inherit;cursor:pointer;}',
+    '.crm-prev .ok{background:#00a884;color:#111b21;}',
+    '.crm-prev .no{background:none;color:#8696a0;}',
+    '.crm-prev .orig{background:none;color:#53bdeb;margin-right:auto;padding-left:0;}',
+    '@keyframes crmRoda{to{transform:rotate(360deg)}}',
     '#hrCrmZoom{position:fixed;inset:0;z-index:9995;background:#000e;display:flex;align-items:center;justify-content:center;animation:crmEntra .2s ease;}',
     '#hrCrmZoom img{max-width:100%;max-height:100%;object-fit:contain;}',
     '@keyframes crmEntra{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}',
@@ -168,7 +225,7 @@
 
   // ── lista de clientes ──
   function telaLista() {
-    var d = document.getElementById('hrCrm'); if (!d) return;
+    var d = document.getElementById('hrCrm'); if (!d) return; d.classList.remove('wa');
     d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="sair">←</button><div style="flex:1;"><b>Conversas</b><div class="crm-info" id="crmSub">Clientes atendidos pelo bot</div></div>' +
       '<button class="crm-ic" data-a="exportar" title="Exportar">⤓</button><button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
       '<div class="crm-busca"><span style="color:#c9a84c;">🔍</span><input id="crmQ" placeholder="Pesquisar nome ou número" autocomplete="off"></div>' +
@@ -223,12 +280,14 @@
   function abrirConversa(num) {
     st.aberto = num; st.msgs = []; st.sig = ''; st.vistosIds = {}; delete st.sig0;
     var c = st.contatos.find(function (x) { return x.num === num; }) || { num: num }, app = nomesApp(), nm = nomeDe(c, app), cli = app[so8(num)];
-    var d = document.getElementById('hrCrm'); if (!d) return;
-    d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="voltar">←</button><div class="crm-av" style="width:38px;height:38px;font-size:.85rem;background:' + cor(num) + ';">' + esc(iniciais(nm)) + '</div>' +
-      '<div style="flex:1;min-width:0;"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nm) + '</b><div class="crm-info">' + esc(fmtNum(num)) + (c.perfil && c.perfil !== nm ? ' · ~' + esc(c.perfil) : '') + (cli ? (appConflita(c, cli) ? ' · ⚠️ no app este número está como "' + esc(cli.nome) + '"' : ' · no app') : '') + '</div></div>' +
-      '<button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
+    var d = document.getElementById('hrCrm'); if (!d) return; d.classList.add('wa');
+    d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="voltar" aria-label="Voltar">←</button><div class="crm-av" style="width:40px;height:40px;font-size:.85rem;background:' + cor(num) + ';">' + esc(iniciais(nm)) + '</div>' +
+      '<div style="flex:1;min-width:0;"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nm) + '</b><div class="crm-info" id="crmJanela">' + esc(fmtNum(num)) + (cli && appConflita(c, cli) ? ' · ⚠️ no app está como "' + esc(cli.nome) + '"' : '') + '</div></div>' +
+      '<a class="crm-ic" href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.3.4c.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.2.2.1.4.1.5-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.7-.1 1.3z"/></svg></a><button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
       '<div class="crm-chat" id="crmChat"><div class="crm-vazio"><span class="ic">💬</span>Carregando conversa…</div></div>' +
-      '<div class="crm-rod"><span id="crmJanela" class="crm-jan"><i></i>…</span><a href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.3.4c.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.2.2.1.4.1.5-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.7-.1 1.3z"/></svg>WhatsApp</a></div>';
+      '<div id="crmPrev"></div>' +
+      '<div class="crm-comp"><div class="crm-campo"><textarea id="crmTxt" rows="1" placeholder="Mensagem"></textarea></div><button class="crm-env" id="crmEnv" data-a="revisar" aria-label="Enviar"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M1.1 21.8 23 12 1.1 2.2 1.1 9.8 16.8 12 1.1 14.2z"/></svg></button></div>';
+    var tx = document.getElementById('crmTxt'); tx.oninput = function () { tx.style.height = 'auto'; tx.style.height = Math.min(140, tx.scrollHeight) + 'px'; };
     d.onclick = function (ev) {
       var a = ev.target.closest('[data-a]');
       if (a) {
@@ -236,6 +295,10 @@
         if (x === 'voltar') { try { history.back(); } catch (e) { st.aberto = null; telaLista(); } }
         else if (x === 'recarregar') carregarConversa(false);
         else if (x === 'mais') carregarMais();
+        else if (x === 'revisar') revisar();
+        else if (x === 'enviar') enviarRevisado();
+        else if (x === 'cancelar') fecharPrev();
+        else if (x === 'original') { var p = document.getElementById('crmPrevTx'); if (p && st.rascunho) p.value = st.rascunho; }
         return;
       }
       var im = ev.target.closest('img[data-zoom]'); if (im && im.src) { zoom(im.src); return; }
@@ -250,7 +313,7 @@
       if (st.aberto !== num) return;
       var ms = j.mensagens || [], sig = ms.length + ':' + (ms.length ? ms[ms.length - 1].id + ms[ms.length - 1].st : '') + ':' + ms.map(function (m) { return m.st; }).join('');
       var jan = document.getElementById('crmJanela');
-      if (jan) { var ok = j.janelaAte > Date.now(); jan.className = 'crm-jan' + (ok ? ' ok' : ''); jan.innerHTML = '<i></i>' + (ok ? 'Livre até ' + hora(j.janelaAte) + (new Date(j.janelaAte).toDateString() !== new Date().toDateString() ? ' de amanhã' : '') : 'Fora das 24 h · só modelo'); }
+      if (jan) { var ok = j.janelaAte > Date.now(); st.livre = ok; jan.textContent = fmtNum(num) + ' · ' + (ok ? 'livre até ' + hora(j.janelaAte) + (new Date(j.janelaAte).toDateString() !== new Date().toDateString() ? ' de amanhã' : '') : 'fora das 24 h (vai como modelo, até 200 letras)'); var tx = document.getElementById('crmTxt'); if (tx) tx.placeholder = ok ? 'Mensagem' : 'Mensagem curta (fora das 24 h)'; }
       if (silencioso && sig === st.sig) return;
       var antigas = st.msgs.filter(function (m) { return !ms.some(function (x) { return x.id === m.id; }) && (!ms.length || m.ts < ms[0].ts); });
       st.msgs = antigas.concat(ms); if (primeira) st.mais = !!j.mais; st.sig = sig;
@@ -267,6 +330,36 @@
       st.msgs = (j.mensagens || []).concat(st.msgs); st.mais = !!j.mais; desenharConversa();
       if (ch) ch.scrollTop = ch.scrollHeight - alt;
     }).catch(function (e) { toast('⚠️ ' + e.message); });
+  }
+  function apiPost(cam, corpo) {
+    var b = base(); if (!b) return Promise.reject(new Error('O bot não está configurado neste aparelho (Config → Bot).'));
+    var h = Object.assign({ 'Content-Type': 'application/json' }, hdr());
+    return fetch(b + cam, { method: 'POST', headers: h, body: JSON.stringify(corpo) }).then(function (r) { return r.json().catch(function () { return { error: 'Resposta inválida do bot (' + r.status + ').' }; }); })
+      .then(function (j) { if (j && j.error) throw new Error(j.error); return j; });
+  }
+  var ICON_ENV = document.createElement('div');
+  function botaoGira(on) { var b = document.getElementById('crmEnv'); if (!b) return; if (on) { if (!ICON_ENV.innerHTML) ICON_ENV.innerHTML = b.innerHTML; b.disabled = true; b.innerHTML = '<span class="crm-gira"></span>'; } else { b.disabled = false; if (ICON_ENV.innerHTML) b.innerHTML = ICON_ENV.innerHTML; } }
+  // o senhor escreve do seu jeito → a Helena reescreve → o senhor confere e toca Enviar
+  function revisar() {
+    var tx = document.getElementById('crmTxt'), t = tx ? tx.value.trim() : ''; if (!t || !st.aberto) { if (tx) tx.focus(); return; }
+    st.rascunho = t; botaoGira(true);
+    apiPost('/bot/crm/revisar', { num: st.aberto, texto: t }).then(function (j) {
+      botaoGira(false);
+      var p = document.getElementById('crmPrev'); if (!p) return;
+      p.innerHTML = '<div class="crm-prev"><div class="tt">A Helena vai enviar assim<span>' + (j.livre ? 'pode editar' : 'fora das 24 h · até 200 letras') + '</span></div><textarea id="crmPrevTx" rows="3"' + (j.livre ? '' : ' maxlength="200"') + '>' + esc(j.texto) + '</textarea>' +
+        '<div class="bx"><button class="orig" data-a="original">Usar o meu texto</button><button class="no" data-a="cancelar">Cancelar</button><button class="ok" data-a="enviar">Enviar</button></div></div>';
+      var pt = document.getElementById('crmPrevTx'); pt.style.height = Math.min(220, pt.scrollHeight + 4) + 'px';
+    }).catch(function (e) { botaoGira(false); toast('⚠️ ' + e.message); });
+  }
+  function fecharPrev() { var p = document.getElementById('crmPrev'); if (p) p.innerHTML = ''; }
+  function enviarRevisado() {
+    var pt = document.getElementById('crmPrevTx'), t = pt ? pt.value.trim() : ''; if (!t || !st.aberto) return;
+    var num = st.aberto, ok = document.querySelector('.crm-prev .ok'); if (ok) { ok.disabled = true; ok.textContent = 'Enviando…'; }
+    apiPost('/bot/crm/enviar', { num: num, texto: t }).then(function () {
+      fecharPrev(); var tx = document.getElementById('crmTxt'); if (tx) { tx.value = ''; tx.style.height = 'auto'; } st.rascunho = '';
+      st.msgs.push({ id: 'tmp' + Date.now(), ts: Date.now(), q: 'b', tipo: 'text', texto: t, st: 'sent' }); desenharConversa(); rolarFim();
+      setTimeout(function () { if (st.aberto === num) carregarConversa(false); }, 2500);
+    }).catch(function (e) { if (ok) { ok.disabled = false; ok.textContent = 'Enviar'; } toast('⚠️ ' + e.message); });
   }
   function rolarFim() { var ch = document.getElementById('crmChat'); if (ch) { ch.scrollTop = ch.scrollHeight; setTimeout(function () { ch.scrollTop = ch.scrollHeight; }, 300); } }
 

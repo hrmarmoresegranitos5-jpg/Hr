@@ -767,6 +767,40 @@ async function crmMigrar(env) {
     cursor = l.list_complete ? null : l.cursor;
   } while (cursor);
 }
+// v271: o dono escreve do jeito dele na tela de Conversas; a Helena reescreve (revisar) e, com o toque dele, envia (enviar)
+async function crmEscrever(req, env, p) {
+  let b = {}; try { b = await req.json(); } catch (_) {}
+  const num = normalizarBR(String(b.num || '').replace(/\D/g, '')), texto = String(b.texto || '').trim().slice(0, 1500);
+  if (num.length < 12 || !texto) return jsonR({ error: 'Faltou o número ou o texto.' }, 400);
+  if (ehDono(env, num)) return jsonR({ error: 'Esse é o seu número.' }, 400);
+  const livre = await janela24h(env, num).catch(() => false);
+  if (p === '/bot/crm/revisar') {
+    let hist = [];
+    if (crmAtivo(env)) { const rs = await env.HR_DB.prepare("SELECT q, tipo, texto FROM crm_msg WHERE num = ? ORDER BY ts DESC LIMIT 14").bind(num).all().catch(() => ({ results: [] }));
+      hist = (rs.results || []).reverse().filter(m => m.texto).map(m => (m.q === 'c' ? 'Cliente: ' : 'Helena: ') + String(m.texto).slice(0, 300)); }
+    const ct = crmAtivo(env) ? await env.HR_DB.prepare('SELECT nome FROM crm_ct WHERE num = ?').bind(num).first().catch(() => null) : null;
+    const nome = (ct && ct.nome) || '';
+    const sis = `Você é a Helena, atendente da ${env.EMPRESA || 'HR Mármores e Granitos'} no WhatsApp. O dono (Giliarde) escreveu do jeito dele uma mensagem para o cliente${nome ? ' ' + nome : ''}. Reescreva como a Helena mandaria: humana, cordial, profissional e segura, português correto, frases curtas, no máximo um emoji (ou nenhum).
+REGRAS: mantenha EXATAMENTE o sentido e todas as informações do dono (valores, datas, horários, nomes, condições); NÃO invente nada, não acrescente preço, prazo, promessa, desconto nem pergunta que ele não fez; não fale em nome do dono na primeira pessoa dele ("eu, Giliarde"): é a Helena falando pela HR; não cumprimente de novo se a conversa já está em andamento; não assine. ${livre ? 'Pode ter até 3 parágrafos curtos.' : 'A conversa está FORA da janela de 24 h: a mensagem vai num modelo aprovado e precisa caber em UM parágrafo de no máximo 200 caracteres, sem quebra de linha.'}
+Responda só com JSON: {"texto":"..."}`;
+    const ped = (hist.length ? 'CONVERSA RECENTE:\n' + hist.join('\n') + '\n\n' : '') + 'O QUE O DONO ESCREVEU:\n' + texto;
+    let out = ''; try { out = String(lerJsonIA(await chamarIA(env, sis, [], ped, { maxTokens: 600, timeoutMs: 25000 })).texto || '').trim(); } catch (e) { return jsonR({ error: 'A Helena não conseguiu revisar agora: ' + String(e.message).slice(0, 100) }, 502); }
+    if (!out) return jsonR({ error: 'A Helena não conseguiu revisar agora.' }, 502);
+    if (!livre) out = semEmoji(out.replace(/\s*\n+\s*/g, ' ')).slice(0, 200);
+    return jsonR({ texto: out, livre });
+  }
+  env._ctx = env._ctx || {}; env._recebidoEm = Date.now() - 60000; const pend = []; env._waitUntil = x => pend.push(x);
+  if (livre) {
+    await enviar(env, num, texto);
+  } else {
+    const curto = semEmoji(texto.replace(/\s*\n+\s*/g, ' ')).slice(0, 200);
+    try { await postarMsg(env, num, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: curto }] }] } }); }
+    catch (e) { return jsonR({ error: 'A Meta recusou (fora das 24 h): ' + String(e.message).slice(0, 120) }, 502); }
+  }
+  await Promise.allSettled(pend);
+  await semearConversaProativa(env, num, texto).catch(() => {}); // a Helena sabe o que foi dito quando o cliente responder
+  return jsonR({ ok: true, livre });
+}
 async function rotaCrm(req, env, url, p) {
   if (!crmAtivo(env)) return jsonR({ error: 'O CRM precisa do banco D1 (HR_DB) ligado no Worker.' }, 400);
   await crmTabela(env);
@@ -24599,6 +24633,7 @@ async function rotaBotInterna(req, env, url) {
   //   GET /bot/conversas            → lista (mais recentes primeiro): numero, nome, ultimaEm, total, ultima
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
   if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
+  if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
   if (p === '/bot/conversas/arquivo' && req.method === 'GET') { // v54: conversas dos últimos dias (padrão 14, máx. 30) para revisar o atendimento
     marcarUso(env, 'app:conversas');
     if (!env.HR_DB) return jsonR({ error: 'Banco D1 (HR_DB) não ligado no Worker.' }, 400);
