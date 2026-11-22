@@ -1370,3 +1370,22 @@ function _injectOrcPremiumStyles() {
     };
   }
 })();
+
+// v29c: depois de calcular, aparece uma barra fixa embaixo (acima do menu) com 🔄 Recalcular, 📄 PDF e 📋 Copiar
+// (os botões de verdade ficam no fim do resultado; estes só tocam neles)
+(function () {
+  function sync() {
+    var res = document.getElementById('resArea'), pg = document.getElementById('pg0');
+    var on = !!(res && pg && pg.offsetParent !== null && res.style.display !== 'none' && getComputedStyle(res).display !== 'none');
+    var bar = document.getElementById('orcAcoesRap');
+    if (on && !bar) {
+      bar = document.createElement('div'); bar.id = 'orcAcoesRap';
+      bar.innerHTML = '<button type="button" data-k="btnCalc">🔄 Recalcular</button><button type="button" data-k="btnPDF">📄 PDF</button><button type="button" class="pri" data-k="btnCopy">📋 Copiar</button>';
+      bar.addEventListener('click', function (e) { var b = e.target.closest('[data-k]'); if (!b) return; var t = document.getElementById(b.getAttribute('data-k')); if (t) t.click(); });
+      document.body.appendChild(bar);
+    }
+    if (bar) bar.style.display = on ? 'flex' : 'none';
+    document.body.classList.toggle('orc-com-res', on);
+  }
+  setInterval(sync, 600);
+})();
