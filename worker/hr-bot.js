@@ -10877,13 +10877,40 @@ function dividaTextoIA(d) {
 }
 const vencTxtDiv = d => !d || !d.venc ? '' : d.venc < dataBahia() ? `, que venceu em ${dataBR(d.venc)}` : d.venc === dataBahia() ? ', que vence hoje' : `, com vencimento em ${dataBR(d.venc)}`;
 function chavePixEmpresa(env) { return String(env.PIX_CHAVE || '').trim() || String(env.EMPRESA_CNPJ || '64.639.182/0001-28').replace(/\D/g, ''); }
+// v267: PORTARIA DO COMPROVANTE — toda foto/PDF de cliente que for comprovante é conferida ANTES de qualquer resposta:
+//   (1) quem RECEBEU o Pix tem de ser a HR (ou o Giliarde / a chave CNPJ); se não for, explica à cliente e alerta o dono, sem baixa
+//   (2) procura o Pix na conta do Mercado Pago (mesmo valor, últimos 3 dias) e deixa o resultado para os fluxos seguintes
+//   Nunca responde "Recebi, obrigada!" a comprovante sem conferir.
+function recebedorEhHR(env, rec) {
+  if (!rec) return null;
+  const r = normaliza(rec);
+  return nomesDaConta(env).some(n => nomesCompativeis(n, rec) === true) || /hr marmore|giliarde|hangel/.test(r) || String(rec).replace(/\D/g, '').includes(chavePixEmpresa(env).replace(/\D/g, ''));
+}
+async function cmpPortaria(env, from, m) {
+  if (!['image', 'document'].includes(m.type)) return false;
+  const info = m[m.type] || {}; let dados = null;
+  try { const { buf, tipo } = await baixarMidia(env, info.id); const mt = String(tipo || info.mime_type || '').split(';')[0].toLowerCase();
+    if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mt) && buf.byteLength <= 8 * 1048576) dados = await lerComprovanteIA(env, buf, mt); } catch (e) { console.log('[CMP] portaria:', e.message); }
+  if (!dados || dados.eh_comprovante !== true || !(+dados.valor > 0)) { m._cmp = { nao: true }; return false; }
+  m._cmp = { dados, valor: +dados.valor };
+  const ok = recebedorEhHR(env, dados.recebedor);
+  if (ok === false) {
+    const nome = (await nomeParaDono(env, from).catch(() => '')) || '', pn = nomeDeTratamento(nome);
+    await receberMidiaCliente(env, from, m).catch(() => {});
+    await enviar(env, from, `${pn ? pn + ', e' : 'E'}sse comprovante mostra um Pix de R$ ${reais(+dados.valor)} para *${dados.recebedor}*, não para a HR Mármores e Granitos. Para o pagamento valer, ele precisa ir para a conta da HR (pelo Pix que mandamos aqui ou pela chave CNPJ). Pode me mandar o comprovante certo?`);
+    await notificarDono(env, Date.now(), `*Atenção:* ${nome || 'um cliente'} mandou um comprovante de R$ ${reais(+dados.valor)} em que o *recebedor é ${dados.recebedor}*${dados.pagador ? ' e o pagador é ' + dados.pagador : ''}. Não é para a HR: não dei baixa e expliquei a ele.\nwa.me/${normalizarBR(from)}`).catch(() => {});
+    return true;
+  }
+  if (mpAtivo(env)) { const cands = await mpCandidatosPix(env, { id: 'cmp' + ultimos8(from) }, +dados.valor).catch(() => []); m._cmp.naConta = cands.find(c => !c.pagador || !dados.pagador || nomesCompativeis(c.pagador, dados.pagador) !== false) || null; }
+  return false; // segue: pedido, saldo, orçamento… cada um usa m._cmp
+}
 async function dividaClienteMsg(env, from, m) {
   if (!['text', 'audio', 'image', 'document'].includes(m.type)) return false;
   const d = await dividaCliente(env, from).catch(() => null); if (!d || !(d.saldoC > 0)) return false;
   const pn = nomeDeTratamento(d.nome), cb = d.cobs[0];
   if (m.type === 'image' || m.type === 'document') { // comprovante do saldo
-    const info = m[m.type] || {}; let dados = null;
-    try { const { buf, tipo } = await baixarMidia(env, info.id); const mt = String(tipo || info.mime_type || '').split(';')[0].toLowerCase();
+    const info = m[m.type] || {}; let dados = m._cmp ? (m._cmp.dados || null) : null;
+    if (!m._cmp) try { const { buf, tipo } = await baixarMidia(env, info.id); const mt = String(tipo || info.mime_type || '').split(';')[0].toLowerCase();
       if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mt) && buf.byteLength <= 8 * 1048576) dados = await lerComprovanteIA(env, buf, mt); } catch (e) { console.log('[DIV] ler:', e.message); }
     if (!dados || dados.eh_comprovante !== true || !(+dados.valor > 0)) return false;
     const recebeuHR = !dados.recebedor || nomesDaConta(env).some(n => nomesCompativeis(n, dados.recebedor) === true) || /hr marmore|giliarde/i.test(normaliza(dados.recebedor)) || String(dados.recebedor).replace(/\D/g, '').includes(chavePixEmpresa(env).replace(/\D/g, ''));
@@ -13525,6 +13552,7 @@ async function conferirComprovante(env, from, ped, m) {
     }
   } catch (e) { console.log('[BOT] ler comprovante:', e.message); }
   if (dados && dados.eh_comprovante === false) return false; // outra foto (obra, medida...): fluxo normal
+  if (dados && recebedorEhHR(env, dados.recebedor) === false) { await enviar(env, from, `${primeiro ? primeiro + ', e' : 'E'}sse comprovante mostra um Pix para *${dados.recebedor}*, não para a HR Mármores e Granitos. Para o pedido seguir, o Pix precisa ir para a conta da HR (pelo código que te mandei). Pode me mandar o comprovante certo?`); await notificarDono(env, Date.now(), `*Atenção:* comprovante de ${ped.nome || 'cliente'} com recebedor *${dados.recebedor}* (não é a HR). Não liberei.\nwa.me/${from}`).catch(() => {}); return true; } // v267
 
   await receberMidiaCliente(env, from, m).catch(() => {}); // o arquivo vai para o dono
   const conta = mpAtivo(env) ? await conferirContaMP(env, ped, devido) : { status: 'sem_mp' };
@@ -19809,7 +19837,14 @@ async function tratarVision(env, from, m, dono, tipo) {
     }
     if (!dono && !(await env.HR_KV.get('vis:conf:' + normalizarBR(from)))) { // v122: sem o cartão de robô; dono não recebe confirmação
       await env.HR_KV.put('vis:conf:' + normalizarBR(from), '1', { expirationTtl: 15 * 60 });
-      if (!legenda) await enviar(env, from, tipo === 'pdf' ? 'Recebi o arquivo, obrigada!' : 'Recebi, obrigada!').catch(e => console.log('[VISION] confirmação:', e.message));
+      if (!legenda) {
+        const c = m._cmp;
+        if (c && c.dados) { // v267: comprovante que nenhum fluxo assumiu: só diz o que foi conferido
+          const pn = nomeDeTratamento((await nomeParaDono(env, from).catch(() => '')) || '');
+          if (c.naConta) { await env.HR_KV.put('mp:ok:' + c.naConta.id, 'cmp', { expirationTtl: 90 * 86400 }).catch(() => {}); await enviar(env, from, `${pn ? pn + ', c' : 'C'}onferi: o Pix de R$ ${reais(c.valor)} caiu na conta da HR. Obrigada!`).catch(() => {}); await notificarDono(env, Date.now(), `Pix de R$ ${reais(c.valor)} de ${pn || 'um cliente'} conferido na conta do Mercado Pago${c.dados.pagador ? ' (pagador: ' + c.dados.pagador + ')' : ''}. Não estava ligado a nenhum pedido ou cobrança: lance onde for.\nwa.me/${normalizarBR(from)}`).catch(() => {}); }
+          else { await enviar(env, from, `${pn ? pn + ', r' : 'R'}ecebi o comprovante de R$ ${reais(c.valor)}. Vou conferir se o Pix caiu na conta da HR e já te confirmo por aqui.`).catch(() => {}); await notificarDono(env, Date.now(), `${pn || 'Um cliente'} mandou comprovante de R$ ${reais(c.valor)}${c.dados.pagador ? ' (pagador: ' + c.dados.pagador + ')' : ''}${c.dados.recebedor ? ', recebedor: ' + c.dados.recebedor : ''}. *Ainda não aparece na conta do Mercado Pago.* Confira antes de dar como pago.\nwa.me/${normalizarBR(from)}`).catch(() => {}); }
+        } else await enviar(env, from, tipo === 'pdf' ? 'Recebi o arquivo, vou dar uma olhada.' : 'Recebi a foto, vou dar uma olhada.').catch(e => console.log('[VISION] confirmação:', e.message));
+      }
     }
     return !!legenda && !(dono && tipo === 'imagem');
   } catch (e) {
@@ -20043,6 +20078,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && m.type === 'text' && ehRespostaAutomatica(m.text && m.text.body)) { await tratarRespostaAutomatica(env, from, m.text.body); return; } // v115 · v259: antes de tudo (antes a apresentação ainda saía para a resposta automática)
   if (!dono && await garDadosMsg(env, from, m).catch(e => { console.log('[GAR] dados:', e.message); return false; })) return; // v163
   if (!dono && await rcbClienteMsg(env, from, m).catch(e => { console.log('[RCB] cliente:', e.message); return false; })) return; // v157
+  if (!dono && ['image', 'document'].includes(m.type) && await cmpPortaria(env, from, m).catch(e => { console.log('[CMP] portaria:', e.message); return false; })) return; // v267
   if (!dono && await acdClienteMsg(env, from, m).catch(e => { console.log('[ACD] cliente:', e.message); return false; })) return; // v152
   if (!dono && await dividaClienteMsg(env, from, m).catch(e => { console.log('[DIV] cliente:', e.message); return false; })) return; // v252
   if (!dono && await onbClienteMsg(env, from, m).catch(e => { console.log('[ONB] cliente:', e.message); return false; })) return; // v143
