@@ -6889,6 +6889,7 @@ async function pedirAvaliacoes(env) {
   await dividaPromessasRotina(env).catch(e => console.log('[DIV] promessas:', e.message)); // v253
   await quitAntesRotina(env).catch(e => console.log('[QUIT] antes:', e.message)); // v258
   if (cbAtivo(env)) await dividaAvisoFinalRotina(env).catch(e => console.log('[DIV] aviso final:', e.message)); // v259
+  if (cbAtivo(env)) await dividaSugerirAvisoFinal(env).catch(e => console.log('[DIV] sugerir aviso final:', e.message)); // v260
   if (horaComercialBahia()) await dividaRadarPix(env).catch(e => console.log('[DIV] radar:', e.message)); // v253
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
@@ -10974,6 +10975,19 @@ function avisoFinalPdf(env, cb, saldoC, prazo) {
     { t: `Pilão Arcado – BA, ${+dd} de ${NOMES_MES[+mm - 1]} de ${yy}.`, a: 'c', g: 6 },
   ];
   return { bytes: pdfDocumento(L), nome: `Aviso final ${cb.protocolo || ''} - ${cb.cliente_nome}.pdf` };
+}
+// v260: quem passou de 15 dias de atraso sem pagar nem prometer: o bot sugere ao dono o aviso final (1 toque; nada vai sem ele)
+async function dividaSugerirAvisoFinal(env) {
+  const hoje = dataBahia(); if (!horaComercialBahia() || await env.HR_KV.get('divsug:dia:' + hoje)) return; await env.HR_KV.put('divsug:dia:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const cs = await cbAll(env, "SELECT * FROM cobrancas WHERE profissional = 1 AND status IN ('aguardando_pagamento', 'pix_expirado', 'enviada') ORDER BY vencimento ASC LIMIT 50").catch(() => []);
+  for (const cb of cs) {
+    const dias = cbDiasEntre(cb.vencimento, hoje); if (dias < 15 || cb.pausada || (cb.promessa_ate && cb.promessa_ate >= hoje)) continue;
+    if (await env.HR_KV.get('divsug:' + cb.id) || await env.HR_KV.get('dvfinlemb:' + cb.id)) continue;
+    await env.HR_KV.put('divsug:' + cb.id, '1', { expirationTtl: 10 * 86400 });
+    const saldo = (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0);
+    await enviarComBotoes(env, numeroDono(env), `*${cb.cliente_nome}* está com ${dias} dias de atraso (${moedaCb(saldo)}, ${cb.protocolo || ''}), sem pagar nem combinar data. Os lembretes já foram.\n\nQuer ver o *aviso final* (prazo de 3 dias úteis, PDF, menção a protesto e negativação)? Nada vai sem o seu toque.`,
+      [{ id: 'dvx|final|' + cb.id, titulo: 'Ver aviso final' }, { id: 'dvx|finno|' + cb.id, titulo: 'Agora não' }]).catch(() => {});
+  }
 }
 async function dividaAvisoFinalRotina(env) { // depois do prazo do aviso final: avisa o dono para decidir
   const l = await listarTodas(env, 'dvfinlemb:').catch(() => ({ keys: [] }));
