@@ -10483,6 +10483,7 @@ function acdPdf(env, a, ct) {
   return { bytes: pdfDocumento(L), nome: `Acordo ${a.n} - ${(a.dados && a.dados.nome) || a.nome}.pdf` };
 }
 async function acdMandarTermo(env, a) {
+  if (a.tipo === 'quitacao') return quitMandarAviso(env, a); // v251
   const ct = JSON.parse((await env.HR_KV.get('contrato:' + a.num).catch(() => null)) || 'null');
   const pdf = acdPdf(env, a, ct), up = await subirPdfMeta(env, pdf.bytes, pdf.nome), pn = nomeDeTratamento(a.nome);
   await enviar(env, a.num, `${pn ? pn + ', c' : 'C'}onforme combinado com o Sr. Hangel, organizei o pagamento do seu projeto para ficar tranquilo para você:\n\n${a.naInst > 0 ? `• *R$ ${reais(a.naInst)}* no dia da instalação${a.dataInst ? ' (' + diaFalado(a.dataInst) + ')' : ''}\n` : ''}${a.parcelas.map((x, i) => `• *R$ ${reais(x.valor)}* até ${dataBR(x.data)}`).join('\n')}\n\nNo dia de cada parcela eu te mando o Pix por aqui. 😊`);
@@ -10525,6 +10526,7 @@ async function acordoTool(env, from, x) {
   return { texto: `Mostrei a prévia do acordo com os valores${a.orcRef ? ' (achei o orçamento ' + a.orcRef + ')' : ''}. Diga em UMA frase que é só conferir e tocar em Confirmar e enviar; se algum valor estiver errado, é só falar o certo.` };
 }
 async function acdIniciar(env, a) { // depois do "Confirmar e enviar"
+  if (a.tipo === 'quitacao') return quitIniciar(env, a); // v251
   const cfg = await pontoCfg(env), ped = await lerPedido(env, a.pid).catch(() => null), nome = a.nome, naInst = a.naInst;
   const ct = JSON.parse((await env.HR_KV.get('contrato:' + a.num).catch(() => null)) || 'null');
   if (ct && ct.cpf) { a.dados = { nome: ct.nome, cpf: ct.cpf }; }
@@ -10597,7 +10599,8 @@ async function acdClienteMsg(env, from, m) {
       let tx = m.type === 'text' ? String(m.text?.body || '') : ''; if (!tx && m.type === 'audio') { tx = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = tx; }
       const n = normaliza(tx);
       if (a.parcelas.some(p => !p.paga) && /\b(parcela|parcelas|vencimento|data|datas|dia \d|mudar|trocar|alterar|adiar|prorrogar|mais prazo|empurrar|nao vou conseguir|nao consigo pagar|desconto|diminuir|valor)\b/.test(n) && /\b(parcela|pagar|pagamento|vencimento|data|dia|prazo|valor|acordo)\b/.test(n)) {
-        await enviar(env, from, `Entendi${nomeDeTratamento(a.nome) ? ', ' + nomeDeTratamento(a.nome) : ''}! Vou passar o seu pedido para o Sr. Hangel e te confirmo por aqui assim que ele responder. 😊`);
+        if (a.tipo === 'quitacao') { const p0 = a.parcelas.find(p => !p.paga); await enviar(env, from, `${nomeDeTratamento(a.nome) ? nomeDeTratamento(a.nome) + ', o' : 'O'} Sr. Hangel definiu o pagamento do saldo em parcela única, de R$ ${reais(p0 ? p0.valor : 0)}, até ${p0 ? dataBR(p0.data) : 'a data informada'}. Vou passar a sua mensagem para ele, mas até ele responder vale o que está no aviso.`); } // v251: firme, sem prometer
+        else await enviar(env, from, `Entendi${nomeDeTratamento(a.nome) ? ', ' + nomeDeTratamento(a.nome) : ''}! Vou passar o seu pedido para o Sr. Hangel e te confirmo por aqui assim que ele responder. 😊`);
         await enviarComBotoes(env, numeroDono(env), `📋 *${a.nome}* pediu mudança no acordo ${a.n}:\n"${tx.slice(0, 300)}"\n\nHoje está: ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' · ')}\n\nPara mudar, me diga por exemplo: _muda o acordo da ${String(a.nome).split(' ')[0]} para 18/12 e 31/12_.`, [{ id: 'acdm_no|' + a.id, titulo: 'Manter como está' }]).catch(() => {});
         await anotarNoHistorico(env, from, `[O cliente pediu mudança no acordo de pagamento; foi passado ao Sr. Hangel. NÃO confirme nem prometa nova data ou valor até ele decidir. Hoje vale: ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join('; ')}.]`).catch(() => {});
         return true;
@@ -10622,6 +10625,7 @@ async function acdClienteMsg(env, from, m) {
   }
   if (!/^acd_(ok|dv)\|/.test(id)) return false;
   const a = await acdLer(env, id.split('|')[1]); if (!a) return false;
+  if (id.startsWith('acd_ok|') && a.tipo === 'quitacao') { a.aceitoEm = Date.now(); a.aceitoNum = normalizarBR(from); a.etapa = 'aceito'; await acdSalvar(env, a); const p0 = a.parcelas.find(p => !p.paga); await enviar(env, from, `Obrigada! Fica registrado: saldo de R$ ${reais(p0 ? p0.valor : 0)} até ${p0 ? dataBR(p0.data) : ''}. O Pix está logo acima.`); await pontoAvisarDono(env, `*${a.nome}* tocou em Ciente no aviso de saldo ${a.n} (${new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' })}).`).catch(() => {}); return true; } // v251
   if (id.startsWith('acd_ok|')) { a.aceitoEm = Date.now(); a.aceitoNum = normalizarBR(from); a.etapa = 'aceito'; await acdSalvar(env, a); await enviar(env, from, 'Perfeito, obrigada! ✅ Acordo registrado. Qualquer coisa, é só chamar aqui.'); await pontoAvisarDono(env, `✅ *${a.nome}* aceitou o acordo ${a.n} pelo WhatsApp (${new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' })}).`).catch(() => {}); return true; }
   await enviar(env, from, 'Claro! Me conta sua dúvida que eu te ajudo, e se precisar passo para o Sr. Hangel.');
   await anotarNoHistorico(env, from, `[A cliente tem dúvida sobre o ACORDO DE PAGAMENTO ${a.n}: ${a.naInst ? 'R$ ' + reais(a.naInst) + ' na instalação; ' : ''}${a.parcelas.map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join('; ')}. Multa 2% e juros 1% a.m. no atraso. Responda com calma; mudança de valor ou data só com o Sr. Hangel.]`).catch(() => {});
@@ -10640,7 +10644,124 @@ async function acordoAlterarTool(env, x) {
   if (await janela24h(env, a.num)) { await acdMandarTermo(env, a).catch(() => {}); cli = 'Mandei a ela as novas datas e o termo atualizado para aceitar.'; } else cli = 'Ela está fora das 24 h; quando ela falar, mando o termo atualizado (ou diga "termo da ' + String(a.nome).split(' ')[0] + '").';
   return { texto: `Acordo de ${a.nome} alterado: ${novas.map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' + ')}. ${cli} Confirme em UMA frase.` };
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v251: COBRANÇA DE SALDO COM PRAZO FINAL (cliente que enrolou / pagou de pouquinho / perdeu o desconto à vista)
+//   Dono: "cobra o resto da Maria até dia 30: projeto a prazo 6500, perdeu o à vista de 5800, já pagou 2500"
+//   → prévia ao dono (Confirmar e enviar / Corrigir) → aviso formal + PDF + Pix com vencimento na data final
+//   → depois do prazo a cobrança profissional soma multa 2% e juros 1% a.m. e manda os lembretes
+//   → "Maria pagou 500" abate do saldo, lança em Finanças, avisa a cliente e refaz o Pix do que falta
+//   → cliente pedindo para parcelar: resposta firme ("parcela única até DD/MM") e o pedido vai ao dono
+// ═════════════════════════════════════════════════════════════════════════════
+function quitTextoCliente(env, a) {
+  const p0 = a.parcelas.find(p => !p.paga) || a.parcelas[0], pn = nomeDeTratamento(a.nome), emp = env.EMPRESA || 'HR Mármores e Granitos';
+  return [
+    `${pn ? pn + ', tudo bem?' : 'Olá, tudo bem?'} Aqui é da ${emp}, sobre o pagamento ${a.desc ? 'do seu projeto (' + a.desc + ')' : 'do seu projeto'}.`,
+    a.vista > 0 ? `O valor de R$ ${reais(a.vista)} era a condição à vista, com o pagamento na entrega. Como o pagamento não foi feito assim, a condição à vista deixou de valer e fica o valor normal do projeto.` : '',
+    `Valor do projeto: R$ ${reais(a.total)}\nJá recebido: R$ ${reais(a.jaPago + (a.parciais || []).reduce((t, x) => t + x.valor, 0))}\n*Saldo em aberto: R$ ${reais(p0.valor)}*`,
+    `O saldo deve ser pago em parcela única até *${dataBR(p0.data)}* (${diaFalado(p0.data)}). O Pix segue logo abaixo.`,
+    'A partir do dia seguinte ao vencimento, passam a correr multa de 2% e juros de 1% ao mês, conforme a lei.',
+    'Qualquer dúvida, estou à disposição.',
+  ].filter(Boolean).join('\n\n');
+}
+function quitPdf(env, a) {
+  const G = [0.62, 0.48, 0.16], emp = env.EMPRESA || 'HR Mármores e Granitos', hoje = dataBahia(), [yy, mm, dd] = hoje.split('-'), p0 = a.parcelas.find(p => !p.paga) || a.parcelas[0];
+  const pago = a.jaPago + (a.parciais || []).reduce((t, x) => t + x.valor, 0);
+  const L = [
+    { t: emp.toUpperCase(), s: 16, b: 1, a: 'c', c: G, g: 0 },
+    { t: `CNPJ ${env.EMPRESA_CNPJ || '64.639.182/0001-28'} · ${ENDERECO_MARMORARIA} · Pilão Arcado – BA`, s: 8, a: 'c', c: [0.4, 0.4, 0.4], g: 8 },
+    { t: '---', g: 18 },
+    { t: 'AVISO DE SALDO EM ABERTO', s: 14, b: 1, a: 'c', g: 0 },
+    { t: `Nº ${a.n}`, s: 9, a: 'c', c: [0.4, 0.4, 0.4], g: 14 },
+    { t: `Cliente: ${(a.dados && a.dados.nome) || a.nome} · WhatsApp ${fmtNumero(a.num)}`, g: 2 },
+    { t: `Referente a: ${a.desc || 'fornecimento de peças em pedra natural'}`, g: 10 },
+    { t: '1. VALORES', s: 10, b: 1, c: G, g: 2 },
+    ...(a.vista > 0 ? [{ t: `O valor de R$ ${reais(a.vista)} correspondia à condição de pagamento à vista na entrega. Como essa condição não foi cumprida, vale o valor normal do projeto.`, g: 4 }] : []),
+    { t: `• Valor do projeto: R$ ${reais(a.total)}`, i: 10, g: 1 },
+    { t: `• Já recebido: R$ ${reais(pago)}`, i: 10, g: 1 },
+    { t: `• SALDO EM ABERTO: R$ ${reais(p0.valor)}`, i: 10, b: 1, g: 8 },
+    { t: '2. PRAZO E FORMA DE PAGAMENTO', s: 10, b: 1, c: G, g: 2 },
+    { t: `Pagamento do saldo em parcela única até ${dataBR(p0.data)}, por Pix pelo link/QR code enviado pelo WhatsApp oficial da ${emp}.`, g: 8 },
+    { t: '3. ATRASO', s: 10, b: 1, c: G, g: 2 },
+    { t: 'Não pago até a data acima, o saldo terá, a partir do dia seguinte: multa de 2% (art. 52, § 1º, do Código de Defesa do Consumidor) e juros de mora de 1% ao mês, calculados por dia de atraso (art. 406 do Código Civil).', g: 3 },
+    { t: 'Persistindo o atraso por mais de 30 dias, poderão ser adotadas as medidas de cobrança previstas em lei, após novo aviso.', g: 8 },
+    { t: `Pilão Arcado – BA, ${+dd} de ${NOMES_MES[+mm - 1]} de ${yy}.`, a: 'c', g: 6 },
+  ];
+  return { bytes: pdfDocumento(L), nome: `Aviso de saldo ${a.n} - ${a.nome}.pdf` };
+}
+async function quitTool(env, from, x) {
+  let orc = null; try { const cs = await fechCandidatos(env, x.cliente); orc = cs[0] || null; } catch (_) {}
+  if (!x.cliente) return { erro: true, texto: 'Falta o nome da cliente.' };
+  const total = Math.round((+x.total || 0) * 100) / 100, vista = Math.round((+x.valor_vista || 0) * 100) / 100, jaPago = Math.round((+x.ja_pago || 0) * 100) / 100;
+  if (!total) return { erro: true, texto: `Pergunte em UMA frase qual é o valor que vale agora (o valor a prazo do projeto)${orc && orc.valor ? '; no orçamento ' + fechRotulo(orc) + ' está R$ ' + reais(orc.valor) : ''}.` };
+  if (vista && vista >= total) return { erro: true, texto: `O valor à vista (R$ ${reais(vista)}) não pode ser maior que o valor a prazo (R$ ${reais(total)}). Confirme com ele em UMA frase.` };
+  const saldo = Math.round((total - jaPago) * 100) / 100; if (saldo < 1) return { erro: true, texto: `Pelos números ela já quitou (total R$ ${reais(total)}, pago R$ ${reais(jaPago)}). Confirme com ele.` };
+  const hoje = dataBahia(); let prazo = isoOk(x.prazo); const prazoPadrao = !prazo; if (!prazo || prazo < hoje) prazo = isoSomaDias(hoje, 5);
+  const dest = await destinoCobranca(env, x.numero || x.cliente).catch(() => null); if (!dest) return { erro: true, texto: 'Não achei o WhatsApp dessa cliente. Peça o número com DDD (ou o contato) em UMA frase; nada foi feito ainda.' };
+  const num = normalizarBR(dest.numero), nome = String(x.cliente).trim();
+  const a = { id: 'A' + Date.now().toString(36), tipo: 'quitacao', n: 'SD-' + String(Date.now()).slice(-6), num, nome, desc: x.descricao || (orc ? [orc.projeto, orc.material].filter(Boolean).join(' em ') : ''), total, vista, jaPago, naInst: 0, parcelas: [{ valor: saldo, data: prazo }], parciais: [], criado: Date.now(), etapa: 'previa', insts: [], dados: {} };
+  await acdSalvar(env, a);
+  await enviar(env, numeroDono(env), [`*Cobrança de saldo · ${nome}*`, `WhatsApp: ${fmtNumero(num)}`, '', vista ? `À vista (perdido): R$ ${reais(vista)}` : '', `Vale agora: R$ ${reais(total)}`, `Já pago: R$ ${reais(jaPago)}`, `*Saldo: R$ ${reais(saldo)} até ${dataBR(prazo)}*${prazoPadrao ? ' (prazo padrão de 5 dias; diga outra data se quiser)' : ''}`, '', 'Mensagem que vai para ela (com o PDF e o Pix):'].filter(x2 => x2 !== '').join('\n')).catch(() => {});
+  await enviarComBotoes(env, numeroDono(env), quitTextoCliente(env, a).slice(0, 1000), [{ id: 'acdp_ok|' + a.id, titulo: 'Confirmar e enviar' }, { id: 'acdp_no|' + a.id, titulo: 'Corrigir' }]);
+  return { texto: `Mostrei a prévia da cobrança de saldo (R$ ${reais(saldo)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
+}
+async function quitAgendarPix(env, a) {
+  const p0 = a.parcelas.find(p => !p.paga); if (!p0) return;
+  const id = 'Q' + Date.now().toString(36);
+  await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando: Date.now() + 60000, args: { cliente: a.num, nome: a.nome, valor: p0.valor, descricao: `${String(a.desc || 'Projeto').slice(0, 40)} · saldo`, vencimento: p0.data, desconto: 0, regua: true }, criadoEm: Date.now() }), { expirationTtl: 14 * 86400 });
+  p0.cobradaEm = Date.now(); await acdSalvar(env, a);
+}
+async function quitCancelarPix(env, a) {
+  let canc = false; const ag = await listarTodas(env, CBAG_PREFIX).catch(() => ({ keys: [] }));
+  for (const k of ag.keys) { try { const v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (v && v.numero === telefoneD1(a.num)) { await env.HR_KV.delete(k.name); canc = true; } } catch (_) {} }
+  const rc = await cbFerramentaCancelar(env, numeroDono(env), { cliente: a.num }).catch(() => null); if (rc && !rc.erro) canc = true;
+  return canc;
+}
+async function quitIniciar(env, a) {
+  // outros acordos abertos da mesma cliente deixam de valer (senão o bot cobraria duas vezes)
+  const l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+  for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const o = await acdLer(env, k.name.slice(4)); if (o && o.id !== a.id && !o.cancelado && ultimos8(o.num) === ultimos8(a.num) && o.parcelas.some(p => !p.paga)) { o.cancelado = Date.now(); o.substituidoPor = a.id; await acdSalvar(env, o); } }
+  a.etapa = 'novo'; await acdSalvar(env, a);
+  if (await janela24h(env, a.num)) { await quitMandarAviso(env, a); return `Aviso de saldo ${a.n} enviado a ${a.nome}, com o PDF. O Pix sai em 1 minuto com vencimento em ${dataBR(a.parcelas[0].data)}; depois disso entram multa e juros. Quando ela pagar uma parte, me diga: _${String(a.nome).split(' ')[0]} pagou 500_.`; }
+  const curto = `${nomeDeTratamento(a.nome) || 'Olá'}, aqui é da ${env.EMPRESA || 'HR Mármores e Granitos'}. Tenho uma informação sobre o pagamento do seu projeto. Posso te enviar por aqui?`.slice(0, 200);
+  try { await postarMsg(env, a.num, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } }); await env.HR_KV.put('tplpend:' + a.num, JSON.stringify({ acdId: a.id, nome: a.nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 }); await semearConversaProativa(env, a.num, curto).catch(() => {}); return `${a.nome} estava fora das 24 h: mandei o aviso aprovado pela Meta. Quando ela responder, mando o aviso de saldo, o PDF e o Pix.`; }
+  catch (e) { return `A Meta recusou o aviso (fora das 24 h). Mande um "oi" para ela (wa.me/${a.num}) e, quando responder, digite "termo da ${String(a.nome).split(' ')[0]}".`; }
+}
+async function quitMandarAviso(env, a) {
+  await enviar(env, a.num, quitTextoCliente(env, a));
+  try { const pdf = quitPdf(env, a), up = await subirPdfMeta(env, pdf.bytes, pdf.nome); await postarMsg(env, a.num, { type: 'document', document: { id: up.id, filename: pdf.nome, caption: 'Aviso de saldo em aberto' } }); await postarMsg(env, numeroDono(env), { type: 'document', document: { id: up.id, filename: pdf.nome, caption: `Aviso de saldo enviado a ${a.nome}` } }).catch(() => {}); } catch (e) { console.log('[QUIT] pdf:', e.message); }
+  await enviarComBotoes(env, a.num, 'Pode confirmar que recebeu?', [{ id: 'acd_ok|' + a.id, titulo: 'Ciente' }, { id: 'acd_dv|' + a.id, titulo: 'Tenho uma dúvida' }]).catch(() => {});
+  a.termoEm = Date.now(); a.etapa = 'termo'; await acdSalvar(env, a);
+  await quitCancelarPix(env, a).catch(() => {}); await quitAgendarPix(env, a);
+  await anotarNoHistorico(env, a.num, `[AVISO DE SALDO ${a.n}: saldo de R$ ${reais(a.parcelas[0].valor)} em parcela única até ${dataBR(a.parcelas[0].data)}; depois multa 2% e juros 1% a.m. O Sr. Hangel NÃO aceita mais pagamento em partes: não ofereça nem aceite parcelar, adiar ou desconto; se ela pedir, diga com educação que vale o aviso e que o pedido foi passado ao Sr. Hangel.]`).catch(() => {});
+}
+async function quitPagamentoParcial(env, from, msg) {
+  const m = String(msg || '').match(/^(?:a |o )?(.+?) (?:pagou|deu|mandou|passou|transferiu|depositou|fez (?:um )?pix de) (?:mais )?(?:r\$? ?)?(\d[\d.]*(?:,\d{1,2})?)(?: reais)?(?: (?:no|em|de|por|pelo) (pix|dinheiro|cartao))?$/);
+  if (!m) return false;
+  const tk = tokensPedra(m[1]); if (!tk.length) return false;
+  const l = await listarTodas(env, ACD).catch(() => ({ keys: [] })); let a = null;
+  for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const v = await acdLer(env, k.name.slice(4)); if (v && v.tipo === 'quitacao' && !v.cancelado && v.parcelas.some(p => !p.paga) && tk.every(w => tokensPedra(v.nome).includes(w)) && (!a || v.criado > a.criado)) a = v; }
+  if (!a) return false;
+  const valor = Number(m[2].replace(/\./g, '').replace(',', '.')); if (!(valor > 0)) return false;
+  const p0 = a.parcelas.find(p => !p.paga);
+  const canc = p0.cobradaEm ? await quitCancelarPix(env, a).catch(() => false) : false; p0.cobradaEm = null;
+  p0.valor = Math.round((p0.valor - valor) * 100) / 100; a.parciais = [...(a.parciais || []), { valor, em: Date.now(), forma: m[3] || 'pix' }];
+  if (p0.valor <= 0.5) { p0.paga = Date.now(); p0.valor = Math.max(0, p0.valor); }
+  await acdSalvar(env, a);
+  await registrarLancamento(env, { type: 'in', value: valor, desc: `${a.nome} · saldo do projeto (${a.n})`.slice(0, 80), date: dataBahia(), forma: m[3] || 'pix' }).catch(() => {});
+  if (p0.paga) {
+    await enviar(env, from, `Recebido R$ ${reais(valor)} de *${a.nome}*, lançado em Finanças. Saldo quitado.${canc ? ' Cancelei o Pix que estava aberto.' : ''}`);
+    if (await janela24h(env, a.num)) await enviar(env, a.num, `Recebemos R$ ${reais(valor)}. Obrigada! O saldo do seu projeto está quitado.`).catch(() => {});
+    return true;
+  }
+  if (a.termoEm) await quitAgendarPix(env, a); // antes do aviso chegar a ela, o Pix sai junto com o aviso
+  const atrasado = p0.data < dataBahia(), j24 = a.termoEm ? await janela24h(env, a.num) : false;
+  await enviar(env, from, `Recebido R$ ${reais(valor)} de *${a.nome}*, lançado em Finanças. Falta *R$ ${reais(p0.valor)}* (vencimento ${dataBR(p0.data)}${atrasado ? ', já vencido: o Pix novo sai com multa e juros' : ''}). ${!a.termoEm ? 'O aviso ainda não chegou a ela; quando chegar, já vai com o saldo novo.' : j24 ? 'Mandei a ela o saldo atualizado e o Pix novo sai em 1 minuto.' : 'O Pix novo sai em 1 minuto.'}`);
+  if (j24) await enviar(env, a.num, `Recebemos R$ ${reais(valor)}, obrigada. O saldo agora é de *R$ ${reais(p0.valor)}*, ${atrasado ? 'que já passou do vencimento (' + dataBR(p0.data) + '), com multa e juros' : 'com vencimento em ' + dataBR(p0.data)}. O Pix atualizado segue logo abaixo.`).catch(() => {});
+  return true;
+}
+
 async function acdComandoDono(env, from, msg) {
+  if (await quitPagamentoParcial(env, from, msg)) return true; // v251
   const pg = msg.match(/^(.+?) (?:pagou|quitou) (?:a )?(?:\d+a? )?parcela(?: (?:em|no) (dinheiro|pix|cartao))?/);
   if (pg) { // baixa manual de parcela do acordo
     const tk = tokensPedra(pg[1]), l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
@@ -13454,6 +13575,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'WhatsApp com DDD, se ele deu ou mandou o contato' }, total: { type: 'number', description: 'valor total do projeto' }, ja_pago: { type: 'number', description: 'quanto já foi pago (cartão, sinal etc.)' }, na_instalacao: { type: 'number', description: 'quanto ela paga no dia da instalação' }, data_instalacao: { type: 'string' }, parcelas: { type: 'array', items: { type: 'object', properties: { valor: { type: 'number' }, data: { type: 'string' } } }, description: 'o restante depois da instalação' }, instaladores: { type: 'array', items: { type: 'string' } }, descricao: { type: 'string', description: 'ex.: Cozinha em Preto São Gabriel' }, endereco: { type: 'string' }, orcamento_nome: { type: 'string', description: 'nome em que o orçamento está, se for outro (ex.: do marido)' } }, required: ['cliente'] },
   },
   {
+    name: 'cobrar_saldo',
+    description: 'COBRANÇA DE SALDO COM PRAZO FINAL (v251): cliente que enrolou, pagou de pouquinho ou descumpriu o combinado, e o Sr. Hangel quer o restante de UMA vez até uma data, com multa e juros depois. Ex.: "a Maria não pagou na entrega, perdeu o desconto à vista de 5800, o projeto a prazo é 6500, ela já pagou 2500, cobra o resto até dia 30 sem parcelar". O bot calcula o saldo, mostra a prévia ao dono (nada vai sem o toque dele) e manda à cliente o aviso formal + PDF + Pix com vencimento; depois do prazo correm multa 2% e juros 1% a.m. Pedido de parcelar vai para o dono e a assistente não aceita. Use ESTA ferramenta (não acordo_pagamento) quando ele falar em prazo final, quitar, cobrar o restante de uma vez ou não aceitar mais pagamento picado.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'WhatsApp com DDD, se ele deu' }, total: { type: 'number', description: 'valor que vale agora (o valor a prazo / preço cheio do projeto)' }, valor_vista: { type: 'number', description: 'valor à vista que ela perdeu, se ele falou' }, ja_pago: { type: 'number', description: 'soma de tudo que ela já pagou' }, prazo: { type: 'string', description: 'data final AAAA-MM-DD' }, descricao: { type: 'string', description: 'o projeto (ex.: cozinha em Preto São Gabriel)' } }, required: ['cliente'] },
+  },
+  {
     name: 'registrar_perda',
     description: 'Registra uma PERDA/QUEBRA de material ("quebrou uma peça da Maria", "trincou o peitoril do João, perdi uns 200") ou corrige o valor da última perda de um cliente ("a perda da Maria foi 300" → corrigir_valor true). Sem valor, o bot estima pelo custo da pedra.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, descricao: { type: 'string' }, valor: { type: 'number' }, funcionario: { type: 'string' }, corrigir_valor: { type: 'boolean' } }, required: ['descricao'] },
@@ -13963,6 +14089,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'producao_status') return await producaoStatusTool(env, a); // v149
   if (nome === 'registrar_perda') return await perdaTool(env, a); // v151
   if (nome === 'acordo_pagamento') return await acordoTool(env, from, a); // v152
+  if (nome === 'cobrar_saldo') return await quitTool(env, from, a); // v251
   if (nome === 'registrar_retrabalho') return await retrabalhoTool(env, a); // v157
   if (nome === 'foto_equipe_usar') return await fotoEquipeUsarTool(env, a); // v173
   if (nome === 'acordo_alterar') return await acordoAlterarTool(env, a); // v162
