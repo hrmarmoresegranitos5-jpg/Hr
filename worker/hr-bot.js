@@ -2219,6 +2219,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('conf_cancelar|')) { if (ehDono(env, from)) await confComandoDono(env, from, 'cancelar conferencia', 'cancelar conferencia'); return true; }
   if (id.startsWith('conf|') || id.startsWith('confc|')) { if (ehDono(env, from)) await confBotao(env, from, id); return true; } // v72
   if (id.startsWith('aid|')) { if (ehDono(env, from)) await aidBotao(env, from, id); return true; } // v249
+  if (id.startsWith('dva|') || id.startsWith('dvx|')) { if (ehDono(env, from)) await dividaAcaoBotao(env, from, id); return true; } // v257
   if (id.startsWith('igp|')) { if (ehDono(env, from)) await estBotao(env, from, id); return true; } // v69
   if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
   if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep' || id === 'folha_ja') return rhFolhaBotao(env, from, id); // v81
@@ -10851,6 +10852,28 @@ async function dividaClienteMsg(env, from, m) {
   }
   await dividaEnviarPix(env, from, d, `${pn ? pn + ', s' : 'S'}egue o Pix do saldo de ${moedaCb(d.saldoC)}${vencTxtDiv(d)}.`);
   return true;
+}
+// v257: ações de 1 toque na lista de quem deve (inadimplência)
+async function dividaAcaoBotao(env, from, id) {
+  const [tp, a1, a2] = id.split('|'), cid = tp === 'dva' ? a1 : a2;
+  const cb = await cbFirst(env, 'SELECT * FROM cobrancas WHERE id = ?', cid).catch(() => null);
+  if (!cb || ['pago', 'cancelada'].includes(cb.status)) { await enviar(env, from, 'Essa cobrança já foi paga ou cancelada.'); return; }
+  const saldo = (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0), nm = cb.cliente_nome || 'cliente';
+  if (tp === 'dva') {
+    await enviarComBotoes(env, from, `*${nm}* · ${cb.protocolo || ''}\nSaldo: *${moedaCb(saldo)}* · ${cbTextoAtraso(cbDiasEntre(cb.vencimento, dataBahia()))}${cb.promessa_ate ? '\nPrometeu: ' + dataBR(cb.promessa_ate) : ''}\n\nO que faço?`,
+      [{ id: 'dvx|pix|' + cb.id, titulo: 'Mandar Pix agora' }, { id: 'dvx|prazo|' + cb.id, titulo: 'Prazo final 5 dias' }, { id: 'dvx|pausa|' + cb.id, titulo: 'Pausar lembretes' }]);
+    return;
+  }
+  if (a1 === 'pix') {
+    const d = await dividaCliente(env, cb.cliente_numero);
+    if (!d) { await enviar(env, from, 'Não achei saldo em aberto.'); return; }
+    if (await janela24h(env, normalizarBR(cb.cliente_numero))) await dividaEnviarPix(env, normalizarBR(cb.cliente_numero), d, `${nomeDeTratamento(nm) ? nomeDeTratamento(nm) + ', s' : 'S'}egue o Pix do saldo de ${moedaCb(d.saldoC)}${vencTxtDiv(d)}. Assim que cair, eu te confirmo por aqui.`);
+    else await cbBumpPro(env, cb, { from, auto: false });
+    await enviar(env, from, `Pix do saldo de ${moedaCb(saldo)} enviado a ${nm}.`);
+    return;
+  }
+  if (a1 === 'prazo') { const r = await quitTool(env, from, { cliente: nm, numero: cb.cliente_numero, total: Math.max(1, (+cb.principal_centavos || saldo) - (+cb.recebido_centavos || 0)) / 100, ja_pago: 0, prazo: isoSomaDias(dataBahia(), 5), descricao: cb.descricao || '' }); if (r && r.erro) await enviar(env, from, r.texto); return; }
+  if (a1 === 'pausa') { await tratarCobrancaProComando(env, from, 'pausar cobranca ' + String(cb.protocolo || normaliza(nm)).toLowerCase()); return; }
 }
 async function dividaEnviarPix(env, num, d, intro) {
   const cb = d.cobs[0]; if (intro) await enviar(env, num, intro);
@@ -28086,7 +28109,13 @@ async function tratarCobrancaProComando(env, from, msg) {
       return `• *${c.cliente_nome}* — ${moedaCb(falta)} — ${cbTextoAtraso(dias)} — ${st}${c.protocolo ? ' — ' + c.protocolo : ''}`;
     });
     for (const c of ativas.slice(8)) soma += c.total_centavos - (c.recebido_centavos || 0);
-    await enviar(env, from, `*Cobranças em aberto, Sr. Hangel*\n\n${linhas.join('\n')}${ativas.length > 8 ? `\n… e mais ${ativas.length - 8}.` : ''}\n\nTotal a receber: *${moedaCb(soma)}*`);
+    let extra = ''; // v257: promessas com hora e parcelas futuras dos acordos
+    try { const pr = await listarTodas(env, 'divprom:'); const ls = []; for (const k of pr.keys) { const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (p) ls.push(`• ${p.nome}: prometeu ${diaFalado(p.dia)} às ${p.hora}`); } if (ls.length) extra += `\n\n*Promessas:*\n${ls.slice(0, 6).join('\n')}`; } catch (_) {}
+    try { const l = await listarTodas(env, ACD); let fut = 0; const ls = []; for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado) continue; const ps = a.parcelas.filter(p => !p.paga && !p.cobradaEm); if (!ps.length) continue; const v = ps.reduce((t, p) => t + p.valor, 0); fut += v; ls.push(`• ${a.nome}: ${ps.map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data).slice(0, 5)).join(', ')}`); } if (ls.length) extra += `\n\n*Ainda vão vencer (acordos):*\n${ls.slice(0, 6).join('\n')}\nTotal: R$ ${reais(fut)}`; } catch (_) {}
+    await enviar(env, from, `*Cobranças em aberto, Sr. Hangel*\n\n${linhas.join('\n')}${ativas.length > 8 ? `\n… e mais ${ativas.length - 8}.` : ''}\n\nTotal a receber: *${moedaCb(soma)}*${extra}`);
+    const vist = new Set(), rows = [];
+    for (const c of ativas) { if (c.status === 'aguardando_aprovacao' || vist.has(ultimos8(c.cliente_numero))) continue; vist.add(ultimos8(c.cliente_numero)); rows.push({ id: 'dva|' + c.id, titulo: String(c.cliente_nome || 'Cliente').slice(0, 24), descricao: `${moedaCb(c.total_centavos - (c.recebido_centavos || 0))} · ${cbTextoAtraso(cbDiasEntre(c.vencimento, hoje))}`.slice(0, 72) }); }
+    if (rows.length) await enviarLista(env, from, 'Toque num nome para agir: mandar o Pix agora, dar prazo final ou pausar os lembretes.', 'Agir', rows.slice(0, 10)).catch(() => {});
     return true;
   }
   const pm = String(acao[2]).replace(/\s/g, '').match(/^hr-?(\d{4})-?(\d{4})$/i);
