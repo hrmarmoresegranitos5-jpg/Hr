@@ -2186,8 +2186,8 @@ function _finOrganizar() {
     document.body.appendChild(d);
     // esconde na Secretária/Chat (o botão de enviar fica ali)
     setInterval(function() {
-      var sec = document.getElementById('pg11');
-      d.style.display = (sec && sec.offsetParent !== null) ? 'none' : 'flex';
+      var sec = document.getElementById('pg11'), orc = document.getElementById('pg0'); // v29: no Orçamento também (cobria os botões e o Calcular)
+      d.style.display = ((sec && sec.offsetParent !== null) || (orc && orc.offsetParent !== null)) ? 'none' : 'flex';
     }, 500);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', montar); else montar();

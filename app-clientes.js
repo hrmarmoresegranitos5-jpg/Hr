@@ -793,6 +793,17 @@ function _orcBuildHeader() {
   pg.insertBefore(hdr, pg.firstChild);
 }
 
+// v29: tocar na etapa leva até ela (Cliente, Pedra, Medidas, Calcular)
+function orcIrEtapa(n) {
+  var pg = document.getElementById('pg0'); if (!pg) return;
+  var alvo = n === 1 ? document.getElementById('oCliente') : n === 4 ? document.getElementById('btnCalc') : pg.querySelector('[data-orc-etapa="' + n + '"]');
+  if (!alvo) return;
+  var hdr = document.getElementById('orcPremHdr'), folga = (hdr ? hdr.offsetHeight : 0) + 14;
+  var y = alvo.getBoundingClientRect().top - pg.getBoundingClientRect().top + pg.scrollTop - folga;
+  try { pg.scrollTo({ top: Math.max(0, y), behavior: 'smooth' }); } catch (e) { pg.scrollTop = Math.max(0, y); }
+  if (n === 1) setTimeout(function () { try { alvo.focus({ preventScroll: true }); } catch (e) {} }, 450);
+}
+window.orcIrEtapa = orcIrEtapa;
 function _orcStepsHtml(step) {
   var steps = ['Cliente', 'Pedra', 'Medidas', 'Calcular'];
   var h = '';
@@ -800,7 +811,7 @@ function _orcStepsHtml(step) {
     var n = i + 1;
     var done = n < step;
     var active = n === step;
-    h += '<div class="orc-step' + (done ? ' done' : active ? ' active' : '') + '">';
+    h += '<div class="orc-step' + (done ? ' done' : active ? ' active' : '') + '" data-ir="' + n + '" onclick="orcIrEtapa(' + n + ')">';
     h += '<div class="orc-step-dot">' + (done ? '✓' : n) + '</div>';
     h += '<div class="orc-step-lbl">' + lbl + '</div>';
     h += '</div>';

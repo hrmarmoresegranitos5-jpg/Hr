@@ -4930,7 +4930,7 @@ function buildPecaBordaHtml(amb, pc) {
     (isDiv ? TIPO_LIST : TIPO_LIST.slice(0,3)).forEach(function(t) {
       var on = tipo === t.k;
       var tArg = t.k ? ("'" + t.k + "'") : 'null';
-      h += '<div onclick=\"updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')\" ';
+      h += '<div class=\"bd-opt'+(on?' on':'')+'\" onclick=\"updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')\" ';
       h += 'style=\"cursor:pointer;flex:1;text-align:center;padding:6px 3px;border-radius:7px;border:1.5px solid ';
       h += (on?t.cor:'rgba(255,255,255,.1)')+';background:'+(on?t.bg:'transparent')+';';
       h += 'font-size:.65rem;font-weight:'+(on?700:400)+';color:'+(on?t.cor:'var(--t4)')+';\">';
@@ -4945,7 +4945,7 @@ function buildPecaBordaHtml(amb, pc) {
       TIPO_LIST.slice(3).forEach(function(t) {
         var on = tipo === t.k;
         var tArg = t.k ? ("'" + t.k + "'") : 'null';
-        h += '<div onclick=\"updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')\" ';
+        h += '<div class=\"bd-opt'+(on?' on':'')+'\" onclick=\"updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')\" ';
         h += 'style=\"cursor:pointer;flex:1;text-align:center;padding:6px 3px;border-radius:7px;border:1.5px solid ';
         h += (on?t.cor:'rgba(255,255,255,.1)')+';background:'+(on?t.bg:'transparent')+';';
         h += 'font-size:.65rem;font-weight:'+(on?700:400)+';color:'+(on?t.cor:'var(--t4)')+';\">';
@@ -5702,7 +5702,7 @@ function renderAmbientes(){
     // STEP 2: Selecao de Pedra
     h+='<div style="margin:10px 0 12px;">';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">';
-    h+='<span style="font-size:.52rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">② Pedra</span>';
+    h+='<span data-orc-etapa="2" style="font-size:.52rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">② Pedra</span>';
     h+='<span id="mind-'+amb.id+'" style="font-size:.58rem;color:var(--t3);">';
     if(ambMat) h+=ambMat.nm+' <span style="color:var(--gold2);">R$'+ambMat.pr.toLocaleString('pt-BR')+'/m²</span>';
     else h+='<span style="color:var(--t4);">selecione uma pedra</span>';
@@ -5759,7 +5759,7 @@ function renderAmbientes(){
         h+='</div>';
       }
     } else {
-    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 7px;">Peças</div>';
+    h+='<div data-orc-etapa="3" style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 7px;">Peças</div>';
     h+='<div class="amb-pecas">';
     amb.pecas.forEach(function(pc,pi){
       var rm=amb.pecas.length>1?'<button style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:2px 5px;font-family:Outfit,sans-serif;" onclick="rmPecaAmb('+amb.id+','+pc.id+')">&#10005;</button>':'';
