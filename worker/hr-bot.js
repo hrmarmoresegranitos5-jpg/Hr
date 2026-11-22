@@ -10742,6 +10742,7 @@ async function quitAntesRotina(env) { // v258
     if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado || a.tipo !== 'quitacao' || a.etapa !== 'esperando') continue;
     let pagoC = 0, todos = true;
     if (cbAtivo(env)) { const cs = await cbAll(env, "SELECT * FROM cobrancas WHERE criada_em >= ? ORDER BY criada_em DESC LIMIT 200", new Date(a.criado - 60000).toISOString()).catch(() => []);
+      for (const cid of (a.antesCids || [])) if (!cs.some(c => c.id === cid)) { const c = await cbFirst(env, 'SELECT * FROM cobrancas WHERE id = ?', cid).catch(() => null); if (c) cs.push(c); } // v262: as aproveitadas (criadas antes)
       const minhas = cs.filter(c => ultimos8(c.cliente_numero) === ultimos8(a.num) && /pagamento combinado/.test(c.descricao || ''));
       pagoC = minhas.reduce((t, c) => t + (+c.recebido_centavos || 0), 0); todos = minhas.length >= a.antes.length && minhas.every(c => c.status === 'pago'); }
     if (!(todos || Date.now() >= a.avisoTs)) continue;
@@ -10773,15 +10774,21 @@ async function quitIniciar(env, a) {
   const l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
   for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const o = await acdLer(env, k.name.slice(4)); if (o && o.id !== a.id && !o.cancelado && ultimos8(o.num) === ultimos8(a.num) && o.parcelas.some(p => !p.paga)) { o.cancelado = Date.now(); o.substituidoPor = a.id; await acdSalvar(env, o); } }
   if (a.antes && a.antes.length) { // v258: primeiro os Pix combinados (um por dia); o aviso formal do restante sai depois
-    await cbFerramentaCancelar(env, numeroDono(env), { cliente: a.num }).catch(() => {}); // cobranças antigas e prévias dela saem: valem estas
+    // v262: cobrança JÁ ENVIADA hoje com o mesmo valor de um combinado é aproveitada (ela não recebe o Pix duas vezes); o resto é cancelado
+    a.antesCids = [];
+    if (cbAtivo(env)) { const abertas = (await cbAll(env, "SELECT * FROM cobrancas WHERE status IN ('aguardando_pagamento', 'enviada', 'pix_expirado', 'parcial', 'pago') AND criada_em >= ? ORDER BY criada_em DESC LIMIT 100", new Date(Date.now() - 3 * 86400000).toISOString()).catch(() => [])).filter(c => ultimos8(c.cliente_numero) === ultimos8(a.num));
+      for (const p of a.antes) { const c = abertas.find(c => !a.antesCids.includes(c.id) && +c.principal_centavos === reaisParaCentavos(p.valor) && (c.vencimento === p.data || (p.data === dataBahia() && String(c.criada_em).slice(0, 10) >= isoSomaDias(dataBahia(), -1)))); if (c) { p.cid = c.id; a.antesCids.push(c.id); await cbRun(env, "UPDATE cobrancas SET descricao = ? WHERE id = ?", String(c.descricao || 'Pagamento').replace(/ · pagamento combinado$/, '') + ' · pagamento combinado', c.id).catch(() => {}); } } }
+    if (cbAtivo(env)) { const outras = (await cbAll(env, "SELECT id, cliente_numero FROM cobrancas WHERE status NOT IN ('pago', 'cancelada') ORDER BY criada_em DESC LIMIT 200").catch(() => [])).filter(c => ultimos8(c.cliente_numero) === ultimos8(a.num) && !a.antesCids.includes(c.id));
+      for (const c of outras) await cbCancelar(env, numeroDono(env), c.id, true).catch(() => {}); } // cobranças antigas e prévias dela saem: valem estas
     { const ag = await listarTodas(env, CBAG_PREFIX).catch(() => ({ keys: [] })); for (const k of ag.keys) { try { const v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (v && ultimos8(v.numero) === ultimos8(a.num)) await env.HR_KV.delete(k.name); } catch (_) {} } } // v261: e as agendadas
     for (const p of a.antes) {
+      if (p.cid) continue; // v262: já enviada
       const id = 'Q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), quando = p.data <= dataBahia() ? Date.now() + 60000 : Date.parse(p.data + 'T08:40:00-03:00');
       await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando, args: { cliente: a.num, nome: a.nome, valor: p.valor, descricao: `${String(a.desc || 'Projeto').slice(0, 40)} · pagamento combinado`, vencimento: p.data, desconto: 0, regua: false }, criadoEm: Date.now() }), { expirationTtl: 14 * 86400 });
       p.agId = id;
     }
     a.etapa = 'esperando'; a.avisoTs = Date.parse(isoSomaDias(a.antes[a.antes.length - 1].data, 1) + 'T09:00:00-03:00'); await acdSalvar(env, a);
-    return `Combinado. ${a.antes.map(p => `Pix de R$ ${reais(p.valor)} ${diaFalado(p.data)}`).join(' e ')} ${a.antes.length > 1 ? 'saem' : 'sai'} para ${a.nome} no dia (cobranças antigas dela canceladas). Quando ela pagar ${a.antes.length > 1 ? 'os dois' : ''}, ou no máximo ${diaFalado(diaIso(a.avisoTs))} às 9h, mando o aviso formal com o PDF: saldo restante até ${dataBR(a.parcelas[0].data)}, depois multa e juros.`;
+    return `Combinado. ${a.antes.map(p => `Pix de R$ ${reais(p.valor)} ${diaFalado(p.data)}${p.cid ? ' (o que já foi enviado vale, não mando de novo)' : ''}`).join(' e ')} para ${a.nome} (as outras cobranças dela foram canceladas). Quando ela pagar ${a.antes.length > 1 ? 'os dois' : ''}, ou no máximo ${diaFalado(diaIso(a.avisoTs))} às 9h, mando o aviso formal com o PDF: saldo restante até ${dataBR(a.parcelas[0].data)}, depois multa e juros.`;
   }
   a.etapa = 'novo'; await acdSalvar(env, a);
   if (await janela24h(env, a.num)) { await quitMandarAviso(env, a); return `Aviso de saldo ${a.n} enviado a ${a.nome}, com o PDF. O Pix sai em 1 minuto com vencimento em ${dataBR(a.parcelas[0].data)}; depois disso entram multa e juros. Quando ela pagar uma parte, me diga: _${String(a.nome).split(' ')[0]} pagou 500_.`; }
