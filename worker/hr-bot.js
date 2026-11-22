@@ -16126,6 +16126,7 @@ async function perguntarDesconhecidosMPX(env, hs) {
   for (const r of vai) await env.HR_KV.put('mpx:pq:' + r.h, '1', { expirationTtl: MPX_PEND_TTL });
   const nome = r => (r.semNome || /^(payment|pagamento)$/i.test(r.desc || '')) ? `${r.semNome ? 'Pix enviado' : 'pagamento com Pix'}${r.hora ? ' às ' + r.hora : ''} (o Mercado Pago não informa o nome)` : (r.desc || 'favorecido sem nome').replace(/^pix enviado( para)?\s*/i, '').slice(0, 50);
   for (const r of vai) { // v236: um por vez, com pistas e 1 toque
+    if (!(await travaEnvio(env, 'mpqenv:' + r.h))) continue; // v254: duas rotinas ao mesmo tempo mandavam a mesma pergunta duas vezes
     const pi = await finPistas(env, r).catch(() => ({ sug: null, linhas: [] }));
     const bts = []; if (pi.sug && CATS[pi.sug]) bts.push({ id: `mpq|${r.h}|${pi.sug}`, titulo: CATS[pi.sug].slice(0, 20) });
     bts.push({ id: `mpq|${r.h}|nl`, titulo: 'Não lembro' });
