@@ -2037,6 +2037,7 @@ function categoriaDe(desc) {
 function interpretarLancamento(bruto) {
   const original = String(bruto || '').trim();
   if (!original) return null;
+  if (/\b(falou que|disse que|diz que|vai fazer|vai pagar|vai transferir|vai mandar|iria|faria|pagaria|prometeu|ficou de|combinou|combinamos|cobr[ae]|cobrar)\b/i.test(normaliza(original))) return null; // v258: "Renata falou que hoje faria um pagamento de 500" é promessa de cliente, não gasto
   const ent = original.match(RE_ENTRADA);
   const sai = original.match(RE_SAIDA);
   if (!ent && !sai) return null;
@@ -6886,6 +6887,7 @@ async function pedirAvaliacoes(env) {
   await acdRotina(env).catch(e => console.log('[ACD] rotina:', e.message)); // v152
   await dividaLimparPedidosFalsos(env).catch(e => console.log('[DIV] limpar:', e.message)); // v252
   await dividaPromessasRotina(env).catch(e => console.log('[DIV] promessas:', e.message)); // v253
+  await quitAntesRotina(env).catch(e => console.log('[QUIT] antes:', e.message)); // v258
   if (horaComercialBahia()) await dividaRadarPix(env).catch(e => console.log('[DIV] radar:', e.message)); // v253
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
@@ -10720,13 +10722,37 @@ async function quitTool(env, from, x) {
   if (vista && vista >= total) return { erro: true, texto: `O valor à vista (R$ ${reais(vista)}) não pode ser maior que o valor a prazo (R$ ${reais(total)}). Confirme com ele em UMA frase.` };
   const saldo = Math.round((total - jaPago) * 100) / 100; if (saldo < 1) return { erro: true, texto: `Pelos números ela já quitou (total R$ ${reais(total)}, pago R$ ${reais(jaPago)}). Confirme com ele.` };
   const hoje = dataBahia(); let prazo = isoOk(x.prazo); const prazoPadrao = !prazo; if (!prazo || prazo < hoje) prazo = isoSomaDias(hoje, 5);
+  const antes = (Array.isArray(x.antes) ? x.antes : []).map(p => ({ valor: Math.round((+p.valor || 0) * 100) / 100, data: isoOk(p.data) || hoje })).filter(p => p.valor > 0).sort((p, q) => p.data.localeCompare(q.data)); // v258
+  const somaAntes = antes.reduce((t, p) => t + p.valor, 0);
+  if (antes.length && somaAntes >= saldo - 1) return { erro: true, texto: `Os pagamentos combinados (R$ ${reais(somaAntes)}) já cobrem o saldo (R$ ${reais(saldo)}): não sobra saldo final. Confirme com ele em UMA frase.` };
+  if (antes.length && prazo <= antes[antes.length - 1].data) prazo = isoSomaDias(antes[antes.length - 1].data, 5);
   const dest = await destinoCobranca(env, x.numero || x.cliente).catch(() => null); if (!dest) return { erro: true, texto: 'Não achei o WhatsApp dessa cliente. Peça o número com DDD (ou o contato) em UMA frase; nada foi feito ainda.' };
   const num = normalizarBR(dest.numero), nome = String(x.cliente).trim();
-  const a = { id: 'A' + Date.now().toString(36), tipo: 'quitacao', n: 'SD-' + String(Date.now()).slice(-6), num, nome, desc: x.descricao || (orc ? [orc.projeto, orc.material].filter(Boolean).join(' em ') : ''), total, vista, jaPago, naInst: 0, parcelas: [{ valor: saldo, data: prazo }], parciais: [], criado: Date.now(), etapa: 'previa', insts: [], dados: {} };
+  const a = { id: 'A' + Date.now().toString(36), tipo: 'quitacao', n: 'SD-' + String(Date.now()).slice(-6), num, nome, desc: x.descricao || (orc ? [orc.projeto, orc.material].filter(Boolean).join(' em ') : ''), total, vista, jaPago, naInst: 0, parcelas: [{ valor: Math.round((saldo - somaAntes) * 100) / 100, data: prazo }], antes, parciais: [], criado: Date.now(), etapa: 'previa', insts: [], dados: {} };
   await acdSalvar(env, a);
-  await enviar(env, numeroDono(env), [`*Cobrança de saldo · ${nome}*`, `WhatsApp: ${fmtNumero(num)}`, '', vista ? `À vista (perdido): R$ ${reais(vista)}` : '', `Vale agora: R$ ${reais(total)}`, `Já pago: R$ ${reais(jaPago)}`, `*Saldo: R$ ${reais(saldo)} até ${dataBR(prazo)}*${prazoPadrao ? ' (prazo padrão de 5 dias; diga outra data se quiser)' : ''}`, '', 'Mensagem que vai para ela (com o PDF e o Pix):'].filter(x2 => x2 !== '').join('\n')).catch(() => {});
-  await enviarComBotoes(env, numeroDono(env), quitTextoCliente(env, a).slice(0, 1000), [{ id: 'acdp_ok|' + a.id, titulo: 'Confirmar e enviar' }, { id: 'acdp_no|' + a.id, titulo: 'Corrigir' }]);
-  return { texto: `Mostrei a prévia da cobrança de saldo (R$ ${reais(saldo)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
+  await enviar(env, numeroDono(env), [`*Cobrança de saldo · ${nome}*`, `WhatsApp: ${fmtNumero(num)}`, '', vista ? `À vista (perdido): R$ ${reais(vista)}` : '', `Vale agora: R$ ${reais(total)}`, `Já pago: R$ ${reais(jaPago)}`, ...(antes.length ? [`Saldo hoje: R$ ${reais(saldo)}`, ...antes.map(p => `• Pix de R$ ${reais(p.valor)} ${diaFalado(p.data)} (${dataBR(p.data).slice(0, 5)})`), `*Depois: R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}* em parcela única, com multa e juros após o prazo`, '', 'Ao confirmar, as cobranças abertas dela são substituídas por estas. O aviso formal com o PDF sai no dia seguinte ao último Pix (ou assim que ela pagar os dois). Mensagem do aviso:'] : [`*Saldo: R$ ${reais(saldo)} até ${dataBR(prazo)}*${prazoPadrao ? ' (prazo padrão de 5 dias; diga outra data se quiser)' : ''}`, '', 'Mensagem que vai para ela (com o PDF e o Pix):'])].filter(x2 => x2 !== '').join('\n')).catch(() => {});
+  await enviarComBotoes(env, numeroDono(env), quitTextoCliente(env, antes.length ? { ...a, parciais: antes.map(p => ({ valor: p.valor })) } : a).slice(0, 1000), [{ id: 'acdp_ok|' + a.id, titulo: 'Confirmar e enviar' }, { id: 'acdp_no|' + a.id, titulo: 'Corrigir' }]);
+  return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
+}
+async function quitAntesRotina(env) { // v258
+  const l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+  for (const k of l.keys) {
+    if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado || a.tipo !== 'quitacao' || a.etapa !== 'esperando') continue;
+    let pagoC = 0, todos = true;
+    if (cbAtivo(env)) { const cs = await cbAll(env, "SELECT * FROM cobrancas WHERE criada_em >= ? ORDER BY criada_em DESC LIMIT 200", new Date(a.criado - 60000).toISOString()).catch(() => []);
+      const minhas = cs.filter(c => ultimos8(c.cliente_numero) === ultimos8(a.num) && /pagamento combinado/.test(c.descricao || ''));
+      pagoC = minhas.reduce((t, c) => t + (+c.recebido_centavos || 0), 0); todos = minhas.length >= a.antes.length && minhas.every(c => c.status === 'pago'); }
+    if (!(todos || Date.now() >= a.avisoTs)) continue;
+    if (!(await travaEnvio(env, 'quitantes:' + a.id))) continue;
+    const somaAntes = a.antes.reduce((t, p) => t + p.valor, 0), pago = pagoC / 100;
+    a.parcelas[0].valor = Math.round((a.parcelas[0].valor + somaAntes - pago) * 100) / 100; // o que não pagou dos combinados entra no saldo final
+    if (pago > 0) a.parciais = [...(a.parciais || []), { valor: pago, em: Date.now(), forma: 'pix', antes: true }];
+    if (a.parcelas[0].data < isoSomaDias(dataBahia(), 3)) a.parcelas[0].data = isoSomaDias(dataBahia(), 3);
+    a.antesFeitos = a.antes; a.antes = []; a.etapa = 'novo'; await acdSalvar(env, a);
+    if (a.parcelas[0].valor < 1) { a.parcelas[0].paga = Date.now(); await acdSalvar(env, a); await notificarDono(env, Date.now(), `*${a.nome}* pagou tudo o que faltava. Saldo quitado.`).catch(() => {}); continue; }
+    const r = await quitIniciar(env, a).catch(e => 'Não consegui mandar o aviso: ' + e.message);
+    await notificarDono(env, Date.now(), `*${a.nome}*: ${pago > 0 ? 'pagou R$ ' + reais(pago) + ' dos combinados. ' : 'não pagou os combinados. '}${r}`).catch(() => {});
+  }
 }
 async function quitAgendarPix(env, a) {
   const p0 = a.parcelas.find(p => !p.paga); if (!p0) return;
@@ -10744,6 +10770,16 @@ async function quitIniciar(env, a) {
   // outros acordos abertos da mesma cliente deixam de valer (senão o bot cobraria duas vezes)
   const l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
   for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const o = await acdLer(env, k.name.slice(4)); if (o && o.id !== a.id && !o.cancelado && ultimos8(o.num) === ultimos8(a.num) && o.parcelas.some(p => !p.paga)) { o.cancelado = Date.now(); o.substituidoPor = a.id; await acdSalvar(env, o); } }
+  if (a.antes && a.antes.length) { // v258: primeiro os Pix combinados (um por dia); o aviso formal do restante sai depois
+    await cbFerramentaCancelar(env, numeroDono(env), { cliente: a.num }).catch(() => {}); // cobranças antigas e prévias dela saem: valem estas
+    for (const p of a.antes) {
+      const id = 'Q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), quando = p.data <= dataBahia() ? Date.now() + 60000 : Date.parse(p.data + 'T08:40:00-03:00');
+      await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando, args: { cliente: a.num, nome: a.nome, valor: p.valor, descricao: `${String(a.desc || 'Projeto').slice(0, 40)} · pagamento combinado`, vencimento: p.data, desconto: 0, regua: false }, criadoEm: Date.now() }), { expirationTtl: 14 * 86400 });
+      p.agId = id;
+    }
+    a.etapa = 'esperando'; a.avisoTs = Date.parse(isoSomaDias(a.antes[a.antes.length - 1].data, 1) + 'T09:00:00-03:00'); await acdSalvar(env, a);
+    return `Combinado. ${a.antes.map(p => `Pix de R$ ${reais(p.valor)} ${diaFalado(p.data)}`).join(' e ')} ${a.antes.length > 1 ? 'saem' : 'sai'} para ${a.nome} no dia (cobranças antigas dela canceladas). Quando ela pagar ${a.antes.length > 1 ? 'os dois' : ''}, ou no máximo ${diaFalado(diaIso(a.avisoTs))} às 9h, mando o aviso formal com o PDF: saldo restante até ${dataBR(a.parcelas[0].data)}, depois multa e juros.`;
+  }
   a.etapa = 'novo'; await acdSalvar(env, a);
   if (await janela24h(env, a.num)) { await quitMandarAviso(env, a); return `Aviso de saldo ${a.n} enviado a ${a.nome}, com o PDF. O Pix sai em 1 minuto com vencimento em ${dataBR(a.parcelas[0].data)}; depois disso entram multa e juros. Quando ela pagar uma parte, me diga: _${String(a.nome).split(' ')[0]} pagou 500_.`; }
   const curto = `${nomeDeTratamento(a.nome) || 'Olá'}, aqui é da ${env.EMPRESA || 'HR Mármores e Granitos'}. Tenho uma informação sobre o pagamento do seu projeto. Posso te enviar por aqui?`.slice(0, 200);
@@ -10766,6 +10802,10 @@ async function quitPagamentoParcial(env, from, msg) {
   for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const v = await acdLer(env, k.name.slice(4)); if (v && v.tipo === 'quitacao' && !v.cancelado && v.parcelas.some(p => !p.paga) && tk.every(w => tokensPedra(v.nome).includes(w)) && (!a || v.criado > a.criado)) a = v; }
   if (!a) return false;
   const valor = Number(m[2].replace(/\./g, '').replace(',', '.')); if (!(valor > 0)) return false;
+  if (a.etapa === 'esperando' && cbAtivo(env)) { // v258: ainda nos pagamentos combinados: a baixa vai na cobrança do dia (o saldo final se ajusta sozinho depois)
+    const cs = (await cbAll(env, "SELECT * FROM cobrancas WHERE status IN ('aguardando_pagamento', 'parcial', 'aprovada', 'enviada', 'pix_expirado') ORDER BY vencimento ASC LIMIT 100").catch(() => [])).filter(c => ultimos8(c.cliente_numero) === ultimos8(a.num) && /pagamento combinado/.test(c.descricao || ''));
+    if (cs.length) { const c = cs[0], sd = (+c.total_centavos || 0) - (+c.recebido_centavos || 0); await cbBaixaDinheiro(env, from, c.id, Math.min(reaisParaCentavos(valor), sd), m[3] === 'dinheiro' ? 'dinheiro' : 'pix'); return true; }
+  }
   const p0 = a.parcelas.find(p => !p.paga);
   const canc = p0.cobradaEm ? await quitCancelarPix(env, a).catch(() => false) : false; p0.cobradaEm = null;
   p0.valor = Math.round((p0.valor - valor) * 100) / 100; a.parciais = [...(a.parciais || []), { valor, em: Date.now(), forma: m[3] || 'pix' }];
@@ -13788,8 +13828,8 @@ const FERRAMENTAS = [
   },
   {
     name: 'cobrar_saldo',
-    description: 'COBRANÇA DE SALDO COM PRAZO FINAL (v251): cliente que enrolou, pagou de pouquinho ou descumpriu o combinado, e o Sr. Hangel quer o restante de UMA vez até uma data, com multa e juros depois. Ex.: "a Maria não pagou na entrega, perdeu o desconto à vista de 5800, o projeto a prazo é 6500, ela já pagou 2500, cobra o resto até dia 30 sem parcelar". O bot calcula o saldo, mostra a prévia ao dono (nada vai sem o toque dele) e manda à cliente o aviso formal + PDF + Pix com vencimento; depois do prazo correm multa 2% e juros 1% a.m. Pedido de parcelar vai para o dono e a assistente não aceita. Use ESTA ferramenta (não acordo_pagamento) quando ele falar em prazo final, quitar, cobrar o restante de uma vez ou não aceitar mais pagamento picado.',
-    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'WhatsApp com DDD, se ele deu' }, total: { type: 'number', description: 'valor que vale agora (o valor a prazo / preço cheio do projeto)' }, valor_vista: { type: 'number', description: 'valor à vista que ela perdeu, se ele falou' }, ja_pago: { type: 'number', description: 'soma de tudo que ela já pagou' }, prazo: { type: 'string', description: 'data final AAAA-MM-DD' }, descricao: { type: 'string', description: 'o projeto (ex.: cozinha em Preto São Gabriel)' } }, required: ['cliente'] },
+    description: 'COBRANÇA DE SALDO COM PRAZO FINAL (v251): cliente que enrolou, pagou de pouquinho ou descumpriu o combinado, e o Sr. Hangel quer o restante de UMA vez até uma data, com multa e juros depois. Ex.: "a Maria não pagou na entrega, perdeu o desconto à vista de 5800, o projeto a prazo é 6500, ela já pagou 2500, cobra o resto até dia 30 sem parcelar". O bot calcula o saldo, mostra a prévia ao dono (nada vai sem o toque dele) e manda à cliente o aviso formal + PDF + Pix com vencimento; depois do prazo correm multa 2% e juros 1% a.m. Pedido de parcelar vai para o dono e a assistente não aceita. Use ESTA ferramenta (não acordo_pagamento nem criar_cobranca) quando ele falar em prazo final, quitar, cobrar o restante de uma vez, não aceitar mais pagamento picado, ou "ela paga X hoje, X amanhã e o resto até dia D com multa e juros" (use antes). Se o total e o já pago não vierem na mensagem, use o LIVRO DE ENTREGAS (valor do serviço e o que já foi pago).',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'WhatsApp com DDD, se ele deu' }, total: { type: 'number', description: 'valor que vale agora (o valor a prazo / preço cheio do projeto)' }, valor_vista: { type: 'number', description: 'valor à vista que ela perdeu, se ele falou' }, ja_pago: { type: 'number', description: 'soma de tudo que ela já pagou' }, prazo: { type: 'string', description: 'data final AAAA-MM-DD' }, antes: { type: 'array', items: { type: 'object', properties: { valor: { type: 'number' }, data: { type: 'string', description: 'AAAA-MM-DD' } } }, description: 'pagamentos que ela já combinou ANTES do saldo final (ex.: 500 hoje e 500 amanhã): cada um vira um Pix no dia; o aviso formal do saldo restante sai no dia seguinte ao último (ou assim que pagar os dois)' }, descricao: { type: 'string', description: 'o projeto (ex.: cozinha em Preto São Gabriel)' } }, required: ['cliente'] },
   },
   {
     name: 'registrar_perda',
@@ -21836,7 +21876,7 @@ async function qcobComando(env, from, bruto, msg) {
   if (!/\b(cobra|cobrar|cobre|cobranca)\b/.test(msg) || /\?\s*$/.test(String(bruto).trim()) || /\b(pix|boletos?)\b/.test(msg)) return false;
   const resto = msg, data = qcobData(resto);
   const temEntrega = /\bentreg\w*|\bpeitor\w*|\bsoleir\w*|\bbancad\w*|\bpia\b|\bescad\w*|\blavator\w*|\bmesa\b|\btumul\w*|\bnicho\b|\bfilete\b/.test(resto);
-  if (!data && !temEntrega) return false; // "cobrar fulano" / "cobrar pix": fluxos antigos
+  if (!temEntrega) return false; // v258: "cobre a Renata, ela vai pagar 500 hoje" não é cobrança de entrega de hoje (só com entrega/peça citada)
   const palavras = (resto.match(/\b(peitor|soleir|bancad|pia|escad|lavator|mesa|tumul|nicho|filete|cuba|ilha)\w*/g) || []).map(w => w.slice(0, 5));
   const c = await qcobCandidatos(env, data, palavras);
   const quando = data ? `${DIAS_SEMANA[diaSemanaISO(data)]}, ${dataBR(data).slice(0, 5)}` : 'nos últimos 15 dias';
