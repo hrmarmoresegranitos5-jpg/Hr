@@ -1092,6 +1092,7 @@ const RE_PIX_PEDE = /\b((me )?(manda|mande|mandar|envia|envie|passa|passe|pode m
 const RE_ENTREGA_PAGA = /\b(pago|pagar|pagamento|pagarei|acerto) (na|no) (entrega|hora|dia da entrega|instalacao)\b/;
 const RE_FECHA_ORC = /\b(pode confirmar|confirm\w* (o |meu )?pedido|confirmo|pode fazer|pode fazer sim|quero que fa[cz]a|quero que voces? fa[cz]a\w*|pode fechar|quero fechar|vamos fechar|fechad[oa]|fecho|aprov\w+|aceito|aceitei|pode produzir|pode mandar fazer|manda fazer|pode seguir|pode come[cç]ar|vou querer|quero sim|pode encomendar|faz pra mim|faca pra mim)\b/;
 async function orcEnvFechamento(env, from, texto, forcar) {
+  if (!(forcar && forcar.dono) && await dividaCliente(env, from).catch(() => null)) return false; // v252
   const k = 'orcenv:' + normalizarBR(from);
   let o = null; try { o = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
   const msg = normaliza(limparMensagemCliente(String(texto || '')));
@@ -4492,6 +4493,7 @@ function promptCliente(env, c, regras) {
     x.periodo && x.primeira ? `PERÍODO DO DIA: ${x.periodo}.` : `NÃO cumprimente de novo (nada de "Bom dia", "Boa tarde", "Olá" nem o nome no começo): a saudação já foi feita; vá direto à resposta.`,
     c.assuntoInicial ? `O cliente começou dizendo: "${c.assuntoInicial}". Responda ou retome esse ponto assim que o nome estiver definido; não o ignore.` : '',
     `SITUAÇÃO DO PEDIDO DESTE CLIENTE: ${x.status || 'nenhum pedido localizado.'}`,
+    dividaTextoIA(x.divida), // v252
     x.orcEnv ? `ORÇAMENTO JÁ ENVIADO (PDF${x.orcEnv.orcNum ? ' ' + x.orcEnv.orcNum : ''}${x.orcEnv.projeto ? ', ' + x.orcEnv.projeto : ''}${x.orcEnv.material ? ' em ' + x.orcEnv.material : ''}${x.orcEnv.valor ? ', R$ ' + reais(x.orcEnv.valor) : ''}, em ${dataBR(new Date((x.orcEnv.em || Date.now()) - 3 * 3600000).toISOString().slice(0, 10))}) E AINDA NÃO FECHADO. Agora o seu papel é de vendedora: levar o cliente com naturalidade até a APROVAÇÃO. Regras desta fase: (1) Se o cliente reagir ao orçamento com "ok", "recebi", "certo", "vi", "pode sim", "show", NÃO responda "por nada": agradeça pela atenção e pergunte, de forma leve e sem pressão, se pode confirmar o pedido para a produção começar (pode lembrar em meia frase: Pix com desconto à vista ou cartão em até 10x). Se ele responder só a forma de pagamento ("no cartão", "10x", "à vista"), confirme a forma em meia frase e pergunte se pode confirmar o pedido para entrar na agenda de produção. Sempre com segurança (VENDEDORA CONFIANTE): nada de "se achar caro" nem "a gente dá um jeito". (2) Se ele APROVAR em qualquer palavra ou áudio (pode fazer, pode confirmar, fechado, quero, vamos fazer, aprovo), ou PEDIR O PIX, a chave, o QR code ou como pagar, devolva "aprovou_orcamento": true e, se ele disse como paga, "forma_pagamento": "pix" ou "entrega". O SISTEMA confirma o pedido, gera o Pix na hora (mesmo de madrugada) e pergunta entrega e localização: escreva só uma frase curta em "resposta". NUNCA diga que o responsável vai mandar o Pix depois, que a equipe passa a chave amanhã, nem marque "chamar_dono" por causa de pagamento. (3) "pode sim" ou "pode" respondendo a "posso te enviar?" NÃO é aprovação. (4) Se disser que vai pensar, conversar com a família ou ver depois, respeite: diga em uma frase que fica à disposição e que pode tirar qualquer dúvida; não insista. (5) Dúvida de valor, pedra, prazo ou desconto: responda em uma frase sem inventar nada e retome a aprovação. (6) Nunca peça nota nem avaliação. (7) A conversa segue SÓ neste orçamento (o último que foi mandado). Não cite orçamentos antigos por conta própria; se o cliente pedir outro orçamento, o sistema mostra a lista.` : '',
     (() => {
       const ult = (c.hist || []).filter(h => h.role === 'assistant').slice(-1)[0];
@@ -5116,7 +5118,8 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     { // v115: orçamento enviado em PDF e ainda não fechado: a IA conduz para a aprovação
       let oe = null; try { oe = JSON.parse((await env.HR_KV.get('orcenv:' + normalizarBR(from))) || 'null'); } catch (_) {}
       if (!oe && crmAtivo(env)) { try { await crmTabela(env); const d = await env.HR_DB.prepare("SELECT ts FROM crm_msg WHERE num = ? AND q = 'b' AND tipo = 'document' AND ts > ? ORDER BY ts DESC LIMIT 1").bind(normalizarBR(from), Date.now() - 15 * 86400000).first(); if (d) oe = { em: d.ts, fechado: 0, valor: 0 }; } catch (_) {} }
-      c._extra.orcEnv = oe && !oe.fechado ? oe : null;
+      c._extra.divida = await dividaCliente(env, from).catch(() => null); // v252
+      c._extra.orcEnv = oe && !oe.fechado && !c._extra.divida ? oe : null; // v252: quem deve saldo de serviço entregue não está aprovando orçamento
     }
     let rapido = c._extra.orcEnv ? null : respostaSimplesDaFalta(c, brutoL, pedras);
     let saida;
@@ -6880,6 +6883,7 @@ async function pedirAvaliacoes(env) {
   await atrasoRotina(env).catch(e => console.log('[ATRASO]', e.message)); // v151
   await esquecidosRotina(env).catch(e => console.log('[ESQ]', e.message)); // v151
   await acdRotina(env).catch(e => console.log('[ACD] rotina:', e.message)); // v152
+  await dividaLimparPedidosFalsos(env).catch(e => console.log('[DIV] limpar:', e.message)); // v252
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
@@ -6961,6 +6965,7 @@ async function pedirAvaliacoes(env) {
       }
       const ocioso = agora - ultima;
       if (ocioso < AVAL_OCIOSO_MS || ocioso > AVAL_JANELA_MS) continue;               // fora da janela de 24 h do WhatsApp, não dá para escrever
+      if (await dividaCliente(env, from).catch(() => null)) continue; // v252: com saldo em aberto não se pede nota
       if (!(await travaEnvio(env, 'nota:' + ultimos8(from)))) continue; // outro gatilho já está enviando (v162: por número, sem variação)
       await env.HR_KV.put('aval:ped8:' + ultimos8(from), '1', { expirationTtl: 30 * 86400 });
       try { const fresco = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (fresco && fresco.avalPedida) continue; } catch (_) {}
@@ -10758,6 +10763,100 @@ async function quitPagamentoParcial(env, from, msg) {
   await enviar(env, from, `Recebido R$ ${reais(valor)} de *${a.nome}*, lançado em Finanças. Falta *R$ ${reais(p0.valor)}* (vencimento ${dataBR(p0.data)}${atrasado ? ', já vencido: o Pix novo sai com multa e juros' : ''}). ${!a.termoEm ? 'O aviso ainda não chegou a ela; quando chegar, já vai com o saldo novo.' : j24 ? 'Mandei a ela o saldo atualizado e o Pix novo sai em 1 minuto.' : 'O Pix novo sai em 1 minuto.'}`);
   if (j24) await enviar(env, a.num, `Recebemos R$ ${reais(valor)}, obrigada. O saldo agora é de *R$ ${reais(p0.valor)}*, ${atrasado ? 'que já passou do vencimento (' + dataBR(p0.data) + '), com multa e juros' : 'com vencimento em ' + dataBR(p0.data)}. O Pix atualizado segue logo abaixo.`).catch(() => {});
   return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v252: CLIENTE COM SALDO EM ABERTO (cobrança já enviada / acordo) — o serviço já foi entregue:
+//   • "manda o Pix" / "manda um Pix de 500" NUNCA vira pedido novo (antes: "Seu pedido está confirmado… entrega ou retirada?")
+//   • Pix de uma parte: passa a chave e diz quanto fica faltando; Pix do saldo: reenvia o cartão da cobrança
+//   • comprovante: conta o que fica faltando e manda ao dono o botão Confirmar (baixa na cobrança, Finanças, aviso e Pix novo do restante)
+//   • a IA sabe do saldo: cordial e firme (valor, vencimento, Pix na hora), sem "fique à vontade" e sem tratar como pedido
+// ═════════════════════════════════════════════════════════════════════════════
+async function dividaCliente(env, num) {
+  const u = ultimos8(normalizarBR(num)); if (!u) return null;
+  let cobs = [];
+  if (cbAtivo(env)) { try { cobs = (await cbAll(env, "SELECT * FROM cobrancas WHERE status IN ('aguardando_pagamento', 'parcial') ORDER BY criada_em DESC LIMIT 300")).filter(c => ultimos8(c.cliente_numero) === u); } catch (_) {} }
+  const vistas = new Set(); cobs = cobs.filter(c => { const k = normaliza(c.descricao || '') + '|' + c.principal_centavos; if (vistas.has(k)) return false; vistas.add(k); return true; }); // a mesma cobrança refeita conta uma vez (a mais nova)
+  cobs.sort((a, b) => String(a.vencimento || '').localeCompare(String(b.vencimento || '')));
+  const saldoC = cobs.reduce((t, c) => t + Math.max(0, (+c.total_centavos || 0) - (+c.recebido_centavos || 0)), 0);
+  let a = null; try { const aid = await env.HR_KV.get('acd:num:' + u); if (aid) { const x = await acdLer(env, aid); if (x && !x.cancelado && x.parcelas.some(p => !p.paga)) a = x; } } catch (_) {}
+  const futuro = a ? a.parcelas.filter(p => !p.paga && !p.cobradaEm) : [];
+  if (!saldoC && !futuro.length) return null;
+  return { saldoC, cobs, a, futuro, venc: cobs[0] ? cobs[0].vencimento : (futuro[0] && futuro[0].data), nome: (cobs[0] && cobs[0].cliente_nome) || (a && a.nome) || '' };
+}
+function dividaTextoIA(d) {
+  if (!d) return '';
+  const fut = d.futuro.length ? ` Depois disso ainda há ${d.futuro.map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' e ')} (acordo).` : '';
+  return `SALDO EM ABERTO DESTE CLIENTE: ${d.saldoC ? moedaCb(d.saldoC) + vencTxtDiv(d) + ' (cobrança já enviada).' : ''}${fut} O serviço JÁ FOI ENTREGUE/INSTALADO. Regras: (1) NUNCA trate como pedido novo: não diga "pedido confirmado", não fale de produção, não pergunte entrega, retirada nem localização. (2) Seja cordial e firme, como uma boa cobradora de loja: lembre o valor e a data e ofereça o Pix na hora (o sistema manda o Pix quando ele pedir). (3) Se ele disser que paga depois, que o banco está fora ou que está providenciando, responda curto e firme: pergunte em que horário de hoje ele consegue fazer o Pix e diga que fica aguardando até lá. NUNCA "fique à vontade", "sem pressa" nem "quando puder". (4) Não ofereça parcelar, adiar nem desconto; pedido assim vai para o Sr. Hangel ("chamar_dono": true). (5) Nunca peça nota nem avaliação enquanto houver saldo.`;
+}
+const vencTxtDiv = d => !d || !d.venc ? '' : d.venc < dataBahia() ? `, que venceu em ${dataBR(d.venc)}` : d.venc === dataBahia() ? ', que vence hoje' : `, com vencimento em ${dataBR(d.venc)}`;
+function chavePixEmpresa(env) { return String(env.PIX_CHAVE || '').trim() || String(env.EMPRESA_CNPJ || '64.639.182/0001-28').replace(/\D/g, ''); }
+async function dividaClienteMsg(env, from, m) {
+  if (!['text', 'audio', 'image', 'document'].includes(m.type)) return false;
+  const d = await dividaCliente(env, from).catch(() => null); if (!d || !(d.saldoC > 0)) return false;
+  const pn = nomeDeTratamento(d.nome), cb = d.cobs[0];
+  if (m.type === 'image' || m.type === 'document') { // comprovante do saldo
+    const info = m[m.type] || {}; let dados = null;
+    try { const { buf, tipo } = await baixarMidia(env, info.id); const mt = String(tipo || info.mime_type || '').split(';')[0].toLowerCase();
+      if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mt) && buf.byteLength <= 8 * 1048576) dados = await lerComprovanteIA(env, buf, mt); } catch (e) { console.log('[DIV] ler:', e.message); }
+    if (!dados || dados.eh_comprovante !== true || !(+dados.valor > 0)) return false;
+    const valorC = reaisParaCentavos(+dados.valor), saldoCb = Math.max(0, (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0));
+    if (valorC > d.saldoC + 100) return false; // maior que o saldo: é de outro assunto
+    await receberMidiaCliente(env, from, m).catch(() => {});
+    const falta = Math.max(0, d.saldoC - valorC);
+    await enviar(env, from, `${pn ? pn + ', r' : 'R'}ecebi o comprovante de ${moedaCb(valorC)}, obrigada! Estou conferindo na conta e já te confirmo. ${falta > 0 ? `Depois dele, fica faltando ${moedaCb(falta)}${vencTxtDiv(d)}.` : 'Com ele, o saldo fica quitado.'}`);
+    await enviarComBotoes(env, numeroDono(env), cartaoDono('Comprovante · ' + (d.nome || 'cliente'), [
+      `Pix de *${moedaCb(valorC)}*${dados.pagador ? ' de ' + dados.pagador : ''}${dados.data_hora ? ' em ' + String(dados.data_hora).replace('T', ' ') : ''}.`,
+      `Cobrança ${cb.protocolo || ''}: saldo ${moedaCb(saldoCb)} → ${saldoCb - Math.min(valorC, saldoCb) > 0 ? 'fica ' + moedaCb(saldoCb - Math.min(valorC, saldoCb)) : 'quitada'}.`,
+      'Confira se caiu na conta. Ao confirmar: baixa na cobrança, entrada em Finanças, aviso a ela e o Pix novo só do que falta.'], from), [{ id: `din_ok|${cb.id}|${Math.min(valorC, saldoCb)}|pix`, titulo: 'Confirmar' }, { id: 'din_no', titulo: 'Não caiu' }]);
+    return true;
+  }
+  let t = m.type === 'text' ? String(m.text?.body || '') : String(m._texto || '');
+  if (!t && m.type === 'audio') { t = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = t; }
+  const n = normaliza(t); if (!n) return false;
+  if (!/\b(pix|chave|qr|qrcode|codigo|copia e cola|link( de pagamento)?|como (eu )?(pago|pagar|faco o pagamento))\b/.test(n)) return false;
+  if (/\b(paguei|ja fiz|fiz o pix|ja mandei|mandei o pix|comprovante|transferi)\b/.test(n)) return false; // avisando que pagou: os botões e o comprovante cuidam
+  const v = extrairValor(t), vC = v ? reaisParaCentavos(v.n) : 0;
+  if (vC > 0 && vC < d.saldoC - 100) { // quer pagar uma parte agora
+    const falta = d.saldoC - vC;
+    await enviar(env, from, `Pode sim${pn ? ', ' + pn : ''}. Faça o Pix de ${moedaCb(vC)} para a chave Pix (CNPJ) abaixo, em nome da ${env.EMPRESA || 'HR Mármores e Granitos'}, e me mande o comprovante aqui. Depois dele, fica faltando ${moedaCb(falta)}${vencTxtDiv(d)}.`);
+    await enviarTextoPuro(env, from, chavePixEmpresa(env)).catch(() => enviar(env, from, chavePixEmpresa(env)));
+    await notificarDono(env, Date.now(), `*${d.nome || 'Cliente'}* pediu para pagar *${moedaCb(vC)}* agora (saldo ${moedaCb(d.saldoC)}). Passei a chave Pix; quando ela mandar o comprovante, chega aqui o botão Confirmar.\nwa.me/${normalizarBR(from)}`).catch(() => {});
+    await anotarNoHistorico(env, from, `[O cliente vai pagar ${moedaCb(vC)} agora pela chave Pix; fica faltando ${moedaCb(falta)}. Não crie pedido, não pergunte entrega.]`).catch(() => {});
+    return true;
+  }
+  await enviar(env, from, `${pn ? pn + ', s' : 'S'}egue o Pix do saldo de ${moedaCb(d.saldoC)}${vencTxtDiv(d)}.`);
+  const venceu = !cb.pix_copia_cola || (cb.pix_expira_em && Date.parse(cb.pix_expira_em) < Date.now() + 5 * 60000);
+  if (venceu && cb.status === 'aguardando_pagamento') await cbBumpPro(env, cb, { from: numeroDono(env), auto: false });
+  else if (cb.pix_copia_cola) await cbEnviarCartaoCompleto(env, cb);
+  else { await enviar(env, from, `Chave Pix (CNPJ), em nome da ${env.EMPRESA || 'HR Mármores e Granitos'}:`); await enviarTextoPuro(env, from, chavePixEmpresa(env)).catch(() => {}); }
+  return true;
+}
+// v252: arruma uma vez os pedidos que o bot abriu por engano para quem só devia o saldo (Pix de pedido "novo" + entrega/retirada)
+async function dividaLimparPedidosFalsos(env) {
+  if (await env.HR_KV.get('fix:v252pedfalso')) return; await env.HR_KV.put('fix:v252pedfalso', '1', { expirationTtl: 90 * 86400 });
+  if (!cbAtivo(env)) return;
+  const abertas = await cbAll(env, "SELECT DISTINCT cliente_numero, cliente_nome FROM cobrancas WHERE status IN ('aguardando_pagamento', 'parcial')").catch(() => []);
+  const feitos = [];
+  for (const c of abertas) {
+    const num = normalizarBR(c.cliente_numero);
+    for (const nk of variantesNumero(num)) {
+      const pid = await pedidoIdDoCliente(env, nk).catch(() => null); if (!pid) continue;
+      const ped = await lerPedido(env, pid).catch(() => null);
+      if (!ped || ped.pago || ped.status === 'cancelado' || ped.origem !== 'pdf_dono' || !(ped.criado > Date.parse('2026-11-15T00:00:00Z'))) continue;
+      await cancelarPixPendente(env, ped).catch(() => {});
+      ped.status = 'cancelado'; ped.etapa = 'cancelado'; ped.cancelado = Date.now(); ped.motivoCancel = 'aberto por engano: cliente só devia o saldo da cobrança'; await salvarPedido(env, ped);
+      await env.HR_KV.delete('cliped:' + nk).catch(() => {}); await gravarCliente(env, nk, { pedidoId: null }).catch(() => {});
+      await anotarNoHistorico(env, nk, '[O pedido novo aberto por engano foi cancelado: este cliente só deve o saldo da cobrança já enviada. Não pergunte entrega nem retirada.]').catch(() => {});
+      feitos.push(`${c.cliente_nome || 'cliente'} (Pix de R$ ${reais(+ped.valor || 0)} cancelado)`);
+    }
+  }
+  { // cobrança repetida (mesmo cliente, mesmo serviço, mesmo valor): fica só a mais nova, senão os lembretes cobram em dobro
+    const todas = await cbAll(env, "SELECT * FROM cobrancas WHERE status IN ('aguardando_pagamento') ORDER BY criada_em DESC").catch(() => []), vist = new Set();
+    for (const c of todas) { const k = ultimos8(c.cliente_numero) + '|' + normaliza(c.descricao || '') + '|' + c.principal_centavos; if (!vist.has(k)) { vist.add(k); continue; } if (+c.recebido_centavos > 0) continue;
+      const r = await cbCancelar(env, numeroDono(env), c.id, true).then(() => true).catch(() => false); if (r) feitos.push(`${c.cliente_nome || 'cliente'} (cobrança repetida ${c.protocolo || ''} de ${moedaCb(c.total_centavos)} cancelada; vale a mais nova)`); }
+  }
+  if (feitos.length) await pontoAvisarDono(env, `Arrumei o atendimento de quem só devia o saldo: o bot tinha aberto um pedido novo e perguntado entrega/retirada. Cancelei: ${feitos.join('; ')}. A cobrança de verdade continua valendo.`).catch(() => {});
 }
 
 async function acdComandoDono(env, from, msg) {
@@ -14769,7 +14868,18 @@ async function destinoCobranca(env, cliente) {
     const numero = normalizarBR(dig.length <= 11 ? '55' + dig : dig);
     return { numero, nome: await nomeParaDono(env, numero) || await livNomePorTel(env, numero) || await commsNomePorNumero(env, numero) || '' };
   }
-  const numero = (await numeroDoClientePorNome(env, bruto).catch(() => '')) || (await livTelefone(env, bruto)) || (((await commsBuscarContato(env, bruto).catch(() => null)) || {}).numero || '');
+  const achar = async nm => (await numeroDoClientePorNome(env, nm).catch(() => '')) || (await livTelefone(env, nm).catch(() => '')) || (((await commsBuscarContato(env, nm).catch(() => null)) || {}).numero || '');
+  let numero = await achar(bruto);
+  if (!numero) { // v252: nome completo ("Renata Brito Café Neres") e o contato salvo curto ("Renata B."): tenta nome + inicial e só o primeiro nome com sobrenome
+    const tk = bruto.split(/\s+/).filter(Boolean);
+    for (const nm of [tk.slice(0, 2).join(' '), tk.length > 1 ? tk[0] + ' ' + tk[1][0] : '']) { if (nm && nm !== bruto && (numero = await achar(nm))) break; }
+    if (!numero && cbAtivo(env) && tk.length) { // quem já recebeu cobrança com esse primeiro nome e a mesma inicial
+      const rs = await cbAll(env, 'SELECT DISTINCT cliente_nome, cliente_numero FROM cobrancas ORDER BY criada_em DESC LIMIT 300').catch(() => []);
+      const p0 = normaliza(tk[0]), i1 = tk[1] ? normaliza(tk[1])[0] : '';
+      const ok = [...new Map(rs.filter(r => { const w = normaliza(r.cliente_nome || '').split(' '); return w[0] === p0 && (!i1 || (w[1] || '')[0] === i1); }).map(r => [ultimos8(r.cliente_numero), r])).values()];
+      if (ok.length === 1) numero = ok[0].cliente_numero;
+    }
+  }
   return numero ? { numero: normalizarBR(numero), nome: bruto } : null;
 }
 
@@ -19651,6 +19761,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && await garDadosMsg(env, from, m).catch(e => { console.log('[GAR] dados:', e.message); return false; })) return; // v163
   if (!dono && await rcbClienteMsg(env, from, m).catch(e => { console.log('[RCB] cliente:', e.message); return false; })) return; // v157
   if (!dono && await acdClienteMsg(env, from, m).catch(e => { console.log('[ACD] cliente:', e.message); return false; })) return; // v152
+  if (!dono && await dividaClienteMsg(env, from, m).catch(e => { console.log('[DIV] cliente:', e.message); return false; })) return; // v252
   if (!dono && await onbClienteMsg(env, from, m).catch(e => { console.log('[ONB] cliente:', e.message); return false; })) return; // v143
   if (!dono && await garClienteMsg(env, from, m).catch(e => { console.log('[GAR] cliente:', e.message); return false; })) return; // v144
   if (!dono && await grvResposta(env, from, m).catch(e => { console.log('[GRV]', e.message); return false; })) return; // v146
@@ -28162,7 +28273,8 @@ async function tratarRecebiDinheiro(env, from, bruto, msg) {
   const resto = (t.slice(0, v.inicio) + ' ' + t.slice(v.fim)).replace(/\b(reais|real|r)\b/g, ' ').replace(/\s+/g, ' ').trim();
   const mm = resto.match(/^(?:recebi|recebemos)\s+(?:de|do|da|dos|das)\s+(.+)$/);
   if (!mm) return false;
-  const alvo = normaliza(mm[1].replace(/[.,;:!?]+$/, ''));
+  let alvo = normaliza(mm[1].replace(/[.,;:!?]+$/, ''));
+  let fmDin = 'dinheiro'; { const mf = alvo.match(/\s+(?:no|em|pelo|via|de)\s+(pix|dinheiro)$/); if (mf) { fmDin = mf[1]; alvo = alvo.slice(0, mf.index).trim(); } } // v252: "recebi 500 da Renata no pix"
   if (alvo.length < 2 || !cbAtivo(env)) return false; // sem cobrança em D1: segue o lançamento comum
   const valorC = reaisParaCentavos(v.n);
   if (!(valorC > 0)) return false;
@@ -28171,6 +28283,7 @@ async function tratarRecebiDinheiro(env, from, bruto, msg) {
   let achadas = abertas.filter(c => { const n = normaliza(c.cliente_nome); return toks.every(tk => n.includes(tk)); });
   if (!achadas.length) return false; // nenhuma cobrança em aberto com esse nome: o lançamento comum de entrada cuida
   const saldoDe = c => (Number(c.total_centavos) || 0) - (Number(c.recebido_centavos) || 0);
+  if (achadas.length > 1) { const vist = new Map(); for (const c of achadas) { const k = ultimos8(c.cliente_numero) + '|' + normaliza(c.descricao || '') + '|' + c.principal_centavos; if (!vist.has(k)) vist.set(k, c); } achadas = [...vist.values()]; } // v252: a mesma cobrança refeita vale a mais nova
   if (achadas.length > 1) { const exatas = achadas.filter(c => saldoDe(c) === valorC); if (exatas.length === 1) achadas = exatas; }
   if (achadas.length > 1) {
     await enviar(env, from, `Sr. Hangel, há ${achadas.length} cobranças em aberto com esse nome:\n${achadas.slice(0, 5).map(c => `• ${c.cliente_nome}: saldo de ${moedaCb(saldoDe(c))}`).join('\n')}\n\nEscreva de novo com o nome completo, ou com o valor exato do saldo.`);
@@ -28181,8 +28294,8 @@ async function tratarRecebiDinheiro(env, from, bruto, msg) {
     await enviar(env, from, `Sr. Hangel, ${moedaCb(valorC)} é mais do que o saldo da cobrança de *${cb.cliente_nome}* (${moedaCb(saldo)}). Não registrei nada. Confira o valor e escreva de novo.`);
     return true;
   }
-  const txt = `Sr. Hangel, confirma?\n\nReceber *${moedaCb(valorC)} em dinheiro* de *${cb.cliente_nome}*.\nCobrança de ${moedaCb(cb.total_centavos)}; saldo atual ${moedaCb(saldo)}.\n\nDou baixa na cobrança, lanço a entrada nas finanças e aviso o cliente.`;
-  try { await enviarComBotoes(env, from, txt, [{ id: `din_ok|${cb.id}|${valorC}`, titulo: 'Confirmar' }, { id: 'din_no', titulo: 'Cancelar' }]); }
+  const txt = `Sr. Hangel, confirma?\n\nReceber *${moedaCb(valorC)} ${fmDin === 'pix' ? 'no Pix' : 'em dinheiro'}* de *${cb.cliente_nome}*.\nCobrança de ${moedaCb(cb.total_centavos)}; saldo atual ${moedaCb(saldo)}.\n\nDou baixa na cobrança, lanço a entrada nas finanças e aviso o cliente.`;
+  try { await enviarComBotoes(env, from, txt, [{ id: `din_ok|${cb.id}|${valorC}|${fmDin}`, titulo: 'Confirmar' }, { id: 'din_no', titulo: 'Cancelar' }]); }
   catch (e) { await enviar(env, from, txt + '\n\n_Os botões falharam; escreva o comando de novo._'); }
   return true;
 }
@@ -28190,12 +28303,13 @@ async function tratarRecebiDinheiro(env, from, bruto, msg) {
 async function tratarBotaoDinheiro(env, from, id) {
   if (!ehDono(env, from)) return false;
   if (id === 'din_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não registrei nada.'); return true; }
-  const [, cid, vc] = id.split('|');
-  await cbBaixaDinheiro(env, from, cid, Number(vc));
+  const [, cid, vc, fm] = id.split('|');
+  await cbBaixaDinheiro(env, from, cid, Number(vc), fm === 'pix' ? 'pix' : 'dinheiro');
   return true;
 }
 
-async function cbBaixaDinheiro(env, from, cid, valorC) {
+async function cbBaixaDinheiro(env, from, cid, valorC, forma = 'dinheiro') { // v252: forma pix (comprovante confirmado pelo dono)
+  const fmTxt = forma === 'pix' ? 'no Pix' : 'em dinheiro';
   if (!cbAtivo(env) || !cid || !(valorC > 0)) { await enviar(env, from, 'Sr. Hangel, não consegui registrar: o banco de cobranças não está disponível.'); return; }
   const trava = `din:lk:${cid}:${valorC}`;
   if (await env.HR_KV.get(trava)) { await enviar(env, from, 'Sr. Hangel, esse recebimento já foi registrado agora há pouco.'); return; }
@@ -28208,29 +28322,42 @@ async function cbBaixaDinheiro(env, from, cid, valorC) {
   const agora = cbAgora(), idPag = 'din-' + cid + '-' + Date.now().toString(36), SOMA = CB_SOMA_LIQUIDA;
   await cbBatch(env, [
     cbSql(env, `INSERT INTO pagamentos (mp_payment_id, cobranca_id, valor_centavos, status_mp, pago_em, pagador, baixa_feita, criado_em, atualizado_em)
-      VALUES (?, ?, ?, 'approved', ?, 'Dinheiro (em mãos)', 1, ?, ?)`, idPag, cb.id, valorC, agora, agora, agora),
+      VALUES (?, ?, ?, 'approved', ?, ?, 1, ?, ?)`, idPag, cb.id, valorC, agora, forma === 'pix' ? 'Pix (comprovante)' : 'Dinheiro (em mãos)', agora, agora),
     cbSql(env, `UPDATE cobrancas SET recebido_centavos = ${SOMA},
       status = CASE WHEN ${SOMA} >= total_centavos THEN 'pago' WHEN ${SOMA} > 0 THEN 'parcial' ELSE status END,
       paga_em = CASE WHEN paga_em IS NULL AND ${SOMA} >= total_centavos THEN ? ELSE paga_em END,
       atualizada_em = ? WHERE id = ?`, agora, agora, cb.id),
     cbSql(env, "UPDATE cobranca_itens SET ativo = 0 WHERE cobranca_id = ? AND EXISTS (SELECT 1 FROM cobrancas WHERE id = ? AND status = 'pago')", cb.id, cb.id),
     cbSql(env, "UPDATE lembretes SET estado = 'cancelado' WHERE cobranca_id = ? AND estado IN ('agendado', 'pausado') AND EXISTS (SELECT 1 FROM cobrancas WHERE id = ? AND status = 'pago')", cb.id, cb.id),
-    cbEvt(env, cb.id, 'baixa', `dinheiro em mãos, ${valorC} centavos`, 'dono'),
+    cbEvt(env, cb.id, 'baixa', `${forma === 'pix' ? 'pix por comprovante' : 'dinheiro em mãos'}, ${valorC} centavos`, 'dono'),
   ]);
   const atual = await cbFirst(env, 'SELECT status, recebido_centavos, total_centavos FROM cobrancas WHERE id = ?', cb.id);
   const quitou = atual.status === 'pago';
   if (quitou && cb.mp_payment_id) await mpCancelar(env, cb.mp_payment_id); // o Pix antigo não pode mais ser pago
   let lancado = true;
-  try { await registrarLancamento(env, { type: 'in', value: centavosParaReais(valorC), desc: `Recebido de ${cb.cliente_nome} (dinheiro)`.slice(0, 80), date: dataBahia(), forma: 'dinheiro', origem: 'dono', semUltimo: true }); }
+  try { await registrarLancamento(env, { type: 'in', value: centavosParaReais(valorC), desc: `Recebido de ${cb.cliente_nome} (${forma})`.slice(0, 80), date: dataBahia(), forma, origem: 'dono', semUltimo: true }); }
   catch (e) { lancado = false; console.log('[BOT] lançamento do dinheiro:', e.message); }
   const primeiro = nomeDeTratamento(cb.cliente_nome), falta = atual.total_centavos - atual.recebido_centavos;
+  let novoPix = '';
+  if (!quitou && cb.profissional) { // v252: o Pix e os lembretes antigos eram do valor cheio: cobrança nova só do que falta, mesmo vencimento (encargos contam dele)
+    try {
+      const restoC = Math.max(0, (Number(cb.principal_centavos) || 0) - (Number(atual.recebido_centavos) || 0));
+      if (restoC >= 100) {
+        if (cb.mp_payment_id) await mpCancelar(env, cb.mp_payment_id);
+        await cbBatch(env, [cbSql(env, "UPDATE cobrancas SET status = 'cancelada', atualizada_em = ? WHERE id = ?", cbAgora(), cb.id), cbSql(env, "UPDATE lembretes SET estado = 'cancelado' WHERE cobranca_id = ? AND estado IN ('agendado', 'pausado')", cb.id), cbEvt(env, cb.id, 'substituida', `parcial ${valorC}; nova cobrança do restante ${restoC}`, 'sistema')]);
+        const nc = await cbCriarPro(env, { nome: cb.cliente_nome, numero: cb.cliente_numero, descricao: String(cb.descricao || 'Saldo').replace(/ · saldo$/, '') + ' · saldo', principalC: restoC, vencimento: cb.vencimento, regua: true, origemId: `saldo:${cb.id}:${restoC}` });
+        await cbAprovar(env, from, nc.id, nc.versao);
+        novoPix = ` Mandei a ela o Pix novo só dos ${moedaCb(restoC)} que faltam (protocolo ${nc.protocolo || ''}), mesmo vencimento; os lembretes seguem.`;
+      }
+    } catch (e) { console.log('[CB] restante:', e.message); novoPix = ' Não consegui refazer o Pix do restante: peça "cobra o restante da ' + String(cb.cliente_nome).split(' ')[0] + '".'; }
+  }
   await enviar(env, cb.cliente_numero, quitou
-    ? `${primeiro ? primeiro + ', p' : 'P'}agamento de ${moedaCb(valorC)} em dinheiro recebido. Muito obrigada! Qualquer dúvida, ou para fazer novos orçamentos, estamos à disposição.`
-    : `${primeiro ? primeiro + ', r' : 'R'}ecebemos ${moedaCb(valorC)} em dinheiro. Obrigada! Ainda falta ${moedaCb(falta)}.`).catch(e => falhou(env, 'dinheiro: aviso ao cliente', e));
+    ? `${primeiro ? primeiro + ', p' : 'P'}agamento de ${moedaCb(valorC)} ${fmTxt} recebido. Muito obrigada! Qualquer dúvida, ou para fazer novos orçamentos, estamos à disposição.`
+    : `${primeiro ? primeiro + ', r' : 'R'}ecebemos ${moedaCb(valorC)} ${fmTxt}. Obrigada! Ainda falta ${moedaCb(falta)}${cb.vencimento ? ', com vencimento em ' + dataBR(cb.vencimento) : ''}. O Pix atualizado segue logo abaixo.`).catch(e => falhou(env, 'dinheiro: aviso ao cliente', e));
   if (quitou) await agendarAvaliacaoGoogle(env, cb.cliente_numero, cb.cliente_nome);
-  await recSugerirBaixa(env, cb, valorC, 'dinheiro', idPag).catch(e => falhou(env, 'a receber: sugerir baixa no app', e)); // Etapa 73
+  await recSugerirBaixa(env, cb, valorC, forma, idPag).catch(e => falhou(env, 'a receber: sugerir baixa no app', e)); // Etapa 73
   await livAuto(env, { cliente: cb.cliente_nome, tel: cb.cliente_numero, desc: cb.descricao, valor: centavosParaReais(cb.principal_centavos || cb.total_centavos), pagamento: { valor: centavosParaReais(valorC), forma: 'Dinheiro', data: dataBahia(), ref: idPag, origem: 'dono' } }, 'cobrança dinheiro');
-  await enviar(env, from, `Pronto, Sr. Hangel. Dei baixa de ${moedaCb(valorC)} em dinheiro na cobrança de ${cb.cliente_nome}.\n${quitou ? '*Cobrança quitada.*' : `Pagamento parcial: faltam ${moedaCb(falta)}.`}\n${lancado ? 'Lancei a entrada nas finanças.' : 'Não consegui lançar nas finanças; escreva o lançamento à mão.'}`);
+  await enviar(env, from, `Pronto, Sr. Hangel. Dei baixa de ${moedaCb(valorC)} ${fmTxt} na cobrança de ${cb.cliente_nome}.\n${quitou ? '*Cobrança quitada.*' : `Pagamento parcial: faltam ${moedaCb(falta)}.${novoPix}`}\n${lancado ? 'Lancei a entrada nas finanças.' : 'Não consegui lançar nas finanças; escreva o lançamento à mão.'}`);
 }
 
 // ── 3. Pedido de avaliação no Google, depois do pagamento ──
