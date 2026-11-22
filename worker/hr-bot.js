@@ -6884,6 +6884,8 @@ async function pedirAvaliacoes(env) {
   await esquecidosRotina(env).catch(e => console.log('[ESQ]', e.message)); // v151
   await acdRotina(env).catch(e => console.log('[ACD] rotina:', e.message)); // v152
   await dividaLimparPedidosFalsos(env).catch(e => console.log('[DIV] limpar:', e.message)); // v252
+  await dividaPromessasRotina(env).catch(e => console.log('[DIV] promessas:', e.message)); // v253
+  if (horaComercialBahia()) await dividaRadarPix(env).catch(e => console.log('[DIV] radar:', e.message)); // v253
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
@@ -10803,6 +10805,11 @@ async function dividaClienteMsg(env, from, m) {
     const valorC = reaisParaCentavos(+dados.valor), saldoCb = Math.max(0, (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0));
     if (valorC > d.saldoC + 100) return false; // maior que o saldo: é de outro assunto
     await receberMidiaCliente(env, from, m).catch(() => {});
+    if (mpAtivo(env)) { // v253: o Pix já aparece na conta (mesmo valor, nome compatível): baixa sozinho, sem esperar o dono
+      const cands = await mpCandidatosPix(env, { id: 'div' + ultimos8(from) }, +dados.valor).catch(() => []);
+      const bate = cands.find(c => !c.pagador || !dados.pagador || nomesCompativeis(c.pagador, dados.pagador) !== false);
+      if (bate && dados.situacao !== 'agendada' && dados.situacao !== 'falhou') { await env.HR_KV.put('mp:ok:' + bate.id, 'div', { expirationTtl: 90 * 86400 }); await cbBaixaDinheiro(env, numeroDono(env), cb.id, Math.min(valorC, saldoCb), 'pix'); return true; }
+    }
     const falta = Math.max(0, d.saldoC - valorC);
     await enviar(env, from, `${pn ? pn + ', r' : 'R'}ecebi o comprovante de ${moedaCb(valorC)}, obrigada! Estou conferindo na conta e já te confirmo. ${falta > 0 ? `Depois dele, fica faltando ${moedaCb(falta)}${vencTxtDiv(d)}.` : 'Com ele, o saldo fica quitado.'}`);
     await enviarComBotoes(env, numeroDono(env), cartaoDono('Comprovante · ' + (d.nome || 'cliente'), [
@@ -10814,6 +10821,7 @@ async function dividaClienteMsg(env, from, m) {
   let t = m.type === 'text' ? String(m.text?.body || '') : String(m._texto || '');
   if (!t && m.type === 'audio') { t = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = t; }
   const n = normaliza(t); if (!n) return false;
+  if (await dividaPromessa(env, from, d, t, n)) return true; // v253: "acerto amanhã às 14h"
   if (!/\b(pix|chave|qr|qrcode|codigo|copia e cola|link( de pagamento)?|como (eu )?(pago|pagar|faco o pagamento))\b/.test(n)) return false;
   if (/\b(paguei|ja fiz|fiz o pix|ja mandei|mandei o pix|comprovante|transferi)\b/.test(n)) return false; // avisando que pagou: os botões e o comprovante cuidam
   const v = extrairValor(t), vC = v ? reaisParaCentavos(v.n) : 0;
@@ -10825,12 +10833,75 @@ async function dividaClienteMsg(env, from, m) {
     await anotarNoHistorico(env, from, `[O cliente vai pagar ${moedaCb(vC)} agora pela chave Pix; fica faltando ${moedaCb(falta)}. Não crie pedido, não pergunte entrega.]`).catch(() => {});
     return true;
   }
-  await enviar(env, from, `${pn ? pn + ', s' : 'S'}egue o Pix do saldo de ${moedaCb(d.saldoC)}${vencTxtDiv(d)}.`);
+  await dividaEnviarPix(env, from, d, `${pn ? pn + ', s' : 'S'}egue o Pix do saldo de ${moedaCb(d.saldoC)}${vencTxtDiv(d)}.`);
+  return true;
+}
+async function dividaEnviarPix(env, num, d, intro) {
+  const cb = d.cobs[0]; if (intro) await enviar(env, num, intro);
   const venceu = !cb.pix_copia_cola || (cb.pix_expira_em && Date.parse(cb.pix_expira_em) < Date.now() + 5 * 60000);
   if (venceu && cb.status === 'aguardando_pagamento') await cbBumpPro(env, cb, { from: numeroDono(env), auto: false });
   else if (cb.pix_copia_cola) await cbEnviarCartaoCompleto(env, cb);
-  else { await enviar(env, from, `Chave Pix (CNPJ), em nome da ${env.EMPRESA || 'HR Mármores e Granitos'}:`); await enviarTextoPuro(env, from, chavePixEmpresa(env)).catch(() => {}); }
+  else { await enviar(env, num, `Chave Pix (CNPJ), em nome da ${env.EMPRESA || 'HR Mármores e Granitos'}:`); await enviarTextoPuro(env, num, chavePixEmpresa(env)).catch(() => {}); }
+}
+// v253: PROMESSA COM HORA ("acerto amanhã às 14h", "faço o Pix hoje às 17h"): o bot anota, manda o Pix na hora combinada
+//   e, se 3 h depois não caiu, cobra com firmeza uma vez e avisa o dono
+async function dividaPromessa(env, from, d, t, n) {
+  if (!/\b(acerto|acertar|pago|pagar|pagarei|faco|faço|fazer o pix|mando|mandar|transfiro|transferir|deposito|resolvo|consigo|vou fazer|passo)\b/.test(n)) return false;
+  if (/\?/.test(t)) return false;
+  const q = lerQuando(t); if (!q.dia || !q.hora) return false;
+  const ts = quandoTs(q.dia, q.hora); if (!(ts > Date.now() - 10 * 60000) || ts > Date.now() + 10 * 86400000) return false;
+  const u = ultimos8(normalizarBR(from)), pn = nomeDeTratamento(d.nome);
+  await env.HR_KV.put('divprom:' + u, JSON.stringify({ num: normalizarBR(from), nome: d.nome, ts, saldoC: d.saldoC, cid: d.cobs[0].id, dia: q.dia, hora: q.hora, em: Date.now() }), { expirationTtl: 12 * 86400 });
+  await cbBatch(env, [cbSql(env, 'UPDATE cobrancas SET promessa_ate = ?, atualizada_em = ? WHERE id = ?', q.dia, cbAgora(), d.cobs[0].id), cbEvt(env, d.cobs[0].id, 'promessa', `cliente promete pagar ${q.dia} ${q.hora}`, 'cliente')]).catch(() => {});
+  await enviar(env, from, `Combinado${pn ? ', ' + pn : ''}: fica para ${diaFalado(q.dia)} às ${q.hora.replace(':00', 'h')}. Nesse horário te mando o Pix do saldo de ${moedaCb(d.saldoC)}, para você pagar na hora.`);
+  await notificarDono(env, Date.now(), `*${d.nome || 'Cliente'}* prometeu pagar o saldo de ${moedaCb(d.saldoC)} *${diaFalado(q.dia)} às ${q.hora}*. Mando o Pix nesse horário e, se não cair em 3 h, cobro de novo e aviso o senhor.\nwa.me/${normalizarBR(from)}`).catch(() => {});
   return true;
+}
+async function dividaPromessasRotina(env) {
+  const l = await listarTodas(env, 'divprom:').catch(() => ({ keys: [] }));
+  for (const k of l.keys) {
+    let p = null; try { p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (!p) continue;
+    if (Date.now() < p.ts) continue;
+    const d = await dividaCliente(env, p.num).catch(() => null);
+    if (!d || !(d.saldoC > 0)) { await env.HR_KV.delete(k.name); await notificarDono(env, Date.now(), `*${p.nome}* cumpriu: o saldo está quitado.`).catch(() => {}); continue; }
+    const pn = nomeDeTratamento(p.nome), j24 = await janela24h(env, p.num);
+    if (!p.lembradoEm) {
+      if (!(await travaEnvio(env, 'divprom1:' + k.name))) continue;
+      p.lembradoEm = Date.now(); await env.HR_KV.put(k.name, JSON.stringify(p), { expirationTtl: 3 * 86400 });
+      if (j24) await dividaEnviarPix(env, p.num, d, `${pn ? pn + ', c' : 'C'}onforme combinado para agora, segue o Pix do saldo de ${moedaCb(d.saldoC)}.`).catch(e => console.log('[DIV] promessa pix:', e.message));
+      else await notificarDono(env, Date.now(), `Chegou a hora que *${p.nome}* prometeu pagar (${moedaCb(d.saldoC)}), mas a conversa está fora das 24 h: não consigo mandar o Pix. Fale com ela: wa.me/${p.num}`).catch(() => {});
+      continue;
+    }
+    if (Date.now() < p.lembradoEm + 3 * 3600000) continue;
+    if (!(await travaEnvio(env, 'divprom2:' + k.name))) continue;
+    await env.HR_KV.delete(k.name);
+    if (d.saldoC < p.saldoC) { await notificarDono(env, Date.now(), `*${p.nome}* pagou uma parte do combinado: o saldo caiu de ${moedaCb(p.saldoC)} para ${moedaCb(d.saldoC)}.`).catch(() => {}); continue; }
+    if (j24) await enviar(env, p.num, `${pn ? pn + ', a' : 'A'}inda não identificamos o pagamento combinado para ${diaFalado(p.dia)} às ${p.hora.replace(':00', 'h')}. O saldo é de ${moedaCb(d.saldoC)}${vencTxtDiv(d)}. Consegue fazer o Pix agora? Assim que cair, eu te confirmo por aqui.`).catch(() => {});
+    await notificarDono(env, Date.now(), `*${p.nome}* prometeu pagar ${diaFalado(p.dia)} às ${p.hora} e *não pagou* (${moedaCb(d.saldoC)}). ${j24 ? 'Cobrei de novo com educação.' : 'Fora das 24 h: não consegui escrever para ela.'} Se quiser apertar: *cobra o resto da ${String(p.nome).split(' ')[0]} até <data>*.\nwa.me/${p.num}`).catch(() => {});
+  }
+}
+// v253: RADAR DO PIX — Pix que cai na conta (pela chave, sem QR) de quem tem saldo em aberto: o dono confirma com 1 toque
+async function dividaRadarPix(env) {
+  if (!mpAtivo(env) || !cbAtivo(env)) return;
+  if (await env.HR_KV.get('divradar')) return; await env.HR_KV.put('divradar', '1', { expirationTtl: 1800 });
+  const abertas = await cbAll(env, "SELECT * FROM cobrancas WHERE status IN ('aguardando_pagamento', 'parcial') ORDER BY criada_em DESC LIMIT 200").catch(() => []);
+  if (!abertas.length) return;
+  const dev = new Map(); for (const c of abertas) { const u = ultimos8(c.cliente_numero); if (!dev.has(u)) dev.set(u, { c, nomes: new Set([c.cliente_nome]) }); else dev.get(u).nomes.add(c.cliente_nome); }
+  for (const [u, x] of dev) { try { const nm = await nomeParaDono(env, normalizarBR(x.c.cliente_numero)); if (nm) x.nomes.add(nm); } catch (_) {} }
+  const r = await mpBuscarPagamentos(env, { range: 'date_approved', begin_date: new Date(Date.now() - 48 * 3600000).toISOString(), end_date: new Date().toISOString(), status: 'approved' }, 2).catch(() => ({ itens: [] }));
+  let olhados = 0;
+  for (const pg of r.itens) {
+    if (String(pg.payment_method_id) !== 'pix' || String(pg.external_reference || '')) continue; // com referência: é de cobrança/pedido/link, o caminho normal cuida
+    const id = String(pg.id); if (await env.HR_KV.get('mp:ok:' + id) || await env.HR_KV.get('dvr:' + id)) continue;
+    const valorC = reaisParaCentavos(+pg.transaction_amount || 0); if (!(valorC > 0)) continue;
+    let nome = pagadorMP(pg); if (!nome && olhados < 8) { olhados++; nome = (await mpxQuemPagou(env, id).catch(() => ({}))).nome || ''; }
+    if (!nome) continue;
+    const quem = [...dev.values()].filter(x => [...x.nomes].some(nm => nomesCompativeis(nm, nome) === true));
+    if (quem.length !== 1) continue;
+    const cb = quem[0].c, saldo = Math.max(0, (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0)); if (!saldo || valorC > saldo + 100) continue;
+    await env.HR_KV.put('dvr:' + id, '1', { expirationTtl: 30 * 86400 });
+    await enviarComBotoes(env, numeroDono(env), cartaoDono('Pix na conta · ' + cb.cliente_nome, [`Caiu *${moedaCb(valorC)}* de *${nome}*${pg.date_approved ? ' em ' + new Date(pg.date_approved).toLocaleString('pt-BR', { timeZone: 'America/Bahia' }) : ''}.`, `Parece ser de *${cb.cliente_nome}*, que deve ${moedaCb(saldo)} (${cb.protocolo || 'cobrança'}).`, 'Se for dela, toque em Confirmar: baixa na cobrança, Finanças, aviso a ela e Pix novo só do que falta.']), [{ id: `din_ok|${cb.id}|${Math.min(valorC, saldo)}|pix|${id}`, titulo: 'Confirmar' }, { id: 'din_no', titulo: 'Não é dela' }]).catch(() => {});
+  }
 }
 // v252: arruma uma vez os pedidos que o bot abriu por engano para quem só devia o saldo (Pix de pedido "novo" + entrega/retirada)
 async function dividaLimparPedidosFalsos(env) {
@@ -28303,7 +28374,8 @@ async function tratarRecebiDinheiro(env, from, bruto, msg) {
 async function tratarBotaoDinheiro(env, from, id) {
   if (!ehDono(env, from)) return false;
   if (id === 'din_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não registrei nada.'); return true; }
-  const [, cid, vc, fm] = id.split('|');
+  const [, cid, vc, fm, pidMp] = id.split('|');
+  if (pidMp) await env.HR_KV.put('mp:ok:' + pidMp, 'div', { expirationTtl: 90 * 86400 }).catch(() => {}); // v253
   await cbBaixaDinheiro(env, from, cid, Number(vc), fm === 'pix' ? 'pix' : 'dinheiro');
   return true;
 }
