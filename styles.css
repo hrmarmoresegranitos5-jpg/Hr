@@ -4718,3 +4718,25 @@ body:has(#stoneMd.on) #fabPlus{ display:none !important; }
 .fnm-novo{ border-style:dashed; border-color:rgba(201,168,76,.45); }
 .fnm-busca{ width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; border:1px solid rgba(201,168,76,.3); background:#0b0a08; color:var(--t1); font-size:.9rem; margin-bottom:8px; }
 .fnm-vaz{ font-size:.75rem; color:var(--t4); padding:8px; }
+
+/* ════════════════════════════════════════════════════════
+   v29 (22/11/2026) — TELAS PRINCIPAIS: cabeçalho, barra de baixo, folga do botão +
+════════════════════════════════════════════════════════ */
+/* cabeçalho: nome numa linha só, sem quebrar; data some no celular (já aparece no Início) */
+#hdr { padding: 9px 12px !important; gap: 9px !important; min-height: 56px; }
+#hdr > div:nth-child(2) { flex: 1; min-width: 0; }
+.hnm { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1.08rem !important; }
+.hsub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 1.2px !important; color: rgba(201,168,76,.55) !important; font-family: Outfit, sans-serif; font-size: .5rem !important; margin-top: 2px !important; }
+@media (max-width: 520px) { .hdt { display: none !important; } }
+/* barra de baixo: rótulos sem encavalar, rolagem lateral suave */
+#nav { scroll-snap-type: x proximity; -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent); mask-image: linear-gradient(90deg, #000 92%, transparent); }
+#nav .ni { flex: 0 0 auto !important; width: 62px !important; min-width: 62px !important; scroll-snap-align: start; overflow: hidden; }
+#nav .ni-l { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .52rem !important; letter-spacing: 0 !important; text-transform: none !important; font-weight: 600 !important; }
+#nav .ni.on .ni-l { font-weight: 800 !important; }
+@media (min-width: 760px) { #nav { -webkit-mask-image: none; mask-image: none; justify-content: center; } #nav .ni { width: 76px !important; min-width: 76px !important; } #nav .ni-l { font-size: .62rem !important; } }
+/* conteúdo não fica escondido atrás do botão + nem da barra */
+#pages .pg { padding-bottom: 110px !important; }
+/* cartões do Início alinhados com os outros (antes encostavam na borda) */
+#pg12 [data-devedores], #pg12 [data-obras-atalho] { width: calc(100% - 32px) !important; box-sizing: border-box !important; margin-left: 16px !important; margin-right: 16px !important; }
+/* subtítulos dourados legíveis */
+.hsub2 { color: rgba(232,201,106,.62) !important; }

@@ -393,7 +393,7 @@ function updEmp(){
   var e=CFG.emp;
   // Header
   var hnm=document.querySelector('.hnm');
-  if(hnm)hnm.innerHTML=(e.nome||'HR Mármores e Granitos')+' <span class="hsub">& GRANITOS · '+(e.cidade||'PILÃO ARCADO').toUpperCase()+'</span>';
+  if(hnm)hnm.innerHTML=(e.nome||'HR Mármores e Granitos')+' <span class="hsub">'+(e.cidade||'Pilão Arcado — BA').toUpperCase()+'</span>';
   // Splash hero — update from CFG
   var el;
   el=document.getElementById('spName'); if(el)el.textContent=e.nome||'HR Mármores e Granitos';

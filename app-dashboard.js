@@ -12,7 +12,7 @@ function renderDashboard() {
   var agora = new Date();
   var hh = agora.getHours();
   var saudacao = hh < 12 ? 'Bom dia' : hh < 18 ? 'Boa tarde' : 'Boa noite';
-  var nomeEmp = (CFG && CFG.emp && CFG.emp.nome) ? CFG.emp.nome.split(' ')[0] : 'chefe';
+  var nomeEmp = (function () { var d = ''; try { d = String(localStorage.getItem('hr_device_name') || '').trim().split(/\s+/)[0]; } catch (e) {} return d && !/^(celular|tablet|pc|computador|aparelho|hr)$/i.test(d) ? d.charAt(0).toUpperCase() + d.slice(1) : 'Sr. Hangel'; })(); // v29: quem está usando o aparelho, não a sigla da empresa
 
   // ── Dados financeiros do mês ──
   var recMes = (DB.t||[]).filter(function(t){ return t.type==='in' && (t.date||'').slice(0,7)===mes; })
