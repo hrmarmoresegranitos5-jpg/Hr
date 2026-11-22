@@ -10774,6 +10774,7 @@ async function quitIniciar(env, a) {
   for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const o = await acdLer(env, k.name.slice(4)); if (o && o.id !== a.id && !o.cancelado && ultimos8(o.num) === ultimos8(a.num) && o.parcelas.some(p => !p.paga)) { o.cancelado = Date.now(); o.substituidoPor = a.id; await acdSalvar(env, o); } }
   if (a.antes && a.antes.length) { // v258: primeiro os Pix combinados (um por dia); o aviso formal do restante sai depois
     await cbFerramentaCancelar(env, numeroDono(env), { cliente: a.num }).catch(() => {}); // cobranças antigas e prévias dela saem: valem estas
+    { const ag = await listarTodas(env, CBAG_PREFIX).catch(() => ({ keys: [] })); for (const k of ag.keys) { try { const v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (v && ultimos8(v.numero) === ultimos8(a.num)) await env.HR_KV.delete(k.name); } catch (_) {} } } // v261: e as agendadas
     for (const p of a.antes) {
       const id = 'Q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), quando = p.data <= dataBahia() ? Date.now() + 60000 : Date.parse(p.data + 'T08:40:00-03:00');
       await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando, args: { cliente: a.num, nome: a.nome, valor: p.valor, descricao: `${String(a.desc || 'Projeto').slice(0, 40)} · pagamento combinado`, vencimento: p.data, desconto: 0, regua: false }, criadoEm: Date.now() }), { expirationTtl: 14 * 86400 });
@@ -10978,11 +10979,11 @@ function avisoFinalPdf(env, cb, saldoC, prazo) {
 }
 // v260: quem passou de 15 dias de atraso sem pagar nem prometer: o bot sugere ao dono o aviso final (1 toque; nada vai sem ele)
 async function dividaSugerirAvisoFinal(env) {
-  const hoje = dataBahia(); if (!horaComercialBahia() || await env.HR_KV.get('divsug:dia:' + hoje)) return; await env.HR_KV.put('divsug:dia:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const hoje = dataBahia(); if (!horaComercialBahia() || await env.HR_KV.get('divsug:dia:' + hoje)) return; if (!(await travaEnvio(env, 'divsug:dia:' + hoje))) return; await env.HR_KV.put('divsug:dia:' + hoje, '1', { expirationTtl: 2 * 86400 }); // v261: trava atômica (a sugestão saiu 3 vezes)
   const cs = await cbAll(env, "SELECT * FROM cobrancas WHERE profissional = 1 AND status IN ('aguardando_pagamento', 'pix_expirado', 'enviada') ORDER BY vencimento ASC LIMIT 50").catch(() => []);
   for (const cb of cs) {
     const dias = cbDiasEntre(cb.vencimento, hoje); if (dias < 15 || cb.pausada || (cb.promessa_ate && cb.promessa_ate >= hoje)) continue;
-    if (await env.HR_KV.get('divsug:' + cb.id) || await env.HR_KV.get('dvfinlemb:' + cb.id)) continue;
+    if (await env.HR_KV.get('divsug:' + cb.id) || await env.HR_KV.get('dvfinlemb:' + cb.id) || !(await travaEnvio(env, 'divsug:' + cb.id))) continue;
     await env.HR_KV.put('divsug:' + cb.id, '1', { expirationTtl: 10 * 86400 });
     const saldo = (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0);
     await enviarComBotoes(env, numeroDono(env), `*${cb.cliente_nome}* está com ${dias} dias de atraso (${moedaCb(saldo)}, ${cb.protocolo || ''}), sem pagar nem combinar data. Os lembretes já foram.\n\nQuer ver o *aviso final* (prazo de 3 dias úteis, PDF, menção a protesto e negativação)? Nada vai sem o seu toque.`,
@@ -11094,6 +11095,18 @@ async function dividaLimparPedidosFalsos(env) {
 
 async function acdComandoDono(env, from, msg) {
   if (await quitPagamentoParcial(env, from, msg)) return true; // v251
+  { // v261: "Renata: total 6.751,84, já pagou 2.500, paga 500 hoje e 500 amanhã, o restante até dia 27" → plano de pagamento direto, sem a IA misturar ferramentas
+    const mp = msg.match(/^(?:cobra(?:r)? (?:a |o )?)?([a-z ]{2,40}?):?,? total (?:de )?(?:r\$? ?)?([\d.,]+).*?(?:ja )?pag(?:ou|o) (?:r\$? ?)?([\d.,]+).*?(?:paga|vai pagar|pagar) (?:r\$? ?)?([\d.,]+) hoje(?: e (?:r\$? ?)?([\d.,]+) amanha)?.*?(?:restante|resto|saldo).*?(?:ate )?(?:o )?dia (\d{1,2})(?:\/(\d{1,2}))?/);
+    if (mp) {
+      const nb = v => Number(String(v || '').replace(/[.,]+$/, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')) || 0;
+      const hoje = dataBahia(); let y = +hoje.slice(0, 4), mo = mp[7] ? +mp[7] : +hoje.slice(5, 7); let pz = `${y}-${String(mo).padStart(2, '0')}-${String(+mp[6]).padStart(2, '0')}`; if (pz < hoje) { mo++; if (mo > 12) { mo = 1; y++; } pz = `${y}-${String(mo).padStart(2, '0')}-${String(+mp[6]).padStart(2, '0')}`; }
+      const antes = [{ valor: nb(mp[4]), data: hoje }, ...(mp[5] ? [{ valor: nb(mp[5]), data: isoSomaDias(hoje, 1) }] : [])];
+      const nome = mp[1].trim().replace(/\b\w/g, c => c.toUpperCase());
+      const r = await quitTool(env, from, { cliente: nome, total: nb(mp[2]), ja_pago: nb(mp[3]), antes, prazo: pz });
+      if (r && r.erro) await enviar(env, from, r.texto); else await enviar(env, from, 'Confira a prévia acima: ao tocar em Confirmar e enviar, as cobranças e prévias antigas dela (inclusive as agendadas) são canceladas e valem só estas.');
+      return true;
+    }
+  }
   const pg = msg.match(/^(.+?) (?:pagou|quitou) (?:a )?(?:\d+a? )?parcela(?: (?:em|no) (dinheiro|pix|cartao))?/);
   if (pg) { // baixa manual de parcela do acordo
     const tk = tokensPedra(pg[1]), l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
@@ -13911,7 +13924,7 @@ const FERRAMENTAS = [
   },
   {
     name: 'cobrar_saldo',
-    description: 'COBRANÇA DE SALDO COM PRAZO FINAL (v251): cliente que enrolou, pagou de pouquinho ou descumpriu o combinado, e o Sr. Hangel quer o restante de UMA vez até uma data, com multa e juros depois. Ex.: "a Maria não pagou na entrega, perdeu o desconto à vista de 5800, o projeto a prazo é 6500, ela já pagou 2500, cobra o resto até dia 30 sem parcelar". O bot calcula o saldo, mostra a prévia ao dono (nada vai sem o toque dele) e manda à cliente o aviso formal + PDF + Pix com vencimento; depois do prazo correm multa 2% e juros 1% a.m. Pedido de parcelar vai para o dono e a assistente não aceita. Use ESTA ferramenta (não acordo_pagamento nem criar_cobranca) quando ele falar em prazo final, quitar, cobrar o restante de uma vez, não aceitar mais pagamento picado, ou "ela paga X hoje, X amanhã e o resto até dia D com multa e juros" (use antes). Se o total e o já pago não vierem na mensagem, use o LIVRO DE ENTREGAS (valor do serviço e o que já foi pago).',
+    description: 'COBRANÇA DE SALDO COM PRAZO FINAL (v251): cliente que enrolou, pagou de pouquinho ou descumpriu o combinado, e o Sr. Hangel quer o restante de UMA vez até uma data, com multa e juros depois. Ex.: "a Maria não pagou na entrega, perdeu o desconto à vista de 5800, o projeto a prazo é 6500, ela já pagou 2500, cobra o resto até dia 30 sem parcelar". O bot calcula o saldo, mostra a prévia ao dono (nada vai sem o toque dele) e manda à cliente o aviso formal + PDF + Pix com vencimento; depois do prazo correm multa 2% e juros 1% a.m. Pedido de parcelar vai para o dono e a assistente não aceita. Use ESTA ferramenta (não acordo_pagamento nem criar_cobranca) quando ele falar em prazo final, quitar, cobrar o restante de uma vez, não aceitar mais pagamento picado, ou "ela paga X hoje, X amanhã e o resto até dia D com multa e juros" (use antes). Se o total e o já pago não vierem na mensagem, use o LIVRO DE ENTREGAS (valor do serviço e o que já foi pago). ja_pago é SÓ o que ela já pagou de verdade: NUNCA some nele os pagamentos de hoje/amanhã que ainda vão acontecer (esses vão em antes). Use SÓ esta ferramenta nesse caso: NUNCA chame também criar_cobranca nem agendar_cobranca (esta ferramenta já faz os Pix de cada dia).',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'WhatsApp com DDD, se ele deu' }, total: { type: 'number', description: 'valor que vale agora (o valor a prazo / preço cheio do projeto)' }, valor_vista: { type: 'number', description: 'valor à vista que ela perdeu, se ele falou' }, ja_pago: { type: 'number', description: 'soma de tudo que ela já pagou' }, prazo: { type: 'string', description: 'data final AAAA-MM-DD' }, antes: { type: 'array', items: { type: 'object', properties: { valor: { type: 'number' }, data: { type: 'string', description: 'AAAA-MM-DD' } } }, description: 'pagamentos que ela já combinou ANTES do saldo final (ex.: 500 hoje e 500 amanhã): cada um vira um Pix no dia; o aviso formal do saldo restante sai no dia seguinte ao último (ou assim que pagar os dois)' }, descricao: { type: 'string', description: 'o projeto (ex.: cozinha em Preto São Gabriel)' } }, required: ['cliente'] },
   },
   {
