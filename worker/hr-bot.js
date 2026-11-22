@@ -510,6 +510,11 @@ async function enviar(env, para, texto) {
 }
 // Texto de verdade, sem virar áudio (chave Pix, links, avisos ao dono)
 async function enviarTextoPuro(env, para, texto, jaVariado) {
+  if (env && env._recebidoEm && !ehDono(env, para) && String(env.RITMO_HUMANO ?? '1') !== '0') { // v265: ninguém digita uma resposta em 1 s — espera o tempo de quem digita (máx. 6 s), com o "digitando…" na tela
+    const quer = Math.min(env._ritmoN ? 1800 : 5000, 1200 + String(texto || '').length * 28), passou = Date.now() - env._recebidoEm; env._ritmoN = (env._ritmoN || 0) + 1; // a 1ª até 5 s; as seguintes até 1,8 s (o Worker tem limite de tempo)
+    if (quer > passou) await new Promise(r => setTimeout(r, quer - passou));
+    env._recebidoEm = Date.now() - 900; // a próxima mensagem da mesma resposta sai logo depois, como quem manda em sequência
+  }
   if (env && env._digTimer) { env._digParar = true; clearInterval(env._digTimer); env._digTimer = null; } // v130
   if (!jaVariado && ehDono(env, para)) texto = variarTratamentoDono(env, texto);
   texto = semEmojiPara(env, para, comNomeDono(env, texto));
@@ -19973,6 +19978,7 @@ async function tratarMensagemBase(env, m, ctx) {
   digitando(env, m.id);
   if (m.id) { // v130: renova o "digitando..." a cada 20 s até a resposta sair (antes sumia no meio de respostas demoradas)
     const t0 = Date.now(); env._digId = m.id;
+    env._recebidoEm = Date.now(); // v265: ritmo humano nas respostas ao cliente
     env._digTimer = setInterval(() => { if (Date.now() - t0 > 90000 || env._digParar) { clearInterval(env._digTimer); return; } digitando(env, m.id); }, 20000);
   }
   // Respostas do dono ao pedido de prazo e botões de aprovação valem mesmo no modo de teste (senão viravam mensagem de cliente)
