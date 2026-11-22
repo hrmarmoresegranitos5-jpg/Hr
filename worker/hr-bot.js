@@ -9884,6 +9884,17 @@ function ptsServico(p) { return meio(ptsEtapa(p, 'corte') + (pedComplexo(p) ? pt
 function difTxt(p) { const d = dificuldade(p); if (!d) return ''; const nv = nivelDif(p); return `${nv.ico} nível ${nv.nome}${nv.mult > 1 ? ' (×' + String(nv.mult).replace('.', ',') + ')' : ''}${d.lista.length ? ' · ' + d.lista.join(', ') : ''} · vale até ${vPt(ptsServico(p))} pts`; }
 const nPecasPed = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ pecas: p.pecas || [] }]; return Math.max(1, its.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0)); };
 const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) : '';
+// v255: dias de trabalho de uma etapa: do "comecei" (de quem terminou, até 21 dias antes e depois da etapa anterior igual) até o dia em que terminou
+function metasDiasServico(env, log, x) {
+  if (!['fabricacao', 'acabamento', 'polimento', 'instalacao', 'entrega'].includes(x.e)) return [];
+  const quem = (x.por || []).map(String), fim = diaDe(x.ts);
+  const antes = log.filter(y => y.e === x.e && y.ts < x.ts && (y.por || []).some(id => quem.includes(String(id)))).reduce((t, y) => Math.max(t, y.ts), 0);
+  const inis = log.filter(y => (y.e === 'inicio' || (y.e === 'inicio_inst' && (x.e === 'instalacao' || x.e === 'entrega'))) && y.ts < x.ts && y.ts > antes && x.ts - y.ts < 21 * 86400000 && (y.por || []).some(id => quem.includes(String(id))));
+  if (!inis.length) return [];
+  let d = diaDe(Math.min(...inis.map(y => y.ts))); if (d >= fim) return [];
+  const dias = []; for (let k = 0; k < 25 && d <= fim; k++, d = isoSomaDias(d, 1)) if (d === fim || dsmDiaTrab(env, d)) dias.push(d);
+  return dias.length > 1 ? dias : [];
+}
 async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; await precosCarregar(env).catch(() => {}); // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
   const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
   Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
@@ -9895,7 +9906,10 @@ async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; a
     if (!tipos.has('fabricacao') && !tipos.has('acabamento') && p.fabFeitoPor && p.fabProntoEm && p.fabFeitoPor !== p.corteFeitoPor) log.push({ e: 'fabricacao', por: [p.fabFeitoPor], ts: p.fabProntoEm });
     if (!tipos.has('entrega') && !tipos.has('instalacao') && p.entFeitoPor && p.entregueEm) log.push({ e: cx ? 'instalacao' : 'entrega', por: [...new Set([String(p.entFeitoPor), ...(p.entAjud || []).map(String)])], ts: p.entregueEm }); // v214: quem foi junto divide
     for (const x of metasBlindar(p, log, n)) { // v181
-      if (!dentro(x.ts) || !Array.isArray(x.por) || !x.por.length || x.e === 'inicio' || x.e === 'inicio_inst') continue;
+      if (!Array.isArray(x.por) || !x.por.length || x.e === 'inicio' || x.e === 'inicio_inst') continue;
+      const espalha = metasDiasServico(env, log, x); // v255: serviço que começou em outro dia: os pontos se dividem pelos dias trabalhados (não caem todos no dia que terminou)
+      if (!dentro(x.ts) && !espalha.some(d => d >= de && d <= ate)) continue;
+      if (!dentro(x.ts) && (x.e === 'avaliacao' || x.e === 'retrabalho')) continue;
       if (x.e === 'avaliacao' || x.e === 'retrabalho') { for (const id of x.por) add(String(id), +x.pts || 0, x.e === 'avaliacao' ? `⭐ cliente deu ${x.nota}` : `🔁 retrabalho${x.motivo ? ' (' + String(x.motivo).slice(0, 30) + ')' : ''}`, p, x.ts, null); continue; } // v157
       let pts = 0, ex = null;
       const fx = x.frac != null ? +x.frac : x.pecas ? x.pecas / n : 1; // v182: parte do serviço (itens/peças)
@@ -9909,11 +9923,13 @@ async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; a
       else continue;
       if (!x.dono && !p.fotoProntoEm && x.ts < Date.now() - 24 * 3600000 && (x.e === 'fabricacao' || (x.e === 'acabamento' && !cx))) pts = meio(pts / 2) || 0.5; // v181: sem foto das peças prontas vale metade
       const cada = Math.round(pts / x.por.length * 10) / 10;
-      if ((x.e === 'instalacao' || x.e === 'entrega') && Array.isArray(p.instAjud)) { // v198: ajudante da instalação ganha metade, sem tirar do instalador
+      if (dentro(x.ts) && (x.e === 'instalacao' || x.e === 'entrega') && Array.isArray(p.instAjud)) { // v198: ajudante da instalação ganha metade, sem tirar do instalador
         const ini = (p.instIniEm || x.ts - 12 * 3600000) - 3 * 3600000, aj = [...new Set(p.instAjud.filter(a => a.ts >= ini && a.ts <= x.ts + 4 * 3600000).map(a => String(a.id)))].filter(id => !x.por.map(String).includes(id));
         for (const id of aj) add(id, meio(pts / 2) || 0.5, (x.e === 'instalacao' ? 'instalação' : 'entrega') + ' (ajudante)', p, x.ts, ex);
       }
-      for (const id of x.por) add(String(id), cada, (x.itens && x.itens.length ? `${x.itens.length} ${x.itens.length > 1 ? 'itens' : 'item'} · ` : x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : ''), p, x.ts, ex);
+      const rotX = (x.itens && x.itens.length ? `${x.itens.length} ${x.itens.length > 1 ? 'itens' : 'item'} · ` : x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : '');
+      if (espalha.length > 1) { const pd = Math.round(cada / espalha.length * 100) / 100; for (const d of espalha) if (d >= de && d <= ate) for (const id of x.por) add(String(id), pd, `${rotX} · dia ${espalha.indexOf(d) + 1} de ${espalha.length}`, p, Date.parse(d + 'T12:00:00-03:00'), ex); }
+      else for (const id of x.por) add(String(id), cada, rotX, p, x.ts, ex);
     }
   }
   try { if (env.HR_DB) { const rs = await env.HR_DB.prepare('SELECT func, cliente, ts FROM perda WHERE dia BETWEEN ? AND ?').bind(de, ate).all(); for (const x of rs.results || []) if (x.func) add(String(x.func), -1, '💥 quebra/perda', { nome: x.cliente || 'peça', id: null }, x.ts, null); } } catch (_) {} // v181
