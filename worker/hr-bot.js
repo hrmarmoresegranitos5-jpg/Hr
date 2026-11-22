@@ -10744,6 +10744,11 @@ async function quitTool(env, from, x) {
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v268renata')) && await travaEnvio(env, 'fix:v268renata')) { await env.HR_KV.put('fix:v268renata', '1', { expirationTtl: 30 * 86400 }); // v268: aviso do comprovante inválido de hoje (pedido do dono)
+    const l0 = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+    for (const k of l0.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado || a.tipo !== 'quitacao' || !/renata/i.test(a.nome || '')) continue;
+      await enviar(env, telefoneD1(a.num), 'Renata, conferi o comprovante que você mandou: o Pix de R$ 500,00 foi feito por Leilson Barbosa Dias para a sua própria conta (Renata B. Café Neres), não para a HR Mármores e Granitos. Por isso ele não vale como pagamento. Pode me mandar o comprovante do Pix feito para a HR?').then(() => notificarDono(env, Date.now(), 'Mandei para a Renata o aviso de que o comprovante foi para a conta dela, não para a HR.')).catch(e => notificarDono(env, Date.now(), 'Não consegui mandar o aviso do comprovante para a Renata: ' + String(e.message).slice(0, 120)).catch(() => {}));
+      break; } }
   if (!(await env.HR_KV.get('fix:v266hoje'))) { await env.HR_KV.put('fix:v266hoje', '1', { expirationTtl: 30 * 86400 }); // v266: combinados de hoje que falharam (mesmo valor e dia da cobrança cancelada)
     const l0 = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
     for (const k of l0.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado || a.tipo !== 'quitacao' || a.etapa !== 'esperando') continue;
