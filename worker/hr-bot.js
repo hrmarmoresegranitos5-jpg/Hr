@@ -8790,7 +8790,7 @@ async function avisarEquipeTool(env, a) {
     }
     return { texto: `Recado em ÁUDIO (o texto falado foi: "${rec.slice(0, 200)}"): ${res.join('; ')}. Diga ao Sr. Hangel, em 1 frase, a quem chegou.` };
   }
-  const res = await recadoEquipe(env, cfg, alvo, rec.charAt(0).toUpperCase() + rec.slice(1));
+  const res = await recadoEquipe(env, cfg, recadoVocativo(cfg, rec, alvo), rec.charAt(0).toUpperCase() + rec.slice(1));
   return { texto: `Aviso "${rec.slice(0, 200)}" entregue: ${res.join('; ')}. Diga ao Sr. Hangel, em 1 ou 2 frases, a quem chegou (copie a situação de cada um).` };
 }
 // ═════════════════════════════════════════════════════════════════════════════
@@ -10042,7 +10042,7 @@ async function metasRotina(env) {
       if (pn.pct >= 100 && pn.bonus) bonus.push(`${nm}: R$ ${reais(pn.bonus)}`);
       const tel = await respTel(env, f.id);
       const prm = await premioPainelFunc(env, f.id).catch(() => null), prmTxt = prm && prm.st !== 'sem' ? `\n🏆 Prêmio do mês (R$ ${reais(prm.valor)}): ${prm.semanas.map(w => w.futura ? '⬜' : w.bateu ? '✅' : w.atual ? '⏳' : '❌').join('')} — ${prm.txt}` : '';
-      if (tel) await enviar(env, tel, `${avisoTeste(env)}🏁 ${nm}, fechamento da semana: *${pn.pts} de ${pn.meta} pontos* (${pn.pct}%).${prmTxt} ${pn.pct >= 100 ? `Parabéns, meta batida! 🎉${pn.bonus ? ' Bônus de R$ ' + reais(pn.bonus) + '.' : ''}` : `Faltaram ${pn.falta}. Semana que vem a gente bate! 💪`}${pn.pos ? ` Você ficou em ${pn.pos}º lugar.` : ''}`).catch(() => {});
+      if (tel) await enviar(env, tel, `${avisoTeste(env)}🏁 ${nm}, fechamento da semana: *${pn.pts} de ${pn.meta} pontos* (${pn.pct}%). ${pn.pct >= 100 ? `Parabéns, meta batida! 🎉${pn.bonus ? ' Bônus de R$ ' + reais(pn.bonus) + '.' : ''}` : `Faltaram ${pn.falta}. Semana que vem a gente bate! 💪`}${pn.pos ? ` Você ficou em ${pn.pos}º lugar.` : ''}${prmTxt}`).catch(() => {});
     }
     await xpFecharSemana(env, cfg).catch(e => console.log('[XP]', e.message)); // v158: soma a semana na carreira
     if (lista.length) await pontoAvisarDono(env, [...L, ...(bonus.length ? ['', `💰 *Bônus a pagar:* ${bonus.join(' · ')}`] : []), '', '_Mude metas e bônus pelo WhatsApp: "meta do Fabrício 20 pontos, bônus 50"._'].join('\n')).catch(() => {});
@@ -11819,7 +11819,11 @@ async function auditoriaRotina(env) {
 async function premioExigencias(env, fid, mes, ws) {
   const hoje = dataBahia(), dias = {}; let uteis = 0, bateu = 0;
   for (const w of ws) { if (w.futura || !w.meta) continue; const md0 = metaDoDia(w.meta);
-    for (let k = 0; k < 6; k++) { const d = isoSomaDias(w.ini, k); if (d.slice(0, 7) !== mes || d > hoje || !dsmDiaTrab(env, d)) continue; const md = d >= MES100_INI ? metaDiaData(env, d) : md0; if (!(md > 0)) continue; const pd = (w.tarefasDia || {})[d] || 0; if (d === hoje && pd < md) continue; uteis++; if (pd >= md) bateu++; dias[d] = pd; } }
+    // v255: serviço grande (cozinha) soma os pontos no dia em que termina: o dia conta como batido se o ACUMULADO da semana até ele cobre a meta dos dias, ou se a semana inteira bateu a meta
+    for (let k = 0, cum = 0, cumMeta = 0; k < 6; k++) { const d = isoSomaDias(w.ini, k); const trab = dsmDiaTrab(env, d); const md = d >= MES100_INI ? metaDiaData(env, d) : md0; const pd = (w.tarefasDia || {})[d] || 0;
+      if (trab && md > 0 && d <= hoje) { cum += pd; cumMeta += md; }
+      if (d.slice(0, 7) !== mes || d > hoje || !trab || !(md > 0)) continue;
+      const ok = pd >= md || cum >= cumMeta || (w.meta > 0 && w.pts >= w.meta); if (d === hoje && !ok) continue; uteis++; if (ok) bateu++; dias[d] = pd; } }
   let retrab = 0, perdas = 0, notas = []; const de = mes + '-01', ate = isoSomaDias(isoSomaDias(de, 32).slice(0, 7) + '-01', -1);
   for (const p of await pedidosProducao(env, () => true)) for (const x of (p.prodLog || [])) { const d = diaDe(x.ts); if (d < de || d > ate || !(x.por || []).map(String).includes(String(fid))) continue; if (x.e === 'retrabalho') retrab++; if (x.e === 'avaliacao' && x.nota) notas.push(+x.nota); }
   try { if (env.HR_DB) { const r = await env.HR_DB.prepare('SELECT COUNT(*) n FROM perda WHERE func = ? AND dia BETWEEN ? AND ?').bind(String(fid), de, ate).first(); perdas = +(r && r.n) || 0; } } catch (_) {}
@@ -30168,6 +30172,13 @@ async function entregarFilaFuncionario(env, f, para) {
   if (fila.some(x => x.recado)) await env.HR_KV.put('ponto:recpend:' + f.id, String(Date.now()), { expirationTtl: 86400 });
   return fila.length;
 }
+// v255: o recado chama pelo nome no começo ("Jefferson, Fabrício e Lucas, o Pix…"): vai SÓ para quem foi chamado (antes ia para o Hugo também)
+function recadoVocativo(cfg, rec, alvo) {
+  const m = /^\s*((?:[A-Za-zÀ-ú]+(?:\s*,\s*|\s+e\s+))*[A-Za-zÀ-ú]+)\s*[,:!]/.exec(String(rec || '')); if (!m) return alvo;
+  const toks = normaliza(m[1]).split(/\s*,\s*|\s+e\s+/).filter(Boolean); if (!toks.length || toks.length > 8) return alvo;
+  const achados = []; for (const t of toks) { const f = funcsDoTexto(cfg, t); if (f.length !== 1) return alvo; achados.push(f[0]); }
+  return [...new Map(achados.map(f => [String(f.id), f])).values()];
+}
 function funcsDoTexto(cfg, msg) {
   if (/\b(todos|todo mundo|equipe|pessoal|funcionarios|galera|turma)\b/.test(msg)) return cfg.funcs.slice();
   const achados = [];
@@ -30228,7 +30239,7 @@ async function tratarRecadoFuncionario(env, from, bruto, msg) {
       if (j && j.texto && j.texto.length < rec.length * 2 + 20) rec = String(j.texto).trim();
     } catch (_) {}
   }
-  const res = await recadoEquipe(env, cfg, alvo, rec);
+  const res = await recadoEquipe(env, cfg, recadoVocativo(cfg, rec, alvo), rec);
   await enviar(env, from, `Recado: _${rec}_\n\n${res.join('\n')}` + (res.some(x => /guardado|app de ponto/.test(x)) && !env.TEMPLATE_FUNCIONARIO && !env.TEMPLATE_RECADO ? `\n\nPara chegar sempre no WhatsApp deles, falta o modelo aprovado (TEMPLATE_RECADO).` : ''));
   return true;
 }
