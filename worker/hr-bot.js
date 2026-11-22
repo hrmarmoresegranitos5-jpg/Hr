@@ -16345,6 +16345,20 @@ async function finPistas(env, r) {
   } catch (_) {}
   return out;
 }
+// v270: favorecidos fixos combinados com o dono (mpx:sempre)
+async function mpxSempre(env, r) {
+  let l = []; try { l = JSON.parse((await env.HR_KV.get('mpx:sempre')) || '[]'); } catch (_) {}
+  const d = normaliza(String(r.desc || '')).replace(/[^a-z ]/g, ' ');
+  return l.find(x => x.nome.split(' ').every(w => new RegExp('\\b' + w + '\\b').test(d))) || null;
+}
+async function mpxAplicarSempre(env) { // aplica aos gastos do Mercado Pago que estão esperando resposta
+  const feitos = [], lst = await listarTodas(env, 'mpx:p:');
+  for (const k of lst.keys) { const r = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (!r || r.sentido !== 'out') continue;
+    const sp = await mpxSempre(env, r); if (!sp) continue;
+    const res = await classificarGastoMP(env, { ref: r.h || k.name.slice(6), categoria: sp.cat, descricao: sp.cat === 'prolabore' ? 'retirada (' + sp.nome + ')' : sp.nome }).catch(() => ({ erro: true }));
+    if (!res.erro) feitos.push(r); }
+  return feitos;
+}
 // v269: gasto falado x Mercado Pago
 async function mpxAprenderDoFalado(env, r, m) {
   const catK = CATS[m.cat] ? m.cat : (Object.keys(CATS).find(k => normaliza(CATS[k]) === normaliza(m.cat || '') || normaliza(CATS[k]).startsWith(normaliza(m.cat || '-').split(' ')[0])) || ''); m.cat = catK || m.cat;
@@ -16690,6 +16704,10 @@ async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
         if (nomeP) { r.desc = nomeP; r.pagador = nomeP; _rAtual = r; await recSugerirBaixaMP(env, h, r).catch(e => console.log('[MPX] sugerir baixa:', e.message)); }
       }
     }
+    if (r.sentido === 'out') { const sp = await mpxSempre(env, r).catch(() => null); // v270: Pix fixo combinado ("Ellen é sempre pró-labore")
+      if (sp) { if (sp.cat === 'nao') { await marca(h, 'ignorado'); ignoradas++; continue; }
+        try { await registrarLancamento(env, { type: 'out', value: r.valor, desc: ((sp.cat === 'prolabore' ? 'Retirada — ' : '') + (r.desc || tipoFaladoMPX(r)) + ' (Mercado Pago)').slice(0, 80), date: r.data, cat: sp.cat, origem: 'mpx', semUltimo: true });
+          await marca(h, 'lancado'); autos.push({ valor: r.valor, nome: sp.nome, cat: sp.cat }); continue; } catch (e) { console.log('[MPX] fixo:', e.message); } } }
     if (r.sentido === 'out' && !(igual[chaveIgual(r)] > 1)) { // v269: o senhor já falou esse gasto? (valor igual ou bem parecido, no mesmo dia ou um dia antes/depois)
       if (!outsFin) outsFin = await gastosDigitadosMPX(env, somaDias(de, -1), somaDias(ate, 1));
       const perto = outsFin.filter(f => !f.usado && Math.abs(Date.parse(f.date + 'T12:00:00Z') - Date.parse(r.data + 'T12:00:00Z')) <= 86400000).map(f => ({ f, d: Math.abs(f.value - r.valor) })).sort((x, y) => x.d - y.d);
@@ -17142,6 +17160,23 @@ async function extratoMPDiario(env) {
 }
 
 async function tratarExtratoMP(env, from, msg) {
+  { // v270: favorecido fixo — "pix para Ellen é sempre pró-labore" · "esquecer pix fixo da Ellen" · "pix fixos"
+    const t = String(msg).replace(/[.,;!?]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const mf = t.match(/^(?:todo |tudo que |o )?(?:pix|que eu mand\w*|dinheiro)\s*(?:que eu mand\w* )?(?:para|pra|pro|da|do) (?:a |o |minha |meu )?([a-z][a-z ]{1,40}?) (?:e|eh|vai ser|vai para|vai pra|entra como|entra em|lanca como|lanca em)(?: sempre)? (?:como |em |no |na |o |a )?(pro ?-?labore|retirada|material|mao de obra|insumos?|custo fixo|fixo|combustivel|ferramentas?|outros|nao e gasto)$/) || t.match(/^([a-z][a-z ]{1,40}?) (?:e|eh) sempre (pro ?-?labore|retirada|material|mao de obra|insumos?|custo fixo|fixo|combustivel|ferramentas?|outros|nao e gasto)$/);
+    if (mf) {
+      const nome = mf[1].replace(/\b(minha mulher|minha esposa|esposa|mulher)\b/g, '').trim(), c = mf[2];
+      const cat = /labore|retirada/.test(c) ? 'prolabore' : /material/.test(c) ? 'material' : /mao/.test(c) ? 'mao_obra' : /insumo/.test(c) ? 'insumos' : /fixo/.test(c) ? 'fixo' : /combust/.test(c) ? 'combustivel' : /ferrament/.test(c) ? 'ferramentas' : /nao e gasto/.test(c) ? 'nao' : 'outros';
+      if (nome.length < 3) return false;
+      const l = JSON.parse((await env.HR_KV.get('mpx:sempre')) || '[]').filter(x => x.nome !== nome); l.push({ nome, cat, em: Date.now() });
+      await env.HR_KV.put('mpx:sempre', JSON.stringify(l.slice(-40)));
+      const feitos = await mpxAplicarSempre(env).catch(() => []);
+      await enviar(env, from, `Combinado: todo Pix que sair do Mercado Pago para *${nome.replace(/\b\w/g, x => x.toUpperCase())}* entra como *${cat === 'nao' ? 'não é gasto' : CATS[cat]}*, sem eu perguntar.${feitos.length ? '\nJá lancei os que estavam esperando: ' + feitos.map(x => 'R$ ' + reais(x.valor)).join(', ') + '.' : ''}\nPara desfazer: *esquecer pix fixo ${nome}*.`);
+      return true;
+    }
+    const me = t.match(/^esquecer (?:o )?pix fixo (?:da |do |de )?([a-z ]{2,40})$/);
+    if (me) { const l = JSON.parse((await env.HR_KV.get('mpx:sempre')) || '[]'); const n = l.filter(x => x.nome !== me[1].trim()); await env.HR_KV.put('mpx:sempre', JSON.stringify(n)); await enviar(env, from, n.length < l.length ? 'Pronto, esqueci.' : 'Não achei esse nome nos Pix fixos. Escreva *pix fixos* para ver a lista.'); return true; }
+    if (/^pix fixos?$/.test(t)) { const l = JSON.parse((await env.HR_KV.get('mpx:sempre')) || '[]'); await enviar(env, from, l.length ? '*Pix fixos*\n' + l.map(x => `• ${x.nome} → ${x.cat === 'nao' ? 'não é gasto' : CATS[x.cat]}`).join('\n') : 'Nenhum Pix fixo combinado ainda. Ex.: *pix para Ellen é sempre pró-labore*.'); return true; }
+  }
   const m = msg.match(/^(?:extrato|saidas?|movimentacoes?) (?:do )?(?:mp|mercado ?pago)(?: (\d{1,2}))?$/);
   if (m) {
     const dias = Math.min(Math.max(Number(m[1]) || 7, 1), 30);
