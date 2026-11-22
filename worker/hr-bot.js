@@ -2348,6 +2348,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^eqd_(ok|no)\|/.test(id)) return eqDescobrirBotao(env, from, id); // v223
   if (/^rela_(ok|no)\|/.test(id)) return relAutBotao(env, from, id); // v229
   if (/^mpq\|/.test(id)) return mpqBotao(env, from, id); // v236
+  if (/^mpig\|/.test(id)) return mpigBotao(env, from, id); // v269
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
@@ -16344,6 +16345,37 @@ async function finPistas(env, r) {
   } catch (_) {}
   return out;
 }
+// v269: gasto falado x Mercado Pago
+async function mpxAprenderDoFalado(env, r, m) {
+  const catK = CATS[m.cat] ? m.cat : (Object.keys(CATS).find(k => normaliza(CATS[k]) === normaliza(m.cat || '') || normaliza(CATS[k]).startsWith(normaliza(m.cat || '-').split(' ')[0])) || ''); m.cat = catK || m.cat;
+  const pessoa = !/\b(LTDA|EIRELI|ME|MEI|S\.?A|COMERCIO|COM|DISTRIB\w*|POSTO|MERCADO|SUPERMERCADO|ATACAD\w*|FARMACIA|AUTO|PECAS|MATERIA\w*|CONSTRU\w*|MARMOR\w*|GRANIT\w*|METAIS|LOJA|CASA|SERVICOS?|TRANSPORT\w*|ENERGIA|TELECOM|INTERNET|BANCO|PAGAMENTOS?)\b/i.test(nhMPX(r.desc).replace(/_/g, ' ')) && nhMPX(r.desc).replace(/^PIX_ENVIADO_?(PARA_)?/, '').split('_').filter(Boolean).length >= 2;
+  const ch = chaveMPX(r); if (ch && CATS[catK]) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: catK, n: pessoa ? 1 : 2, nome: String(r.desc || '').slice(0, 40), med: r.valor, descr: String(m.desc || '').slice(0, 40) }), { expirationTtl: MPX_REGRA_TTL }).catch(() => {});
+}
+function mpxNomeFav(r) { return String(r.desc || '').replace(/^pix enviado( para)?\s*/i, '').trim() || 'favorecido sem nome'; }
+async function perguntarParecidoMPX(env, h) {
+  const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null'); if (!r || !r.falado) return;
+  if (!(await travaEnvio(env, 'mpig:' + h))) return;
+  await env.HR_KV.put('mpx:pq:' + h, '1', { expirationTtl: MPX_PEND_TTL });
+  const f = r.falado;
+  await enviarComBotoes(env, numeroDono(env), `No Mercado Pago saiu *R$ ${reais(r.valor)}* para *${mpxNomeFav(r)}* (${dataBR(r.data).slice(0, 5)}${r.hora ? ' às ' + r.hora : ''}).\nO senhor tinha falado: *R$ ${reais(f.value)}* — ${String(f.desc || '').slice(0, 50)}${f.cat && CATS[f.cat] ? ' (' + CATS[f.cat] + ')' : ''}.\n\nÉ o mesmo gasto?`,
+    [{ id: `mpig|${h}|s`, titulo: 'É o mesmo' }, { id: `mpig|${h}|n`, titulo: 'Outro gasto' }]).catch(() => {});
+}
+async function mpigBotao(env, from, id) { // mpig|h|s (é o mesmo) · mpig|h|n (outro gasto)
+  const [, h, c] = id.split('|');
+  const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null');
+  if (!r) { await enviar(env, from, 'Esse gasto já foi resolvido.'); return true; }
+  if (c === 's') {
+    if (r.falado) await mpxAprenderDoFalado(env, r, { ...r.falado });
+    await env.HR_KV.put('mpx:l:' + h, 'lancado', { expirationTtl: MPX_TTL }); await env.HR_KV.delete('mpx:p:' + h); await env.HR_KV.delete('mpx:pq:' + h);
+    await movMPStatus(env, h, 'lancado').catch(() => {});
+    await enviar(env, from, `Certo, é o mesmo gasto. Não lancei de novo${r.falado && Math.abs(r.falado.value - r.valor) >= 0.01 ? ` (nas finanças ficou o valor que o senhor falou, R$ ${reais(r.falado.value)}; o Mercado Pago mostra R$ ${reais(r.valor)})` : ''}.`);
+    return true;
+  }
+  delete r.falado; r.perguntar = true;
+  await env.HR_KV.put('mpx:p:' + h, JSON.stringify(r), { expirationTtl: MPX_PEND_TTL }); await env.HR_KV.delete('mpx:pq:' + h);
+  await perguntarDesconhecidosMPX(env, [h]);
+  return true;
+}
 async function mpqBotao(env, from, id) { // mpq|h|cat  ·  mpq|h|nl (não lembro)
   const [, h, c] = id.split('|');
   if (!(await env.HR_KV.get('mpx:p:' + h))) { await enviar(env, from, 'Esse gasto já foi resolvido.'); return true; }
@@ -16658,7 +16690,25 @@ async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
         if (nomeP) { r.desc = nomeP; r.pagador = nomeP; _rAtual = r; await recSugerirBaixaMP(env, h, r).catch(e => console.log('[MPX] sugerir baixa:', e.message)); }
       }
     }
-    if (r.sentido === 'out') {
+    if (r.sentido === 'out' && !(igual[chaveIgual(r)] > 1)) { // v269: o senhor já falou esse gasto? (valor igual ou bem parecido, no mesmo dia ou um dia antes/depois)
+      if (!outsFin) outsFin = await gastosDigitadosMPX(env, somaDias(de, -1), somaDias(ate, 1));
+      const perto = outsFin.filter(f => !f.usado && Math.abs(Date.parse(f.date + 'T12:00:00Z') - Date.parse(r.data + 'T12:00:00Z')) <= 86400000).map(f => ({ f, d: Math.abs(f.value - r.valor) })).sort((x, y) => x.d - y.d);
+      const okA = perto.filter(x => x.d <= Math.max(0.5, r.valor * 0.01) + 0.001); // centavos de diferença (14,00 x 14,19): é o mesmo
+      if (okA.length === 1 || (okA.length > 1 && okA[0].d < 0.01 && okA[1].d >= 0.01)) {
+        const m = okA[0].f; m.usado = true;
+        await mpxAprenderDoFalado(env, r, m);
+        await marca(h, 'lancado'); autos.push({ valor: r.valor, nome: String(m.desc || '').slice(0, 30), cat: m.cat || 'outros', ja: true }); continue;
+      }
+      if (okA.length > 1) r.alerta = `Já existem gastos de valor parecido lançados nesse dia (${okA.slice(0, 2).map(x => 'R$ ' + reais(x.f.value) + ' ' + String(x.f.desc).slice(0, 25)).join('; ')}). Se for um deles, escolha *Não é gasto*.`;
+      else if (perto.length && perto[0].d <= Math.max(2, r.valor * 0.15)) { // diferença maior (14,00 x 14,90): pergunta
+        const m = perto[0].f; m.usado = true;
+        await env.HR_KV.put('mpx:p:' + h, JSON.stringify({ h, ...r, falado: { desc: m.desc, value: m.value, date: m.date, cat: m.cat } }), { expirationTtl: MPX_PEND_TTL });
+        await marca(h, 'pend'); novos.push(h); saidas++;
+        await perguntarParecidoMPX(env, h).catch(e => console.log('[MPX] parecido:', e.message));
+        continue;
+      }
+    }
+    if (r.sentido === 'out' && !r.alerta) {
       const ra = await regraDoApp(env, r);
       const rg = ra ? { cat: ra.cat, n: 2, nome: ra.nome, med: 0, app: true } : await lerRegraMPX(env, r);
       const caro = !!(rg && rg.med > 0 && r.valor > rg.med * 2); // bem acima do que o senhor costuma pagar a esse favorecido: não lança sozinho
@@ -16673,22 +16723,7 @@ async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
         }
       }
     }
-    if (r.sentido === 'out' && !r.alerta) {
-      if (igual[chaveIgual(r)] > 1) r.alerta = 'Há outra movimentação igual (mesmo valor, data e descrição) neste extrato. Pode ser repetida.';
-      else {
-        if (!outsFin) outsFin = await gastosDigitadosMPX(env, somaDias(de, -1), somaDias(ate, 1));
-        const cands = outsFin.filter(f => !f.usado && Math.abs(f.value - r.valor) < 0.01 && Math.abs(Date.parse(f.date + 'T12:00:00Z') - Date.parse(r.data + 'T12:00:00Z')) <= 86400000);
-        if (cands.length === 1) { // v247: o senhor já anotou esse gasto (mesmo valor, mesmo dia ou um dia antes/depois) → é o mesmo: não pergunta e não lança duas vezes; aprende o favorecido
-          const m = cands[0]; m.usado = true;
-          const catK = CATS[m.cat] ? m.cat : (Object.keys(CATS).find(k => normaliza(CATS[k]) === normaliza(m.cat || '') || normaliza(CATS[k]).startsWith(normaliza(m.cat || '-').split(' ')[0])) || ''); m.cat = catK || m.cat;
-          const pessoa = !/\b(LTDA|EIRELI|ME|MEI|S\.?A|COMERCIO|COM|DISTRIB\w*|POSTO|MERCADO|SUPERMERCADO|ATACAD\w*|FARMACIA|AUTO|PECAS|MATERIA\w*|CONSTRU\w*|MARMOR\w*|GRANIT\w*|LOJA|CASA|SERVICOS?|TRANSPORT\w*|ENERGIA|TELECOM|INTERNET|BANCO|PAGAMENTOS?)\b/i.test(nhMPX(r.desc).replace(/_/g, ' ')) && nhMPX(r.desc).replace(/^PIX_ENVIADO_?(PARA_)?/, '').split('_').filter(Boolean).length >= 2;
-          const ch = chaveMPX(r); if (ch && CATS[catK]) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: catK, n: pessoa ? 1 : 2, nome: String(r.desc || '').slice(0, 40), med: r.valor, descr: String(m.desc || '').slice(0, 40) }), { expirationTtl: MPX_REGRA_TTL }).catch(() => {});
-          await marca(h, 'lancado'); autos.push({ valor: r.valor, nome: String(m.desc || '').slice(0, 30), cat: m.cat || 'outros', ja: true }); continue;
-        }
-        const m = cands[0];
-        if (m) r.alerta = `Já existe um gasto de R$ ${reais(m.value)} lançado nesse dia (${String(m.desc).slice(0, 40)}). Se for o mesmo, escolha *Não é gasto*.`;
-      }
-    }
+    if (r.sentido === 'out' && !r.alerta && igual[chaveIgual(r)] > 1) r.alerta = 'Há outra movimentação igual (mesmo valor, data e descrição) neste extrato. Pode ser repetida.';
     // v57: MERCADO PAGO ENTRA SOZINHO nas finanças (MPX_AUTO=0 volta a perguntar). Só fica para conferir o que tem alerta
     //      (valor igual repetido, gasto parecido já digitado, valor fora do normal para o favorecido).
     if (r.sentido === 'out' && !r.alerta && new RegExp('SAQUE|WITHDRAW|HR_M[AÁ]RMORES|' + (env.MPX_NOMES_PROPRIOS || 'HANGEL|GILIARDE'), 'i').test(nhMPX(r.desc) + ' ' + r.tipoN))
