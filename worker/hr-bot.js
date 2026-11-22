@@ -10744,6 +10744,16 @@ async function quitTool(env, from, x) {
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v266hoje'))) { await env.HR_KV.put('fix:v266hoje', '1', { expirationTtl: 30 * 86400 }); // v266: combinados de hoje que falharam (mesmo valor e dia da cobrança cancelada)
+    const l0 = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+    for (const k of l0.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado || a.tipo !== 'quitacao' || a.etapa !== 'esperando') continue;
+      const cs = cbAtivo(env) ? (await cbAll(env, "SELECT * FROM cobrancas WHERE criada_em >= ? ORDER BY criada_em DESC LIMIT 100", new Date(a.criado - 60000).toISOString()).catch(() => [])).filter(c => ultimos8(c.cliente_numero) === ultimos8(a.num) && /pagamento combinado/.test(c.descricao || '')) : [];
+      for (const p of a.antes) { if (p.cid || p.data !== dataBahia() || cs.some(c => c.vencimento === p.data)) continue;
+        const id = 'Q' + Date.now().toString(36) + 'f';
+        await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando: Date.now() + 30000, args: { cliente: a.num, nome: a.nome, valor: p.valor, descricao: `${String(a.desc || 'Projeto').slice(0, 40)} · pagamento combinado`, vencimento: p.data, desconto: 0, regua: false, origemId: `plano:${a.id}:${p.data}:f` }, criadoEm: Date.now() }), { expirationTtl: 2 * 86400 });
+        await notificarDono(env, Date.now(), `O Pix de ${moedaCb(reaisParaCentavos(p.valor))} de hoje de *${a.nome}* não tinha saído (conflito com a cobrança cancelada do mesmo valor). Reagendei: sai nos próximos minutos.`).catch(() => {});
+      } }
+  }
   const l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
   for (const k of l.keys) {
     if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado || a.tipo !== 'quitacao' || a.etapa !== 'esperando') continue;
@@ -10791,7 +10801,7 @@ async function quitIniciar(env, a) {
     for (const p of a.antes) {
       if (p.cid) continue; // v262: já enviada
       const id = 'Q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), quando = p.data <= dataBahia() ? Date.now() + 60000 : Date.parse(p.data + 'T08:40:00-03:00');
-      await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando, args: { cliente: a.num, nome: a.nome, valor: p.valor, descricao: `${String(a.desc || 'Projeto').slice(0, 40)} · pagamento combinado`, vencimento: p.data, desconto: 0, regua: false }, criadoEm: Date.now() }), { expirationTtl: 14 * 86400 });
+      await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando, args: { cliente: a.num, nome: a.nome, valor: p.valor, descricao: `${String(a.desc || 'Projeto').slice(0, 40)} · pagamento combinado`, vencimento: p.data, desconto: 0, regua: false, origemId: `plano:${a.id}:${p.data}:${Date.now().toString(36)}` }, criadoEm: Date.now() }), { expirationTtl: 14 * 86400 });
       p.agId = id;
     }
     a.etapa = 'esperando'; a.avisoTs = Date.parse(isoSomaDias(a.antes[a.antes.length - 1].data, 1) + 'T09:00:00-03:00'); await acdSalvar(env, a);
@@ -10876,6 +10886,13 @@ async function dividaClienteMsg(env, from, m) {
     try { const { buf, tipo } = await baixarMidia(env, info.id); const mt = String(tipo || info.mime_type || '').split(';')[0].toLowerCase();
       if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mt) && buf.byteLength <= 8 * 1048576) dados = await lerComprovanteIA(env, buf, mt); } catch (e) { console.log('[DIV] ler:', e.message); }
     if (!dados || dados.eh_comprovante !== true || !(+dados.valor > 0)) return false;
+    const recebeuHR = !dados.recebedor || nomesDaConta(env).some(n => nomesCompativeis(n, dados.recebedor) === true) || /hr marmore|giliarde/i.test(normaliza(dados.recebedor)) || String(dados.recebedor).replace(/\D/g, '').includes(chavePixEmpresa(env).replace(/\D/g, ''));
+    if (!recebeuHR) { // v266: comprovante de um Pix para OUTRA pessoa (ex.: recebido na conta dela) não é pagamento à HR
+      await receberMidiaCliente(env, from, m).catch(() => {});
+      await enviar(env, from, `${pn ? pn + ', e' : 'E'}sse comprovante mostra um Pix de ${moedaCb(reaisParaCentavos(+dados.valor))} para ${dados.recebedor}, não para a HR. Para o pagamento valer, use o Pix que te mandamos aqui (ou a chave Pix CNPJ da HR Mármores e Granitos) e me mande o comprovante.`);
+      await notificarDono(env, Date.now(), `*Atenção:* ${d.nome || 'a cliente'} mandou um comprovante de ${moedaCb(reaisParaCentavos(+dados.valor))} em que o *recebedor é ${dados.recebedor}*${dados.pagador ? ' (pagador: ' + dados.pagador + ')' : ''}, não a HR. Não dei baixa e expliquei a ela.\nwa.me/${normalizarBR(from)}`).catch(() => {});
+      return true;
+    }
     const valorC = reaisParaCentavos(+dados.valor), saldoCb = Math.max(0, (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0));
     if (valorC > d.saldoC + 100) return false; // maior que o saldo: é de outro assunto
     await receberMidiaCliente(env, from, m).catch(() => {});
@@ -28410,7 +28427,7 @@ async function cobrancasAgendadasRotina(env) {
       if (livros.length && livros.every(x => !livTemSaldo(x))) { await enviar(env, from, `Sr. Hangel, a cobrança agendada de ${r.nome} NÃO foi enviada: no livro o serviço já está quitado.`); continue; }
       const a = r.args, principalC = reaisParaCentavos(a.valor);
       const venc = a.vencimento ? cbDataValida(a.vencimento) : '';
-      const args = { nome: r.nome, numero: r.numero, descricao: a.descricao, principalC, vencimento: venc, descontoC: a.desconto ? reaisParaCentavos(a.desconto) : 0, regua: a.regua !== false };
+      const args = { nome: r.nome, numero: r.numero, descricao: a.descricao, principalC, vencimento: venc, descontoC: a.desconto ? reaisParaCentavos(a.desconto) : 0, regua: a.regua !== false, origemId: a.origemId || undefined }; // v266: origem própria (plano de pagamento)
       let c;
       try { c = await cbCriarPro(env, args); }
       catch (e1) {
