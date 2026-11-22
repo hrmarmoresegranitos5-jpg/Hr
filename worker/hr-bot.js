@@ -10897,7 +10897,7 @@ async function cmpPortaria(env, from, m) {
   if (ok === false) {
     const nome = (await nomeParaDono(env, from).catch(() => '')) || '', pn = nomeDeTratamento(nome);
     await receberMidiaCliente(env, from, m).catch(() => {});
-    await enviar(env, from, `${pn ? pn + ', e' : 'E'}sse comprovante mostra um Pix de R$ ${reais(+dados.valor)} para *${dados.recebedor}*, não para a HR Mármores e Granitos. Para o pagamento valer, ele precisa ir para a conta da HR (pelo Pix que mandamos aqui ou pela chave CNPJ). Pode me mandar o comprovante certo?`);
+    await enviar(env, from, `${pn ? pn + ', e' : 'E'}sse comprovante mostra um Pix de R$ ${reais(+dados.valor)}${dados.pagador ? ' feito por ' + dados.pagador : ''} para *${dados.recebedor}*. O recebedor não é a HR Mármores e Granitos nem o Giliarde Hangel. Para o pagamento valer, ele precisa ir para a conta da HR (pelo Pix que mandamos aqui ou pela chave CNPJ). Pode me mandar o comprovante certo?`);
     await notificarDono(env, Date.now(), `*Atenção:* ${nome || 'um cliente'} mandou um comprovante de R$ ${reais(+dados.valor)} em que o *recebedor é ${dados.recebedor}*${dados.pagador ? ' e o pagador é ' + dados.pagador : ''}. Não é para a HR: não dei baixa e expliquei a ele.\nwa.me/${normalizarBR(from)}`).catch(() => {});
     return true;
   }
@@ -13552,7 +13552,7 @@ async function conferirComprovante(env, from, ped, m) {
     }
   } catch (e) { console.log('[BOT] ler comprovante:', e.message); }
   if (dados && dados.eh_comprovante === false) return false; // outra foto (obra, medida...): fluxo normal
-  if (dados && recebedorEhHR(env, dados.recebedor) === false) { await enviar(env, from, `${primeiro ? primeiro + ', e' : 'E'}sse comprovante mostra um Pix para *${dados.recebedor}*, não para a HR Mármores e Granitos. Para o pedido seguir, o Pix precisa ir para a conta da HR (pelo código que te mandei). Pode me mandar o comprovante certo?`); await notificarDono(env, Date.now(), `*Atenção:* comprovante de ${ped.nome || 'cliente'} com recebedor *${dados.recebedor}* (não é a HR). Não liberei.\nwa.me/${from}`).catch(() => {}); return true; } // v267
+  if (dados && recebedorEhHR(env, dados.recebedor) === false) { await enviar(env, from, `${primeiro ? primeiro + ', e' : 'E'}sse comprovante mostra um Pix${dados.pagador ? ' feito por ' + dados.pagador : ''} para *${dados.recebedor}*. O recebedor não é a HR Mármores e Granitos nem o Giliarde Hangel. Para o pedido seguir, o Pix precisa ir para a conta da HR (pelo código que te mandei). Pode me mandar o comprovante certo?`); await notificarDono(env, Date.now(), `*Atenção:* comprovante de ${ped.nome || 'cliente'} com recebedor *${dados.recebedor}* (não é a HR). Não liberei.\nwa.me/${from}`).catch(() => {}); return true; } // v267
 
   await receberMidiaCliente(env, from, m).catch(() => {}); // o arquivo vai para o dono
   const conta = mpAtivo(env) ? await conferirContaMP(env, ped, devido) : { status: 'sem_mp' };
