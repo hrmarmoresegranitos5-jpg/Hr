@@ -8094,7 +8094,15 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   if (!idB && /\b(quebrou|quebrei|quebramos|trincou|trinquei|rachou|rachei|lascou|lasquei|estragou|estraguei|perdi a peca|perdemos)\b/.test(msg)) return perdaFuncionario(env, f, from, texto, nome); // v151
   if (!idB && msg.split(' ').length <= 6 && !/\b(iniciando|inicia|comec|cheguei|instalei|entreguei|terminei|cortei|pronto|acabei)\w*/.test(msg) && await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) { // v172: "é da Renata" depois de uma foto
     let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
-    if (fp && fp.mid) { const rec = await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000); if (acharPorNome(rec, texto).length) return prodFotoPerguntar(env, f, from, { type: 'image', image: { id: fp.mid } }, nome, texto); }
+    if (fp && fp.mid) { const rec = await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000); if (acharPorNome(rec, texto).length) return prodFotoPerguntar(env, f, from, { type: 'image', image: { id: fp.mid } }, nome, texto);
+      // v273: respondeu com um nome que não está na lista nem no sistema ("Osmailton") → a foto vai ao dono com o nome, e ele sabe que foi guardada
+      const quem = String(texto).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40);
+      if (quem && tokensPedra(quem).length && !/\?$/.test(texto)) {
+        await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
+        try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: fp.mid, caption: `📷 ${nome} mandou foto do serviço de *${quem}*${fp.leg ? ` ("${fp.leg}")` : ''}. Não achei esse serviço aberto no sistema (nem com ele): confira e lance no pedido certo.` } }); } catch (_) {}
+        await enviar(env, from, `Certo, ${nome}! Não achei o serviço de *${quem}* aberto no sistema, então mandei a foto para o Sr. Hangel conferir. Pode seguir.`);
+        return true;
+      } }
   }
   if (!idB && /\b(sobrou|retalho|guardei uma sobra|guardei a sobra)\b/.test(msg)) return sobraFuncionario(env, f, from, texto, nome); // v151
   if (!idB && /\b(comecei|comecando|vou comecar|iniciei|iniciando|comecamos)\b.*\b(corte|cortar|acabamento|acabar)\b/.test(msg)) { // v180: início da tarefa por texto
@@ -23609,7 +23617,12 @@ async function rotaEditor(req, env, url) {
   if (mm[1] === 'erro') {
     let b = {}; try { b = await req.json(); } catch (_) {}
     if (j.cartao) { j.estado = 'erro'; await estGravar(env, j); await enviar(env, numeroDono(env), `O computador não conseguiu fazer o vídeo "${j.cartao.titulo}" (${String(b.erro || 'erro').slice(0, 200)}). Peça de novo em instantes.`); return J({ ok: true }); }
-    if (j.montagem) { j.estado = 'erro'; await estGravar(env, j); await enviar(env, numeroDono(env), `⚠️ O computador não conseguiu montar o vídeo do dia (${String(b.erro || 'erro').slice(0, 200)}). Amanhã tento com outra obra; para tentar agora: *video do dia*.`); return J({ ok: true }); }
+    if (j.montagem) { // v273: avisa UMA vez por vídeo (o editor tenta de novo e mandava 3 avisos iguais) e guarda o erro inteiro para conserto
+      const ja = j.estado === 'erro'; j.estado = 'erro'; j.erroTxt = String(b.erro || 'erro').slice(0, 4000); await estGravar(env, j);
+      await env.HR_KV.put('vd:ultimoerro', JSON.stringify({ id: j.id, em: Date.now(), erro: j.erroTxt }), { expirationTtl: 30 * 86400 }).catch(() => {});
+      if (!ja && await travaEnvio(env, 'vderr:' + j.id)) { const e = String(b.erro || ''), ff = /ffmpeg|filtergraph|filterchain|AVFilter/i.test(e);
+        await enviar(env, numeroDono(env), `⚠️ O editor do computador não conseguiu montar o vídeo do dia${ff ? ' (erro no programa de vídeo, o FFmpeg)' : ''}. Guardei o erro completo para conserto. Amanhã tento com outra obra; para tentar agora: *video do dia*.`); }
+      return J({ ok: true }); }
     j.estado = 'aguardando'; j.editar = false; await estGravar(env, j);
     await enviarComBotoes(env, numeroDono(env), `⚠️ O computador não conseguiu editar o vídeo (${String(b.erro || 'erro').slice(0, 200)}).`, [{ id: `igp|${j.id}|cru`, titulo: 'Postar sem editar' }, { id: `igp|${j.id}|cancelar`, titulo: 'Cancelar' }]);
     return J({ ok: true });
