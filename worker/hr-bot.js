@@ -22052,7 +22052,7 @@ async function telaGalMontar(env, txt) {
   }
   const cat = TELA_CATS.find(c => c[1].test(n)), ic = inspCat(n);
   const insp = (await inspLer(env)).filter(x => ic ? x.cat === ic : !cat).map(x => ({ u: x.u, leg: '', sub: 'Inspiração' }));
-  const itens = lista.filter(i => i && i.tipo === 'trabalho' && !(ic && !cat) && (!cat || normaliza(i.cat || '') === cat[0] || cat[1].test(normaliza((i.legenda || '') + ' ' + (i.cat || '')))))
+  const itens = lista.filter(i => i && i.tipo === 'trabalho' && !/\b(cort\w*|serr\w*|poli\w*|lixa\w*|colando|colagem|na oficina|na maquina|em producao|chapa)\b/.test(normaliza(i.legenda || '')) && !(ic && !cat) && (!cat || normaliza(i.cat || '') === cat[0] || cat[1].test(normaliza((i.legenda || '') + ' ' + (i.cat || '')))))
     .sort((a, b) => (b.em || 0) - (a.em || 0)).map(i => ({ u: '/portfolio/img/obra/' + i.id, leg: String(i.legenda || '').replace(/\s+/g, ' ').slice(0, 90), sub: i.pedraNome ? 'Pedra ' + i.pedraNome : '' }));
   itens.forEach(x => { x.sub = x.sub ? x.sub + ' · Trabalho da HR' : 'Trabalho da HR'; });
   const mist = []; for (let i = 0, a = 0, b = 0; i < 120 && (a < itens.length || b < insp.length); i++) { if (a < itens.length && (i % 3 === 0 || b >= insp.length)) mist.push(itens[a++]); else if (b < insp.length) mist.push(insp[b++]); } // 1 trabalho nosso a cada 3
@@ -22221,7 +22221,9 @@ async function painelResumo(env) {
   const c = await env.HR_KV.get('painel:cache'); if (c) { try { return JSON.parse(c); } catch (_) {} }
   const out = { em: Date.now() };
   try { // produção
-    const l = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && p.status !== 'cancelado');
+    const emp = normaliza(env.EMPRESA || 'HR Marmores e Granitos'), dono = normaliza(String(env.NOME_DONO || 'Hangel')).split(' ')[0], lim = Date.now() - 90 * 86400000;
+    const l = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && p.status !== 'cancelado'))
+      .filter(p => { const n = normaliza(p.nome || ''); return n && !n.includes('hr marmores') && n !== normaliza(emp) && !(dono && (n === dono || n.startsWith(dono + ' '))) && (p.atualizado || p.criado || Number(String(p.id || '').replace(/\D/g, '').slice(0, 13)) || Date.now()) > lim; }); // sem testes do dono e sem fichas esquecidas há mais de 90 dias
     const nm = {}; const rn = async id => { if (!id) return ''; if (!(id in nm)) nm[id] = await respNome(env, id).catch(() => ''); return nm[id]; };
     out.producao = [];
     for (const p of l.slice(0, 40)) {
