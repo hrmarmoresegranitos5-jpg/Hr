@@ -1332,7 +1332,19 @@ function _dedupOrcamentosSync(arr){
 // acesso/<e-mail> (o valor guardado é o código da empresa). As regras do
 // Firebase (ver LEIA-ME-LOGIN-GOOGLE.md) barram todo o resto.
 var SYNC_DONO_EMAIL = 'giliardhangel18@gmail.com';   // quem libera os outros e-mails
-var SYNC_CODIGO_LEGADO = 'HR2025';                    // código que já guarda os dados atuais
+var SYNC_CODIGO_LEGADO = 'HR2025';
+// 23/11/2026: a sincronização mudou para o Firebase da conta da HR (o antigo não tinha o login do Google configurado).
+// As notificações push continuam no projeto antigo (FCM_CFG), num app separado.
+var SYNC_FB_CFG = {
+  apiKey: "AIzaSyDI6DEZWanrv1B-jFviLt22oHPgKNSaW4w",
+  authDomain: "hr-sync-33b30.firebaseapp.com",
+  databaseURL: "https://hr-sync-33b30-default-rtdb.firebaseio.com",
+  projectId: "hr-sync-33b30",
+  storageBucket: "hr-sync-33b30.firebasestorage.app",
+  messagingSenderId: "797088650714",
+  appId: "1:797088650714:web:cff947a0d212f4cfc15ce3"
+};
+var SYNC_DONOS = ['giliardhangel18@gmail.com', 'hrmarmoresegranitos5@gmail.com'];                    // código que já guarda os dados atuais
 function _syncEmailKey(email){ return String(email||'').trim().toLowerCase().replace(/\./g,','); }
 
 var SYNC={
@@ -1344,7 +1356,7 @@ var SYNC={
   _push:null,
   _authIniciado:false,
   ehDono:function(){
-    return !!(this.user && _syncEmailKey(this.user.email)===_syncEmailKey(SYNC_DONO_EMAIL));
+    var k=this.user && _syncEmailKey(this.user.email); return !!(k && SYNC_DONOS.some(function(e){ return _syncEmailKey(e)===k; }));
   },
   // Atualiza a tela de Config se ela estiver aberta (sem atrapalhar digitação)
   _ui:function(){
@@ -1381,10 +1393,10 @@ var SYNC={
     var self=this;
     this._carregarSdk(function(){
       try{
-        if(!firebase.apps.length) firebase.initializeApp(FCM_CFG);
+        self.app = firebase.apps.filter(function(a){ return a.name==='hrsync'; })[0] || firebase.initializeApp(SYNC_FB_CFG, 'hrsync');
         if(!self._authIniciado){
           self._authIniciado=true;
-          firebase.auth().onAuthStateChanged(function(u){ self._aoMudarAuth(u); });
+          self.app.auth().onAuthStateChanged(function(u){ self._aoMudarAuth(u); });
         }
         if(cb) cb();
       }catch(e){
@@ -1408,10 +1420,10 @@ var SYNC={
     this._iniciarAuth(function(){
       var prov=new firebase.auth.GoogleAuthProvider();
       prov.setCustomParameters({prompt:'select_account'});
-      firebase.auth().signInWithPopup(prov).catch(function(e){
+      self.app.auth().signInWithPopup(prov).catch(function(e){
         var c=(e&&e.code)||'';
         if(c==='auth/popup-blocked' || c==='auth/operation-not-supported-in-this-environment'){
-          firebase.auth().signInWithRedirect(prov);
+          self.app.auth().signInWithRedirect(prov);
           return;
         }
         if(!self.user){ localStorage.removeItem('hr_sync_user'); self.status='deslogado'; }
@@ -1433,7 +1445,7 @@ var SYNC={
       return;
     }
     localStorage.setItem('hr_sync_user',u.email||'1');
-    this.db=firebase.database();
+    this.db=this.app.database();
     this.status='carregando';
     var chave=_syncEmailKey(u.email);
     this.db.ref('acesso/'+chave).once('value').then(function(snap){
@@ -1469,7 +1481,13 @@ var SYNC={
     var self=this;
     this.db.ref('hr/'+this.code).on('value',function(snap){
       var d=snap.val();
-      if(!d||!d._ts)return;
+      if(!d||!d._ts){ // nuvem vazia (Firebase novo): o celular envia os dados dele; o computador da Central espera o celular
+        self._remotoVazio=true;
+        if(!window.HR_CENTRAL && !self._semeou){ self._semeou=true; self.push().then(function(){ toast('↑ Dados enviados para a nuvem'); }).catch(function(){}); }
+        else if(window.HR_CENTRAL) toast('Entre com Google no celular primeiro: ele envia os dados e este computador recebe.');
+        return;
+      }
+      self._remotoVazio=false;
       var localTs=+localStorage.getItem('hr_sync_ts')||0;
       if(d._ts>localTs+2000){
         // Remote is newer — pull
@@ -1536,6 +1554,7 @@ var SYNC={
   },
   push:function(){
     if(!this.db||!this.code||!this.user)return Promise.reject(new Error('Sincronização ainda não conectou — entre com Google em Config → Sincronização'));
+    if(this._remotoVazio && window.HR_CENTRAL)return Promise.reject(new Error('Aguardando os dados do celular'));
     var ts=Date.now();
     localStorage.setItem('hr_sync_ts',ts);
     // apiKey nunca é enviada pro Firebase: é config local de cada aparelho.
@@ -1557,7 +1576,7 @@ var SYNC={
     localStorage.removeItem('hr_sync_code');
     localStorage.removeItem('hr_sync_user');
     localStorage.removeItem('hr_sync_ts');
-    try{ if(typeof firebase!=='undefined' && firebase.auth) firebase.auth().signOut(); }catch(e){}
+    try{ if(this.app) this.app.auth().signOut(); }catch(e){}
     this.user=null;
     toast('Você saiu da sincronização');
     this._ui();
@@ -1663,7 +1682,7 @@ var FCM = {
       return;
     }
     try{
-      if(!firebase.apps.length) firebase.initializeApp(FCM_CFG);
+      if(!firebase.apps.some(function(a){ return a.name==='[DEFAULT]'; })) firebase.initializeApp(FCM_CFG);
       var messaging = firebase.messaging();
       navigator.serviceWorker.register('firebase-messaging-sw.js').then(function(reg){
         messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg }).then(function(token){
