@@ -1540,9 +1540,10 @@ var SYNC={
         // o merge por ID acima não detecta isso. Poda as cópias extras aqui,
         // já marcando tombstone pra elas não "voltarem" num próximo sync.
         DB.q=_dedupOrcamentosSync(DB.q);
-        DB.sv();
-        localStorage.setItem('hr_sync_ts',d._ts);
-        buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
+        try { DB.sv(); } catch(eSv) { console.warn('[SYNC] salvar local:', eSv && eSv.message); }
+        try { localStorage.setItem('hr_sync_ts',d._ts); } catch(eTs) {}
+        // 23/11: cada tela se redesenha sozinha — uma que não está aberta (ex.: serviços fora do orçamento) não pode parar a sincronização
+        [function(){buildMat();},function(){buildSV();},function(){buildCatalog();},function(){buildCubaList();},function(){renderAg();},function(){renderFin();},function(){updEmp();}].forEach(function(f){ try{ f(); }catch(eR){} });
         try{ if(typeof renderNotas==='function') renderNotas(); }catch(e){}
         toast('↓ Dados sincronizados!');
         if(typeof _primeiraDoCel!=='undefined' && _primeiraDoCel){ setTimeout(function(){ self.push().catch(function(){}); }, 1500); }
