@@ -21920,6 +21920,77 @@ function carregar(){fetch('oficina/dados?k='+encodeURIComponent(K)).then(functio
 }).catch(function(){})}
 carregar();setInterval(carregar,60000);setTimeout(function(){location.reload()},6*3600000);
 </script></body></html>`;
+// v277: TELA DO CLIENTE — o dono faz o orçamento no app e o cliente acompanha na TV/tablet (/tela?k=…):
+//   pedra, peças, acabamentos por lado, cuba, serviços e os VALORES; nunca custo, lucro ou conferência interna.
+//   Dados no D1 (uma linha), sem gastar o KV com a TV consultando a cada 2 s.
+let telaTabOk = false;
+async function telaTab(env) { if (telaTabOk) return; await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tela_cli (tok TEXT PRIMARY KEY, dados TEXT, ts INTEGER)').run(); telaTabOk = true; }
+async function telaToken(env) {
+  await telaTab(env); const r = await env.HR_DB.prepare('SELECT tok FROM tela_cli LIMIT 1').first().catch(() => null); if (r && r.tok) return r.tok;
+  const t = Array.from(crypto.getRandomValues(new Uint8Array(9))).map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 14);
+  await env.HR_DB.prepare('INSERT INTO tela_cli (tok, dados, ts) VALUES (?, NULL, 0)').bind(t).run(); return t;
+}
+async function rotaTela(req, env, url) {
+  if (url.pathname !== '/tela' && url.pathname !== '/tela/dados') return null;
+  await telaTab(env); const r = await env.HR_DB.prepare('SELECT dados, ts FROM tela_cli WHERE tok = ?').bind(String(url.searchParams.get('k') || '')).first().catch(() => null);
+  if (!r) return new Response('Link inválido. Abra pelo app: Orçamento → 📺 Tela do cliente.', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+  if (url.pathname === '/tela') return new Response(TELA_HTML.replace('__EMP__', String(env.EMPRESA || 'HR Mármores e Granitos')).replace('__WHATS__', await igWhatsFormatado(env).catch(() => '')), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  return new Response(JSON.stringify({ ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+const TELA_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seu orçamento · __EMP__</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
+body{background:radial-gradient(1200px 700px at 80% -10%,rgba(201,168,76,.14),transparent 60%),#0a0907;color:#f1ead8;font-family:Outfit,sans-serif;overflow:hidden}
+.top{display:flex;align-items:center;justify-content:space-between;padding:2.2vh 3.2vw;border-bottom:1px solid rgba(201,168,76,.25)}
+.marca{font-family:'Cormorant Garamond',serif;font-size:3.6vh;color:#e8c96a;letter-spacing:.5px}.marca small{display:block;font-family:Outfit;font-size:1.5vh;letter-spacing:.5vh;color:rgba(232,201,106,.6);text-transform:uppercase}
+.cli{text-align:right}.cli b{font-size:3vh;font-weight:600;display:block}.cli span{font-size:1.7vh;color:#a99c80}
+main{display:grid;grid-template-columns:1.25fr 1fr;gap:2.4vw;padding:2.6vh 3.2vw;height:calc(100% - 11vh)}
+.col{overflow:hidden;display:flex;flex-direction:column;gap:1.8vh}
+.amb{background:rgba(255,255,255,.035);border:1px solid rgba(201,168,76,.22);border-radius:1.8vh;padding:2vh 2.2vh}
+.amb h2{font-size:2.6vh;font-weight:700;color:#e8c96a;display:flex;justify-content:space-between;gap:1vw}.amb h2 span{color:#f1ead8;font-weight:400;font-size:2.2vh}
+.pc{margin-top:1.4vh;padding-top:1.2vh;border-top:1px solid rgba(255,255,255,.07)}.pc .m{font-size:2.4vh;font-weight:600}.pc .m em{font-style:normal;color:#a99c80;font-weight:400;font-size:1.9vh}
+.tags{display:flex;flex-wrap:wrap;gap:.8vh;margin-top:.9vh}.tag{font-size:1.7vh;padding:.5vh 1.2vh;border-radius:99px;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#f0d78c}
+.tag.s{background:rgba(79,168,107,.14);border-color:rgba(79,168,107,.4);color:#8fdcab}.tag.f{background:rgba(90,127,196,.15);border-color:rgba(90,127,196,.4);color:#a9c1f3}
+.ext{margin-top:1.2vh;font-size:1.9vh;color:#cfc4aa}.ext b{color:#f1ead8}
+.val{background:linear-gradient(160deg,rgba(201,168,76,.16),rgba(201,168,76,.04));border:1px solid rgba(201,168,76,.45);border-radius:2vh;padding:2.6vh 2.6vh;display:flex;flex-direction:column;gap:1vh;min-height:0;overflow:hidden}
+.val h3{font-size:1.7vh;letter-spacing:.4vh;text-transform:uppercase;color:#e8c96a;font-weight:600;margin-bottom:.6vh}
+.ln{display:flex;justify-content:space-between;gap:1.5vw;font-size:2.1vh;padding:.55vh 0;border-bottom:1px dashed rgba(255,255,255,.08)}.ln span:last-child{color:#f1ead8;font-weight:600;white-space:nowrap}
+.ln.h{color:#e8c96a;font-weight:700;border:none;padding-top:1.4vh;font-size:2vh;letter-spacing:.2vh;text-transform:uppercase}
+.big{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:1.4vh}.big div{background:rgba(0,0,0,.35);border-radius:1.6vh;padding:1.8vh;text-align:center}
+.big small{display:block;font-size:1.6vh;color:#cdbf9c;letter-spacing:.2vh;text-transform:uppercase}.big b{font-family:'Cormorant Garamond',serif;font-size:4.8vh;color:#f3d982}.big i{display:block;font-style:normal;font-size:1.6vh;color:#a99c80}
+.eco{text-align:center;font-size:1.9vh;color:#8fdcab}
+.esp{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh;height:100%;text-align:center;color:#a99c80;font-size:2.2vh}
+.esp .marca{font-size:7vh}.esp .dots span{display:inline-block;width:1.2vh;height:1.2vh;border-radius:50%;background:#c9a84c;margin:0 .5vh;animation:b 1.4s infinite}.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+.calc{font-size:2vh;color:#a99c80;text-align:center;margin:auto}
+@keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+@media (orientation:portrait){main{grid-template-columns:1fr;height:auto;overflow:auto}body{overflow:auto}}
+</style></head><body>
+<div class="top"><div class="marca">__EMP__<small>Seu orçamento sob medida</small></div><div class="cli" id="cli"></div></div>
+<main id="m"><div class="esp" style="grid-column:1/-1"><div class="marca">__EMP__</div><div>O seu orçamento aparece aqui enquanto montamos.</div><div class="dots"><span></span><span></span><span></span></div><div style="font-size:1.8vh">__WHATS__</div></div></main>
+<script>
+var K=new URLSearchParams(location.search).get('k'),ult='';
+function e(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function espera(){document.getElementById('cli').innerHTML='';document.getElementById('m').innerHTML='<div class="esp" style="grid-column:1/-1"><div class="marca">__EMP__</div><div>O seu orçamento aparece aqui enquanto montamos.</div><div class="dots"><span></span><span></span><span></span></div><div style="font-size:1.8vh">__WHATS__</div></div>'}
+function desenha(d){
+ document.getElementById('cli').innerHTML='<b>'+e(d.cli||'')+'</b><span>'+e(d.data||'')+'</span>';
+ var A=(d.ambs||[]).map(function(a,i){return '<div class="amb"><h2>'+(i+1)+'. '+e(a.tipo)+'<span>'+e(a.pedra||'pedra a escolher')+'</span></h2>'+(a.pecas||[]).map(function(p){return '<div class="pc"><div class="m">'+e(p.desc||'Peça')+' <em>'+e(p.w)+' × '+e(p.h)+' cm'+(p.q>1?' · '+p.q+' unid.':'')+'</em></div>'+((p.bd||[]).length?'<div class="tags">'+p.bd.map(function(b){return '<span class="tag '+(/sainha/i.test(b.t)?'s':/front/i.test(b.t)?'f':'')+'">'+e(b.l)+': '+e(b.t)+'</span>'}).join('')+'</div>':'')+'</div>'}).join('')+(a.cuba?'<div class="ext">Cuba: <b>'+e(a.cuba)+'</b></div>':'')+((a.ext||[]).length?'<div class="ext">'+a.ext.map(e).join(' · ')+'</div>':'')+'</div>'}).join('');
+ var V='';
+ if(d.calc&&d.calc.length){var ls=d.calc,h='',pv='',av='',eco='';
+  for(var i=0;i<ls.length;i++){var l=ls[i];
+   if(/^\\d+º AMBIENTE/i.test(l)){h+='<div class="ln h"><span>'+e(l.replace(/^\\d+º AMBIENTE\\s*[—-]\\s*/i,''))+'</span></div>';continue}
+   if(/^Parcelado/i.test(l)){pv=ls[i+1]||'';i++;continue} if(/^À Vista/i.test(l)){av=ls[i+1]||'';i++;continue} if(/Economia/i.test(l)){eco=l;continue}
+   var nx=ls[i+1]||''; if(/^R\\$|m²$|^\\d+(,|\\.)?\\d*\\s*(m|ml|un)/.test(nx)&&!/^R\\$/.test(l)){h+='<div class="ln"><span>'+e(l)+'</span><span>'+e(nx)+'</span></div>';i++}else h+='<div class="ln"><span>'+e(l)+'</span><span></span></div>'}
+  var pm=pv.match(/(\\d+)×\\s*(R\\$\\s*[\\d.,]+).*?total\\s*(R\\$\\s*[\\d.,]+)/i);
+  V='<div class="val"><h3>Valores</h3>'+h+'<div class="big">'+(pv?'<div><small>Parcelado'+(pm?' em '+pm[1]+'×':'')+'</small><b>'+e(pm?pm[2]:pv)+'</b><i>'+(pm?'total '+e(pm[3]):'')+'</i></div>':'')+(av?'<div><small>À vista</small><b>'+e(av)+'</b><i>&nbsp;</i></div>':'')+'</div>'+(eco?'<div class="eco">'+e(eco.replace(/^\\W+/,''))+'</div>':'')+'</div>'}
+ else V='<div class="val"><h3>Valores</h3><div class="calc">Os valores aparecem assim que o orçamento for calculado.</div></div>';
+ document.getElementById('m').innerHTML='<div class="col">'+(A||'<div class="calc">Montando o orçamento…</div>')+'</div><div class="col">'+V+'</div>';
+}
+function carregar(){fetch('/tela/dados?k='+encodeURIComponent(K),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+ var d=j&&j.dados;if(!d||!j.ts||Date.now()-j.ts>30*60000||d.off){if(ult!=='esp'){ult='esp';espera()}return}
+ var s=JSON.stringify(d);if(s!==ult){ult=s;desenha(d)}}).catch(function(){})}
+carregar();setInterval(carregar,1500);setTimeout(function(){location.reload()},6*3600000);
+</script></body></html>`;
 async function rotaOficina(req, env, url) {
   if (url.pathname !== '/oficina' && url.pathname !== '/oficina/dados') return null;
   if (url.searchParams.get('k') !== (await env.HR_KV.get('ofi:tok'))) return new Response('Link inválido. Peça ao bot: painel da oficina.', { status: 403 });
@@ -24853,6 +24924,8 @@ async function rotaBotInterna(req, env, url) {
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
   if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
   if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
+  if (p === '/bot/tela/link' && req.method === 'GET') return jsonR({ url: (await urlPublica(env)) + '/tela?k=' + await telaToken(env) }); // v277
+  if (p === '/bot/tela/publicar' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await telaTab(env); await env.HR_DB.prepare('UPDATE tela_cli SET dados = ?, ts = ?').bind(JSON.stringify(b.dados || null).slice(0, 60000), Date.now()).run(); return jsonR({ ok: true }); } // v277
   if (p === '/bot/conversas/arquivo' && req.method === 'GET') { // v54: conversas dos últimos dias (padrão 14, máx. 30) para revisar o atendimento
     marcarUso(env, 'app:conversas');
     if (!env.HR_DB) return jsonR({ error: 'Banco D1 (HR_DB) não ligado no Worker.' }, 400);
@@ -33646,6 +33719,7 @@ export default {
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
+    if (url.pathname === '/tela' || url.pathname === '/tela/dados') { const r = await rotaTela(req, env, url); if (r) return r; } // v277
     if (url.pathname === '/painel' || url.pathname.startsWith('/painel/')) { const r = await rotaPainelVendas(req, comKV(env), url, ctx); if (r) return r; } // v103
     if (url.pathname.startsWith('/marmoraria-')) { const r = await rotaCidade(req, comKV(env), url); if (r) return r; } // v92
     if (url.pathname === '/sitemap.xml') return rotaSitemap(comKV(env));
