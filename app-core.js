@@ -1513,7 +1513,10 @@ var SYNC={
               CFG[fld] = _syncMergeById(CFG[fld]||[], d.cfg[fld], DB.tombstones[fld]);
             }
           });
-          Object.keys(d.cfg).forEach(function(k){
+          // 23/11: na 1ª sincronização de um celular, se quem mandou foi o computador da Central, os preços e ajustes
+          // deste celular valem mais (o PC estava desatualizado) — só as listas são mescladas
+          var _primeiraDoCel = !window.HR_CENTRAL && !localTs && d._orig!=='cel';
+          if(!_primeiraDoCel) Object.keys(d.cfg).forEach(function(k){
             if(_camposCatalogo.indexOf(k)===-1) CFG[k]=d.cfg[k];
           });
           if(!CFG.emp) CFG.emp={};
@@ -1542,6 +1545,7 @@ var SYNC={
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
         try{ if(typeof renderNotas==='function') renderNotas(); }catch(e){}
         toast('↓ Dados sincronizados!');
+        if(typeof _primeiraDoCel!=='undefined' && _primeiraDoCel){ setTimeout(function(){ self.push().catch(function(){}); }, 1500); }
       }
     }, function(erro){
       if(erro && (erro.code==='PERMISSION_DENIED' || /permission_denied/i.test(erro.message||''))){
@@ -1568,7 +1572,7 @@ var SYNC={
     // apagaria "fcmTokens" e "notifOrcState", que também moram em
     // hr/<código> mas são escritos por outros caminhos (registro de
     // notificação push e o controle de orçamentos já avisados).
-    return this.db.ref('hr/'+this.code).update({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,n:DB.n||[],tombstones:DB.tombstones,_ts:ts});
+    return this.db.ref('hr/'+this.code).update({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,n:DB.n||[],tombstones:DB.tombstones,_ts:ts,_orig:window.HR_CENTRAL?'central':'cel'});
   },
   logout:function(){
     this._pararListen();
