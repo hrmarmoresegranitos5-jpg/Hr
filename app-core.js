@@ -1499,6 +1499,7 @@ var SYNC={
         // Marcas de exclusão (tombstones) mescladas ANTES de tudo — tanto o
         // catálogo (CFG.stones/coz/lav/ac/trabalhos/referencias) quanto
         // orçamentos/financeiro (DB.q/j/t/b) usam elas pra filtrar o merge.
+        self._puxando = true; setTimeout(function(){ self._puxando = false; }, 8000); // 23/11: salvar o que veio de fora não pode reenviar na hora (virava pingue-pongue entre celular e PC)
         DB.tombstones = _syncMergeTombstones(DB.tombstones, d.tombstones);
         if(d.cfg){
           // NUNCA substitui CFG inteiro — isso é o que apagava o catálogo
@@ -1543,10 +1544,14 @@ var SYNC={
         try { DB.sv(); } catch(eSv) { console.warn('[SYNC] salvar local:', eSv && eSv.message); }
         try { localStorage.setItem('hr_sync_ts',d._ts); } catch(eTs) {}
         // 23/11: cada tela se redesenha sozinha — uma que não está aberta (ex.: serviços fora do orçamento) não pode parar a sincronização
+        self._puxando = false;
+        // só devolve para a nuvem se este aparelho tinha algo que a nuvem não tinha
+        var _n = function(a){ return Array.isArray(a) ? a.length : (a && typeof a === 'object' ? Object.keys(a).length : 0); };
+        var _temMais = ['q','j','t','b','n'].some(function(k){ return _n(DB[k]) > _n(d[k]); });
+        if(_temMais || (typeof _primeiraDoCel!=='undefined' && _primeiraDoCel)) setTimeout(function(){ self.push().catch(function(){}); }, 1500);
         [function(){buildMat();},function(){buildSV();},function(){buildCatalog();},function(){buildCubaList();},function(){renderAg();},function(){renderFin();},function(){updEmp();}].forEach(function(f){ try{ f(); }catch(eR){} });
         try{ if(typeof renderNotas==='function') renderNotas(); }catch(e){}
         toast('↓ Dados sincronizados!');
-        if(typeof _primeiraDoCel!=='undefined' && _primeiraDoCel){ setTimeout(function(){ self.push().catch(function(){}); }, 1500); }
       }
     }, function(erro){
       if(erro && (erro.code==='PERMISSION_DENIED' || /permission_denied/i.test(erro.message||''))){
@@ -1560,6 +1565,7 @@ var SYNC={
   push:function(){
     if(!this.db||!this.code||!this.user)return Promise.reject(new Error('Sincronização ainda não conectou — entre com Google em Config → Sincronização'));
     if(this._remotoVazio && window.HR_CENTRAL)return Promise.reject(new Error('Aguardando os dados do celular'));
+    if(this._puxando)return Promise.resolve();
     var ts=Date.now();
     localStorage.setItem('hr_sync_ts',ts);
     // apiKey nunca é enviada pro Firebase: é config local de cada aparelho.
