@@ -2400,6 +2400,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^rela_(ok|no)\|/.test(id)) return relAutBotao(env, from, id); // v229
   if (/^mpq\|/.test(id)) return mpqBotao(env, from, id); // v236
   if (/^mpig\|/.test(id)) return mpigBotao(env, from, id); // v269
+  if (/^fimc\|/.test(id)) return fimConfBotao(env, from, id); // v274
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
@@ -11767,12 +11768,21 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
     } else if (naFabrica(p) && (!p.fabResp || [p.fabResp, p.fab2Resp].map(String).includes(id))) linhas.push({ id: `fot|${p.id}|pronto`, titulo: `✅ ${pn}`.slice(0, 24), descricao: p.corteEm || !precisaAcab(p) ? 'Terminei (peças prontas)' : 'Terminei o corte' });
     linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Só guardar a foto no pedido' });
   }
-  { const n = normaliza(leg || ''), quer0 = /\b(finaliz\w*|terminand[oa]|conclu\w*)\b/.test(n) ? 'fim' : /\b(inicia|iniciou|comecando|vou comecar|vamos comecar)\b/.test(n) ? 'ini' : '', quer = quer0 || /\b(cortad[oa]s?|pront[oa]s?|acabad[oa]s?|terminad[oa]s?|fabricad[oa]s?)\b/.test(n) ? 'pronto' : /\b(instalad[oa]s?|entregue?s?|finalizad[oa]s?|montad[oa]s?)\b/.test(n) ? 'fim' : /\b(chegand[oa]|chegamos|cheguei|comecand[oa]|comecar|comecei|comecou|iniciar|iniciando|inicio|antes)\b/.test(n) ? 'ini' : ''; // v178: a legenda ("peitoril cortado") põe a opção certa em primeiro
+  { const n = normaliza(leg || ''), quer0 = /\b(finaliz\w*|terminand[oa]|terminamos|conclu\w*)\b/.test(n) ? 'fim' : /\b(inicia|iniciou|comecando|vou comecar|vamos comecar)\b/.test(n) ? 'ini' : '', quer = quer0 || (/\b(cortad[oa]s?|pront[oa]s?|acabad[oa]s?|terminad[oa]s?|fabricad[oa]s?)\b/.test(n) ? 'pronto' : /\b(instalad[oa]s?|entregue?s?|finalizad[oa]s?|finalizamos|finalizei|terminamos|instalamos|montad[oa]s?)\b/.test(n) ? 'fim' : /\b(chegand[oa]|chegamos|cheguei|comecand[oa]|comecar|comecei|comecou|iniciar|iniciando|inicio|antes)\b/.test(n) ? 'ini' : ''); // v274: parênteses ("finalizando" virava "pronto") // v178: a legenda ("peitoril cortado") põe a opção certa em primeiro
     const suf = { ini: ['ini', 'cti', 'aci'], pronto: ['pronto', 'acf'], fim: ['fim'] }[quer] || [], tem = x => suf.some(k => x.id.endsWith('|' + k)) ? 1 : 0;
     if (quer) linhas.sort((a, b) => tem(b) - tem(a));
     /* v196: a legenda já diz o cliente e o que foi ("Serviço de Renata finalizando", "Dona Renata serviço finalizado") → não pergunta de novo */
     const achL = leg ? (temNome(l) || []) : [];
     if (achL.length === 1) {
+      if (quer === 'fim' && String(env.CONFIRMA_FIM ?? '1') !== '0') { // v274: "finalizamos a cozinha de Poliano" → o dono vê a foto e a frase e confirma antes de marcar
+        const pedF = achL[0], mids = [...(fp0 && fp0.mids && Date.now() - (fp0.em || 0) < 15 * 60000 ? fp0.mids : []), m.image.id].filter((x, i, a) => x && a.indexOf(x) === i), cid = estId(8);
+        await env.HR_KV.put('fimconf:' + cid, JSON.stringify({ pid: pedF.id, from, fid: String(f.id), nome, mids, leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
+        await env.HR_KV.delete('prod:fotopend:' + k8).catch(() => {});
+        try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: m.image.id, caption: `📷 ${nome}: "${String(leg).slice(0, 200)}"` } }); } catch (_) {}
+        await enviarComBotoes(env, numeroDono(env), `${nome} disse que *finalizou* o serviço de *${pedF.nome}*${mids.length > 1 ? ` (${mids.length} fotos)` : ''}.\n\nPosso atualizar como finalizado?`, [{ id: `fimc|${cid}|s`, titulo: 'Sim, finalizado' }, { id: `fimc|${cid}|n`, titulo: 'Ainda não' }]);
+        await enviar(env, from, `📸 Recebi, ${nome}! Passei para o Sr. Hangel confirmar a finalização de *${pedF.nome}*. Valeu!`);
+        return true;
+      }
       const pid = String(achL[0].id), doCli = linhas.filter(x => x.id.split('|')[1] === pid), grupo = quer === 'fim' || quer === 'pronto' ? ['fim', 'pronto', 'acf'] : quer === 'ini' ? ['ini', 'cti', 'aci'] : [];
       const cand = doCli.filter(x => grupo.includes(x.id.split('|')[2]));
       const esc = cand.length === 1 ? cand[0] : (doCli.length === 1 ? doCli[0] : (quer && !cand.length && achL[0].entregueEm ? doCli.find(x => x.id.endsWith('|foto')) : null));
@@ -16532,6 +16542,31 @@ async function perguntarParecidoMPX(env, h) {
   const f = r.falado;
   await enviarComBotoes(env, numeroDono(env), `No Mercado Pago saiu *R$ ${reais(r.valor)}* para *${mpxNomeFav(r)}* (${dataBR(r.data).slice(0, 5)}${r.hora ? ' às ' + r.hora : ''}).\nO senhor tinha falado: *R$ ${reais(f.value)}* — ${String(f.desc || '').slice(0, 50)}${f.cat && CATS[f.cat] ? ' (' + CATS[f.cat] + ')' : ''}.\n\nÉ o mesmo gasto?`,
     [{ id: `mpig|${h}|s`, titulo: 'É o mesmo' }, { id: `mpig|${h}|n`, titulo: 'Outro gasto' }]).catch(() => {});
+}
+// v274: o dono confirma a finalização que o funcionário mandou com foto (fimc|id|s · fimc|id|n)
+async function fotosNoPedido(env, pid, mids, fid) {
+  if (!(await fotoTabela(env))) return;
+  for (const mid of mids || []) { try { const r = await baixarMidia(env, mid); await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('obra:' + pid, bytesParaBase64(new Uint8Array(r.buf)), r.tipo, Date.now(), String(fid || '')).run(); } catch (_) {} }
+}
+async function fimConfBotao(env, from, id) {
+  const [, cid, c] = id.split('|'); let fc = null; try { fc = JSON.parse((await env.HR_KV.get('fimconf:' + cid)) || 'null'); } catch (_) {}
+  if (!fc) { await enviar(env, from, 'Essa confirmação já foi resolvida ou expirou.'); return true; }
+  await env.HR_KV.delete('fimconf:' + cid);
+  const ped = await lerPedido(env, fc.pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei mais esse pedido.'); return true; }
+  if (c !== 's') { await fotosNoPedido(env, ped.id, fc.mids, fc.fid); await enviar(env, from, `Certo, não marquei. A foto ficou guardada no pedido de ${ped.nome}.`); return true; }
+  const cfg = await pontoCfg(env).catch(() => null), f = cfg && pontoFuncPorFone(cfg, fc.from);
+  if (!ped.entregueEm && f) { // segue o caminho normal da finalização (baixa, pontos, pergunta de recebimento)
+    await env.HR_KV.put('prod:fotopend:' + ultimos8(fc.from), JSON.stringify({ mid: fc.mids[0], mids: fc.mids, em: Date.now() }), { expirationTtl: 3 * 3600 });
+    await prodFotoEscolha(env, f, fc.from, `fot|${ped.id}|fim`, fc.nome);
+    await enviar(env, from, `✅ Marquei o serviço de *${ped.nome}* como finalizado (por ${fc.nome}).`); return true;
+  }
+  // já estava como entregue: registra a finalização com a foto final
+  ped.instFimEm = ped.instFimEm || Date.now(); ped.instFimPor = ped.instFimPor || fc.fid; ped.fotoEntregaEm = ped.fotoEntregaEm || Date.now();
+  ped.prodLog = [...(ped.prodLog || []), { e: 'finalizado', t: Date.now(), por: fc.fid, conf: 'dono' }];
+  await salvarPedido(env, ped); await fotosNoPedido(env, ped.id, fc.mids, fc.fid);
+  await enviar(env, fc.from, `✅ O Sr. Hangel confirmou: serviço de *${ped.nome}* finalizado. Valeu, ${fc.nome}!`).catch(() => {});
+  await enviar(env, from, `✅ Serviço de *${ped.nome}* atualizado como finalizado, com a foto do ${fc.nome}.`);
+  return true;
 }
 async function mpigBotao(env, from, id) { // mpig|h|s (é o mesmo) · mpig|h|n (outro gasto)
   const [, h, c] = id.split('|');
