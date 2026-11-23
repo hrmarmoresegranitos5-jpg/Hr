@@ -224,6 +224,8 @@
   var abriuPainel = false;
   function tick() {
     instalarSetLayout(); instalarGo(); montarNav(); ajustarLayout();
+    var sp = document.getElementById('sSplash');
+    if (largo() && !abriuPainel && sp && (sp.classList.contains('on') || getComputedStyle(sp).display !== 'none') && !(document.getElementById('sApp') || {}).classList.contains('on') && typeof openApp === 'function' && !document.querySelector('.ov.on')) { abriuPainel = true; try { openApp(PG); } catch (e) {} return; } // no computador abre direto na Central
     if (largo() && !abriuPainel && document.getElementById('sApp') && document.getElementById('sApp').classList.contains('on')) { abriuPainel = true; try { var on = document.querySelector('#nav .ni.on'); if (!on || on.getAttribute('data-pg') === '12') abrir(); } catch (e) {} }
     document.body.classList.toggle('pc-painel', visivel());
     if (visivel()) { var h = document.getElementById('ppHora'); if (h) h.textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); carregarBot(); }
