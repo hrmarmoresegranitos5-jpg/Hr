@@ -498,7 +498,7 @@ async function agNota(env, user, assistente) {
 // Cliente que mandou ÁUDIO recebe a resposta SÓ em áudio: o texto não sai, fica guardado para virar voz
 function respondeSoPorVoz(env, para) {
   const c = env && env._ctx;
-  return !!(c && c.voz && c.cliente && c.de && normalizarBR(para) === c.de);
+  return !!(c && c.voz && (c.cliente || c.func) && c.de && normalizarBR(para) === c.de); // v284: funcionário que mandou áudio também recebe áudio
 }
 async function enviar(env, para, texto) {
   if (ehDono(env, para)) texto = variarTratamentoDono(env, texto); // só o dono recebe apelidos
@@ -2597,6 +2597,16 @@ function chaveVoz(env) {
 }
 
 // Baixa o áudio da Meta e transcreve. Devolve o texto, ou null (já avisou o dono do problema).
+// v284: nomes que aparecem nos áudios (equipe, clientes da produção e dos orçamentos, pedras) — ajudam a transcrição a escrever certo
+async function vocabVoz(env) {
+  const c = await env.HR_KV.get('voz:vocab'); if (c) return c;
+  const nm = new Set();
+  try { const cfg = await pontoCfg(env); (cfg.funcs || []).forEach(x => x && x.nome && nm.add(String(x.nome).split(' ')[0])); } catch (_) {}
+  try { (await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 10 * 86400000)).forEach(p => p.nome && nm.add(String(p.nome).split(' ').slice(0, 2).join(' '))); } catch (_) {}
+  try { const snap = await lerSnapshotCompleto(env); ((snap && snap.dados && snap.dados.orcamentos) || []).slice(-40).forEach(o => o.cliente && nm.add(String(o.cliente).split(' ').slice(0, 2).join(' '))); } catch (_) {}
+  ['Preto São Gabriel', 'Branco Dallas', 'Branco Itaúnas', 'Verde Ubatuba', 'Cinza Andorinha', 'Preto Absoluto', 'Branco pinta verde'].forEach(x => nm.add(x));
+  const t = [...nm].join(', ').slice(0, 700); await env.HR_KV.put('voz:vocab', t, { expirationTtl: 3600 }).catch(() => {}); return t;
+}
 async function ouvirAudio(env, from, m, dono = true) {
   const chave = chaveVoz(env);
   if (!chave) {
@@ -2615,9 +2625,9 @@ async function ouvirAudio(env, from, m, dono = true) {
     }
     const fd = new FormData();
     fd.append('file', new Blob([buf], { type: 'audio/ogg' }), 'audio.ogg');
-    fd.append('model', env.STT_MODEL || 'gpt-4o-mini-transcribe');
+    fd.append('model', env.STT_MODEL || 'gpt-4o-transcribe'); // v284: o modelo completo erra bem menos nomes
     fd.append('language', 'pt');
-    fd.append('prompt', 'Conversa de WhatsApp com uma marmoraria. Valores em reais, medidas em centímetros e metros, soleira, peitoril, orçamento, visita técnica, granito, mármore, cimento, Sr. Hangel.');
+    fd.append('prompt', 'Conversa de WhatsApp com uma marmoraria da Bahia. Valores em reais, medidas em centímetros e metros, soleira, peitoril, bancada, balcão, cozinha, lavatório, túmulo, orçamento, granito, mármore, Sr. Hangel. Nomes: ' + (await vocabVoz(env).catch(() => '')));
     const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST', headers: { Authorization: `Bearer ${chave}` }, body: fd,
     });
@@ -7955,6 +7965,7 @@ async function semDonoNaFila(env) { // serviço que ninguém pegou ainda
   return out;
 }
 async function funcPerguntas(env, f, from, texto, nome, msg) {
+  if (await prodReclamaPontos(env, f, from, texto, nome, msg).catch(e => { console.log('[PROD] reclamação:', e.message); return false; })) return true; // v284
   if (/\b(quantos pontos|meus pontos|minha meta|minha pontuacao|pontuacao|quanto (eu )?(tenho|fiz|to|estou) de ponto|como (ta|esta) (a )?minha (meta|semana))\b/.test(msg)) {
     const pn = await metaPainel(env, f.id).catch(() => null);
     if (!pn || !pn.ok) { await enviar(env, from, `${nome}, ainda não tenho a sua meta calculada. Pergunte ao Sr. Hangel.`); return true; }
@@ -8181,7 +8192,8 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       const outros = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado')).filter(p => p.id !== ach[0].id && nomeCasa(p.nome, tkT));
       if (outros.length) ach = [];
     }
-    if (!ach.length) { if (l.length) await enviarComBotoes(env, from, `${nome}, de qual cliente é?`, l.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); else await enviar(env, from, `${nome}, não achei ficha pendente. Se for de um pedido novo, avise o Sr. Hangel.`); return true; }
+    if (!ach.length) { if (await prodServicoForaDaLista(env, f, from, texto, nome)) return true; // v284: falou de um cliente que não está na produção → o dono confirma
+      if (l.length) { await env.HR_KV.put('prod:qualcli:' + ultimos8(from), JSON.stringify({ texto, em: Date.now() }), { expirationTtl: 1200 }); await enviarComBotoes(env, from, `${nome}, de qual cliente é?`, l.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); } else await enviar(env, from, `${nome}, não achei ficha pendente. Se for de um pedido novo, avise o Sr. Hangel.`); return true; }
     if (ach.length > 1 && ach.length <= 4 && ach.every(p => nomeNota(p.nome, tkT) > 0) && /\b(e|os dois|as duas|todos|todas|tambem)\b/.test(msg)) { // v215: "terminei o do Wesley e o do Caveira"
       for (const p of ach) await prodMarcarPronto(env, p, from, nome).catch(e => console.log('[PROD] vários:', e.message));
       return true;
@@ -10336,6 +10348,11 @@ async function producaoStatusTool(env, a) {
   if (!ped) { // serviço que não passou pelo bot: abre um registro para contar a produção
     ped = { id: String(Date.now()), origem: 'manual', nome: String(a.cliente || 'Cliente').slice(0, 60), projetoApp: a.item ? String(a.item).slice(0, 40) : 'Serviço', interesse: /peitor/.test(item) ? 'peitoril' : /soleir/.test(item) ? 'soleira' : '', pecas: [], status: 'enviado', etapa: 'concluido', criado: Date.now(), fichaEnviadaEm: Date.now() };
     if (+a.pecas > 0) ped.pecas = [{ tipo: ped.interesse || 'peça', qtd: Math.round(+a.pecas), comp_cm: 1, larg_cm: 1 }];
+    else try { // v284: serviço que não passou pelo bot: usa o orçamento do app (m²) para estimar as peças e os pontos
+      const snap = await lerSnapshotCompleto(env).catch(() => null), tkc = tokensPedra(String(a.cliente || ''));
+      const o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && nomeNota(x.cliente || '', tkc) > 0 && (!item || normaliza(x.projeto || '').includes(item.split(' ')[0].replace(/s$/, '')) || true)).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
+      if (o && +o.m2 > 0) { const q = Math.max(1, Math.min(20, Math.round(+o.m2 / 0.6))); ped.pecas = [{ tipo: 'peça', qtd: q, comp_cm: 1, larg_cm: 1 }]; ped.projetoApp = ped.projetoApp === 'Serviço' && o.projeto ? String(o.projeto).slice(0, 40) : ped.projetoApp; ped.estimado = { m2: +o.m2, de: 'orcamento do app' }; }
+    } catch (_) {}
   }
   const ts = isoOk(a.data) ? quandoTs(a.data, '17:00') : Date.now();
   ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
@@ -10820,6 +10837,26 @@ async function quitTool(env, from, x) {
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v284cassio')) && await travaEnvio(env, 'fix:v284cassio')) { await env.HR_KV.put('fix:v284cassio', '1', { expirationTtl: 30 * 86400 }); // v284: corte da cozinha (Preto São Gabriel) do Cássio pelo Fabrício valia 0 pontos (serviço fora da produção, sem peças)
+    const L = [];
+    try {
+      const cfg = await pontoCfg(env), fab = (cfg.funcs || []).find(x => /^fabr/i.test(normaliza(x.nome || '')));
+      const tkC = tokensPedra('Cássio'); let peds = await pedidosProducao(env, p => nomeNota(p.nome, tkC) > 0).catch(() => []);
+      let ped = peds.find(p => (p.prodLog || []).some(l => l.e === 'corte' && fab && (l.por || []).map(String).includes(String(fab.id))));
+      if (ped && !nPecasPed(ped) || ped && !(ped.pecas || []).length) {
+        const snap = await lerSnapshotCompleto(env).catch(() => null), o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && nomeNota(x.cliente || '', tkC) > 0).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
+        const q = o && +o.m2 > 0 ? Math.max(1, Math.min(20, Math.round(+o.m2 / 0.6))) : 4;
+        ped.pecas = [{ tipo: 'peça', qtd: q, comp_cm: 1, larg_cm: 1 }]; ped.projetoApp = 'Cozinha (Preto São Gabriel)'; ped.estimado = { m2: o ? +o.m2 : 0, de: o ? 'orcamento do app' : 'cozinha padrão' }; await salvarPedido(env, ped);
+        L.push(`Corte da cozinha de ${ped.nome}: agora conta ${q} peças${o ? ` (orçamento do app: ${o.m2} m²)` : ' (estimativa de uma cozinha)'}, valendo ${String(ptsEtapa(ped, 'corte')).replace('.', ',')} ponto(s) para o Fabrício.`);
+      } else if (!ped && fab) {
+        env._agBruto = 'Fabrício cortou a cozinha Preto São Gabriel do Cássio';
+        const r = await producaoStatusTool(env, { cliente: 'Cássio', etapa: 'corte', funcionarios: ['Fabrício'], item: 'cozinha', data: dataBahia() }).catch(e => ({ texto: e.message }));
+        L.push(String((r && r.texto) || 'registrado').slice(0, 240));
+      } else if (ped) L.push(`O corte de ${ped.nome} já estava com peças: ${String(ptsEtapa(ped, 'corte')).replace('.', ',')} ponto(s).`);
+      try { const d = await equipeLer(env), x = (d.funcs || []).find(y => fab && String(y.id) === String(fab.id)); if (x) L.push(`Confira a ficha dele no RH: o nome está "${x.nome}". O bot tinha tomado a resposta "de Cássio" como resposta da ficha; já corrigi isso para não acontecer de novo.`); } catch (_) {}
+    } catch (e) { L.push('Erro: ' + String(e.message).slice(0, 120)); }
+    await notificarDono(env, Date.now(), '*Pontos do Fabrício · cozinha do Cássio*\n' + L.join('\n')).catch(() => {});
+  }
   if (!(await env.HR_KV.get('fix:v280fabricio')) && await travaEnvio(env, 'fix:v280fabricio')) { await env.HR_KV.put('fix:v280fabricio', '1', { expirationTtl: 30 * 86400 }); // v280: pontos do Fabrício de hoje (pedido do dono)
     const L = [];
     for (const it of [{ cliente: 'Osmailton', etapa: 'corte', funcionarios: ['Fabrício'], item: 'balcão', bruto: 'Fabrício cortou o balcão do Osmailton' }, { cliente: 'Cássio', etapa: 'corte', funcionarios: ['Fabrício'], bruto: 'Fabrício cortou uma etapa do projeto do Cássio' }]) {
@@ -16599,7 +16636,7 @@ const ETAPA_NOME2 = { inicio: 'início', corte: 'corte', polimento: 'polimento',
 async function etapaPedirConfirmacao(env, fone, nomeFunc, quem, mid, leg) {
   const etapa = etapaDaLegenda(leg), item = itemDaLegenda(leg), cid = estId(8);
   await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from: fone, func: nomeFunc, cliente: quem, etapa, item, mid, leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
-  try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nomeFunc}: "${String(leg || '').slice(0, 160)}" · serviço de *${quem}*` } }); } catch (_) {}
+  if (mid) try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nomeFunc}: "${String(leg || '').slice(0, 160)}" · serviço de *${quem}*` } }); } catch (_) {}
   const o = etapa ? `o *${ETAPA_NOME2[etapa]}*${item ? ' do ' + item : ''} de *${quem}*` : `a foto do serviço de *${quem}*`;
   await enviarComBotoes(env, numeroDono(env), `${nomeFunc} mandou ${etapa ? 'que fez ' + o : o}. Esse serviço não está aberto na produção.\n\n${etapa ? `Registro ${o} para o ${nomeFunc}?` : 'Registro como andamento desse serviço?'}`,
     [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
@@ -22118,6 +22155,61 @@ async function inspFotoColeta(env, from, m) {
     if (c.n === 1 || c.n % 10 === 0) await enviar(env, from, `${c.n} foto${c.n > 1 ? 's' : ''} de ${INSP_TIT[c.cat] || c.cat} guardada${c.n > 1 ? 's' : ''}…`).catch(() => {});
   } catch (e) { console.log('[INSP] foto:', e.message); }
   return true;
+}
+// v284: SERVIÇO QUE O FUNCIONÁRIO DIZ QUE FEZ E NÃO ESTÁ NA PRODUÇÃO / RECLAMAÇÃO DE PONTOS
+// Nunca fica pedindo "dia e horário" (isso é do ponto de horas): extrai cliente e etapa, confere e, se não estiver registrado, o dono confirma com um toque.
+async function servicoExtrair(env, f, texto) {
+  const cfg = await pontoCfg(env).catch(() => ({ funcs: [] }));
+  const cli = (await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 5 * 86400000).catch(() => [])).map(p => p.nome).filter(Boolean).slice(0, 40);
+  let orc = []; try { const snap = await lerSnapshotCompleto(env); orc = ((snap && snap.dados && snap.dados.orcamentos) || []).slice(-60).map(o => o.cliente).filter(Boolean); } catch (_) {}
+  const sis = `Um funcionário de marmoraria (${f.nome}) mandou uma mensagem (às vezes transcrita de áudio, com erros). Descubra de qual serviço ele fala.
+Clientes na produção: ${cli.join(', ') || '(nenhum)'}. Clientes de orçamentos recentes: ${[...new Set(orc)].join(', ') || '(nenhum)'}.
+Nomes de pedra (não são clientes): Preto São Gabriel, Branco Dallas, Branco Itaúnas, Verde Ubatuba, Cinza Andorinha, Marrom Absoluto, Preto Absoluto, Branco pinta verde.
+Corrija nomes mal transcritos para o cliente mais parecido da lista (ex.: "Osmarilto"→"Osmailton"). Etapa: corte, acabamento, fabricacao, polimento, instalacao ou inicio.
+Responda SÓ JSON: {"cliente":"nome do cliente ou vazio","item":"cozinha/balcão/... ou vazio","pedra":"","etapa":"corte","feito":true}`;
+  try { const r = lerJsonIA(await chamarIA(env, sis, [], String(texto).slice(0, 600), { maxTokens: 150, model: env.AI_MODEL_RH || 'claude-haiku-5-5', cat: 'equipe' })); return r && typeof r === 'object' ? r : null; } catch (_) { return null; }
+}
+async function prodServicoForaDaLista(env, f, from, texto, nome) {
+  const x = await servicoExtrair(env, f, texto); if (!x || !x.cliente || x.feito === false) return false;
+  const tk = tokensPedra(String(x.cliente)); if (!tk.length) return false;
+  const naLista = await pedidosProducao(env, p => !p.entregueEm && nomeNota(p.nome, tk) > 0).catch(() => []);
+  if (naLista.length) { // está na produção: o nome veio errado na transcrição → roda de novo com o nome certo
+    if (env._prodCorrigido || nomeNota(naLista[0].nome, tokensPedra(texto)) > 0) return false;
+    env._prodCorrigido = 1; return producaoFuncionario(env, f, from, `${texto} (do ${naLista[0].nome})`, '', nome); }
+  return prodPedirDono(env, f, from, x, texto, nome);
+}
+async function prodPedirDono(env, f, from, x, texto, nome) {
+  const chave = 'etpdup:' + f.id + ':' + normaliza(String(x.cliente)).replace(/\s+/g, '') + ':' + (x.etapa || '');
+  const etp = ETAPA_NOME2[x.etapa] ? x.etapa : 'corte', o = `${ETAPA_NOME2[etp]}${x.item ? ' do ' + x.item : ''}${x.pedra ? ' (' + x.pedra + ')' : ''} de *${x.cliente}*`;
+  if (await env.HR_KV.get(chave)) { await enviar(env, from, `${nome}, o ${o.replace(/\*/g, '')} já está com o Sr. Hangel para confirmar. Assim que ele confirmar, os pontos entram e eu te aviso.`); return true; }
+  await env.HR_KV.put(chave, '1', { expirationTtl: 86400 });
+  const cid = estId(8), leg = `${x.etapa === 'corte' ? 'cortei' : 'fiz'} ${x.item || ''} ${x.pedra || ''}`.trim();
+  await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from, func: nome, cliente: x.cliente, etapa: etp, item: x.item || '', mid: '', leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
+  await enviarComBotoes(env, numeroDono(env), `${f.nome} disse que fez o ${o}: "${String(texto).slice(0, 220)}"\n\nEsse serviço não está aberto na produção. Registro para ele (os pontos entram pelo tamanho do orçamento do app)?`,
+    [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
+  await enviar(env, from, `Entendi, ${nome}: ${o.replace(/\*/g, '')}. Esse serviço não estava aberto na produção, por isso não entrou ponto. Já mandei para o Sr. Hangel confirmar; quando ele confirmar, os pontos entram e eu te aviso.`);
+  return true;
+}
+async function prodReclamaPontos(env, f, from, texto, nome, msg) {
+  const fala = /\b(ponto|pontos|pontuacao)\b/.test(msg) && /\b(nao (me )?(deu|deram|deu|ganhei|recebi|contou|contaram|entrou|veio|apareceu)|nao vou ganhar|cade|faltou|faltando|quero (os|meus)|ve (ai|mais)|cortei|cortamos|terminei|fiz|instalei|instalamos)\b/.test(msg);
+  if (!fala) return false;
+  const x = await servicoExtrair(env, f, texto); if (!x || !x.cliente) return false;
+  const tk = tokensPedra(String(x.cliente)), etp = ETAPA_NOME2[x.etapa] ? x.etapa : 'corte';
+  const ped = (await pedidosProducao(env, p => nomeNota(p.nome, tk) > 0 && (!p.entregueEm || Date.now() - p.entregueEm < 7 * 86400000)).catch(() => []))[0];
+  if (ped) {
+    const ja = (ped.prodLog || []).find(l => l.e === etp && (l.por || []).map(String).includes(String(f.id)));
+    if (ja) { await enviar(env, from, `${nome}, o ${ETAPA_NOME2[etp]} de *${ped.nome}* já está registrado para você (${dataBR(new Date(ja.ts - 3 * 3600000).toISOString().slice(0, 10))}), valendo ${String(ptsEtapa(ped, etp, ja.ts)).replace('.', ',')} ponto(s). Se achar que está pouco, fale com o Sr. Hangel.`); return true; }
+    return false; // está na produção mas não registrado: o fluxo normal ("cortei o de X") marca
+  }
+  return prodPedirDono(env, f, from, x, texto, nome);
+}
+// resposta ao "de qual cliente é?": junta com a mensagem anterior e roda de novo
+async function prodQualCliResposta(env, f, from, texto, nome) {
+  const k = 'prod:qualcli:' + ultimos8(from); let p = null; try { p = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (!p) return false;
+  const n = normaliza(texto); if (n.split(' ').length > 10) { await env.HR_KV.delete(k); return false; }
+  await env.HR_KV.delete(k);
+  return producaoFuncionario(env, f, from, `${p.texto} de ${String(texto).replace(/^(e |eh |é |do |da |de |o do |o da |a do |a da )/i, '')}`, '', nome);
 }
 // v281: Pix na Tela do cliente — o dono gera pelo app, o QR aparece na TV e a TV comemora quando o Mercado Pago confirma
 let TELA_VER_C = ''; function telaVer() { if (TELA_VER_C) return TELA_VER_C; let h = 0; for (let i = 0; i < TELA_HTML.length; i += 7) h = (h * 31 + TELA_HTML.charCodeAt(i)) | 0; return (TELA_VER_C = 'v281-' + (h >>> 0).toString(36)); }
@@ -30535,6 +30627,8 @@ async function eqFichaResposta(env, cfg, f, from, texto, nome) {
   try { pend = JSON.parse(raw); } catch (_) {} if (!pend || typeof pend !== 'object') pend = { em: +raw || Date.now(), falta: await eqFichaFaltando(env, f), atual: '' };
   if (!pend.atual) pend.atual = (pend.falta || [])[0] || '';
   const n = normaliza(texto); if (!n || texto.length < 2) return false;
+  if (await env.HR_KV.get('prod:qualcli:' + ultimos8(from))) return false; // v284: estava respondendo de qual cliente é
+  if (/\b(cozinha|balcao|bancada|lavatorio|soleira|peitoril|tumulo|escada|pia|ponto|pontos|cortei|cortamos|cliente)\b/.test(n)) return false; // v284: é serviço
   if (/\b(cheguei|sai|entrei|bati|esqueci|almoco|faltei|terminei|instalei|iniciei|cortei|cliente|pedido|foto|pronto)\b/.test(n) && !/\b(cpf|pix|nasc\w*|nome completo|banco)\b/.test(n)) return false; // é ponto/produção, não ficha
   const perg = (EQ_FICHA.find(x => x[0] === pend.atual) || [])[2] || '';
   const pula = /^(nao (tenho|sei|lembro)|n sei|nao|pular|depois)\b/.test(n);
@@ -30542,6 +30636,7 @@ async function eqFichaResposta(env, cfg, f, from, texto, nome) {
   if (!pula) try { r = lerJsonIA(await chamarIA(env, `Extraia dados de cadastro de um funcionário da resposta dele. A pergunta feita foi: "${perg.replace(/\*/g, '')}". Hoje é ${dataBahia()}. Responda só JSON: {"nome_completo":"","nascimento":"AAAA-MM-DD","cpf":"só números","pix":"","banco":"","cargo":"","admissao":"AAAA-MM-DD (se disser só mês e ano, use o dia 01)"}. Deixe vazio o que não estiver na resposta. Uma resposta curta responde à pergunta feita (ex.: "Nubank" = banco; "ajudante" = cargo). Não invente.`, [], texto, { maxTokens: 200, cat: 'equipe' })); } catch (e) { console.log('[EQ] ficha IA:', e.message); }
   const vals = {}; if (r) for (const [k, c] of EQ_FICHA) { const v = String(r[c] || '').trim(); if (v) vals[k] = v; }
   if (vals.nome && vals.nome.split(/\s+/).length < 2) delete vals.nome;
+  if (vals.nome && !normaliza(vals.nome).split(' ').includes(normaliza(String(f.nome || '')).split(' ')[0])) delete vals.nome; // v284: "de Cássio" não é o nome dele
   if (!pula && !Object.keys(vals).length) return false; // não era resposta da ficha
   const gravado = [], erros = [];
   for (const [k, c] of EQ_FICHA) { if (!vals[k]) continue; const x = await equipeAtualizar(env, { funcionario: f.nome, [c]: vals[k] }).catch(e => ({ erro: true, texto: e.message })); if (x && x.erro) erros.push(x.texto); else gravado.push(k); }
@@ -31402,6 +31497,8 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   }
   let texto = m.type === 'text' ? String(m.text?.body || '').trim() : (m._texto || '');
   if (!texto && m.type === 'audio') { try { texto = (await ouvirAudio(env, from, m, false)) || ''; m._texto = texto; } catch (_) {} }
+  if (m.type === 'audio' && texto && env._ctx && String(env.VOZ_FUNC ?? '1') !== '0') { env._ctx.voz = true; env._ctx.func = true; } // v284: respondeu por áudio → a resposta vai em áudio
+  if (texto && !idB && await prodQualCliResposta(env, f, from, texto, nome).catch(e => { console.log('[PROD] qualcli:', e.message); return false; })) return true; // v284
   if (m.type === 'image' && await prodFotoRecebida(env, f, from, m, nome).catch(e => { console.log('[FOTO]', e.message); return false; })) return true; // v146
   if (m.type === 'image') return prodFotoPerguntar(env, f, from, m, nome); // v165: foto sem legenda e sem pedido aberto → pergunta de qual serviço
   if (idB && /^fot\|/.test(idB)) return prodFotoEscolha(env, f, from, idB, nome); // v165
@@ -31438,6 +31535,7 @@ Use SÓ os dados abaixo, que são do próprio ${nome}. Nunca fale de outros func
 Como as horas são contadas: feito = saída − entrada − almoço. Esperado = jornada do dia no RH (domingo e feriado = 0). Extra = o que passou do esperado no dia, conforme as regras do RH. As batidas são do relógio ou do app HR Ponto, com hora do servidor.
 Se ele disser que um horário está errado, faltou dia, ou pedir correção: peça UMA vez o que faltar entre (dia, horário certo, motivo). Se no histórico você já pediu e ele não soube dizer, insistiu ou reclamou de novo, NÃO pergunte de novo: diga que vai passar para o Sr. Hangel conferir com ele e marque "escalar": true, com resumo_para_dono explicando a reclamação dele em uma frase. Quando tiver os dados, também escale. Não prometa que vai mudar.
 Se ele disser que está tudo certo / aprovado, marque "aprovou": true.
+Clientes na produção (se ele falar um nome parecido, mal transcrito do áudio, use o nome certo desta lista): ${(await pedidosProducao(env, p => !p.entregueEm).catch(() => [])).map(p => p.nome).slice(0, 30).join(', ') || '(nenhum)'}.
 Assunto que não for ponto, horas ou relatório: responda como colega de equipe (nunca como atendente de cliente, nunca "vou passar seu recado ao responsável"): diga em poucas palavras que avisou o Sr. Hangel sobre aquilo e marque "escalar": true. Se for de SERVIÇO/PRODUÇÃO (nome de cliente, peça cortada, foto, etapa), diga "Avisei o Sr. Hangel sobre o serviço de <nome>".
 RELATÓRIO ENVIADO${rel ? ` (${rel.label}, ${rel.di} a ${rel.df}, situação: ${rel.status})` : ''}:
 ${rel ? tab(rel) : '(nenhum relatório enviado ainda)'}
