@@ -131,7 +131,7 @@
       '<button id="tpxGo" style="width:100%;min-height:48px;border-radius:12px;border:none;background:linear-gradient(135deg,#5fd28e,#3aa86a);color:#06140b;font-weight:800;font-size:1rem;font-family:inherit;">💠 Mostrar Pix na TV</button>' +
       '<div id="tpxMsg" style="font-size:.8rem;color:#bdb19a;text-align:center;min-height:18px;margin-top:8px;"></div>' +
       '<div style="font-size:.85rem;font-weight:700;color:#e8c96a;margin:14px 0 6px;">🖼️ Fotos na TV</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">' + ['Cozinhas', 'Banheiros', 'Escadas', 'Túmulos', 'Pedras', 'Trabalhos'].map(function (t) { return '<button data-g="' + t + '" style="' + bt + '">' + t + '</button>'; }).join('') + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">' + ['Cozinhas', 'Gourmet', 'Banheiros', 'Lavanderia', 'Túmulos', 'Nichos', 'Mesas', 'Escadas', 'Pedras'].map(function (t) { return '<button data-g="' + t + '" style="' + bt + '">' + t + '</button>'; }).join('') + '</div>' +
       '<button id="tgX" style="width:100%;margin-top:6px;' + bt + '">Tirar as fotos e voltar ao orçamento</button>' +
       '<div id="tgMsg" style="font-size:.78rem;color:#bdb19a;text-align:center;min-height:16px;margin-top:6px;">Também dá para pedir ao bot: "coloca modelos de cozinha na TV".</div>' +
       '<div style="display:flex;gap:8px;margin-top:6px;"><button id="tpxX" style="flex:1;' + bt + '">Tirar o Pix da TV</button><button id="tpxOff" style="flex:1;' + bt + 'color:#ff9a8a;border-color:rgba(255,120,100,.4);">Desligar a tela</button></div>' +

@@ -2780,6 +2780,7 @@ const LEGENDAS_FOTO = ['perfil', 'foto', 'foto perfil', 'foto de perfil', 'foto 
 
 async function tratarImagemDono(env, from, m) {
   if (/^(tv|na tv|pra tv|para tv|tela|na tela|televis[aã]o)\b/i.test(String(m.image?.caption || '').trim())) { await telaFotoDoDono(env, from, m); return; } // v282: foto direto na TV
+  if (!String(m.image?.caption || '').trim() && await inspFotoColeta(env, from, m)) return; // v283: coleta de modelos para a TV
   const pf = String(m.image?.caption || '').trim().match(/^(portf[oó]lio|trabalho|pedra)\s*:?\s*(.*)$/i);
   if (pf) {
     const ehPedra = /^pedra/i.test(pf[1]);
@@ -20526,6 +20527,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await apelidoClienteComando(env, from, msg, bruto).catch(() => false)) return; // v161
     if (await vozComando(env, from, msg).catch(e => { console.log('[VOZ] comando:', e.message); return false; })) return; // v160
     if (await eqModoComando(env, from, msg).catch(e => { console.log('[EQ] modo:', e.message); return false; })) return; // v154
+    if (await inspAlbumComando(env, from, bruto, msg).catch(e => { console.log('[INSP] comando:', e.message); return false; })) return; // v283
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
@@ -21986,7 +21988,8 @@ async function telaToken(env) {
 // v282: GALERIA NA TV — o dono pede ao bot ("coloca modelos de cozinha na TV") e a Tela do cliente passa as fotos em tela cheia.
 // Fonte: portfólio do bot (trabalhos com categoria, fotos de obras finalizadas e pedras com foto) + fotos enviadas com a legenda "tv".
 const TELA_CATS = [
-  ['cozinha', /cozinh|bancada|pia\b|gourmet|churrasq/, 'Modelos de cozinhas'], ['banheiro', /banheir|lavabo|\bpia de banh/, 'Modelos de banheiros'],
+  ['gourmet', /gourmet|churrasq/, 'Áreas gourmet'], ['servico', /area de servico|lavander|tanque/, 'Áreas de serviço'], ['banheiro', /banheir|lavator|\bpia de banh/, 'Banheiros e lavatórios'],
+  ['cozinha', /cozinh|bancada|pia\b/, 'Modelos de cozinhas'], ['mesa', /\bmesas?\b/, 'Modelos de mesas'], ['nicho', /\bnichos?\b/, 'Nichos'],
   ['lavabo', /lavabo/, 'Modelos de lavabos'], ['escada', /escad|degrau/, 'Modelos de escadas'], ['tumulo', /tumul|jazig|capela|cemit/, 'Modelos de túmulos'],
   ['soleira', /soleir|peitor/, 'Soleiras e peitoris'], ['varanda', /varand/, 'Modelos de varandas'], ['piso', /\bpiso/, 'Pisos'],
 ];
@@ -22005,10 +22008,14 @@ async function telaGalMontar(env, txt) {
     }
     return { titulo: cor ? 'Pedras ' + cor[1] : 'Nossas pedras', itens: itens.slice(0, 40) };
   }
-  const cat = TELA_CATS.find(c => c[1].test(n));
-  const itens = lista.filter(i => i && i.tipo === 'trabalho' && (!cat || normaliza(i.cat || '') === cat[0] || cat[1].test(normaliza((i.legenda || '') + ' ' + (i.cat || '')))))
+  const cat = TELA_CATS.find(c => c[1].test(n)), ic = inspCat(n);
+  const insp = (await inspLer(env)).filter(x => ic ? x.cat === ic : !cat).map(x => ({ u: x.u, leg: '', sub: 'Inspiração' }));
+  const itens = lista.filter(i => i && i.tipo === 'trabalho' && !(ic && !cat) && (!cat || normaliza(i.cat || '') === cat[0] || cat[1].test(normaliza((i.legenda || '') + ' ' + (i.cat || '')))))
     .sort((a, b) => (b.em || 0) - (a.em || 0)).map(i => ({ u: '/portfolio/img/obra/' + i.id, leg: String(i.legenda || '').replace(/\s+/g, ' ').slice(0, 90), sub: i.pedraNome ? 'Pedra ' + i.pedraNome : '' }));
-  return { titulo: cat ? cat[2] : 'Nossos trabalhos', itens: itens.slice(0, 40) };
+  itens.forEach(x => { x.sub = x.sub ? x.sub + ' · Trabalho da HR' : 'Trabalho da HR'; });
+  const mist = []; for (let i = 0, a = 0, b = 0; i < 120 && (a < itens.length || b < insp.length); i++) { if (a < itens.length && (i % 3 === 0 || b >= insp.length)) mist.push(itens[a++]); else if (b < insp.length) mist.push(insp[b++]); } // 1 trabalho nosso a cada 3
+  const tit = cat ? cat[2] : ic && INSP_TIT[ic] ? 'Modelos de ' + INSP_TIT[ic] : 'Nossos trabalhos';
+  return { titulo: tit, itens: mist.slice(0, 120) };
 }
 async function telaGalMostrar(env, gal, min) {
   const g = { ...gal, id: Date.now().toString(36), ts: Date.now(), exp: Date.now() + (min || 30) * 60000 };
@@ -22044,6 +22051,74 @@ async function telaFotoDoDono(env, from, m) {
     await enviar(env, from, `Foto na TV${g.itens.length > 1 ? ` (${g.itens.length} na sequência)` : ''}. Mande mais com a legenda *tv* que eu junto. Para voltar ao orçamento: *tira da TV*.`);
   } catch (e) { await enviar(env, from, 'Não consegui colocar a foto na TV: ' + e.message).catch(() => {}); }
 }
+// v283: INSPIRAÇÕES (modelos do dono e da internet) para a TV — nunca são enviadas aos clientes como trabalho da HR.
+// 1) Álbum compartilhado do Google Fotos: "álbum de cozinhas https://photos.app.goo.gl/..." → o bot lê as fotos do link.
+// 2) Fotos pelo WhatsApp: "vou mandar modelos de cozinha" → as próximas fotos (30 min) viram inspiração de cozinha.
+async function inspLer(env) { try { return JSON.parse((await env.HR_KV.get('insp:lista')) || '[]') || []; } catch (_) { return []; } }
+function inspCat(n) { const c = TELA_CATS.find(c => c[1].test(n)); if (c) return c[0]; if (/servico|lavander/.test(n)) return 'servico'; if (/lavator|cuba|banheir/.test(n)) return 'banheiro'; if (/\bmesa/.test(n)) return 'mesa'; if (/\bnicho/.test(n)) return 'nicho'; return ''; }
+const INSP_TIT = { gourmet: 'áreas gourmet', cozinha: 'cozinhas', banheiro: 'banheiros e lavatórios', lavabo: 'lavabos', escada: 'escadas', tumulo: 'túmulos', soleira: 'soleiras', varanda: 'varandas', piso: 'pisos', servico: 'áreas de serviço', mesa: 'mesas', nicho: 'nichos' };
+async function inspLerAlbum(url) {
+  const r = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36', 'Accept-Language': 'pt-BR' } });
+  if (!r.ok) throw new Error('o Google respondeu ' + r.status);
+  const html = await r.text(), vist = new Set(), fotos = [];
+  for (const m of html.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]{30,}/g)) { if (!vist.has(m[0])) { vist.add(m[0]); fotos.push(m[0]); } }
+  return fotos.slice(1, 400); // a 1ª é a capa repetida
+}
+async function inspAlbumComando(env, from, bruto, msg) {
+  const raw = String(bruto || ''), n = normaliza(msg);
+  const link = (raw.match(/https:\/\/(?:photos\.app\.goo\.gl|photos\.google\.com\/share|goo\.gl\/photos)\/[^\s]+/) || [])[0];
+  if (link) {
+    const cat = inspCat(n);
+    if (!cat) { await enviar(env, from, 'Recebi o link do álbum. De qual ambiente são essas fotos? Mande de novo com o nome, por exemplo: *álbum de cozinhas* + o link.'); return true; }
+    try {
+      const fotos = await inspLerAlbum(link);
+      if (!fotos.length) throw new Error('não achei fotos (o álbum precisa estar compartilhado por link)');
+      const l = (await inspLer(env)).filter(x => !(x.album && x.album === link));
+      const ts = Date.now(); fotos.forEach((u, i) => l.push({ id: 'a' + ts.toString(36) + i, cat, u: u + '=w1920-h1080', album: link, em: ts }));
+      await env.HR_KV.put('insp:lista', JSON.stringify(l.slice(-1500)));
+      await enviar(env, from, `Pronto, guardei *${fotos.length} fotos* do álbum como modelos de ${INSP_TIT[cat] || cat}. Para mostrar ao cliente: *coloca modelos de ${INSP_TIT[cat] ? INSP_TIT[cat].split(' ')[0] : cat} na TV*.\n_Se o senhor colocar fotos novas no álbum, mande o link de novo que eu atualizo._`);
+    } catch (e) { await enviar(env, from, `Não consegui ler o álbum: ${e.message}. Outra forma: escreva *vou mandar modelos de ${INSP_TIT[cat] ? INSP_TIT[cat].split(' ')[0] : cat}* e me envie as fotos pelo WhatsApp (pode selecionar várias de uma vez).`); }
+    return true;
+  }
+  const mc = n.match(/^(?:vou (?:te )?(?:mandar|enviar)|salva(?:r)?|guarda(?:r)?|recebe(?:r)?)\s+(?:uns |umas |os |as )?(?:modelos?|inspirac(?:ao|oes)|fotos?)\s+(?:de |da |do |das |dos )?(.+)$/);
+  if (mc && !/\btv\b/.test(n)) {
+    const cat = inspCat(mc[1]); if (!cat) return false;
+    await env.HR_KV.put('insp:coleta', JSON.stringify({ cat, exp: Date.now() + 30 * 60000, n: 0 }), { expirationTtl: 3600 });
+    await enviar(env, from, `Pode mandar, Sr. Hangel. Nos próximos 30 minutos, toda foto que o senhor me enviar sem legenda vira modelo de ${INSP_TIT[cat] || cat} para a TV. Pode selecionar várias na galeria e mandar de uma vez. Quando terminar, escreva *pronto*.`);
+    return true;
+  }
+  if (/^(pronto|terminei|acabou|so isso|e so)$/.test(n)) {
+    const c = await env.HR_KV.get('insp:coleta', 'json').catch(() => null); if (!c) return false;
+    await env.HR_KV.delete('insp:coleta');
+    await enviar(env, from, `Fechado: ${c.n || 0} foto${c.n === 1 ? '' : 's'} de ${INSP_TIT[c.cat] || c.cat} guardada${c.n === 1 ? '' : 's'}. Para mostrar: *coloca modelos de ${INSP_TIT[c.cat] ? INSP_TIT[c.cat].split(' ')[0] : c.cat} na TV*.`);
+    return true;
+  }
+  if (/^(modelos|inspiracoes|albuns)( salvos| guardados)?( da tv)?$/.test(n)) {
+    const l = await inspLer(env), cont = {}; l.forEach(x => { cont[x.cat] = (cont[x.cat] || 0) + 1; });
+    await enviar(env, from, l.length ? '*Modelos para a TV*\n' + Object.entries(cont).map(([c, q]) => `${INSP_TIT[c] || c}: ${q} fotos`).join('\n') + '\n\n_Para apagar: apagar modelos de cozinhas_' : 'Ainda não há modelos guardados. Mande o link de um álbum do Google Fotos com o nome do ambiente, ou escreva *vou mandar modelos de cozinha*.');
+    return true;
+  }
+  const ma = n.match(/^(?:apagar|apaga|remover|limpar) (?:os |as )?(?:modelos|inspiracoes|fotos) (?:de |da |do |das |dos )?(.+)$/);
+  if (ma) { const cat = inspCat(ma[1]); if (!cat) return false; const l = await inspLer(env), fica = l.filter(x => x.cat !== cat);
+    for (const x of l) if (x.cat === cat && !x.album) await env.HR_KV.delete('insp:img:' + x.id).catch(() => {});
+    await env.HR_KV.put('insp:lista', JSON.stringify(fica)); await enviar(env, from, `Apaguei ${l.length - fica.length} modelos de ${INSP_TIT[cat] || cat}.`); return true; }
+  return false;
+}
+// foto sem legenda durante a coleta → inspiração
+async function inspFotoColeta(env, from, m) {
+  const c = await env.HR_KV.get('insp:coleta', 'json').catch(() => null);
+  if (!c || Date.now() > c.exp) return false;
+  try {
+    const { buf, tipo: mime } = await baixarMidia(env, m.image.id);
+    if (buf.byteLength > 5 * 1024 * 1024) return true;
+    const id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    await env.HR_KV.put('insp:img:' + id, buf, { metadata: { mime } });
+    const l = await inspLer(env); l.push({ id, cat: c.cat, u: '/tela/insp/' + id, em: Date.now() }); await env.HR_KV.put('insp:lista', JSON.stringify(l.slice(-1500)));
+    c.n = (c.n || 0) + 1; c.exp = Date.now() + 30 * 60000; await env.HR_KV.put('insp:coleta', JSON.stringify(c), { expirationTtl: 3600 });
+    if (c.n === 1 || c.n % 10 === 0) await enviar(env, from, `${c.n} foto${c.n > 1 ? 's' : ''} de ${INSP_TIT[c.cat] || c.cat} guardada${c.n > 1 ? 's' : ''}…`).catch(() => {});
+  } catch (e) { console.log('[INSP] foto:', e.message); }
+  return true;
+}
 // v281: Pix na Tela do cliente — o dono gera pelo app, o QR aparece na TV e a TV comemora quando o Mercado Pago confirma
 let TELA_VER_C = ''; function telaVer() { if (TELA_VER_C) return TELA_VER_C; let h = 0; for (let i = 0; i < TELA_HTML.length; i += 7) h = (h * 31 + TELA_HTML.charCodeAt(i)) | 0; return (TELA_VER_C = 'v281-' + (h >>> 0).toString(36)); }
 async function telaPixLer(env) { try { return JSON.parse((await env.HR_KV.get('tela:pix')) || 'null'); } catch (_) { return null; } }
@@ -22078,6 +22153,11 @@ async function telaPixEstado(env) {
   return pix;
 }
 async function rotaTela(req, env, url) {
+  if (url.pathname.startsWith('/tela/insp/')) {
+    const { value, metadata } = await env.HR_KV.getWithMetadata('insp:img:' + url.pathname.slice(11).replace(/[^a-z0-9]/gi, ''), 'arrayBuffer');
+    if (!value) return new Response('Sem foto', { status: 404 });
+    return new Response(value, { headers: { 'Content-Type': (metadata && metadata.mime) || 'image/jpeg', 'Cache-Control': 'public, max-age=604800' } });
+  }
   if (url.pathname.startsWith('/tela/img/')) { // v282: fotos mandadas ao bot com a legenda "tv"
     const { value, metadata } = await env.HR_KV.getWithMetadata('tela:img:' + url.pathname.slice(10).replace(/[^a-z0-9]/gi, ''), 'arrayBuffer');
     if (!value) return new Response('Sem foto', { status: 404 });
@@ -33967,7 +34047,7 @@ export default {
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
-    if (url.pathname === '/tela' || url.pathname === '/tela/dados' || url.pathname.startsWith('/tela/img/')) { const r = await rotaTela(req, env, url); if (r) return r; } // v277
+    if (url.pathname === '/tela' || url.pathname === '/tela/dados' || url.pathname.startsWith('/tela/img/') || url.pathname.startsWith('/tela/insp/')) { const r = await rotaTela(req, env, url); if (r) return r; } // v277
     if (url.pathname === '/painel' || url.pathname.startsWith('/painel/')) { const r = await rotaPainelVendas(req, comKV(env), url, ctx); if (r) return r; } // v103
     if (url.pathname.startsWith('/marmoraria-')) { const r = await rotaCidade(req, comKV(env), url); if (r) return r; } // v92
     if (url.pathname === '/sitemap.xml') return rotaSitemap(comKV(env));
