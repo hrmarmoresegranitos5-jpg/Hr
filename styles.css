@@ -4761,10 +4761,3 @@ body:has(#stoneMd.on) #fabPlus{ display:none !important; }
 #pg0 .orc-prem-hdr-inner { margin-bottom: 8px !important; }
 #pages #pg0 { padding-bottom: 18px !important; }
 /* v29c: barra fixa com Recalcular + PDF + Copiar depois do cálculo */
-#orcAcoesRap { position: fixed; left: 10px; right: 10px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); z-index: 650; display: none; gap: 8px; padding: 8px; border-radius: 18px; background: rgba(12,10,7,.94); border: 1px solid rgba(201,168,76,.35); box-shadow: 0 12px 34px rgba(0,0,0,.75); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
-#orcAcoesRap button { flex: 1; min-height: 46px; border-radius: 12px; border: 1px solid rgba(201,168,76,.45); background: rgba(255,255,255,.04); color: #f0d78c; font-family: inherit; font-weight: 700; font-size: .82rem; cursor: pointer; }
-#orcAcoesRap button.pri { background: linear-gradient(135deg,#e8c96a,#c9a84c); color: #1a1408; border-color: transparent; }
-#orcAcoesRap button:active { transform: scale(.96); }
-body.orc-com-res #pages #pg0 { padding-bottom: 96px !important; }
-body.orc-com-res #pg0 .sec:has(> #btnCalc) { position: static; }
-body.orc-com-res #toast, body.orc-com-res #ab-toast { bottom: calc(150px + env(safe-area-inset-bottom, 0px)) !important; }
