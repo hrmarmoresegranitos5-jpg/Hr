@@ -22385,9 +22385,9 @@ var GAL=null,galId='',gi=0,galT=null;
 function galPara(){if(galT){clearInterval(galT);galT=null}var g=document.getElementById('gal');if(g)g.remove();galId=''}
 function galSlide(){var g=GAL;if(!g||!g.itens.length)return;var el=document.getElementById('gal');if(!el)return;var it=g.itens[gi%g.itens.length];
  var sl=document.createElement('div');sl.className='sl';var u=JSON.stringify(it.u).slice(1,-1);sl.innerHTML='<div class="bg" style="background-image:url(\\''+u+'\\')"></div><div class="im" style="background-image:url(\\''+u+'\\')"></div>';
- var olds=el.querySelectorAll('.sl');el.insertBefore(sl,el.querySelector('.cap'));var img=new Image();img.onload=img.onerror=function(){requestAnimationFrame(function(){sl.classList.add('on')});setTimeout(function(){[].forEach.call(olds,function(o){o.remove()})},1400)};img.src=it.u;
+ var olds=el.querySelectorAll('.sl');el.insertBefore(sl,el.querySelector('.cap'));var img=new Image();img.onload=img.onerror=function(){setTimeout(function(){sl.classList.add('on')},30);setTimeout(function(){[].forEach.call(olds,function(o){o.remove()})},1400)};img.src=it.u;
  el.querySelector('.cap').innerHTML='<div><h2>'+e(g.titulo||'Modelos')+'</h2>'+(it.leg||it.sub?'<p>'+e(it.leg||'')+(it.sub?'<small>'+e(it.sub)+'</small>':'')+'</p>':'')+'</div><div class="ct">'+((gi%g.itens.length)+1)+' de '+g.itens.length+'<div class="bar"><i id="gbar"></i></div></div>';
- var b=document.getElementById('gbar');if(b){b.style.transition='none';b.style.width='0';requestAnimationFrame(function(){requestAnimationFrame(function(){b.style.transition='width 8s linear';b.style.width='100%'})})}
+ var b=document.getElementById('gbar');if(b){b.style.transition='none';b.style.width='0';setTimeout(function(){b.style.transition='width 8s linear';b.style.width='100%'},60)}
  for(var k=1;k<=2;k++){var pre=g.itens[(gi+k)%g.itens.length];if(pre)(new Image()).src=pre.u}}
 function galInicia(){galPara();var el=document.createElement('div');el.id='gal';el.className='gal';el.innerHTML='<div class="mk">'+e(EMP)+'<small>Feito sob medida</small></div><div class="wa">'+e(WHATS)+'</div><div class="cap"></div>';document.body.appendChild(el);galId=GAL.id;gi=GAL.ini||0;galSlide();if(GAL.itens.length>1)galT=setInterval(function(){gi++;galSlide()},8000)}
 function galAtualiza(){if(!GAL||(PIX&&PIX.status)){galPara();return}if(GAL.id!==galId)galInicia()}
