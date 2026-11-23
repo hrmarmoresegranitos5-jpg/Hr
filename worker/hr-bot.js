@@ -509,7 +509,23 @@ async function enviar(env, para, texto) {
   return idMsg;
 }
 // Texto de verdade, sem virar áudio (chave Pix, links, avisos ao dono)
+// v272: divide resposta longa em blocos (por parágrafo) — nunca no meio de código Pix, lista colada ou linha
+function partirMensagem(t) {
+  t = String(t || '').trim();
+  if (t.length < 420 || !/\n\s*\n/.test(t) || /000201|copia e cola|BR\.GOV\.BCB/i.test(t)) return [t];
+  const pars = t.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean); if (pars.length < 2) return [t];
+  const alvo = Math.max(260, Math.ceil(t.length / Math.min(3, Math.ceil(t.length / 380)))), out = [];
+  let cur = '';
+  for (const p of pars) { if (cur && (cur.length + p.length + 2 > alvo) && out.length < 2) { out.push(cur); cur = p; } else cur = cur ? cur + '\n\n' + p : p; }
+  if (cur) out.push(cur);
+  if (out.length > 1 && out[out.length - 1].length < 60) { const u = out.pop(); out[out.length - 1] += '\n\n' + u; } // não deixa um pedacinho sozinho no fim
+  return out.length > 1 ? out : [t];
+}
 async function enviarTextoPuro(env, para, texto, jaVariado) {
+  if (!jaVariado && env && !ehDono(env, para) && String(env.PARTIR_MSG ?? '1') !== '0') { // v272: explicação grande vai em 2 ou 3 mensagens, como gente escreve
+    const partes = partirMensagem(String(texto || ''));
+    if (partes.length > 1) { let id = null; for (const pt of partes) id = await enviarTextoPuro(env, para, pt, 'parte'); return id; }
+  }
   if (env && env._recebidoEm && !ehDono(env, para) && String(env.RITMO_HUMANO ?? '1') !== '0') { // v265: ninguém digita uma resposta em 1 s — espera o tempo de quem digita (máx. 6 s), com o "digitando…" na tela
     const quer = Math.min(env._ritmoN ? 1800 : 5000, 1200 + String(texto || '').length * 28), passou = Date.now() - env._recebidoEm; env._ritmoN = (env._ritmoN || 0) + 1; // a 1ª até 5 s; as seguintes até 1,8 s (o Worker tem limite de tempo)
     if (quer > passou) await new Promise(r => setTimeout(r, quer - passou));
@@ -20240,7 +20256,7 @@ async function tratarMensagemBase(env, m, ctx) {
   digitando(env, m.id);
   if (m.id) { // v130: renova o "digitando..." a cada 20 s até a resposta sair (antes sumia no meio de respostas demoradas)
     const t0 = Date.now(); env._digId = m.id;
-    env._recebidoEm = Date.now(); // v265: ritmo humano nas respostas ao cliente
+    env._recebidoEm = Date.now() - (m._esperou || 0); // v265: ritmo humano nas respostas ao cliente (v272: conta o tempo que já esperou a pessoa terminar)
     env._digTimer = setInterval(() => { if (Date.now() - t0 > 90000 || env._digParar) { clearInterval(env._digTimer); return; } digitando(env, m.id); }, 20000);
   }
   // Respostas do dono ao pedido de prazo e botões de aprovação valem mesmo no modo de teste (senão viravam mensagem de cliente)
@@ -20696,6 +20712,46 @@ async function comTrava(env, from, fn, m) {
   finally { await env.HR_KV.delete(k).catch(() => {}); }
 }
 
+// v272: ESPERA O CLIENTE TERMINAR — o WhatsApp não avisa ao bot quando a pessoa está digitando ou gravando.
+//   Então, a cada texto/áudio de cliente, espera uns segundos; se chegar outra mensagem nesse tempo, só a última responde,
+//   juntando tudo (áudios são ouvidos e entram como texto). Frase cortada ("oi", "queria saber", termina em vírgula/"e") espera mais.
+//   ESPERA_CLIENTE=0 desliga. Equipe e dono não esperam.
+function esperaRajadaMs(m, txt, r) {
+  if (Date.now() - r.ini > 40000) return 1500; // já esperou muito: responde
+  if (m.type === 'audio') return 4500;
+  const n = normaliza(txt).trim(), raw = String(txt || '').trim();
+  if (/^(oi+e?|ola|opa|oie|bom dia|boa tarde|boa noite|e ai|tudo bem|oi tudo bem|ola tudo bem|boa)\W*$/.test(n)) return 9000;
+  if (/[,:;]$/.test(raw) || /\b(e|mas|tipo|que|porque|pq|entao|ai|com|de|da|do|para|pra|tambem|queria|gostaria|preciso|sobre)$/.test(n) || (n.length < 25 && !/[?.!]$/.test(raw))) return 9000;
+  return 5500;
+}
+async function esperarRajada(env, m) {
+  if (String(env.ESPERA_CLIENTE ?? '1') === '0' || !m || !m.from || !m.id || ehDono(env, m.from) || !['text', 'audio'].includes(m.type)) return false;
+  const cfg = await pontoCfg(env).catch(() => null); if (cfg && pontoFuncPorFone(cfg, m.from)) return false;
+  const k = 'raj:' + ultimos8(m.from), agora = Date.now();
+  let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (!r || agora - r.ult > 60000) r = { ini: agora, partes: [] };
+  if (r.partes.some(p => p.id === m.id)) return false; // reenvio da Meta
+  const txt = m.type === 'text' ? String(m.text?.body || '') : '';
+  r.partes.push({ id: m.id, type: m.type, t: txt.slice(0, 2000), audio: m.type === 'audio' ? (m.audio && m.audio.id) : undefined, ts: agora });
+  r.partes = r.partes.slice(-10); r.ult = agora; r.ultId = m.id;
+  await env.HR_KV.put(k, JSON.stringify(r), { expirationTtl: 300 });
+  const w = esperaRajadaMs(m, txt, r);
+  await new Promise(res => setTimeout(res, w));
+  let r2 = null; try { r2 = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (r2 && r2.ultId !== m.id && r2.ult > agora) { await env.HR_KV.put('m:' + m.id, '1', { expirationTtl: 3600 }).catch(() => {}); return true; } // a mais nova responde
+  m._esperou = Date.now() - agora;
+  const partes = ((r2 && r2.partes) || r.partes).filter(p => p.ts <= agora);
+  await env.HR_KV.delete(k).catch(() => {});
+  if (partes.length > 1) {
+    const textos = [];
+    for (const p of partes) {
+      if (p.type === 'text' && p.t.trim()) textos.push(p.t.trim());
+      else if (p.type === 'audio' && p.audio) { const t = await ouvirAudio(env, m.from, p.id === m.id ? m : { type: 'audio', audio: { id: p.audio } }, false).catch(() => ''); if (t) textos.push(String(t).trim()); }
+    }
+    if (textos.length) { if (m.type === 'audio') m._eraAudio = true; m.type = 'text'; m.text = { body: textos.join('\n') }; delete m.audio; }
+  }
+  return false;
+}
 async function tratarPayload(env, payload) {
   if (!env._depois) env._depois = new Map(); // v27: pedidos que o bot confere depois de dar tempo ao app (fora da trava do cliente)
   for (const entry of payload?.entry || []) {
@@ -20708,6 +20764,7 @@ async function tratarPayload(env, payload) {
       }
       for (const m of ch.value?.messages || []) {
         m._perfil = perfis[m.from] || '';
+        if (await esperarRajada(env, m).catch(e => { console.log('[RAJ]', e.message); return false; })) continue; // v272: veio mensagem mais nova: ela responde por todas
         try { await comTrava(env, m.from, () => tratarMensagem(env, m), m); }
         catch (e) {
           console.log('[BOT] erro ao tratar mensagem:', e.message);
