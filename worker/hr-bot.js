@@ -8272,6 +8272,12 @@ async function prodMarcarPronto(env, ped, from, nome) {
   else await pontoAvisarDono(env, `✂️ *${quemFez}* ${terminou} *${ped.nome}* (${resumoPecas(ped)}).${entTxt}`);
   return true;
 }
+// v276: serviço entregue/instalado no bot → o orçamento do app passa a "Entregue" (antes ficava "Aceito" no Histórico)
+async function appMarcarEntregue(env, ped) {
+  if (!ped || ped.appEntregueAvisado) return;
+  ped.appEntregueAvisado = Date.now();
+  await confEnfileirar(env, { tipo: 'orc_entregue', orcId: String(ped.qId || ped.orcApp || ''), cliente: ped.nome || '', item: ped.projetoApp || ped.interesse || '' }).catch(e => console.log('[BOT] orc_entregue:', e.message));
+}
 async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   if (!ped.entregueEm && String(ped.entrega || '') !== 'retirada') { const cfg0 = await pontoCfg(env), f0 = pontoFuncPorFone(cfg0, from); // v182: só quem entrega/instala (ou o responsável) dá a entrega
     if (f0) { const fs = (await funcoesEquipe(env)).map[f0.id] || []; if (!fs.some(x => ENT_F.includes(x)) && String(ped.entResp || '') !== String(f0.id)) { await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)).catch(() => {}); await enviar(env, from, `${nome}, a entrega/instalação de *${ped.nome}* é marcada por quem instala${ped.entResp ? ' (' + (await respNome(env, ped.entResp)) + ')' : ''}. Se você terminou uma parte na fábrica, diga por exemplo: _terminei os frontões do ${String(ped.nome).split(' ')[0]}_ ou _terminei o acabamento do ${String(ped.nome).split(' ')[0]}_.`); return true; } } }
@@ -8279,7 +8285,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   if (!ped.entregueEm && !fotoOk && !ped.fotoEntregaEm && String(env.FOTO_ENTREGA ?? '1') !== '0' && String(ped.entrega || '') !== 'retirada' && env.HR_DB) return prodPedirFoto(env, ped, from, nome, texto, receb); // v146
   { const cfg0 = await pontoCfg(env), f0 = pontoFuncPorFone(cfg0, from); if (f0 && !ped.entFeitoPor) ped.entFeitoPor = String(f0.id); } // v146
   const jaEntregue = !!ped.entregueEm;
-  ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await salvarPedido(env, ped);
+  ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await appMarcarEntregue(env, ped); await salvarPedido(env, ped);
   if (!jaEntregue && ped.numero) await garDoPedido(env, ped).catch(e => console.log('[GAR] entrega:', e.message)); // v144
   if (!jaEntregue) await rcbPedir(env, ped).catch(e => console.log('[RCB]', e.message)); // v157
   if (!jaEntregue) { await metaChecar(env, ped.entFeitoPor); for (const aj of (ped.entAjud || [])) if (String(aj) !== String(ped.entFeitoPor)) await metaChecar(env, aj); } // v147 + v214: quem foi junto também recebe o aviso dos pontos
@@ -10338,6 +10344,7 @@ async function producaoStatusTool(env, a) {
   if (etapa === 'fabricacao' || etapa === 'finalizado') { if (etapa === 'fabricacao' && !ped.corteEm) { ped.corteEm = ts; } if (a.pronto !== false) { ped.fabProntoEm = ped.fabProntoEm || ts; ped.fabFeitoPor = ped.fabFeitoPor || ids[0] || ''; } }
   if (etapa === 'instalacao' || etapa === 'entrega' || etapa === 'retirada') { ped.entregueEm = ped.entregueEm || ts; ped.entFeitoPor = ped.entFeitoPor || ids[0]; if (!ped.fabProntoEm) ped.fabProntoEm = ts; }
   if (etapa === 'finalizado' && ids.length) ped.prodLog.push({ e: 'fabricacao', por: ids, ts, dono: 1 });
+  if (etapa === 'instalacao' || etapa === 'entrega' || etapa === 'retirada' || (etapa === 'finalizado' && /instal|cozinha|bancada|banheiro|lavat|montag|obra/.test(normaliza(env._agBruto || '') + ' ' + normaliza(ped.projetoApp || '')))) await appMarcarEntregue(env, ped); // v276
   await salvarPedido(env, ped);
   if ((etapa === 'instalacao' || etapa === 'entrega') && ped.numero) await garDoPedido(env, ped).catch(() => {});
   for (const id of ids) await metaChecar(env, id);
@@ -10810,6 +10817,8 @@ async function quitTool(env, from, x) {
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v276poliano')) && await travaEnvio(env, 'fix:v276poliano')) { await env.HR_KV.put('fix:v276poliano', '1', { expirationTtl: 30 * 86400 }); // v276: cozinha finalizada hoje (registrada pelo dono) → Entregue no app
+    await confEnfileirar(env, { tipo: 'orc_entregue', orcId: '', cliente: 'Poliano dos Anjos', item: 'Cozinha' }).catch(() => {}); }
   if (!(await env.HR_KV.get('fix:v268renata')) && await travaEnvio(env, 'fix:v268renata')) { await env.HR_KV.put('fix:v268renata', '1', { expirationTtl: 30 * 86400 }); // v268: aviso do comprovante inválido de hoje (pedido do dono)
     const l0 = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
     for (const k of l0.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || a.cancelado || a.tipo !== 'quitacao' || !/renata/i.test(a.nome || '')) continue;
@@ -16567,7 +16576,7 @@ async function fimConfBotao(env, from, id) {
   // já estava como entregue: registra a finalização com a foto final
   ped.instFimEm = ped.instFimEm || Date.now(); ped.instFimPor = ped.instFimPor || fc.fid; ped.fotoEntregaEm = ped.fotoEntregaEm || Date.now();
   ped.prodLog = [...(ped.prodLog || []), { e: 'finalizado', t: Date.now(), por: fc.fid, conf: 'dono' }];
-  await salvarPedido(env, ped); await fotosNoPedido(env, ped.id, fc.mids, fc.fid);
+  await appMarcarEntregue(env, ped); await salvarPedido(env, ped); await fotosNoPedido(env, ped.id, fc.mids, fc.fid);
   await enviar(env, fc.from, `✅ O Sr. Hangel confirmou: serviço de *${ped.nome}* finalizado. Valeu, ${fc.nome}!`).catch(() => {});
   await enviar(env, from, `✅ Serviço de *${ped.nome}* atualizado como finalizado, com a foto do ${fc.nome}.`);
   return true;

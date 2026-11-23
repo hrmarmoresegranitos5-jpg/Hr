@@ -166,6 +166,17 @@
         corpo.feitos = qs ? 1 : 0;
         return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
       }
+      if (t.tipo === 'orc_entregue') { // v7: o bot registrou a instalação/entrega → o orçamento vira "Entregue" (abre o "a receber" se faltar pagamento)
+        var nrm = function (x) { return String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); };
+        var qe = t.orcId ? (DB.q || []).find(function (x) { return String(x.id) === String(t.orcId); }) : null;
+        if (!qe && t.cliente) { var tk = nrm(t.cliente).split(/\s+/).filter(function (w) { return w.length > 2 && ['dos', 'das', 'de', 'da', 'do'].indexOf(w) < 0; }), it = nrm(t.item).split(/\s+/)[0] || '';
+          var cs = (DB.q || []).filter(function (x) { var c = nrm(x.cli); return x.status === 'aceito' && tk.length && tk.every(function (w) { return c.indexOf(w) >= 0; }); });
+          if (cs.length > 1 && it) { var c2 = cs.filter(function (x) { return nrm(x.tipo).indexOf(it.replace(/s$/, '')) >= 0; }); if (c2.length) cs = c2; }
+          if (cs.length === 1) qe = cs[0]; }
+        if (qe && qe.status !== 'entregue' && qe.status !== 'concluido' && typeof _orcMarcarEntregue === 'function') { try { _orcMarcarEntregue(qe, false); } catch (e) { console.warn('orc_entregue', e); } }
+        corpo.feitos = qe ? 1 : 0;
+        return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
+      }
       if (t.tipo === 'orc_completar') return orcCompletar(t).then(function (r) { corpo.feitos = r.ok ? 1 : 0; if (!r.ok) corpo.erro = r.erro; return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) }); });
       if (t.tipo === 'conferir') corpo.resultado = conferir(t.linhas || []);
       else if (t.tipo === 'aplicar') { var r = aplicar(t.ops); corpo.feitos = r.feitos; corpo.erros = r.erros; }
