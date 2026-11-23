@@ -10818,6 +10818,15 @@ async function quitTool(env, from, x) {
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v280fabricio')) && await travaEnvio(env, 'fix:v280fabricio')) { await env.HR_KV.put('fix:v280fabricio', '1', { expirationTtl: 30 * 86400 }); // v280: pontos do Fabrício de hoje (pedido do dono)
+    const L = [];
+    for (const it of [{ cliente: 'Osmailton', etapa: 'corte', funcionarios: ['Fabrício'], item: 'balcão', bruto: 'Fabrício cortou o balcão do Osmailton' }, { cliente: 'Cássio', etapa: 'corte', funcionarios: ['Fabrício'], bruto: 'Fabrício cortou uma etapa do projeto do Cássio' }]) {
+      env._agBruto = it.bruto; const { bruto, ...a } = it;
+      const r = await producaoStatusTool(env, { ...a, data: dataBahia() }).catch(e => ({ erro: true, texto: e.message }));
+      L.push(`• ${it.bruto}: ${String((r && (r.texto || r.resposta)) || (r && r.erro ? 'erro' : 'registrado')).slice(0, 220)}`);
+    }
+    await notificarDono(env, Date.now(), '*Pontos do Fabrício (hoje)*\n' + L.join('\n')).catch(() => {});
+  }
   if (!(await env.HR_KV.get('fix:v276poliano')) && await travaEnvio(env, 'fix:v276poliano')) { await env.HR_KV.put('fix:v276poliano', '1', { expirationTtl: 30 * 86400 }); // v276: cozinha finalizada hoje (registrada pelo dono) → Entregue no app
     await confEnfileirar(env, { tipo: 'orc_entregue', orcId: '', cliente: 'Poliano dos Anjos', item: 'Cozinha' }).catch(() => {}); }
   if (!(await env.HR_KV.get('fix:v268renata')) && await travaEnvio(env, 'fix:v268renata')) { await env.HR_KV.put('fix:v268renata', '1', { expirationTtl: 30 * 86400 }); // v268: aviso do comprovante inválido de hoje (pedido do dono)
