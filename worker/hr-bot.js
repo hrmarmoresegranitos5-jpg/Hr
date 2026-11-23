@@ -2401,6 +2401,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^mpq\|/.test(id)) return mpqBotao(env, from, id); // v236
   if (/^mpig\|/.test(id)) return mpigBotao(env, from, id); // v269
   if (/^fimc\|/.test(id)) return fimConfBotao(env, from, id); // v274
+  if (/^etpc\|/.test(id)) return etapaConfBotao(env, from, id); // v279
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
@@ -8100,8 +8101,8 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       const quem = String(texto).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40);
       if (quem && tokensPedra(quem).length && !/\?$/.test(texto)) {
         await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
-        try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: fp.mid, caption: `📷 ${nome} mandou foto do serviço de *${quem}*${fp.leg ? ` ("${fp.leg}")` : ''}. Não achei esse serviço aberto no sistema (nem com ele): confira e lance no pedido certo.` } }); } catch (_) {}
-        await enviar(env, from, `Certo, ${nome}! Não achei o serviço de *${quem}* aberto no sistema, então mandei a foto para o Sr. Hangel conferir. Pode seguir.`);
+        await etapaPedirConfirmacao(env, from, nome, quem, fp.mid, fp.leg || '');
+        await enviar(env, from, `Certo, ${nome}! O serviço de *${quem}* ainda não está aberto na produção. Mandei a foto para o Sr. Hangel confirmar e registrar para você.`);
         return true;
       } }
   }
@@ -11948,7 +11949,7 @@ async function pendFotosRotina(env) {
         const tx = await txLer(env, f.tel).catch(() => null), resp = ((tx && tx.f) || []).filter(x => x && x.q === 'c' && x.t > v.em && x.t - v.em < 3 * 3600000 && String(x.x).split(/\s+/).length <= 5 && !/^\[/.test(String(x.x))).pop();
         if (resp) { const quem = String(resp.x).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40);
           await env.HR_KV.delete(k.name).catch(() => {});
-          try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: v.mid, caption: `📷 ${f.nome} mandou foto às ${horaTs(v.em)} e disse que é de *${quem}*. Não achei esse serviço aberto no sistema: confira e lance no pedido certo.` } }); } catch (_) {}
+          await etapaPedirConfirmacao(env, f.tel, f.nome, quem, v.mid, v.leg || '').catch(() => {});
           continue; } }
       const t = await txt(v, f); await env.HR_KV.put(k.name, JSON.stringify({ ...v, lembrado: Date.now() }), { expirationTtl: 6 * 3600 });
       if (t) await enviar(env, f.tel, avisoTeste(env) + t).catch(() => {});
@@ -16566,6 +16567,40 @@ async function perguntarParecidoMPX(env, h) {
 async function fotosNoPedido(env, pid, mids, fid) {
   if (!(await fotoTabela(env))) return;
   for (const mid of mids || []) { try { const r = await baixarMidia(env, mid); await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('obra:' + pid, bytesParaBase64(new Uint8Array(r.buf)), r.tipo, Date.now(), String(fid || '')).run(); } catch (_) {} }
+}
+// v279: funcionário mandou foto + nome de um serviço que o bot não tem aberto ("Osmailton" + "balcão já cortado")
+//   → o dono vê a foto e confirma; com "Sim" a etapa entra na produção (abre o serviço e conta os pontos do funcionário).
+function etapaDaLegenda(t) {
+  const n = normaliza(t || '');
+  if (/\b(instalad\w*|instalei|instalamos|montad\w*)\b/.test(n)) return 'instalacao';
+  if (/\b(finaliz\w*|conclu\w*|entregue|entregamos)\b/.test(n)) return 'finalizado';
+  if (/\b(acabad\w*|acabamento|acabei)\b/.test(n)) return 'acabamento';
+  if (/\b(polid\w*|polimento|poli)\b/.test(n)) return 'polimento';
+  if (/\b(cortad\w*|cortei|cortamos|corte)\b/.test(n)) return 'corte';
+  if (/\b(pront\w*|fabricad\w*|terminad\w*|terminei|terminamos)\b/.test(n)) return 'fabricacao';
+  if (/\b(comec\w*|inici\w*)\b/.test(n)) return 'inicio';
+  return '';
+}
+function itemDaLegenda(t) { const m = normaliza(t || '').match(/\b(balcao|bancada|cozinha|lavatorio|banheiro|soleiras?|peitoris?|peitoril|nicho|escada|degraus?|tampo|mesa|churrasqueira|frontao|rodape|pia)\b/); return m ? m[1] : ''; }
+const ETAPA_NOME2 = { inicio: 'início', corte: 'corte', polimento: 'polimento', acabamento: 'acabamento', fabricacao: 'fabricação', finalizado: 'finalização', instalacao: 'instalação' };
+async function etapaPedirConfirmacao(env, fone, nomeFunc, quem, mid, leg) {
+  const etapa = etapaDaLegenda(leg), item = itemDaLegenda(leg), cid = estId(8);
+  await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from: fone, func: nomeFunc, cliente: quem, etapa, item, mid, leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
+  try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nomeFunc}: "${String(leg || '').slice(0, 160)}" · serviço de *${quem}*` } }); } catch (_) {}
+  const o = etapa ? `o *${ETAPA_NOME2[etapa]}*${item ? ' do ' + item : ''} de *${quem}*` : `a foto do serviço de *${quem}*`;
+  await enviarComBotoes(env, numeroDono(env), `${nomeFunc} mandou ${etapa ? 'que fez ' + o : o}. Esse serviço não está aberto na produção.\n\n${etapa ? `Registro ${o} para o ${nomeFunc}?` : 'Registro como andamento desse serviço?'}`,
+    [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
+}
+async function etapaConfBotao(env, from, id) {
+  const [, cid, c] = id.split('|'); let x = null; try { x = JSON.parse((await env.HR_KV.get('etpconf:' + cid)) || 'null'); } catch (_) {}
+  if (!x) { await enviar(env, from, 'Essa confirmação já foi resolvida ou expirou.'); return true; }
+  await env.HR_KV.delete('etpconf:' + cid);
+  if (c !== 's') { await enviar(env, from, 'Certo, não registrei.'); return true; }
+  env._agBruto = `${x.func} ${x.leg || ''} ${x.cliente}`;
+  const r = await producaoStatusTool(env, { cliente: x.cliente, etapa: x.etapa || 'inicio', funcionarios: [x.func], ...(x.item ? { item: x.item } : {}) }).catch(e => ({ erro: true, texto: e.message }));
+  await enviar(env, from, (r && (r.texto || r.resposta)) ? String(r.texto || r.resposta) : `✅ Registrei ${x.etapa ? ETAPA_NOME2[x.etapa] : 'o andamento'} de ${x.cliente} para o ${x.func}.`);
+  if (!(r && r.erro)) await enviar(env, x.from, `✅ O Sr. Hangel confirmou: ${x.etapa ? ETAPA_NOME2[x.etapa] + (x.item ? ' do ' + x.item : '') : 'andamento'} de *${x.cliente}* registrado para você. Valeu, ${x.func}!`).catch(() => {});
+  return true;
 }
 async function fimConfBotao(env, from, id) {
   const [, cid, c] = id.split('|'); let fc = null; try { fc = JSON.parse((await env.HR_KV.get('fimconf:' + cid)) || 'null'); } catch (_) {}
@@ -31116,7 +31151,7 @@ Use SÓ os dados abaixo, que são do próprio ${nome}. Nunca fale de outros func
 Como as horas são contadas: feito = saída − entrada − almoço. Esperado = jornada do dia no RH (domingo e feriado = 0). Extra = o que passou do esperado no dia, conforme as regras do RH. As batidas são do relógio ou do app HR Ponto, com hora do servidor.
 Se ele disser que um horário está errado, faltou dia, ou pedir correção: peça UMA vez o que faltar entre (dia, horário certo, motivo). Se no histórico você já pediu e ele não soube dizer, insistiu ou reclamou de novo, NÃO pergunte de novo: diga que vai passar para o Sr. Hangel conferir com ele e marque "escalar": true, com resumo_para_dono explicando a reclamação dele em uma frase. Quando tiver os dados, também escale. Não prometa que vai mudar.
 Se ele disser que está tudo certo / aprovado, marque "aprovou": true.
-Assunto que não for ponto, horas ou relatório: diga que vai passar o recado ao responsável e marque "escalar": true.
+Assunto que não for ponto, horas ou relatório: responda como colega de equipe (nunca como atendente de cliente, nunca "vou passar seu recado ao responsável"): diga em poucas palavras que avisou o Sr. Hangel sobre aquilo e marque "escalar": true. Se for de SERVIÇO/PRODUÇÃO (nome de cliente, peça cortada, foto, etapa), diga "Avisei o Sr. Hangel sobre o serviço de <nome>".
 RELATÓRIO ENVIADO${rel ? ` (${rel.label}, ${rel.di} a ${rel.df}, situação: ${rel.status})` : ''}:
 ${rel ? tab(rel) : '(nenhum relatório enviado ainda)'}
 ${rel && rel.fin ? `VALORES DO RELATÓRIO (o PDF que ele recebeu): ${rel.pago ? 'já quitado' : 'vai receber ' + brl(rel.valor)}\n${rel.fin.map(x => (x.sub ? '   · ' : '- ') + x.label + ': ' + (x.sinal || '') + brl(x.valor)).join('\n')}\nHoras extras são pagas com adicional (dobradas ×2, triplicadas ×3); horas a menos descontam primeiro das extras.` : ''}
