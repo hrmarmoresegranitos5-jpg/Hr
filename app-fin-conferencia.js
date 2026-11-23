@@ -153,6 +153,19 @@
         corpo.feitos = q ? 1 : 0;
         return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
       }
+      if (t.tipo === 'orc_sinal') { // v6: o cliente pagou (sinal ou total) pelo Pix do bot → orçamento Aceito e obra agendada no cronograma
+        var qs = (DB.q || []).find(function (x) { return String(x.id) === String(t.orcId); }), ag = false;
+        if (qs) {
+          if (qs.status === 'pendente' || !qs.status) { qs.status = 'aceito'; qs._statusDate = new Date().toISOString().slice(0, 10); qs._fechadoPeloBot = qs._fechadoPeloBot || new Date().toISOString(); }
+          qs._aceitoConfirmado = true; qs._valorRecebido = Math.max(+qs._valorRecebido || 0, +t.valor || 0);
+          try { DB.sv(); } catch (e) {}
+          try { if (typeof _agendarAposAceite === 'function') ag = !!_agendarAposAceite(qs, false); } catch (e) {}
+          try { if (typeof renderOrc === 'function') renderOrc(); } catch (e) {}
+          if (typeof toast === 'function') setTimeout(function () { toast('💰 ' + (qs.cli || 'Cliente') + (t.sinal ? ' pagou o sinal' : ' pagou') + ' (R$ ' + (+t.valor || 0).toFixed(2).replace('.', ',') + ')' + (ag ? ': obra no cronograma' : '')); }, 3200);
+        }
+        corpo.feitos = qs ? 1 : 0;
+        return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
+      }
       if (t.tipo === 'orc_completar') return orcCompletar(t).then(function (r) { corpo.feitos = r.ok ? 1 : 0; if (!r.ok) corpo.erro = r.erro; return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) }); });
       if (t.tipo === 'conferir') corpo.resultado = conferir(t.linhas || []);
       else if (t.tipo === 'aplicar') { var r = aplicar(t.ops); corpo.feitos = r.feitos; corpo.erros = r.erros; }

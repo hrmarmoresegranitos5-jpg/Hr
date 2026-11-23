@@ -1189,6 +1189,7 @@ async function orcEnvIniciarFluxo(env, from, o, texto, forma) {
     if (base && base.id) { base.aprovadoCliente = Date.now(); base.fechadoPeloCliente = Date.now(); await salvarPedido(env, base).catch(() => {}); }
     const oa = o.qId ? { id: o.qId } : (base && base.orcApp) ? { id: base.orcApp } : await orcDoHistoricoApp(env, nome).catch(() => null); // v79c: no Histórico do app, o orçamento passa para "Aceito"
     if (oa && oa.id) await confEnfileirar(env, { tipo: 'orc_aceito', orcId: oa.id, cliente: nome, valor }).catch(() => {});
+    if (oa && oa.id && !novo.orcApp) { novo.orcApp = String(oa.id); await salvarPedido(env, novo).catch(() => {}); } // v271: o pagamento (sinal ou total) agenda a obra no app
     await funilMarca(env, 'aprovou', novo).catch(() => {});
     if (forma === 'pix' || (forma === 'entrega' && !novo.sinalOferta)) { // v115: já disse como paga ("manda o pix"): não pergunta de novo, já manda o Pix
       novo.forma_pagto = forma; novo.sinal = forma === 'pix' && novo.sinalOferta ? novo.sinalOferta : null;
@@ -6922,6 +6923,7 @@ async function pedirAvaliacoes(env) {
   await onbRotina(env).catch(e => console.log('[ONB] rotina:', e.message)); // v143
   await garRotina(env).catch(e => console.log('[GAR] rotina:', e.message)); // v144
   await semanalRotina(env).catch(e => console.log('[SEMANA]', e.message)); // v146
+  await fechSemanaRotina(env).catch(e => console.log('[FSEM]', e.message)); // v271
   await metasRotina(env).catch(e => console.log('[META] rotina:', e.message)); // v147
   await planoDiaRotina(env).catch(e => console.log('[PLANO]', e.message)); // v151
   await atrasoRotina(env).catch(e => console.log('[ATRASO]', e.message)); // v151
@@ -10861,6 +10863,66 @@ async function quitMandarAviso(env, a) {
   await quitCancelarPix(env, a).catch(() => {}); await quitAgendarPix(env, a);
   await anotarNoHistorico(env, a.num, `[AVISO DE SALDO ${a.n}: saldo de R$ ${reais(a.parcelas[0].valor)} em parcela única até ${dataBR(a.parcelas[0].data)}; depois multa 2% e juros 1% a.m. O Sr. Hangel NÃO aceita mais pagamento em partes: não ofereça nem aceite parcelar, adiar ou desconto; se ela pedir, diga com educação que vale o aviso e que o pedido foi passado ao Sr. Hangel.]`).catch(() => {});
 }
+// v271: FECHAMENTO SEMANAL (segunda de manhã, ou "fechamento da semana"): entrou/saiu, Mercado Pago (taxas, por forma),
+//   dinheiro a liberar (vendas no cartão ainda presas), saldo, quem deve e os boletos da semana contra o caixa.
+async function fechSemanaTexto(env) {
+  const hoje = dataBahia(), de = isoSomaDias(hoje, -7), ate = isoSomaDias(hoje, -1), fimSem = isoSomaDias(hoje, 6); // últimos 7 dias (na segunda: a semana que passou)
+  const L = [`*Fechamento da semana* (${dataBR(de).slice(0, 5)} a ${dataBR(ate).slice(0, 5)})`, ''];
+  try { const u = await lancamentosUnificados(env, de, ate); const it = (u.itens || []).filter(x => x.date >= de && x.date <= ate);
+    const ent = it.filter(x => x.type === 'in').reduce((t, x) => t + x.value, 0), sai = it.filter(x => x.type === 'out').reduce((t, x) => t + x.value, 0);
+    L.push(`Entrou: *R$ ${reais(ent)}*`, `Saiu: *R$ ${reais(sai)}*`, `Resultado: *${ent - sai >= 0 ? '' : '-'}R$ ${reais(Math.abs(ent - sai))}*`, '');
+  } catch (e) { L.push('Entradas e saídas: não consegui somar agora.', ''); }
+  let saldo = null; try { saldo = JSON.parse((await env.HR_KV.get('mpx:saldo')) || 'null'); } catch (_) {}
+  let liberaSem = 0;
+  if (mpAtivo(env)) {
+    const iso = (d, fim) => `${d}T${fim ? '23:59:59.999' : '00:00:00.000'}-03:00`;
+    try { const ap = await mpBuscarPagamentos(env, { range: 'date_approved', begin_date: iso(de, false), end_date: iso(ate, true), status: 'approved' }, 6);
+      let bruto = 0, taxas = 0; const pf = {};
+      for (const p of ap.itens) { const v = Number(p.transaction_amount) || 0; bruto += v; const tx = (Array.isArray(p.fee_details) ? p.fee_details : []).reduce((t, f) => t + (Number(f.amount) || 0), 0); taxas += tx; const f = FORMA_MP[p.payment_type_id] || 'Outro'; pf[f] = pf[f] || { v: 0, t: 0 }; pf[f].v += v; pf[f].t += tx; }
+      L.push('*Mercado Pago*', `Recebido: R$ ${reais(bruto)} · Taxas: R$ ${reais(taxas)}${bruto ? ` (${(taxas / bruto * 100).toFixed(1).replace('.', ',')}%)` : ''}`);
+      for (const [f, o] of Object.entries(pf)) L.push(`• ${f}: R$ ${reais(o.v)}${o.t > 0.009 ? ` (taxa R$ ${reais(o.t)} = ${(o.t / o.v * 100).toFixed(1).replace('.', ',')}%)` : ' (sem taxa)'}`);
+    } catch (e) { L.push('*Mercado Pago*', 'Não consegui consultar os recebimentos: ' + String(e.message).slice(0, 80)); }
+    try { const ap2 = await mpBuscarPagamentos(env, { range: 'date_approved', begin_date: iso(isoSomaDias(hoje, -45), false), end_date: iso(hoje, true), status: 'approved' }, 6);
+      const agora = Date.now(); let tot = 0; const pend = [];
+      for (const p of ap2.itens) { const rel = p.money_release_date ? Date.parse(p.money_release_date) : 0; if (!rel || rel <= agora || p.money_release_status === 'released') continue;
+        const liq = Number(p.transaction_details && p.transaction_details.net_received_amount) || 0; tot += liq; const dia = new Date(rel - 3 * 3600000).toISOString().slice(0, 10); if (dia <= fimSem) liberaSem += liq; pend.push({ dia, liq }); }
+      if (tot > 0.009) { const porDia = {}; for (const x of pend) porDia[x.dia] = (porDia[x.dia] || 0) + x.liq;
+        L.push('', `*Dinheiro a liberar* (cartão): R$ ${reais(tot)}`, ...Object.keys(porDia).sort().slice(0, 6).map(d => `• ${dataBR(d).slice(0, 5)}: R$ ${reais(porDia[d])}`), `Libera nos próximos 7 dias: R$ ${reais(liberaSem)}`); }
+      else L.push('', 'Dinheiro a liberar: nada preso no momento.');
+    } catch (e) { L.push('', 'Dinheiro a liberar: não consegui consultar.'); }
+  }
+  L.push('', saldo ? `Saldo na conta: *R$ ${reais(saldo.valor)}* (extrato até ${dataBR(saldo.data).slice(0, 5)})` : 'Saldo na conta: ainda sem extrato.');
+  if (cbAtivo(env)) { const cs = await cbAll(env, "SELECT cliente_nome, total_centavos, recebido_centavos FROM cobrancas WHERE status IN ('aguardando_pagamento', 'parcial', 'aprovada', 'enviada', 'pix_expirado') LIMIT 300").catch(() => []);
+    const porCli = {}; for (const c of cs) { const sd = (+c.total_centavos || 0) - (+c.recebido_centavos || 0); if (sd > 0) porCli[c.cliente_nome] = (porCli[c.cliente_nome] || 0) + sd; }
+    const tot = Object.values(porCli).reduce((t, v) => t + v, 0); if (tot > 0) L.push(`Clientes devendo: *${moedaCb(tot)}* (${Object.keys(porCli).length})`); }
+  try { const snap = await lerSnapshotCompleto(env); const bs = ((snap && snap.dados && snap.dados.boletos) || []).filter(b => b && b.tipo !== 'receber' && !['parcela', 'saldo', 'cobranca', 'entrada'].includes(normaliza(String(b.categoria || ''))) && /pendente|vencido/.test(String(b.status || 'pendente')) && b.vencimento && String(b.vencimento).slice(0, 10) <= fimSem);
+    if (bs.length) { const tb = bs.reduce((t, b) => t + (Number(b.valor) || 0), 0), venc = bs.filter(b => String(b.vencimento).slice(0, 10) < hoje).length;
+      L.push('', `*Boletos dos próximos 7 dias:* ${bs.length} · R$ ${reais(tb)}${venc ? ` (${venc} já vencido${venc > 1 ? 's' : ''})` : ''}`);
+      if (saldo) { const disp = (Number(saldo.valor) || 0) + liberaSem; L.push(disp >= tb ? `Dá para pagar: saldo + o que libera = R$ ${reais(disp)}.` : `*Atenção:* faltam *R$ ${reais(tb - disp)}* para cobrir os boletos (saldo + o que libera = R$ ${reais(disp)}).`); } } } catch (_) {}
+  return L.join('\n');
+}
+async function fechSemanaRotina(env) {
+  const ag = agoraBahia(), hoje = dataBahia();
+  if (ag.dia !== 1 || ag.min < 7 * 60 + 40 || ag.min > 12 * 60) return;
+  if (await env.HR_KV.get('fsem:' + hoje)) return; if (!(await travaEnvio(env, 'fsem:' + hoje))) return;
+  await env.HR_KV.put('fsem:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  await notificarDono(env, Date.now(), await fechSemanaTexto(env));
+}
+// v271: dono → "cartão para a Renata" / "manda o link do cartão pra Renata": a Helena manda o link de cartão do saldo
+async function cartaoComandoDono(env, from, msg) {
+  const m = String(msg || '').match(/^(?:manda(?:r)? |envia(?:r)? )?(?:o )?(?:link (?:do |de )?)?cartao (?:para|pra|pro) (?:a |o )?(.{2,40})$/);
+  if (!m || !cbAtivo(env)) return false;
+  const tk = tokensPedra(m[1]); if (!tk.length) return false;
+  const cs = (await cbAll(env, "SELECT * FROM cobrancas WHERE status IN ('aguardando_pagamento', 'parcial', 'aprovada', 'enviada', 'pix_expirado') ORDER BY vencimento ASC LIMIT 200").catch(() => [])).filter(c => tk.every(w => tokensPedra(c.cliente_nome || '').includes(w)) && (+c.total_centavos || 0) - (+c.recebido_centavos || 0) >= 100);
+  if (!cs.length) { await enviar(env, from, `Não achei cobrança em aberto de "${m[1]}". Escreva *quem me deve* para ver a lista.`); return true; }
+  const nums = [...new Set(cs.map(c => ultimos8(c.cliente_numero)))]; if (nums.length > 1) { await enviar(env, from, `Achei mais de um cliente com "${m[1]}": ${[...new Set(cs.map(c => c.cliente_nome))].slice(0, 4).join(', ')}. Escreva o nome completo.`); return true; }
+  const cb = cs[0];
+  const lk = await cbLinkCartao(env, cb).catch(e => ({ erro: e.message }));
+  if (!lk || lk.erro) { await enviar(env, from, `Não consegui gerar o link do cartão: ${String((lk && lk.erro) || 'Mercado Pago desligado').slice(0, 140)}`); return true; }
+  await enviar(env, cb.cliente_numero, cartaoTextoCliente(nomeDeTratamento(cb.cliente_nome), lk));
+  await enviar(env, from, `Mandei a ${cb.cliente_nome} o link do cartão de ${moedaCb(lk.valorC)} (até ${lk.parcelas}x, juros do parcelamento por conta dela). Quando pagar, a baixa é automática.`);
+  return true;
+}
 async function quitPagamentoParcial(env, from, msg) {
   const m = String(msg || '').match(/^(?:a |o )?(.+?) (?:pagou|deu|mandou|passou|transferiu|depositou|fez (?:um )?pix de) (?:mais )?(?:r\$? ?)?(\d[\d.]*(?:,\d{1,2})?)(?: reais)?(?: (?:no|em|de|por|pelo) (pix|dinheiro|cartao))?$/);
   if (!m) return false;
@@ -10944,6 +11006,35 @@ async function cmpPortaria(env, from, m) {
   if (mpAtivo(env)) { const cands = await mpCandidatosPix(env, { id: 'cmp' + ultimos8(from) }, +dados.valor).catch(() => []); m._cmp.naConta = cands.find(c => !c.pagador || !dados.pagador || nomesCompativeis(c.pagador, dados.pagador) !== false) || null; }
   return false; // segue: pedido, saldo, orçamento… cada um usa m._cmp
 }
+// v271: LINK DE CARTÃO da cobrança (Checkout do Mercado Pago). Mesma referência da cobrança ("cb-…:vN"): o aviso de pagamento faz a baixa sozinho.
+//   O valor é o saldo; os juros do parcelamento (até CARTAO_PARCELAS, padrão 10x) são pagos pelo cliente na tela do Mercado Pago.
+//   CARTAO_ACRESCIMO_PCT (padrão 0) soma um acréscimo para cobrir a taxa do cartão, se o dono quiser.
+function cartaoTextoCliente(pn, lk) {
+  return `${pn ? pn + ', a' : 'A'}qui está o link para pagar no cartão: ${lk.url}\n\nValor: *${moedaCb(lk.valorC)}*${lk.acrescPct ? ` (já com ${lk.acrescPct}% da taxa do cartão)` : ''}. Dá para parcelar em até *${lk.parcelas}x*; os juros do parcelamento aparecem na tela do Mercado Pago antes de confirmar. O link vale por ${lk.dias} dias.`;
+}
+async function cbLinkCartao(env, cb) {
+  if (!mpAtivo(env) || !cb) return null;
+  const saldo = Math.max(0, (+cb.total_centavos || 0) - (+cb.recebido_centavos || 0)); if (saldo < 100) return null;
+  const acrescPct = Math.max(0, Math.min(15, Number(env.CARTAO_ACRESCIMO_PCT) || 0)), parcelas = Math.max(1, Math.min(12, Number(env.CARTAO_PARCELAS) || 10)), dias = 3;
+  const valorC = Math.round(saldo * (1 + acrescPct / 100)), ref = `${cb.id}:v${cb.versao}`;
+  const k = `cbcart:${cb.id}:${cb.versao}:${valorC}`; const ja = await env.HR_KV.get(k);
+  if (ja) return { url: ja, valorC, parcelas, acrescPct, dias };
+  const base = await urlDoWorker(env);
+  const corpo = {
+    items: [{ id: cb.id, title: `${cb.descricao || 'Serviço contratado'} - ${env.EMPRESA || 'HR Mármores e Granitos'}`.slice(0, 120), quantity: 1, unit_price: valorC / 100, currency_id: 'BRL' }],
+    external_reference: ref, statement_descriptor: 'HR MARMORES',
+    payment_methods: { excluded_payment_types: [{ id: 'ticket' }, { id: 'atm' }, { id: 'bank_transfer' }], installments: parcelas },
+    payer: { name: String(cb.cliente_nome || 'Cliente').slice(0, 60) },
+    expires: true, expiration_date_to: new Date(Date.now() - 3 * 3600000 + dias * 86400000).toISOString().replace('Z', '-03:00'),
+  };
+  if (base) corpo.notification_url = base + '/mp/webhook';
+  const r = await fetch(`${MP_API}/checkout/preferences`, { method: 'POST', headers: { 'Authorization': `Bearer ${env.MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || !j.init_point) throw new Error(`cartão (${r.status}): ${String((j && (j.message || j.error)) || 'sem detalhe').slice(0, 120)}`);
+  await env.HR_KV.put(k, j.init_point, { expirationTtl: dias * 86400 });
+  try { await cbBatch(env, [cbEvt(env, cb.id, 'link_cartao', `${valorC} centavos, até ${parcelas}x`, 'sistema')]); } catch (_) {}
+  return { url: j.init_point, valorC, parcelas, acrescPct, dias };
+}
 async function dividaClienteMsg(env, from, m) {
   if (!['text', 'audio', 'image', 'document'].includes(m.type)) return false;
   const d = await dividaCliente(env, from).catch(() => null); if (!d || !(d.saldoC > 0)) return false;
@@ -10980,6 +11071,13 @@ async function dividaClienteMsg(env, from, m) {
   if (!t && m.type === 'audio') { t = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = t; }
   const n = normaliza(t); if (!n) return false;
   if (await dividaPromessa(env, from, d, t, n)) return true; // v253: "acerto amanhã às 14h"
+  if (/\b(cartao|credito|parcel\w*|passar no cartao|maquininha|em \d{1,2} ?x|\d{1,2} ?vezes)\b/.test(n) && !/\b(paguei|ja paguei|passei)\b/.test(n)) { // v271: quer pagar no cartão → link com parcelamento (juros do parcelamento por conta do cliente)
+    const lk = await cbLinkCartao(env, cb).catch(e => { console.log('[CARTAO] link:', e.message); return null; });
+    if (!lk) { await enviar(env, from, `${pn ? pn + ', v' : 'V'}ou pedir o link do cartão aqui na loja e já te mando.`); await notificarDono(env, Date.now(), `${d.nome || 'Cliente'} quer pagar o saldo de ${moedaCb(d.saldoC)} no cartão, mas não consegui gerar o link do Mercado Pago. Veja no app do Mercado Pago.\nwa.me/${normalizarBR(from)}`).catch(() => {}); return true; }
+    await enviar(env, from, cartaoTextoCliente(pn, lk));
+    await notificarDono(env, Date.now(), `Mandei a ${d.nome || 'cliente'} o link do cartão de ${moedaCb(lk.valorC)} (até ${lk.parcelas}x, juros do parcelamento por conta dela). A baixa é automática quando pagar.`).catch(() => {});
+    return true;
+  }
   if (!/\b(pix|chave|qr|qrcode|codigo|copia e cola|link( de pagamento)?|como (eu )?(pago|pagar|faco o pagamento))\b/.test(n)) return false;
   if (/\b(paguei|ja fiz|fiz o pix|ja mandei|mandei o pix|comprovante|transferi)\b/.test(n)) return false; // avisando que pagou: os botões e o comprovante cuidam
   const v = extrairValor(t), vC = v ? reaisParaCentavos(v.n) : 0;
@@ -11193,6 +11291,8 @@ async function dividaLimparPedidosFalsos(env) {
 
 async function acdComandoDono(env, from, msg) {
   if (await quitPagamentoParcial(env, from, msg)) return true; // v251
+  if (await cartaoComandoDono(env, from, msg)) return true; // v271
+  if (/^(fechamento|resumo|caixa)( financeiro)? (da|de|desta|dessa) semana$|^fechamento semanal$|^dinheiro a liberar$|^a liberar$/.test(msg)) { await enviar(env, from, await fechSemanaTexto(env)); return true; } // v271
   { // v261: "Renata: total 6.751,84, já pagou 2.500, paga 500 hoje e 500 amanhã, o restante até dia 27" → plano de pagamento direto, sem a IA misturar ferramentas
     const mp = msg.match(/^(?:cobra(?:r)? (?:a |o )?)?([a-z ]{2,40}?):?,? total (?:de )?(?:r\$? ?)?([\d.,]+).*?(?:ja )?pag(?:ou|o) (?:r\$? ?)?([\d.,]+).*?(?:paga|vai pagar|pagar) (?:r\$? ?)?([\d.,]+) hoje(?: e (?:r\$? ?)?([\d.,]+) amanha)?.*?(?:restante|resto|saldo).*?(?:ate )?(?:o )?dia (\d{1,2})(?:\/(\d{1,2}))?/);
     if (mp) {
@@ -13284,6 +13384,7 @@ async function processarPagamentoMP(env, idPag, opc = {}) {
   if (liberar) ped.despachadoEm = Date.now();
   await salvarPedido(env, ped);
   const ehSinal = !!(ped.sinal && ped.sinal.valor);
+  if (ped.orcApp) await confEnfileirar(env, { tipo: 'orc_sinal', orcId: ped.orcApp, cliente: ped.nome || '', valor: pago, sinal: ehSinal }).catch(e => console.log('[BOT] orc_sinal:', e.message)); // v271: pagou → obra agendada no app
   await avisarPagador(env, ped, pg, pago, opc).catch(e => console.log('[BOT] conferência do pagador:', e.message));
 
   // Entrada no financeiro (o app busca em /bot/financas) e no "Pix recebido" do fechamento do dia
@@ -28059,7 +28160,7 @@ function cbReciboPdf(env, cb, valorC, ms, pg) {
     ['Referente a:', cb.descricao || 'serviço contratado'],
     ...(protocolo ? [['Protocolo:', protocolo]] : []),
     ...(comp ? [['Composição do valor:', comp]] : []),
-    ['Forma de pagamento:', 'Pix'],
+    ['Forma de pagamento:', ((pg && FORMA_MP[pg.payment_type_id]) || 'Pix') + (pg && +pg.installments > 1 ? ' em ' + pg.installments + 'x' : '')],
     ...(e2e ? [['ID de transação Pix:', e2e]] : []),
     ...(idMp ? [['N.º transação do Mercado Pago:', idMp]] : []),
   ];
@@ -28186,7 +28287,7 @@ async function cbEnviarRecibo(env, cb, valorC, pagoEmISO, pg) {
   if (!enviado) {
     const L = ['*Recibo de pagamento*', ''];
     if (cb.protocolo) L.push(`Protocolo: ${cb.protocolo}`);
-    L.push(`Cliente: ${cb.cliente_nome}`, `Referente a: ${cb.descricao || 'serviço contratado'}`, `Valor pago: ${moedaCb(valorC)}`, `Data: ${cbDataHora(ms)}`, 'Forma: Pix', 'Saldo em aberto: R$ 0,00', '', 'Muito obrigada pelo pagamento! Qualquer dúvida, ou para fazer novos orçamentos, estamos à disposição.', '', `${env.EMPRESA || 'HR Mármores e Granitos'}${env.EMPRESA_CNPJ ? ' • CNPJ ' + env.EMPRESA_CNPJ : ''}`);
+    L.push(`Cliente: ${cb.cliente_nome}`, `Referente a: ${cb.descricao || 'serviço contratado'}`, `Valor pago: ${moedaCb(valorC)}`, `Data: ${cbDataHora(ms)}`, `Forma: ${(pg && FORMA_MP[pg.payment_type_id]) || 'Pix'}${pg && +pg.installments > 1 ? ' em ' + pg.installments + 'x' : ''}`, 'Saldo em aberto: R$ 0,00', '', 'Muito obrigada pelo pagamento! Qualquer dúvida, ou para fazer novos orçamentos, estamos à disposição.', '', `${env.EMPRESA || 'HR Mármores e Granitos'}${env.EMPRESA_CNPJ ? ' • CNPJ ' + env.EMPRESA_CNPJ : ''}`);
     await enviar(env, cb.cliente_numero, L.join('\n'));
   }
   await cbBatch(env, [cbEvt(env, cb.id, 'recibo', enviado ? 'pdf' : 'texto', 'sistema')]).catch(() => {});
