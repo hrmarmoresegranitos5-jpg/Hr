@@ -522,6 +522,7 @@ function partirMensagem(t) {
   return out.length > 1 ? out : [t];
 }
 async function enviarTextoPuro(env, para, texto, jaVariado) {
+  if (env && env._painelCap && ehDono(env, para)) { env._painelCap.push(String(texto || '')); return 'painel'; } // v286: comando digitado no Painel do computador
   if (!jaVariado && env && !ehDono(env, para) && String(env.PARTIR_MSG ?? '1') !== '0') { // v272: explicação grande vai em 2 ou 3 mensagens, como gente escreve
     const partes = partirMensagem(String(texto || ''));
     if (partes.length > 1) { let id = null; for (const pt of partes) id = await enviarTextoPuro(env, para, pt, 'parte'); return id; }
@@ -1536,6 +1537,7 @@ async function ferrFolhaFuncionarios(env, a) {
 // Regras da Meta: até 3 botões (título ≤ 20 caracteres); lista até 10 linhas (título ≤ 24).
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
 async function postarMsg(env, para, extra) {
+  if (env && env._painelCap && ehDono(env, para)) { const x = extra || {}; env._painelCap.push(String((x.text && x.text.body) || (x.interactive && x.interactive.body && x.interactive.body.text) || (x.image && x.image.caption) || (x.document && x.document.caption) || (x.audio ? '[áudio]' : '') || '').trim()); if (x.interactive && x.interactive.action && Array.isArray(x.interactive.action.buttons)) env._painelCap.push('[botões] ' + x.interactive.action.buttons.map(b => b.reply && b.reply.title).filter(Boolean).join(' · ')); return 'painel'; } // v286
   if (env && env._digTimer) { env._digParar = true; clearInterval(env._digTimer); env._digTimer = null; } // v130
   const v = env.GRAPH_VERSION || 'v23.0';
   const r = await fetch(`https://graph.facebook.com/${v}/${env.PHONE_NUMBER_ID}/messages`, {
@@ -22214,6 +22216,56 @@ async function prodQualCliResposta(env, f, from, texto, nome) {
   await env.HR_KV.delete(k);
   return producaoFuncionario(env, f, from, `${p.texto} de ${String(texto).replace(/^(e |eh |é |do |da |de |o do |o da |a do |a da )/i, '')}`, '', nome);
 }
+// v286: PAINEL HR NO COMPUTADOR — resumo da empresa em um JSON (cache 90 s) e caixa de comando (o mesmo que escrever ao bot no WhatsApp)
+async function painelResumo(env) {
+  const c = await env.HR_KV.get('painel:cache'); if (c) { try { return JSON.parse(c); } catch (_) {} }
+  const out = { em: Date.now() };
+  try { // produção
+    const l = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && p.status !== 'cancelado');
+    const nm = {}; const rn = async id => { if (!id) return ''; if (!(id in nm)) nm[id] = await respNome(env, id).catch(() => ''); return nm[id]; };
+    out.producao = [];
+    for (const p of l.slice(0, 40)) {
+      const pronto = p.fabProntoEm || p.prontoEm || p.acabEm;
+      const et = !p.corteEm ? 'corte' : !pronto ? 'acabamento' : 'entrega';
+      out.producao.push({ nome: String(p.nome || 'cliente').slice(0, 40), item: String(p.projetoApp || p.interesse || '').slice(0, 40), etapa: et, resp: await rn(et === 'corte' ? p.fabResp : et === 'acabamento' ? (p.acabResp || p.fab2Resp || p.fabResp) : p.entResp), prazo: p.entrega_prevista || '', iniciado: !!p.iniciadoEm });
+    }
+  } catch (e) { out.producaoErro = e.message; }
+  try { // equipe
+    const cfg = await pontoCfg(env); out.equipe = [];
+    for (const f of (cfg.funcs || []).filter(x => x && x.tel && x.ativo !== false).slice(0, 10)) {
+      const pn = await metaPainel(env, f.id).catch(() => null);
+      if (pn && pn.ok) out.equipe.push({ nome: apelidoFunc(cfg, f) || String(f.nome).split(' ')[0], pts: pn.pts, meta: pn.meta, pct: pn.pct, hoje: pn.ptsHoje || 0, metaDia: pn.metaDia || 0 });
+    }
+  } catch (e) { out.equipeErro = e.message; }
+  try { // cobranças
+    if (cbAtivo(env)) { const cs = await cbAll(env, "SELECT cliente_nome, total_centavos, recebido_centavos, vencimento FROM cobrancas WHERE status IN ('aguardando_pagamento', 'parcial', 'aprovada', 'enviada', 'pix_expirado') LIMIT 300").catch(() => []);
+      const por = {}; for (const x of cs) { const sd = (+x.total_centavos || 0) - (+x.recebido_centavos || 0); if (sd > 0) { const k = x.cliente_nome || 'cliente'; por[k] = por[k] || { nome: k, saldo: 0, venc: x.vencimento || '' }; por[k].saldo += sd / 100; if (x.vencimento && (!por[k].venc || x.vencimento < por[k].venc)) por[k].venc = x.vencimento; } }
+      out.devedores = Object.values(por).sort((a, b) => b.saldo - a.saldo).slice(0, 12); }
+  } catch (e) { out.devErro = e.message; }
+  try { const s = JSON.parse((await env.HR_KV.get('mpx:saldo')) || 'null'); if (s) out.saldo = { valor: s.valor, data: s.data }; } catch (_) {}
+  try { // dinheiro a liberar (cartão)
+    if (mpAtivo(env)) { const hoje = dataBahia(), iso = (d, fim) => `${d}T${fim ? '23:59:59.999' : '00:00:00.000'}-03:00`;
+      const ap = await mpBuscarPagamentos(env, { range: 'date_approved', begin_date: iso(isoSomaDias(hoje, -45), false), end_date: iso(hoje, true), status: 'approved' }, 4);
+      let tot = 0, sem = 0, rec7 = 0; const fim = isoSomaDias(hoje, 6), ini7 = isoSomaDias(hoje, -6), agora = Date.now();
+      for (const p of ap.itens) { const ap0 = String(p.date_approved || '').slice(0, 10); if (ap0 >= ini7) rec7 += Number(p.transaction_amount) || 0;
+        const rel = p.money_release_date ? Date.parse(p.money_release_date) : 0; if (!rel || rel <= agora || p.money_release_status === 'released') continue;
+        const liq = Number(p.transaction_details && p.transaction_details.net_received_amount) || 0; tot += liq; if (new Date(rel - 3 * 3600000).toISOString().slice(0, 10) <= fim) sem += liq; }
+      out.mp = { liberar: tot, liberar7: sem, recebido7: rec7 }; }
+  } catch (e) { out.mpErro = String(e.message).slice(0, 80); }
+  try { // conversas esperando resposta
+    const rs = await env.HR_DB.prepare("SELECT num, nome, perfil, ult, ultx, ultq FROM crm_ct WHERE ultq = 'c' AND ult > ? ORDER BY ult DESC LIMIT 12").bind(Date.now() - 3 * 86400000).all();
+    out.conversas = (rs.results || []).map(x => ({ num: x.num, nome: x.nome || x.perfil || '', ult: x.ult, ultx: String(x.ultx || '').slice(0, 90) }));
+  } catch (e) { out.convErro = e.message; }
+  try { const g = await telaGalLer(env), px = await telaPixLer(env); out.tela = { gal: g ? g.titulo : '', pix: px && px.status === 'pendente' ? px.valor : 0 }; } catch (_) {}
+  await env.HR_KV.put('painel:cache', JSON.stringify(out), { expirationTtl: 90 }).catch(() => {});
+  return out;
+}
+async function painelComando(env, texto) {
+  const cap = []; const env2 = Object.create(env); env2._painelCap = cap;
+  const m = { from: numeroDono(env), id: 'painel-' + Date.now().toString(36), timestamp: String(Math.floor(Date.now() / 1000)), type: 'text', text: { body: String(texto).slice(0, 1500) } };
+  await comTrava(env2, m.from, () => tratarMensagem(env2, m), m);
+  return cap;
+}
 // v281: Pix na Tela do cliente — o dono gera pelo app, o QR aparece na TV e a TV comemora quando o Mercado Pago confirma
 let TELA_VER_C = ''; function telaVer() { if (TELA_VER_C) return TELA_VER_C; let h = 0; for (let i = 0; i < TELA_HTML.length; i += 7) h = (h * 31 + TELA_HTML.charCodeAt(i)) | 0; return (TELA_VER_C = 'v281-' + (h >>> 0).toString(36)); }
 async function telaPixLer(env) { try { return JSON.parse((await env.HR_KV.get('tela:pix')) || 'null'); } catch (_) { return null; } }
@@ -25334,6 +25386,8 @@ async function rotaBotInterna(req, env, url) {
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
   if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
   if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
+  if (p === '/bot/painel' && req.method === 'GET') { if (url.searchParams.get('novo')) await env.HR_KV.delete('painel:cache').catch(() => {}); return jsonR(await painelResumo(env)); } // v286
+  if (p === '/bot/painel/comando' && req.method === 'POST') { const b = await req.json().catch(() => ({})); if (!String(b.texto || '').trim()) return jsonR({ error: 'Escreva o comando.' }, 400); try { return jsonR({ ok: true, respostas: (await painelComando(env, b.texto)).filter(Boolean) }); } catch (e) { return jsonR({ error: e.message }, 500); } }
   if (p === '/bot/tela/galeria' && req.method === 'POST') { // v282: o app também manda a galeria para a TV
     const b = await req.json().catch(() => ({}));
     if (b.cancelar) { await env.HR_KV.delete('tela:gal'); return jsonR({ ok: true }); }
