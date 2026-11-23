@@ -1521,7 +1521,7 @@ var SYNC={
           });
           if(!CFG.emp) CFG.emp={};
           CFG.emp.apiKey = _apiKeyLocal || '';
-          localStorage.setItem('hr_cfg',JSON.stringify(CFG));
+          try { if (typeof svCFG === 'function') svCFG(); else localStorage.setItem('hr_cfg',JSON.stringify(CFG)); } catch(eCfg) { console.warn('[SYNC] cfg local cheio:', eCfg && eCfg.message); } // 23/11: fotos vão pro IndexedDB; cota cheia não pode travar o resto da sincronização
         }
         // Merge por ID em vez de sobrescrever o array inteiro — assim um
         // orçamento/lançamento criado em OUTRO aparelho (ex: funcionário)
