@@ -1,4 +1,4 @@
-// app-tela-cliente.js — v1 (23/11/2026)
+// app-tela-cliente.js — v3 (23/11/2026)
 // TELA DO CLIENTE: enquanto o Sr. Hangel monta o orçamento, a TV (PC no HDMI) ou o tablet mostram ao cliente,
 // ao vivo: pedra, peças, acabamentos por lado (sainha, frontão…), cuba, serviços e os VALORES calculados.
 // Nunca vai para a tela: custo, lucro, margem, perda, "Conferência interna" — só o que já é do cliente
@@ -30,17 +30,39 @@
       });
       var ext = []; Object.keys(a.svState || {}).forEach(function (k) { if (/^cuba_/.test(k)) return; var v = a.svState[k]; if (!v) return; var l = svLabel(a.tipo, k); if (!l || /^(Sainha|Frontão)/.test(l)) return; var q = +(v.q || v.qtd || 0); ext.push(l + (q > 1 ? ' (' + q + ')' : '')); });
       Object.keys(a.acState || {}).forEach(function (k) { var v = a.acState[k]; if (!v) return; var n = v.nm || v.l || ''; if (n) ext.push(n + (+v.q > 1 ? ' (' + v.q + ')' : '')); });
-      return { tipo: a.tipo || 'Ambiente', pedra: st ? st.nm + (st.fin ? ' (' + st.fin + ')' : '') : '', pecas: pecas, cuba: a.selCuba ? String(a.selCuba.nm || '') + (+a.selCuba.qtd > 1 ? ' × ' + a.selCuba.qtd : '') : '', ext: ext };
+      var foto = ''; try { var ph = st && (st.photo || st.foto) || ''; if (/^https?:/.test(ph) && ph.length < 800) foto = ph; else if (/^data:image/.test(ph) && ph.length < 120000) foto = ph; } catch (e) {}
+      var cor = ''; try { cor = st ? (typeof _orcStoneColor === 'function' ? _orcStoneColor(st) : (st.cor || '')) : ''; } catch (e) {}
+      return { tipo: a.tipo || 'Ambiente', pedra: st ? st.nm : '', pedraFin: st && st.fin ? 'Acabamento ' + String(st.fin).toLowerCase() : '', pedraCat: st ? st.cat || '' : '', pedraDesc: st ? st.desc || '' : '', cor: cor, foto: foto,
+        pecas: pecas, cuba: a.selCuba ? String(a.selCuba.nm || '') + (+a.selCuba.qtd > 1 ? ' × ' + a.selCuba.qtd : '') : '', ext: ext };
     });
-    var calc = null, ra = document.getElementById('resArea'), rd = document.getElementById('resDetail');
-    if (ra && rd && ra.style.display !== 'none' && rd.innerText.trim()) {
-      calc = rd.innerText.split('\n').map(function (l) { return l.trim(); }).filter(Boolean)
-        .map(function (l) { return l.replace(/\s*\+\s*\d+%\s*→\s*[\d.,]+\s*m²\s*c\/\s*perda/i, '').replace(/\s*c\/\s*perda\b.*$/i, ''); }) // perda é conta interna
-        .filter(function (l) { return !/(custo|lucro|margem|conferência|interno|perda)/i.test(l); })
-        .map(function (l) { return l.replace(/^Reto (\d)/, 'Frontão reto $1').replace(/^Chanfrado (\d)/, 'Frontão chanfrado $1').replace(/^Recorte 45° (\d)/, 'Sainha 45° $1'); });
-    }
-    var d = new Date();
-    return { cli: g('oCliente') || 'Cliente', data: d.toLocaleDateString('pt-BR'), ambs: ambs, calc: calc };
+    return { cli: g('oCliente') || 'Cliente', data: new Date().toLocaleDateString('pt-BR'), modo: window._orcModoValor === 'vista' ? 'vista' : 'prazo', ambs: ambs, val: valores() };
+  }
+  // Lê o "Resultado" (o mesmo do PDF) já calculado: linhas por ambiente, sem custo/lucro/perda
+  function num(t) { var m = String(t || '').match(/R\$\s*([\d.]+,\d{2}|[\d.]+)/); if (!m) return 0; var x = m[1]; return x.indexOf(',') >= 0 ? parseFloat(x.replace(/\./g, '').replace(',', '.')) : parseFloat(x); }
+  function limpaRot(t) { return String(t || '').replace(/\s*\([^)]*\d[^)]*(ml|m²|cm|×)[^)]*\)/g, '').replace(/^Recorte 45°/, 'Sainha 45°').replace(/^Reto\b/, 'Frontão reto').replace(/\s+/g, ' ').trim(); }
+  function valores() {
+    var ra = document.getElementById('resArea'), rd = document.getElementById('resDetail');
+    if (!ra || !rd || ra.style.display === 'none' || !rd.textContent.trim()) return null;
+    var vista = num((document.getElementById('rdVistaVal') || {}).textContent); if (!(vista > 0)) return null;
+    var grupos = [], g = null, m2 = 0;
+    [].slice.call(rd.children).forEach(function (el) {
+      var tx = (el.textContent || '').trim();
+      if (/^\d+º\s*Ambiente/i.test(tx) && !el.classList.contains('rrow')) { g = { t: tx.replace(/^\d+º\s*Ambiente\s*[—-]\s*/i, ''), ls: [] }; grupos.push(g); return; }
+      if (!el.classList.contains('rrow') || /^rd/.test(el.id || '')) return;
+      var rk = (el.querySelector('.rk') || {}).textContent || '', rv = (el.querySelector('.rv') || {}).textContent || '';
+      if (/(custo|lucro|margem|confer|interno)/i.test(rk)) return;
+      if (/^Total m²/i.test(rk)) { m2 = parseFloat(rv.replace(',', '.')) || 0; return; }
+      if (/m²\s*$/.test(rv.trim())) return; // peça: só medida
+      var v = num(rv); if (!(v > 0)) return;
+      if (!g) { g = { t: '', ls: [] }; grupos.push(g); }
+      var mp = rk.match(/^(.*?)\s+—\s+([\d.,]+)\s*m²/);
+      if (mp) g.ls.push({ k: 'pedra', l: 'Pedra ' + mp[1], s: mp[2].replace('.', ',') + ' m² de pedra', v: v });
+      else if (/^M\.?\s?O\.?\s/i.test(rk)) g.ls.push({ k: 'mo', l: rk, v: v });
+      else if (/urg[êe]ncia/i.test(rk)) g.ls.push({ k: 'item', l: 'Prioridade na produção', v: v });
+      else g.ls.push({ k: 'item', l: limpaRot(rk), v: v });
+    });
+    grupos = grupos.filter(function (x) { return x.ls.length; });
+    return { vista: vista, m2: m2, grupos: grupos };
   }
   function publicar(d, forcar) {
     var b = base(); if (!b || enviando) return; var s = JSON.stringify(d);

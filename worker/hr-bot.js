@@ -21988,58 +21988,98 @@ async function rotaTela(req, env, url) {
   return new Response(JSON.stringify({ ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 const TELA_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seu orçamento · __EMP__</title>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
-body{background:radial-gradient(1200px 700px at 80% -10%,rgba(201,168,76,.14),transparent 60%),#0a0907;color:#f1ead8;font-family:Outfit,sans-serif;overflow:hidden}
-.top{display:flex;align-items:center;justify-content:space-between;padding:2.2vh 3.2vw;border-bottom:1px solid rgba(201,168,76,.25)}
-.marca{font-family:'Cormorant Garamond',serif;font-size:3.6vh;color:#e8c96a;letter-spacing:.5px}.marca small{display:block;font-family:Outfit;font-size:1.5vh;letter-spacing:.5vh;color:rgba(232,201,106,.6);text-transform:uppercase}
-.cli{text-align:right}.cli b{font-size:3vh;font-weight:600;display:block}.cli span{font-size:1.7vh;color:#a99c80}
-main{display:grid;grid-template-columns:1.25fr 1fr;gap:2.4vw;padding:2.6vh 3.2vw;height:calc(100% - 11vh)}
-.col{overflow:hidden;display:flex;flex-direction:column;gap:1.8vh}
-.amb{background:rgba(255,255,255,.035);border:1px solid rgba(201,168,76,.22);border-radius:1.8vh;padding:2vh 2.2vh}
-.amb h2{font-size:2.6vh;font-weight:700;color:#e8c96a;display:flex;justify-content:space-between;gap:1vw}.amb h2 span{color:#f1ead8;font-weight:400;font-size:2.2vh}
-.pc{margin-top:1.4vh;padding-top:1.2vh;border-top:1px solid rgba(255,255,255,.07)}.pc .m{font-size:2.4vh;font-weight:600}.pc .m em{font-style:normal;color:#a99c80;font-weight:400;font-size:1.9vh}
-.tags{display:flex;flex-wrap:wrap;gap:.8vh;margin-top:.9vh}.tag{font-size:1.7vh;padding:.5vh 1.2vh;border-radius:99px;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#f0d78c}
-.tag.s{background:rgba(79,168,107,.14);border-color:rgba(79,168,107,.4);color:#8fdcab}.tag.f{background:rgba(90,127,196,.15);border-color:rgba(90,127,196,.4);color:#a9c1f3}
-.ext{margin-top:1.2vh;font-size:1.9vh;color:#cfc4aa}.ext b{color:#f1ead8}
-.val{background:linear-gradient(160deg,rgba(201,168,76,.16),rgba(201,168,76,.04));border:1px solid rgba(201,168,76,.45);border-radius:2vh;padding:2.6vh 2.6vh;display:flex;flex-direction:column;gap:1vh;min-height:0;overflow:hidden}
-.val h3{font-size:1.7vh;letter-spacing:.4vh;text-transform:uppercase;color:#e8c96a;font-weight:600;margin-bottom:.6vh}
-.ln{display:flex;justify-content:space-between;gap:1.5vw;font-size:2.1vh;padding:.55vh 0;border-bottom:1px dashed rgba(255,255,255,.08)}.ln span:last-child{color:#f1ead8;font-weight:600;white-space:nowrap}
-.ln.h{color:#e8c96a;font-weight:700;border:none;padding-top:1.4vh;font-size:2vh;letter-spacing:.2vh;text-transform:uppercase}
-.big{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:1.4vh}.big div{background:rgba(0,0,0,.35);border-radius:1.6vh;padding:1.8vh;text-align:center}
-.big small{display:block;font-size:1.6vh;color:#cdbf9c;letter-spacing:.2vh;text-transform:uppercase}.big b{font-family:'Cormorant Garamond',serif;font-size:4.8vh;color:#f3d982}.big i{display:block;font-style:normal;font-size:1.6vh;color:#a99c80}
-.eco{text-align:center;font-size:1.9vh;color:#8fdcab}
-.esp{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh;height:100%;text-align:center;color:#a99c80;font-size:2.2vh}
-.esp .marca{font-size:7vh}.esp .dots span{display:inline-block;width:1.2vh;height:1.2vh;border-radius:50%;background:#c9a84c;margin:0 .5vh;animation:b 1.4s infinite}.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
-.calc{font-size:2vh;color:#a99c80;text-align:center;margin:auto}
-@keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
-@media (orientation:portrait){main{grid-template-columns:1fr;height:auto;overflow:auto}body{overflow:auto}}
-</style></head><body>
-<div class="top"><div class="marca">__EMP__<small>Seu orçamento sob medida</small></div><div class="cli" id="cli"></div></div>
-<main id="m"><div class="esp" style="grid-column:1/-1"><div class="marca">__EMP__</div><div>O seu orçamento aparece aqui enquanto montamos.</div><div class="dots"><span></span><span></span><span></span></div><div style="font-size:1.8vh">__WHATS__</div></div></main>
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:2vh}html,body{height:100%}
+body{background:radial-gradient(90rem 50rem at 85% -15%,rgba(201,168,76,.16),transparent 60%),radial-gradient(60rem 40rem at -10% 110%,rgba(201,168,76,.08),transparent 60%),#0b0a08;color:#f3ecdb;font-family:Outfit,sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
+.app{height:100%;display:flex;flex-direction:column}
+.top{flex:none;display:flex;align-items:center;justify-content:space-between;padding:1.3rem 2.2rem 1.1rem;border-bottom:1px solid rgba(201,168,76,.28)}
+.marca{font-family:'Cormorant Garamond',serif;font-weight:700;font-size:2.1rem;line-height:1;color:#ecd27c;letter-spacing:.02em}
+.marca small{display:block;margin-top:.45rem;font-family:Outfit;font-weight:500;font-size:.72rem;letter-spacing:.32em;color:rgba(236,210,124,.65);text-transform:uppercase}
+.cli{text-align:right}.cli small{display:block;font-size:.7rem;letter-spacing:.3em;text-transform:uppercase;color:#a99c80}.cli b{display:block;font-size:1.7rem;font-weight:600;line-height:1.15}.cli span{font-size:.85rem;color:#a99c80}
+main{flex:1;min-height:0;display:grid;grid-template-columns:1.45fr 1fr;gap:1.6rem;padding:1.4rem 2.2rem}
+.col{min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:1rem}
+.amb{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.02));border:1px solid rgba(201,168,76,.22);border-radius:1rem;padding:1rem 1.2rem 1.1rem}
+.ah{display:flex;align-items:center;gap:.9rem}
+.num{flex:none;width:2rem;height:2rem;border-radius:50%;border:1px solid rgba(201,168,76,.6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#ecd27c;font-size:1rem}
+.ah h2{font-size:1.35rem;font-weight:600;flex:1;min-width:0}
+.pedra{display:flex;align-items:center;gap:.6rem;background:rgba(0,0,0,.3);border:1px solid rgba(201,168,76,.3);border-radius:99rem;padding:.3rem .9rem .3rem .3rem;max-width:55%}
+.sw{flex:none;width:1.9rem;height:1.9rem;border-radius:50%;background-size:cover;background-position:center;border:2px solid rgba(255,255,255,.25)}
+.pedra b{font-size:.95rem;font-weight:600;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pedra i{font-style:normal;font-size:.7rem;color:#c8b88f;display:block}
+.desc{margin-top:.6rem;font-size:.82rem;line-height:1.45;color:#b9ad92;font-style:italic}
+.pcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(13.5rem,1fr));gap:.6rem;margin-top:.8rem}
+.pc{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.07);border-radius:.7rem;padding:.6rem .75rem}
+.pc .n{font-size:.85rem;color:#cfc3a6;display:flex;justify-content:space-between;gap:.5rem}.pc .n em{font-style:normal;color:#0b0a08;background:#ecd27c;border-radius:99rem;padding:0 .45rem;font-weight:700;font-size:.72rem;height:1.15rem;line-height:1.15rem;flex:none}
+.pc .md{font-size:1.25rem;font-weight:600;margin-top:.15rem;letter-spacing:.01em}.pc .md span{font-size:.8rem;color:#a99c80;font-weight:400;margin-left:.2rem}
+.tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.4rem}.tag{font-size:.68rem;padding:.12rem .5rem;border-radius:99rem;background:rgba(201,168,76,.13);border:1px solid rgba(201,168,76,.32);color:#f0d78c}
+.tag.s{background:rgba(79,168,107,.15);border-color:rgba(79,168,107,.42);color:#9fe2b8}.tag.f{background:rgba(90,127,196,.16);border-color:rgba(90,127,196,.42);color:#b4c9f5}
+.ext{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.75rem}.ext span{font-size:.8rem;padding:.25rem .7rem;border-radius:.5rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#e6dcc4}
+.val{height:100%;min-height:0;display:flex;flex-direction:column;background:linear-gradient(165deg,rgba(201,168,76,.15),rgba(201,168,76,.03) 55%);border:1px solid rgba(201,168,76,.45);border-radius:1.1rem;padding:1.2rem 1.4rem}
+.val h3{flex:none;font-size:.75rem;letter-spacing:.35em;text-transform:uppercase;color:#ecd27c;font-weight:600;margin-bottom:.5rem}
+.lst{flex:1;min-height:0;overflow:hidden}
+.gt{font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;color:#c9a84c;font-weight:600;margin:.8rem 0 .2rem}.gt:first-child{margin-top:.2rem}
+.ln{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.42rem 0;border-bottom:1px solid rgba(255,255,255,.07)}
+.ln .l{font-size:.95rem;min-width:0}.ln .l small{display:block;font-size:.72rem;color:#a99c80;margin-top:.05rem}.ln .v{font-size:1rem;font-weight:600;white-space:nowrap}
+.tot{flex:none;margin-top:.9rem;padding:1.1rem 1.2rem;border-radius:.9rem;background:rgba(0,0,0,.42);border:1px solid rgba(201,168,76,.35);text-align:center}
+.tot small{display:block;font-size:.72rem;letter-spacing:.3em;text-transform:uppercase;color:#cdbf9c}
+.tot b{display:block;font-family:'Cormorant Garamond',serif;font-weight:700;font-size:3.6rem;line-height:1.05;color:#f3d982;margin:.2rem 0}
+.tot .p{font-size:1rem;color:#f1ead8}.tot .p strong{color:#f3d982}
+.tot .o{margin-top:.45rem;font-size:.8rem;color:#9fe2b8}
+.pulse{animation:pl 1.2s ease-out}@keyframes pl{0%{text-shadow:0 0 2rem rgba(243,217,130,.9);transform:scale(1.04)}100%{text-shadow:none;transform:none}}
+.vazio{margin:auto;text-align:center;color:#a99c80;font-size:1rem;line-height:1.6}
+.dots span{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;background:#c9a84c;margin:0 .25rem;animation:b 1.4s infinite}.dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}
+@keyframes b{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.rod{flex:none;display:flex;justify-content:space-between;padding:.55rem 2.2rem;border-top:1px solid rgba(201,168,76,.18);font-size:.75rem;color:#8f846c;letter-spacing:.05em}
+.esp{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2rem;text-align:center}
+.esp .marca{font-size:4.6rem}.esp .marca small{font-size:1rem;margin-top:1rem}
+.esp p{font-size:1.15rem;color:#c8bb9c}.esp .sel{display:flex;gap:1.6rem;margin-top:.8rem;color:#b9ad92;font-size:.95rem}.esp .sel span:before{content:'◆';color:#c9a84c;margin-right:.5rem;font-size:.7rem;vertical-align:middle}
+.esp .w{margin-top:.6rem;font-size:1rem;color:#ecd27c}
+@media (orientation:portrait){body{overflow:auto}main{grid-template-columns:1fr;height:auto}.col{overflow:visible}.val{height:auto}.lst{overflow:visible}}
+</style></head><body><div class="app" id="app"></div>
 <script>
-var K=new URLSearchParams(location.search).get('k'),ult='';
+var K=new URLSearchParams(location.search).get('k'),ult='',ultTot='';
+var EMP='__EMP__',WHATS='__WHATS__';
 function e(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function espera(){document.getElementById('cli').innerHTML='';document.getElementById('m').innerHTML='<div class="esp" style="grid-column:1/-1"><div class="marca">__EMP__</div><div>O seu orçamento aparece aqui enquanto montamos.</div><div class="dots"><span></span><span></span><span></span></div><div style="font-size:1.8vh">__WHATS__</div></div>'}
-function desenha(d){
- document.getElementById('cli').innerHTML='<b>'+e(d.cli||'')+'</b><span>'+e(d.data||'')+'</span>';
- var A=(d.ambs||[]).map(function(a,i){return '<div class="amb"><h2>'+(i+1)+'. '+e(a.tipo)+'<span>'+e(a.pedra||'pedra a escolher')+'</span></h2>'+(a.pecas||[]).map(function(p){return '<div class="pc"><div class="m">'+e(p.desc||'Peça')+' <em>'+e(p.w)+' × '+e(p.h)+' cm'+(p.q>1?' · '+p.q+' unid.':'')+'</em></div>'+((p.bd||[]).length?'<div class="tags">'+p.bd.map(function(b){return '<span class="tag '+(/sainha/i.test(b.t)?'s':/front/i.test(b.t)?'f':'')+'">'+e(b.l)+': '+e(b.t)+'</span>'}).join('')+'</div>':'')+'</div>'}).join('')+(a.cuba?'<div class="ext">Cuba: <b>'+e(a.cuba)+'</b></div>':'')+((a.ext||[]).length?'<div class="ext">'+a.ext.map(e).join(' · ')+'</div>':'')+'</div>'}).join('');
- var V='';
- if(d.calc&&d.calc.length){var ls=d.calc,h='',pv='',av='',eco='';
-  for(var i=0;i<ls.length;i++){var l=ls[i];
-   if(/^\\d+º AMBIENTE/i.test(l)){h+='<div class="ln h"><span>'+e(l.replace(/^\\d+º AMBIENTE\\s*[—-]\\s*/i,''))+'</span></div>';continue}
-   if(/^Parcelado/i.test(l)){pv=ls[i+1]||'';i++;continue} if(/^À Vista/i.test(l)){av=ls[i+1]||'';i++;continue} if(/Economia/i.test(l)){eco=l;continue}
-   var nx=ls[i+1]||''; if(/^R\\$|m²$|^\\d+(,|\\.)?\\d*\\s*(m|ml|un)/.test(nx)&&!/^R\\$/.test(l)){h+='<div class="ln"><span>'+e(l)+'</span><span>'+e(nx)+'</span></div>';i++}else h+='<div class="ln"><span>'+e(l)+'</span><span></span></div>'}
-  var pm=pv.match(/(\\d+)×\\s*(R\\$\\s*[\\d.,]+).*?total\\s*(R\\$\\s*[\\d.,]+)/i);
-  V='<div class="val"><h3>Valores</h3>'+h+'<div class="big">'+(pv?'<div><small>Parcelado'+(pm?' em '+pm[1]+'×':'')+'</small><b>'+e(pm?pm[2]:pv)+'</b><i>'+(pm?'total '+e(pm[3]):'')+'</i></div>':'')+(av?'<div><small>À vista</small><b>'+e(av)+'</b><i>&nbsp;</i></div>':'')+'</div>'+(eco?'<div class="eco">'+e(eco.replace(/^\\W+/,''))+'</div>':'')+'</div>'}
- else V='<div class="val"><h3>Valores</h3><div class="calc">Os valores aparecem assim que o orçamento for calculado.</div></div>';
- document.getElementById('m').innerHTML='<div class="col">'+(A||'<div class="calc">Montando o orçamento…</div>')+'</div><div class="col">'+V+'</div>';
-}
+function lim(t){try{return String(t||'').replace(/[\\u{1F000}-\\u{1FFFF}\\u{2600}-\\u{27BF}\\u{FE0F}\\u{200D}]/gu,'').replace(/\\s+/g,' ').trim()}catch(x){return String(t||'')}}
+function R(v){return 'R$ '+(Math.round(v*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function m2(v){return (+v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:3})+' m²'}
+function rodape(){return '<div class="rod"><span>'+e(EMP)+' · Pilão Arcado – BA</span><span>Parcelamos em até 10× sem juros no cartão</span><span>'+e(WHATS)+'</span></div>'}
+function espera(){document.getElementById('app').innerHTML='<div class="esp"><div class="marca">'+e(EMP)+'<small>Mármores e granitos sob medida</small></div><p>O seu orçamento aparece aqui enquanto montamos.</p><div class="dots"><span></span><span></span><span></span></div><div class="sel"><span>Cozinhas</span><span>Banheiros</span><span>Escadas</span><span>Túmulos</span></div><div class="w">'+e(WHATS)+'</div></div>'+rodape()}
+function pecas(a){return (a.pecas||[]).map(function(p){var bd=(p.bd||[]).map(function(b){return '<span class="tag '+(/sainha/i.test(b.t)?'s':/front/i.test(b.t)?'f':'')+'">'+e(b.l)+': '+e(lim(b.t))+'</span>'}).join('');
+ return '<div class="pc"><div class="n"><span>'+e(lim(p.desc||'Peça'))+'</span>'+(p.q>1?'<em>'+p.q+'×</em>':'')+'</div><div class="md">'+e(p.w)+' × '+e(p.h)+'<span>cm</span></div>'+(bd?'<div class="tags">'+bd+'</div>':'')+'</div>'}).join('')}
+function ambiente(a,i){
+ var sw=a.foto?'background-image:url('+JSON.stringify(a.foto).slice(1,-1)+')':'background:'+(a.cor||'#c9a84c');
+ var ext=[];if(a.cuba)ext.push('Cuba: '+a.cuba);(a.ext||[]).forEach(function(x){ext.push(x)});
+ var ds=VIST[a.pedra]?'':lim(a.pedraDesc||'');VIST[a.pedra]=1;if(ds.length>170)ds=ds.slice(0,ds.lastIndexOf(' ',165))+'…';
+ return '<div class="amb"><div class="ah"><div class="num">'+(i+1)+'</div><h2>'+e(lim(a.tipo))+'</h2>'+(a.pedra?'<div class="pedra"><div class="sw" style="'+e(sw)+'"></div><div><b>'+e(a.pedra)+'</b><i>'+e(a.pedraFin||a.pedraCat||'')+'</i></div></div>':'')+'</div>'
+  +(ds?'<div class="desc">'+e(ds)+'</div>':'')+((a.pecas||[]).length?'<div class="pcs">'+pecas(a)+'</div>':'')+(ext.length?'<div class="ext">'+ext.map(function(x){return '<span>'+e(lim(x))+'</span>'}).join('')+'</div>':'')+'</div>'}
+function valores(d){
+ var V=d.val;if(!V||!(V.vista>0))return '<div class="val"><h3>Investimento</h3><div class="vazio">Os valores aparecem aqui<br>assim que o orçamento for calculado.<div class="dots" style="margin-top:.8rem"><span></span><span></span><span></span></div></div></div>';
+ var vista=V.vista,prazo=Math.round(vista*1.15*100)/100,parc=prazo/10,modo=d.modo==='vista'?'vista':'prazo',alvo=modo==='vista'?vista:prazo;
+ var soma=0;(V.grupos||[]).forEach(function(g){g.ls.forEach(function(l){soma+=l.v})});var r=soma>0?alvo/soma:1;
+ var h='';(V.grupos||[]).forEach(function(g){var ls=g.ls,mo=0,nmo=0,out=[];
+  ls.forEach(function(l){if(l.k==='mo'){mo+=l.v;nmo++}else out.push(l)});
+  if(mo>0){var i=out.findIndex(function(l){return l.k!=='pedra'});out.splice(i<0?out.length:i,0,{l:'Mão de obra',s:'corte, acabamento e montagem das '+nmo+' peças',v:mo})}
+  if((V.grupos||[]).length>1||g.t)h+='<div class="gt">'+e(lim(g.t))+'</div>';
+  out.forEach(function(l){h+='<div class="ln"><div class="l">'+e(lim(l.l))+(l.s?'<small>'+e(l.s)+'</small>':'')+'</div><div class="v">'+R(l.v*r)+'</div></div>'})});
+ var tot=modo==='vista'
+  ?'<div class="tot"><small>À vista</small><b id="tv">'+R(vista)+'</b><div class="p">ou <strong>'+R(prazo)+'</strong> em até 10× de '+R(parc)+'</div><div class="o">Desconto de '+R(prazo-vista)+' pagando à vista</div></div>'
+  :'<div class="tot"><small>Valor do projeto</small><b id="tv">'+R(prazo)+'</b><div class="p">em até <strong>10× de '+R(parc)+'</strong> sem juros no cartão</div></div>';
+ return '<div class="val"><h3>Investimento'+(V.m2>0?' · '+m2(V.m2)+' de pedra':'')+'</h3><div class="lst">'+h+'</div>'+tot+'</div>'}
+var VIST={};function desenha(d){
+ VIST={};var A=(d.ambs||[]).map(ambiente).join('');
+ document.getElementById('app').innerHTML='<div class="top"><div class="marca">'+e(EMP)+'<small>Seu orçamento sob medida</small></div><div class="cli"><small>Cliente</small><b>'+e(d.cli||'')+'</b><span>'+e(d.data||'')+'</span></div></div>'
+  +'<main><div class="col" id="cA">'+(A||'<div class="vazio">Montando o orçamento…</div>')+'</div><div class="col">'+valores(d)+'</div></main>'+rodape();
+ var tv=document.getElementById('tv');if(tv){var t=tv.textContent;if(ultTot&&t!==ultTot)tv.classList.add('pulse');ultTot=t}
+ ajusta()}
+function estoura(){var el=[document.getElementById('cA')].concat([].slice.call(document.querySelectorAll('.lst')));for(var i=0;i<el.length;i++){var x=el[i];if(x&&x.scrollHeight>x.clientHeight+2)return true}return false}
+function ajusta(){var h=document.documentElement;if(innerHeight>innerWidth){h.style.fontSize='';return}var f=innerHeight/50;h.style.fontSize=f+'px';for(var n=0;n<40&&estoura()&&f>7;n++){f*=0.94;h.style.fontSize=f+'px'}}
+addEventListener('resize',function(){ajusta()});
 function carregar(){fetch('/tela/dados?k='+encodeURIComponent(K),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
- var d=j&&j.dados;if(!d||!j.ts||Date.now()-j.ts>30*60000||d.off){if(ult!=='esp'){ult='esp';espera()}return}
+ var d=j&&j.dados;if(!d||!j.ts||Date.now()-j.ts>30*60000||d.off){if(ult!=='esp'){ult='esp';ultTot='';document.documentElement.style.fontSize='';espera()}return}
  var s=JSON.stringify(d);if(s!==ult){ult=s;desenha(d)}}).catch(function(){})}
-carregar();setInterval(carregar,1500);setTimeout(function(){location.reload()},6*3600000);
+espera();carregar();setInterval(carregar,1500);setTimeout(function(){location.reload()},6*3600000);
 </script></body></html>`;
 async function rotaOficina(req, env, url) {
   if (url.pathname !== '/oficina' && url.pathname !== '/oficina/dados') return null;
@@ -24975,7 +25015,7 @@ async function rotaBotInterna(req, env, url) {
   if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
   if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
   if (p === '/bot/tela/link' && req.method === 'GET') return jsonR({ url: (await urlPublica(env)) + '/tela?k=' + await telaToken(env) }); // v277
-  if (p === '/bot/tela/publicar' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await telaTab(env); await env.HR_DB.prepare('UPDATE tela_cli SET dados = ?, ts = ?').bind(JSON.stringify(b.dados || null).slice(0, 60000), Date.now()).run(); return jsonR({ ok: true }); } // v277
+  if (p === '/bot/tela/publicar' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await telaTab(env); await env.HR_DB.prepare('UPDATE tela_cli SET dados = ?, ts = ?').bind((() => { let j = JSON.stringify(b.dados || null); if (j.length > 300000 && b.dados && Array.isArray(b.dados.ambs)) { b.dados.ambs.forEach(a => { if (a) a.foto = ''; }); j = JSON.stringify(b.dados); } return j.length > 300000 ? 'null' : j; })(), Date.now()).run(); return jsonR({ ok: true }); } // v277
   if (p === '/bot/conversas/arquivo' && req.method === 'GET') { // v54: conversas dos últimos dias (padrão 14, máx. 30) para revisar o atendimento
     marcarUso(env, 'app:conversas');
     if (!env.HR_DB) return jsonR({ error: 'Banco D1 (HR_DB) não ligado no Worker.' }, 400);
