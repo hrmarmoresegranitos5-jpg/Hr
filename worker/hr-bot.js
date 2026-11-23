@@ -2779,6 +2779,7 @@ const CATEGORIAS_TRABALHO = ['cozinha', 'banheiro', 'lavabo', 'escada', 'soleira
 const LEGENDAS_FOTO = ['perfil', 'foto', 'foto perfil', 'foto de perfil', 'foto do perfil', 'logo'];
 
 async function tratarImagemDono(env, from, m) {
+  if (/^(tv|na tv|pra tv|para tv|tela|na tela|televis[aã]o)\b/i.test(String(m.image?.caption || '').trim())) { await telaFotoDoDono(env, from, m); return; } // v282: foto direto na TV
   const pf = String(m.image?.caption || '').trim().match(/^(portf[oó]lio|trabalho|pedra)\s*:?\s*(.*)$/i);
   if (pf) {
     const ehPedra = /^pedra/i.test(pf[1]);
@@ -11338,6 +11339,7 @@ async function dividaLimparPedidosFalsos(env) {
 }
 
 async function acdComandoDono(env, from, msg) {
+  if (await telaComandoDono(env, from, msg)) return true; // v282: galeria na TV
   if (await quitPagamentoParcial(env, from, msg)) return true; // v251
   if (await cartaoComandoDono(env, from, msg)) return true; // v271
   if (/^(fechamento|resumo|caixa)( financeiro)? (da|de|desta|dessa) semana$|^fechamento semanal$|^dinheiro a liberar$|^a liberar$/.test(msg)) { await enviar(env, from, await fechSemanaTexto(env)); return true; } // v271
@@ -21981,6 +21983,67 @@ async function telaToken(env) {
   const t = Array.from(crypto.getRandomValues(new Uint8Array(9))).map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 14);
   await env.HR_DB.prepare('INSERT INTO tela_cli (tok, dados, ts) VALUES (?, NULL, 0)').bind(t).run(); return t;
 }
+// v282: GALERIA NA TV — o dono pede ao bot ("coloca modelos de cozinha na TV") e a Tela do cliente passa as fotos em tela cheia.
+// Fonte: portfólio do bot (trabalhos com categoria, fotos de obras finalizadas e pedras com foto) + fotos enviadas com a legenda "tv".
+const TELA_CATS = [
+  ['cozinha', /cozinh|bancada|pia\b|gourmet|churrasq/, 'Modelos de cozinhas'], ['banheiro', /banheir|lavabo|\bpia de banh/, 'Modelos de banheiros'],
+  ['lavabo', /lavabo/, 'Modelos de lavabos'], ['escada', /escad|degrau/, 'Modelos de escadas'], ['tumulo', /tumul|jazig|capela|cemit/, 'Modelos de túmulos'],
+  ['soleira', /soleir|peitor/, 'Soleiras e peitoris'], ['varanda', /varand/, 'Modelos de varandas'], ['piso', /\bpiso/, 'Pisos'],
+];
+const TELA_CORES = [['branc', 'brancas'], ['pret', 'pretas'], ['cinz', 'cinzas'], ['verde', 'verdes'], ['marr', 'marrons'], ['beg', 'bege'], ['amarel', 'amarelas'], ['vermelh', 'vermelhas'], ['azul', 'azuis'], ['dourad', 'douradas']];
+async function telaGalLer(env) { try { const g = JSON.parse((await env.HR_KV.get('tela:gal')) || 'null'); return g && Date.now() < (g.exp || 0) ? g : null; } catch (_) { return null; } }
+async function telaGalMontar(env, txt) {
+  const n = normaliza(txt), lista = await lerPortfolio(env);
+  const querPedra = /\bpedr|granit|marmor|quartz|cores\b|\bcor\b/.test(n) && !TELA_CATS.some(c => c[1].test(n));
+  if (querPedra) {
+    const cor = TELA_CORES.find(c => n.includes(c[0]));
+    const vist = new Set(), itens = [];
+    for (const i of lista) {
+      if (!i || i.tipo !== 'pedra' || i.semFoto || !i.nome) continue; const k = normaliza(i.nome); if (vist.has(k)) continue;
+      if (cor && !normaliza(i.nome + ' ' + (i.tp || '') + ' ' + (i.desc || '')).includes(cor[0])) continue;
+      vist.add(k); itens.push({ u: '/portfolio/img/pedra/pf:' + i.id, leg: i.nome, sub: [i.tp, i.acab].filter(Boolean).join(' · ') });
+    }
+    return { titulo: cor ? 'Pedras ' + cor[1] : 'Nossas pedras', itens: itens.slice(0, 40) };
+  }
+  const cat = TELA_CATS.find(c => c[1].test(n));
+  const itens = lista.filter(i => i && i.tipo === 'trabalho' && (!cat || normaliza(i.cat || '') === cat[0] || cat[1].test(normaliza((i.legenda || '') + ' ' + (i.cat || '')))))
+    .sort((a, b) => (b.em || 0) - (a.em || 0)).map(i => ({ u: '/portfolio/img/obra/' + i.id, leg: String(i.legenda || '').replace(/\s+/g, ' ').slice(0, 90), sub: i.pedraNome ? 'Pedra ' + i.pedraNome : '' }));
+  return { titulo: cat ? cat[2] : 'Nossos trabalhos', itens: itens.slice(0, 40) };
+}
+async function telaGalMostrar(env, gal, min) {
+  const g = { ...gal, id: Date.now().toString(36), ts: Date.now(), exp: Date.now() + (min || 30) * 60000 };
+  await env.HR_KV.put('tela:gal', JSON.stringify(g), { expirationTtl: 2 * 86400 }); return g;
+}
+async function telaComandoDono(env, from, msg) {
+  const n = normaliza(msg);
+  const naTv = /\b(na|pra|para a|para|a) (tv|televisao|tela)\b|\btv\b/.test(n);
+  if (!naTv) return false;
+  if (/^(tira|tire|tirar|remove|limpa|limpe|desliga|desligue|para|pare|volta|volte)\b/.test(n) || /\bvolta(r)? (o |pro |para o )?orcamento\b/.test(n)) {
+    await env.HR_KV.delete('tela:gal'); await enviar(env, from, 'Pronto, tirei as fotos da TV. Ela volta a mostrar o orçamento.'); return true;
+  }
+  if (!/\b(coloca|coloque|colocar|bota|bote|botar|poe|ponha|por|mostra|mostre|mostrar|passa|passe|passar|exibe|exiba|exibir|abre|abra|joga|joga)\b/.test(n)) return false;
+  if (/\borcamento\b/.test(n)) { await env.HR_KV.delete('tela:gal'); await enviar(env, from, 'Pronto, a TV voltou para o orçamento.'); return true; }
+  const gal = await telaGalMontar(env, n);
+  if (!gal.itens.length) {
+    await enviar(env, from, `Ainda não tenho fotos para "${gal.titulo.toLowerCase()}" no portfólio. Me mande as fotos com a legenda *tv* que eu coloco na TV na hora, ou com *trabalho ${(TELA_CATS.find(c => c[2] === gal.titulo) || ['cozinha'])[0]}: descrição* para elas ficarem guardadas no portfólio.`);
+    return true;
+  }
+  await telaGalMostrar(env, gal);
+  await enviar(env, from, `Pronto, coloquei ${gal.itens.length} foto${gal.itens.length > 1 ? 's' : ''} na TV: *${gal.titulo}*. Elas passam sozinhas por 30 minutos.\nPara voltar ao orçamento, é só dizer *tira da TV*.`);
+  return true;
+}
+async function telaFotoDoDono(env, from, m) {
+  try {
+    const { buf, tipo: mime } = await baixarMidia(env, m.image.id);
+    if (buf.byteLength > 5 * 1024 * 1024) throw new Error('a foto passa de 5 MB');
+    const id = Date.now().toString(36); await env.HR_KV.put('tela:img:' + id, buf, { expirationTtl: 3 * 86400, metadata: { mime } });
+    const leg = String(m.image.caption || '').replace(/^(tv|na tv|pra tv|para tv|tela|na tela|televis[aã]o)\b\s*:?\s*/i, '').trim().slice(0, 90);
+    let g = await telaGalLer(env); const it = { u: '/tela/img/' + id, leg, sub: '' };
+    if (g && g.manual && Date.now() - (g.ts || 0) < 20 * 60000) { g.itens.push(it); g.ini = g.itens.length - 1; g.exp = Date.now() + 30 * 60000; g.id = Date.now().toString(36); await env.HR_KV.put('tela:gal', JSON.stringify(g), { expirationTtl: 2 * 86400 }); }
+    else g = await telaGalMostrar(env, { titulo: 'Modelos', manual: 1, itens: [it] });
+    await enviar(env, from, `Foto na TV${g.itens.length > 1 ? ` (${g.itens.length} na sequência)` : ''}. Mande mais com a legenda *tv* que eu junto. Para voltar ao orçamento: *tira da TV*.`);
+  } catch (e) { await enviar(env, from, 'Não consegui colocar a foto na TV: ' + e.message).catch(() => {}); }
+}
 // v281: Pix na Tela do cliente — o dono gera pelo app, o QR aparece na TV e a TV comemora quando o Mercado Pago confirma
 let TELA_VER_C = ''; function telaVer() { if (TELA_VER_C) return TELA_VER_C; let h = 0; for (let i = 0; i < TELA_HTML.length; i += 7) h = (h * 31 + TELA_HTML.charCodeAt(i)) | 0; return (TELA_VER_C = 'v281-' + (h >>> 0).toString(36)); }
 async function telaPixLer(env) { try { return JSON.parse((await env.HR_KV.get('tela:pix')) || 'null'); } catch (_) { return null; } }
@@ -22015,12 +22078,18 @@ async function telaPixEstado(env) {
   return pix;
 }
 async function rotaTela(req, env, url) {
+  if (url.pathname.startsWith('/tela/img/')) { // v282: fotos mandadas ao bot com a legenda "tv"
+    const { value, metadata } = await env.HR_KV.getWithMetadata('tela:img:' + url.pathname.slice(10).replace(/[^a-z0-9]/gi, ''), 'arrayBuffer');
+    if (!value) return new Response('Sem foto', { status: 404 });
+    return new Response(value, { headers: { 'Content-Type': (metadata && metadata.mime) || 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } });
+  }
   if (url.pathname !== '/tela' && url.pathname !== '/tela/dados') return null;
   await telaTab(env); const r = await env.HR_DB.prepare('SELECT dados, ts FROM tela_cli WHERE tok = ?').bind(String(url.searchParams.get('k') || '')).first().catch(() => null);
   if (!r) return new Response('Link inválido. Abra pelo app: Orçamento → 📺 Tela do cliente.', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   if (url.pathname === '/tela') return new Response(TELA_HTML.split('__EMP__').join(String(env.EMPRESA || 'HR Mármores e Granitos')).split('__WHATS__').join(String((await igWhatsFormatado(env).catch(() => '')) || '')).split('__VER__').join(telaVer()), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  let gal = null; try { const g = await telaGalLer(env); if (g) gal = { id: g.id, titulo: g.titulo, itens: g.itens, ini: g.ini || 0 }; } catch (_) {}
   let pix = null; try { const px = await telaPixEstado(env); if (px) pix = { valor: px.valor, cli: px.cli, tipo: px.tipo, png: px.png, copia: px.copia, venceEm: px.venceEm, status: px.status, id: px.id }; } catch (_) {}
-  return new Response(JSON.stringify({ v: telaVer(), ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null, pix }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  return new Response(JSON.stringify({ v: telaVer(), ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null, pix, gal }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 const TELA_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seu orçamento · __EMP__</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -22082,6 +22151,16 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:1.45fr 1fr;gap:1.6re
 .nota{margin-top:.7rem;font-size:.8rem;color:#f0c27a;background:rgba(240,160,60,.08);border:1px solid rgba(240,160,60,.3);border-radius:.5rem;padding:.35rem .7rem}
 .passos{display:flex;gap:.9rem;margin-top:1.6rem;flex-wrap:wrap;justify-content:center}.passos div{width:9.5rem;padding:.9rem .7rem;border-radius:.9rem;background:rgba(255,255,255,.04);border:1px solid rgba(201,168,76,.25);font-size:.85rem;color:#d9cfb6}.passos div b{display:block;font-family:'Cormorant Garamond',serif;font-size:1.6rem;color:#ecd27c}
 #rodMsg{transition:opacity .5s}
+.gal{position:fixed;inset:0;z-index:8;background:#050504;overflow:hidden}
+.gal .sl{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease}.gal .sl.on{opacity:1}
+.gal .bg{position:absolute;inset:-5%;background-size:cover;background-position:center;filter:blur(2.5rem) brightness(.45);transform:scale(1.1)}
+.gal .im{position:absolute;inset:0;background-size:contain;background-repeat:no-repeat;background-position:center}.gal .sl.on .im{animation:kb 9s ease-out forwards}
+@keyframes kb{from{transform:scale(1)}to{transform:scale(1.06)}}
+.gal .cap{position:absolute;z-index:2;left:0;right:0;bottom:0;padding:5rem 2.6rem 1.8rem;background:linear-gradient(transparent,rgba(0,0,0,.85));display:flex;align-items:flex-end;justify-content:space-between;gap:2rem}
+.gal .cap h2{font-family:'Cormorant Garamond',serif;font-size:2.6rem;color:#f3d982;font-weight:700;line-height:1.05}.gal .cap p{font-size:1.15rem;color:#efe6d0;margin-top:.4rem;max-width:60rem}.gal .cap p small{display:block;font-size:.9rem;color:#c8bb9c;margin-top:.2rem}
+.gal .ct{font-size:1rem;color:#c8bb9c;white-space:nowrap;text-align:right}.gal .ct .bar{width:12rem;height:.25rem;background:rgba(255,255,255,.15);border-radius:1rem;margin-top:.6rem;overflow:hidden}.gal .ct .bar i{display:block;height:100%;background:#ecd27c;width:0}
+.gal .mk{position:absolute;z-index:2;top:1.6rem;left:2.6rem;font-family:'Cormorant Garamond',serif;font-weight:700;font-size:1.6rem;color:#ecd27c;text-shadow:0 .2rem 1rem rgba(0,0,0,.8)}.gal .mk small{display:block;font-family:Outfit;font-size:.7rem;letter-spacing:.3em;color:rgba(236,210,124,.75);text-transform:uppercase;font-weight:500}
+.gal .wa{position:absolute;z-index:2;top:1.8rem;right:2.6rem;font-size:1rem;color:#efe6d0;text-shadow:0 .2rem 1rem rgba(0,0,0,.8)}
 @media (orientation:portrait){body{overflow:auto}main{grid-template-columns:1fr;height:auto}.col{overflow:visible}.val{height:auto}.lst{overflow:visible}}
 </style></head><body><div class="app" id="app"></div>
 <script>
@@ -22127,9 +22206,19 @@ var VIST={};function desenha(d){
 function estoura(){var el=[document.getElementById('cA')].concat([].slice.call(document.querySelectorAll('.lst')));for(var i=0;i<el.length;i++){var x=el[i];if(x&&x.scrollHeight>x.clientHeight+2)return true}return false}
 function ajusta(){var h=document.documentElement;if(innerHeight>innerWidth){h.style.fontSize='';return}var f=innerHeight/50;h.style.fontSize=f+'px';for(var n=0;n<40&&estoura()&&f>7;n++){f*=0.94;h.style.fontSize=f+'px'}}
 addEventListener('resize',function(){ajusta()});
+var GAL=null,galId='',gi=0,galT=null;
+function galPara(){if(galT){clearInterval(galT);galT=null}var g=document.getElementById('gal');if(g)g.remove();galId=''}
+function galSlide(){var g=GAL;if(!g||!g.itens.length)return;var el=document.getElementById('gal');if(!el)return;var it=g.itens[gi%g.itens.length];
+ var sl=document.createElement('div');sl.className='sl';var u=JSON.stringify(it.u).slice(1,-1);sl.innerHTML='<div class="bg" style="background-image:url(\\''+u+'\\')"></div><div class="im" style="background-image:url(\\''+u+'\\')"></div>';
+ var olds=el.querySelectorAll('.sl');el.insertBefore(sl,el.querySelector('.cap'));var img=new Image();img.onload=img.onerror=function(){requestAnimationFrame(function(){sl.classList.add('on')});setTimeout(function(){[].forEach.call(olds,function(o){o.remove()})},1400)};img.src=it.u;
+ el.querySelector('.cap').innerHTML='<div><h2>'+e(g.titulo||'Modelos')+'</h2>'+(it.leg||it.sub?'<p>'+e(it.leg||'')+(it.sub?'<small>'+e(it.sub)+'</small>':'')+'</p>':'')+'</div><div class="ct">'+((gi%g.itens.length)+1)+' de '+g.itens.length+'<div class="bar"><i id="gbar"></i></div></div>';
+ var b=document.getElementById('gbar');if(b){b.style.transition='none';b.style.width='0';requestAnimationFrame(function(){requestAnimationFrame(function(){b.style.transition='width 8s linear';b.style.width='100%'})})}
+ for(var k=1;k<=2;k++){var pre=g.itens[(gi+k)%g.itens.length];if(pre)(new Image()).src=pre.u}}
+function galInicia(){galPara();var el=document.createElement('div');el.id='gal';el.className='gal';el.innerHTML='<div class="mk">'+e(EMP)+'<small>Feito sob medida</small></div><div class="wa">'+e(WHATS)+'</div><div class="cap"></div>';document.body.appendChild(el);galId=GAL.id;gi=GAL.ini||0;galSlide();if(GAL.itens.length>1)galT=setInterval(function(){gi++;galSlide()},8000)}
+function galAtualiza(){if(!GAL||(PIX&&PIX.status)){galPara();return}if(GAL.id!==galId)galInicia()}
 function carregar(){fetch('/tela/dados?k='+encodeURIComponent(K),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
  if(j&&j.v&&VER.indexOf('__')<0&&j.v!==VER){location.reload();return}
- PIX=j&&j.pix||null;var d=j&&j.dados;var ativo=d&&j.ts&&Date.now()-j.ts<=30*60000&&!d.off;
+ PIX=j&&j.pix||null;GAL=j&&j.gal||null;galAtualiza();var d=j&&j.dados;var ativo=d&&j.ts&&Date.now()-j.ts<=30*60000&&!d.off;
  if(!ativo&&PIX){d=ultD||{cli:PIX.cli,data:new Date().toLocaleDateString('pt-BR'),ambs:[]};ativo=true}
  if(!ativo){if(ult!=='esp'){ult='esp';ultTot='';document.documentElement.style.fontSize='';espera()}return}
  ultD=d;var s=JSON.stringify([d,PIX&&PIX.status,PIX&&PIX.id]);if(s!==ult){ult=s;desenha(d)}}).catch(function(){})}
@@ -25070,6 +25159,13 @@ async function rotaBotInterna(req, env, url) {
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
   if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
   if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
+  if (p === '/bot/tela/galeria' && req.method === 'POST') { // v282: o app também manda a galeria para a TV
+    const b = await req.json().catch(() => ({}));
+    if (b.cancelar) { await env.HR_KV.delete('tela:gal'); return jsonR({ ok: true }); }
+    const gal = await telaGalMontar(env, String(b.q || ''));
+    if (!gal.itens.length) return jsonR({ ok: false, n: 0, titulo: gal.titulo });
+    await telaGalMostrar(env, gal); return jsonR({ ok: true, n: gal.itens.length, titulo: gal.titulo });
+  }
   if (p === '/bot/tela/pix' && req.method === 'POST') { // v281: gera (ou tira) o Pix da TV
     const b = await req.json().catch(() => ({}));
     if (b.cancelar) { await env.HR_KV.delete('tela:pix'); return jsonR({ ok: true }); }
@@ -33871,7 +33967,7 @@ export default {
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
-    if (url.pathname === '/tela' || url.pathname === '/tela/dados') { const r = await rotaTela(req, env, url); if (r) return r; } // v277
+    if (url.pathname === '/tela' || url.pathname === '/tela/dados' || url.pathname.startsWith('/tela/img/')) { const r = await rotaTela(req, env, url); if (r) return r; } // v277
     if (url.pathname === '/painel' || url.pathname.startsWith('/painel/')) { const r = await rotaPainelVendas(req, comKV(env), url, ctx); if (r) return r; } // v103
     if (url.pathname.startsWith('/marmoraria-')) { const r = await rotaCidade(req, comKV(env), url); if (r) return r; } // v92
     if (url.pathname === '/sitemap.xml') return rotaSitemap(comKV(env));

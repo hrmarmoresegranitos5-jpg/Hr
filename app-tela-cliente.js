@@ -130,6 +130,10 @@
       '<input id="tpxT" placeholder="Descrição (ex.: Sinal de 50%)" style="width:100%;min-height:40px;border-radius:12px;border:1px solid rgba(201,168,76,.25);background:rgba(255,255,255,.03);color:#f1ead8;padding:0 12px;font-family:inherit;margin-bottom:10px;">' +
       '<button id="tpxGo" style="width:100%;min-height:48px;border-radius:12px;border:none;background:linear-gradient(135deg,#5fd28e,#3aa86a);color:#06140b;font-weight:800;font-size:1rem;font-family:inherit;">💠 Mostrar Pix na TV</button>' +
       '<div id="tpxMsg" style="font-size:.8rem;color:#bdb19a;text-align:center;min-height:18px;margin-top:8px;"></div>' +
+      '<div style="font-size:.85rem;font-weight:700;color:#e8c96a;margin:14px 0 6px;">🖼️ Fotos na TV</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">' + ['Cozinhas', 'Banheiros', 'Escadas', 'Túmulos', 'Pedras', 'Trabalhos'].map(function (t) { return '<button data-g="' + t + '" style="' + bt + '">' + t + '</button>'; }).join('') + '</div>' +
+      '<button id="tgX" style="width:100%;margin-top:6px;' + bt + '">Tirar as fotos e voltar ao orçamento</button>' +
+      '<div id="tgMsg" style="font-size:.78rem;color:#bdb19a;text-align:center;min-height:16px;margin-top:6px;">Também dá para pedir ao bot: "coloca modelos de cozinha na TV".</div>' +
       '<div style="display:flex;gap:8px;margin-top:6px;"><button id="tpxX" style="flex:1;' + bt + '">Tirar o Pix da TV</button><button id="tpxOff" style="flex:1;' + bt + 'color:#ff9a8a;border-color:rgba(255,120,100,.4);">Desligar a tela</button></div>' +
       '<button id="tpxF" style="width:100%;margin-top:8px;background:none;border:none;color:#8a7f68;padding:8px;">Fechar</button></div>';
     document.body.appendChild(m);
@@ -149,6 +153,12 @@
     };
     function acompanhar() { var n = 0, t = setInterval(function () { if (!document.getElementById('tpxMsg') || ++n > 400) { clearInterval(t); return; }
       post({ estado: 1 }).then(function (j) { if (j.status === 'pago') { clearInterval(t); var el = document.getElementById('tpxMsg'); if (el) el.innerHTML = '<b style="color:#5fd28e">💚 Pago! R$ ' + fm2(j.valor) + ' confirmado.</b>'; try { toast('💚 Pix da TV confirmado'); } catch (e) {} } }).catch(function () {}); }, 4000); }
+    function gpost(corpo) { return fetch(b + '/bot/tela/galeria', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, hdr()), body: JSON.stringify(corpo) }).then(function (r) { return r.json(); }); }
+    var gm = document.getElementById('tgMsg');
+    [].slice.call(m.querySelectorAll('button[data-g]')).forEach(function (x) { x.onclick = function () { gm.textContent = 'Colocando na TV…';
+      gpost({ q: x.getAttribute('data-g') === 'Pedras' ? 'pedras' : x.getAttribute('data-g') === 'Trabalhos' ? 'trabalhos' : 'modelos de ' + x.getAttribute('data-g') }).then(function (j) {
+        gm.textContent = j.ok ? '✅ ' + j.n + ' fotos na TV: ' + j.titulo : 'Ainda não há fotos de ' + x.getAttribute('data-g').toLowerCase() + '. Mande ao bot com a legenda "tv".'; }).catch(function () { gm.textContent = 'Não consegui falar com o bot.'; }); }; });
+    document.getElementById('tgX').onclick = function () { gpost({ cancelar: 1 }).then(function () { gm.textContent = 'A TV voltou ao orçamento.'; }); };
     document.getElementById('tpxX').onclick = function () { post({ cancelar: 1 }).then(function () { msg.textContent = 'Pix retirado da TV.'; }); };
     document.getElementById('tpxOff').onclick = function () { setLig(false); publicar({ off: true }, true); post({ cancelar: 1 }).catch(function () {}); pintar(); m.remove(); toast('📺 Tela do cliente desligada'); };
   }
