@@ -1373,3 +1373,18 @@ function _injectOrcPremiumStyles() {
 
 // v29c (removido em 23/11): a barra fixa Recalcular/PDF/Copiar cobria o resultado e o PDF — os botões ficam só no fim do resultado
 (function () { var b = document.getElementById('orcAcoesRap'); if (b) b.remove(); document.body.classList.remove('orc-com-res'); })();
+// v30: cabeçalho compacto ao rolar (só nome + pedra + valor) e Calcular para de flutuar quando já existe resultado
+(function () {
+  var ligado = false;
+  function sync() {
+    var pg = document.getElementById('pg0'), hdr = document.getElementById('orcPremHdr'); if (!pg || !hdr) return;
+    if (!ligado) { ligado = true; pg.addEventListener('scroll', function () { hdr.classList.toggle('mini', pg.scrollTop > 90); }, { passive: true }); }
+    var res = document.getElementById('resArea'), temRes = !!(res && res.style.display !== 'none' && getComputedStyle(res).display !== 'none');
+    document.body.classList.toggle('orc-res', temRes);
+    var v = hdr.querySelector('.orc-mini-val');
+    if (!v) { var w = hdr.querySelector('.orc-prem-cli-nome'); if (!w) return; v = document.createElement('span'); v.className = 'orc-mini-val'; w.parentNode.appendChild(v); }
+    var num = document.getElementById('orcValorNum'), t = temRes && num ? (num.textContent || '').trim() : '';
+    v.textContent = /\d/.test(t) ? t : ''; v.classList.toggle('on', !!v.textContent);
+  }
+  setInterval(sync, 700);
+})();

@@ -4761,3 +4761,16 @@ body:has(#stoneMd.on) #fabPlus{ display:none !important; }
 #pg0 .orc-prem-hdr-inner { margin-bottom: 8px !important; }
 #pages #pg0 { padding-bottom: 18px !important; }
 /* v29c: barra fixa com Recalcular + PDF + Copiar depois do cálculo */
+/* v30 (23/11): cabeçalho do orçamento encolhe ao rolar; Calcular deixa de flutuar depois que há resultado */
+#pg0 #orcPremHdr { transition: padding .2s ease; }
+#pg0 #orcPremHdr .orc-prem-steps, #pg0 #orcPremHdr .orc-prem-cli-label { transition: opacity .2s ease, max-height .25s ease, margin .25s ease; max-height: 80px; overflow: hidden; }
+#pg0 #orcPremHdr.mini { padding-top: 6px !important; padding-bottom: 6px !important; }
+#pg0 #orcPremHdr.mini .orc-prem-cli-label { opacity: 0; max-height: 0; margin: 0 !important; }
+#pg0 #orcPremHdr.mini .orc-prem-steps { opacity: 0; max-height: 0; margin: 0 !important; padding: 0 !important; pointer-events: none; }
+#pg0 #orcPremHdr.mini .orc-prem-cli-nome { font-size: 1rem !important; }
+#pg0 #orcPremHdr .orc-mini-val { display: none; margin-left: 8px; font-weight: 800; color: #f0d78c; font-size: .85rem; white-space: nowrap; }
+#pg0 #orcPremHdr.mini .orc-mini-val.on { display: inline-block; }
+body.orc-res #pg0 .sec:has(> #btnCalc) { position: static; }
+#pg0 #orcPremHdr.mini .orc-prem-cli-wrap { display: flex; align-items: baseline; justify-content: flex-start; text-align: left; gap: 8px; flex: 1; min-width: 0; }
+#pg0 #orcPremHdr.mini .orc-prem-cli-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#pg0 #orcPremHdr.mini .orc-prem-cli-label { display: none; }
