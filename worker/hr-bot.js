@@ -21984,7 +21984,7 @@ async function rotaTela(req, env, url) {
   if (url.pathname !== '/tela' && url.pathname !== '/tela/dados') return null;
   await telaTab(env); const r = await env.HR_DB.prepare('SELECT dados, ts FROM tela_cli WHERE tok = ?').bind(String(url.searchParams.get('k') || '')).first().catch(() => null);
   if (!r) return new Response('Link inválido. Abra pelo app: Orçamento → 📺 Tela do cliente.', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-  if (url.pathname === '/tela') return new Response(TELA_HTML.replace('__EMP__', String(env.EMPRESA || 'HR Mármores e Granitos')).replace('__WHATS__', await igWhatsFormatado(env).catch(() => '')), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (url.pathname === '/tela') return new Response(TELA_HTML.split('__EMP__').join(String(env.EMPRESA || 'HR Mármores e Granitos')).split('__WHATS__').join(String((await igWhatsFormatado(env).catch(() => '')) || '')), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
   return new Response(JSON.stringify({ ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 const TELA_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seu orçamento · __EMP__</title>
