@@ -4,8 +4,8 @@
 // TV e uma caixa de comando que fala com o bot (o mesmo que escrever no WhatsApp).
 (function () {
   'use strict';
-  var LARGO = 1200, PG = 77;
-  function largo() { return window.innerWidth >= LARGO && window.innerWidth > window.innerHeight; }
+  var LARGO = 1000, PG = 77;
+  function largo() { return window.innerWidth >= LARGO && window.innerHeight >= 480 && window.innerWidth > window.innerHeight; }
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function R(v) { v = +v || 0; return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function Rk(v) { v = +v || 0; return Math.abs(v) >= 10000 ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : R(v); }
