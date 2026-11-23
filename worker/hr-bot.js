@@ -13409,6 +13409,7 @@ async function processarPagamentoMP(env, idPag, opc = {}) {
   if (!r.ok) { console.log('[BOT] MP consulta', idPag, r.status); return; }
   const pg = await r.json();
   if (CB_REF_RE.test(String(pg.external_reference || ''))) { await tratarPagamentoCobranca(env, pg); return; } // cobranças Pix em D1 (cb-<id>:v<n>)
+  if (/^tv-/.test(String(pg.external_reference || ''))) { if (pg.status === 'approved') await telaPixPago(env, pg); return; } // v281: Pix mostrado na TV do atendimento
   // Estorno / devolução: o MP avisa pelo mesmo webhook de pagamentos
   const devolvido = Number(pg.transaction_amount_refunded) || 0;
   if (pg.status === 'refunded' || pg.status === 'charged_back' || (pg.status === 'approved' && devolvido > 0.009)
@@ -21980,12 +21981,46 @@ async function telaToken(env) {
   const t = Array.from(crypto.getRandomValues(new Uint8Array(9))).map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 14);
   await env.HR_DB.prepare('INSERT INTO tela_cli (tok, dados, ts) VALUES (?, NULL, 0)').bind(t).run(); return t;
 }
+// v281: Pix na Tela do cliente — o dono gera pelo app, o QR aparece na TV e a TV comemora quando o Mercado Pago confirma
+let TELA_VER_C = ''; function telaVer() { if (TELA_VER_C) return TELA_VER_C; let h = 0; for (let i = 0; i < TELA_HTML.length; i += 7) h = (h * 31 + TELA_HTML.charCodeAt(i)) | 0; return (TELA_VER_C = 'v281-' + (h >>> 0).toString(36)); }
+async function telaPixLer(env) { try { return JSON.parse((await env.HR_KV.get('tela:pix')) || 'null'); } catch (_) { return null; } }
+async function telaPixCriar(env, b) {
+  if (!mpAtivo(env)) throw new Error('Mercado Pago não está ligado no bot.');
+  const valor = Math.round(Number(b.valor) * 100) / 100; if (!(valor >= 1)) throw new Error('Valor inválido.');
+  const cli = String(b.cli || 'Cliente').slice(0, 60), ts = Date.now();
+  const ped = { id: 'tv-' + ts, nome: cli, numero: String(ts) };
+  const cob = await mpCriarPix(env, ped, valor);
+  const pix = { id: cob.id, ref: ped.id, valor, cli, tipo: String(b.tipo || '').slice(0, 40), png: cob.png, copia: cob.copiaCola, venceEm: cob.venceEm || ts + 30 * 60000, status: 'pendente', ts, chk: ts, orcId: String(b.orcId || '').slice(0, 60) };
+  await env.HR_KV.put('tela:pix', JSON.stringify(pix), { expirationTtl: 2 * 86400 });
+  return pix;
+}
+async function telaPixPago(env, pg) {
+  const pix = await telaPixLer(env);
+  if (pix && String(pix.id) === String(pg.id)) { pix.status = 'pago'; pix.pagoEm = Date.now(); pix.pagador = pagadorMP(pg) || ''; await env.HR_KV.put('tela:pix', JSON.stringify(pix), { expirationTtl: 2 * 86400 }); }
+  if (!(await mpTravarPagamento(env, pg.id))) return;
+  const v = Number(pg.transaction_amount) || 0, cli = (pix && pix.cli) || 'cliente';
+  await notificarDono(env, Date.now(), `*Pix da TV confirmado:* R$ ${reais(v)} de ${cli}${pix && pix.tipo ? ' (' + pix.tipo + ')' : ''}. Pagador no banco: ${pagadorMP(pg) || 'não informado'}.`).catch(e => falhou(env, 'telaPixPago', e));
+  if (pix && pix.orcId) await confEnfileirar(env, { tipo: 'orc_sinal', orcId: pix.orcId, cliente: cli, valor: v, sinal: /sinal/i.test(pix.tipo || '') }).catch(() => {});
+}
+async function telaPixEstado(env) {
+  const pix = await telaPixLer(env); if (!pix) return null;
+  if (pix.status === 'pendente' && Date.now() - (pix.chk || 0) > 12000 && mpAtivo(env)) { // reserva, se o aviso do MP atrasar
+    pix.chk = Date.now(); await env.HR_KV.put('tela:pix', JSON.stringify(pix), { expirationTtl: 2 * 86400 }).catch(() => {});
+    const r = await fetch(`${MP_API}/v1/payments/${pix.id}`, { headers: { 'Authorization': `Bearer ${env.MP_ACCESS_TOKEN}` } }).catch(() => null);
+    const j = r && r.ok ? await r.json().catch(() => null) : null;
+    if (j && j.status === 'approved') { await telaPixPago(env, j); return telaPixLer(env); }
+  }
+  if (pix.status === 'pago' && Date.now() - (pix.pagoEm || 0) > 90000) return null; // a comemoração fica 90 s na TV
+  if (pix.status === 'pendente' && Date.now() > (pix.venceEm || 0) + 60000) return null;
+  return pix;
+}
 async function rotaTela(req, env, url) {
   if (url.pathname !== '/tela' && url.pathname !== '/tela/dados') return null;
   await telaTab(env); const r = await env.HR_DB.prepare('SELECT dados, ts FROM tela_cli WHERE tok = ?').bind(String(url.searchParams.get('k') || '')).first().catch(() => null);
   if (!r) return new Response('Link inválido. Abra pelo app: Orçamento → 📺 Tela do cliente.', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
-  if (url.pathname === '/tela') return new Response(TELA_HTML.split('__EMP__').join(String(env.EMPRESA || 'HR Mármores e Granitos')).split('__WHATS__').join(String((await igWhatsFormatado(env).catch(() => '')) || '')), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
-  return new Response(JSON.stringify({ ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (url.pathname === '/tela') return new Response(TELA_HTML.split('__EMP__').join(String(env.EMPRESA || 'HR Mármores e Granitos')).split('__WHATS__').join(String((await igWhatsFormatado(env).catch(() => '')) || '')).split('__VER__').join(telaVer()), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  let pix = null; try { const px = await telaPixEstado(env); if (px) pix = { valor: px.valor, cli: px.cli, tipo: px.tipo, png: px.png, copia: px.copia, venceEm: px.venceEm, status: px.status, id: px.id }; } catch (_) {}
+  return new Response(JSON.stringify({ v: telaVer(), ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null, pix }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 const TELA_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seu orçamento · __EMP__</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -22035,17 +22070,30 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:1.45fr 1fr;gap:1.6re
 .esp .marca{font-size:4.6rem}.esp .marca small{font-size:1rem;margin-top:1rem}
 .esp p{font-size:1.15rem;color:#c8bb9c}.esp .sel{display:flex;gap:1.6rem;margin-top:.8rem;color:#b9ad92;font-size:.95rem}.esp .sel span:before{content:'◆';color:#c9a84c;margin-right:.5rem;font-size:.7rem;vertical-align:middle}
 .esp .w{margin-top:.6rem;font-size:1rem;color:#ecd27c}
+.pix{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:.7rem;background:linear-gradient(165deg,rgba(79,168,107,.16),rgba(201,168,76,.05));border:1px solid rgba(79,200,130,.5);border-radius:1.1rem;padding:1.2rem}
+.pix h3{font-size:.8rem;letter-spacing:.35em;text-transform:uppercase;color:#9fe2b8;font-weight:600}
+.pix .qr{background:#fff;border-radius:1rem;padding:.8rem;width:17rem;height:17rem}.pix .qr img{width:100%;height:100%;image-rendering:pixelated;display:block}
+.pix b{font-family:'Cormorant Garamond',serif;font-size:3rem;color:#f3d982;line-height:1}.pix .t{font-size:1rem;color:#e6dcc4}.pix .c{font-size:.85rem;color:#a99c80}.pix .c strong{color:#9fe2b8}
+.pix .st{font-size:.85rem;color:#c8bb9c;max-width:24rem;line-height:1.5}
+.ok{position:fixed;inset:0;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.4rem;text-align:center;background:radial-gradient(60rem 40rem at 50% 40%,rgba(79,200,130,.25),transparent 70%),#0b0a08}
+.ok .ck{width:9rem;height:9rem;border-radius:50%;border:.35rem solid #5fd28e;display:flex;align-items:center;justify-content:center;font-size:5rem;color:#5fd28e;animation:pop .7s ease-out}
+.ok h1{font-family:'Cormorant Garamond',serif;font-size:4rem;color:#f3d982;font-weight:700}.ok p{font-size:1.4rem;color:#e6dcc4}.ok small{font-size:1rem;color:#a99c80}
+@keyframes pop{0%{transform:scale(.4)}70%{transform:scale(1.1)}100%{transform:none}}
+.nota{margin-top:.7rem;font-size:.8rem;color:#f0c27a;background:rgba(240,160,60,.08);border:1px solid rgba(240,160,60,.3);border-radius:.5rem;padding:.35rem .7rem}
+.passos{display:flex;gap:.9rem;margin-top:1.6rem;flex-wrap:wrap;justify-content:center}.passos div{width:9.5rem;padding:.9rem .7rem;border-radius:.9rem;background:rgba(255,255,255,.04);border:1px solid rgba(201,168,76,.25);font-size:.85rem;color:#d9cfb6}.passos div b{display:block;font-family:'Cormorant Garamond',serif;font-size:1.6rem;color:#ecd27c}
+#rodMsg{transition:opacity .5s}
 @media (orientation:portrait){body{overflow:auto}main{grid-template-columns:1fr;height:auto}.col{overflow:visible}.val{height:auto}.lst{overflow:visible}}
 </style></head><body><div class="app" id="app"></div>
 <script>
 var K=new URLSearchParams(location.search).get('k'),ult='',ultTot='';
-var EMP='__EMP__',WHATS='__WHATS__';
+var EMP='__EMP__',WHATS='__WHATS__',VER='__VER__',PIX=null,ultD=null;
+var MSGS=['Parcelamos em até 10× sem juros no cartão','Projeto em 3D antes de cortar a pedra','Sua obra entra no cronograma pela ordem de serviço','Pague o sinal por Pix com o QR code aqui na tela','Peças cortadas e acabadas na nossa oficina'],mi=0;
 function e(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function lim(t){try{return String(t||'').replace(/[\\u{1F000}-\\u{1FFFF}\\u{2600}-\\u{27BF}\\u{FE0F}\\u{200D}]/gu,'').replace(/\\s+/g,' ').trim()}catch(x){return String(t||'')}}
 function R(v){return 'R$ '+(Math.round(v*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function m2(v){return (+v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:3})+' m²'}
-function rodape(){return '<div class="rod"><span>'+e(EMP)+' · Pilão Arcado – BA</span><span>Parcelamos em até 10× sem juros no cartão</span><span>'+e(WHATS)+'</span></div>'}
-function espera(){document.getElementById('app').innerHTML='<div class="esp"><div class="marca">'+e(EMP)+'<small>Mármores e granitos sob medida</small></div><p>O seu orçamento aparece aqui enquanto montamos.</p><div class="dots"><span></span><span></span><span></span></div><div class="sel"><span>Cozinhas</span><span>Banheiros</span><span>Escadas</span><span>Túmulos</span></div><div class="w">'+e(WHATS)+'</div></div>'+rodape()}
+function rodape(){return '<div class="rod"><span>'+e(EMP)+' · Pilão Arcado – BA</span><span id="rodMsg">'+MSGS[mi%MSGS.length]+'</span><span>'+e(WHATS)+'</span></div>'}
+function espera(){document.getElementById('app').innerHTML='<div class="esp"><div class="marca">'+e(EMP)+'<small>Mármores e granitos sob medida</small></div><p>O seu orçamento aparece aqui enquanto montamos.</p><div class="dots"><span></span><span></span><span></span></div><div class="passos"><div><b>1</b>Visita técnica e medidas</div><div><b>2</b>Orçamento na hora, aqui na tela</div><div><b>3</b>Projeto em 3D</div><div><b>4</b>Produção na nossa oficina</div><div><b>5</b>Instalação no cronograma</div></div><div class="w">'+e(WHATS)+'</div></div>'+rodape()}
 function pecas(a){return (a.pecas||[]).map(function(p){var bd=(p.bd||[]).map(function(b){return '<span class="tag '+(/sainha/i.test(b.t)?'s':/front/i.test(b.t)?'f':'')+'">'+e(b.l)+': '+e(lim(b.t))+'</span>'}).join('');
  return '<div class="pc"><div class="n"><span>'+e(lim(p.desc||'Peça'))+'</span>'+(p.q>1?'<em>'+p.q+'×</em>':'')+'</div><div class="md">'+e(p.w)+' × '+e(p.h)+'<span>cm</span></div>'+(bd?'<div class="tags">'+bd+'</div>':'')+'</div>'}).join('')}
 function ambiente(a,i){
@@ -22053,7 +22101,7 @@ function ambiente(a,i){
  var ext=[];if(a.cuba)ext.push('Cuba: '+a.cuba);(a.ext||[]).forEach(function(x){ext.push(x)});
  var ds=VIST[a.pedra]?'':lim(a.pedraDesc||'');VIST[a.pedra]=1;if(ds.length>170)ds=ds.slice(0,ds.lastIndexOf(' ',165))+'…';
  return '<div class="amb"><div class="ah"><div class="num">'+(i+1)+'</div><h2>'+e(lim(a.tipo))+'</h2>'+(a.pedra?'<div class="pedra"><div class="sw" style="'+e(sw)+'"></div><div><b>'+e(a.pedra)+'</b><i>'+e(a.pedraFin||a.pedraCat||'')+'</i></div></div>':'')+'</div>'
-  +(ds?'<div class="desc">'+e(ds)+'</div>':'')+((a.pecas||[]).length?'<div class="pcs">'+pecas(a)+'</div>':'')+(ext.length?'<div class="ext">'+ext.map(function(x){return '<span>'+e(lim(x))+'</span>'}).join('')+'</div>':'')+'</div>'}
+  +(ds?'<div class="desc">'+e(ds)+'</div>':'')+((a.pecas||[]).length?'<div class="pcs">'+pecas(a)+'</div>':'')+(/soleira|peitoril/i.test(a.tipo||'')?'<div class="nota">Valor somente da pedra · a instalação de soleira e peitoril não está inclusa</div>':'')+(ext.length?'<div class="ext">'+ext.map(function(x){return '<span>'+e(lim(x))+'</span>'}).join('')+'</div>':'')+'</div>'}
 function valores(d){
  var V=d.val;if(!V||!(V.vista>0))return '<div class="val"><h3>Investimento</h3><div class="vazio">Os valores aparecem aqui<br>assim que o orçamento for calculado.<div class="dots" style="margin-top:.8rem"><span></span><span></span><span></span></div></div></div>';
  var vista=V.vista,prazo=Math.round(vista*1.15*100)/100,parc=prazo/10,modo=d.modo==='vista'?'vista':'prazo',alvo=modo==='vista'?vista:prazo;
@@ -22067,18 +22115,26 @@ function valores(d){
   ?'<div class="tot"><small>À vista</small><b id="tv">'+R(vista)+'</b><div class="p">ou <strong>'+R(prazo)+'</strong> em até 10× de '+R(parc)+'</div><div class="o">Desconto de '+R(prazo-vista)+' pagando à vista</div></div>'
   :'<div class="tot"><small>Valor do projeto</small><b id="tv">'+R(prazo)+'</b><div class="p">em até <strong>10× de '+R(parc)+'</strong> sem juros no cartão</div></div>';
  return '<div class="val"><h3>Investimento'+(V.m2>0?' · '+m2(V.m2)+' de pedra':'')+'</h3><div class="lst">'+h+'</div>'+tot+'</div>'}
+function pixCard(p){var falta=Math.max(0,Math.floor(((p.venceEm||0)-Date.now())/1000));
+ return '<div class="pix"><h3>Pague com Pix</h3><div class="t">'+e(p.tipo||'Pagamento')+' · '+e(p.cli||'')+'</div><div class="qr">'+(p.png?'<img src="data:image/png;base64,'+p.png+'">':'')+'</div><b>'+R(p.valor)+'</b><div class="st">Abra o app do seu banco, escolha Pix → Ler QR code e aponte para a tela.</div><div class="c">Recebedor: <strong>'+e(EMP)+'</strong> · válido por <span id="pxT">'+Math.floor(falta/60)+':'+('0'+falta%60).slice(-2)+'</span></div></div>'}
+function okTela(p){return '<div class="ok"><div class="ck">✓</div><h1>Pagamento confirmado!</h1><p>Recebemos '+R(p.valor)+(p.tipo?' · '+e(p.tipo):'')+'</p><small>Obrigado, '+e(String(p.cli||'').split(' ')[0])+'. Sua obra já vai para o nosso cronograma.</small></div>'}
 var VIST={};function desenha(d){
  VIST={};var A=(d.ambs||[]).map(ambiente).join('');
  document.getElementById('app').innerHTML='<div class="top"><div class="marca">'+e(EMP)+'<small>Seu orçamento sob medida</small></div><div class="cli"><small>Cliente</small><b>'+e(d.cli||'')+'</b><span>'+e(d.data||'')+'</span></div></div>'
-  +'<main><div class="col" id="cA">'+(A||'<div class="vazio">Montando o orçamento…</div>')+'</div><div class="col">'+valores(d)+'</div></main>'+rodape();
+  +'<main><div class="col" id="cA">'+(A||'<div class="vazio">Montando o orçamento…</div>')+'</div><div class="col">'+(PIX&&PIX.status==='pendente'?pixCard(PIX):valores(d))+'</div></main>'+rodape()+(PIX&&PIX.status==='pago'?okTela(PIX):'');
  var tv=document.getElementById('tv');if(tv){var t=tv.textContent;if(ultTot&&t!==ultTot)tv.classList.add('pulse');ultTot=t}
  ajusta()}
 function estoura(){var el=[document.getElementById('cA')].concat([].slice.call(document.querySelectorAll('.lst')));for(var i=0;i<el.length;i++){var x=el[i];if(x&&x.scrollHeight>x.clientHeight+2)return true}return false}
 function ajusta(){var h=document.documentElement;if(innerHeight>innerWidth){h.style.fontSize='';return}var f=innerHeight/50;h.style.fontSize=f+'px';for(var n=0;n<40&&estoura()&&f>7;n++){f*=0.94;h.style.fontSize=f+'px'}}
 addEventListener('resize',function(){ajusta()});
 function carregar(){fetch('/tela/dados?k='+encodeURIComponent(K),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
- var d=j&&j.dados;if(!d||!j.ts||Date.now()-j.ts>30*60000||d.off){if(ult!=='esp'){ult='esp';ultTot='';document.documentElement.style.fontSize='';espera()}return}
- var s=JSON.stringify(d);if(s!==ult){ult=s;desenha(d)}}).catch(function(){})}
+ if(j&&j.v&&VER.indexOf('__')<0&&j.v!==VER){location.reload();return}
+ PIX=j&&j.pix||null;var d=j&&j.dados;var ativo=d&&j.ts&&Date.now()-j.ts<=30*60000&&!d.off;
+ if(!ativo&&PIX){d=ultD||{cli:PIX.cli,data:new Date().toLocaleDateString('pt-BR'),ambs:[]};ativo=true}
+ if(!ativo){if(ult!=='esp'){ult='esp';ultTot='';document.documentElement.style.fontSize='';espera()}return}
+ ultD=d;var s=JSON.stringify([d,PIX&&PIX.status,PIX&&PIX.id]);if(s!==ult){ult=s;desenha(d)}}).catch(function(){})}
+setInterval(function(){var t=document.getElementById('pxT');if(t&&PIX){var f=Math.max(0,Math.floor(((PIX.venceEm||0)-Date.now())/1000));t.textContent=Math.floor(f/60)+':'+('0'+f%60).slice(-2)}},1000);
+setInterval(function(){var r=document.getElementById('rodMsg');if(!r)return;mi++;r.style.opacity=0;setTimeout(function(){r.textContent=MSGS[mi%MSGS.length];r.style.opacity=1},500)},8000);
 espera();carregar();setInterval(carregar,1500);setTimeout(function(){location.reload()},6*3600000);
 </script></body></html>`;
 async function rotaOficina(req, env, url) {
@@ -25014,6 +25070,12 @@ async function rotaBotInterna(req, env, url) {
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
   if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
   if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
+  if (p === '/bot/tela/pix' && req.method === 'POST') { // v281: gera (ou tira) o Pix da TV
+    const b = await req.json().catch(() => ({}));
+    if (b.cancelar) { await env.HR_KV.delete('tela:pix'); return jsonR({ ok: true }); }
+    if (b.estado) { const px = await telaPixLer(env); return jsonR({ ok: true, status: px ? px.status : '', valor: px ? px.valor : 0 }); }
+    try { const px = await telaPixCriar(env, b); return jsonR({ ok: true, valor: px.valor, copia: px.copia }); } catch (e) { return jsonR({ error: e.message }, 400); }
+  }
   if (p === '/bot/tela/link' && req.method === 'GET') return jsonR({ url: (await urlPublica(env)) + '/tela?k=' + await telaToken(env) }); // v277
   if (p === '/bot/tela/publicar' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await telaTab(env); await env.HR_DB.prepare('UPDATE tela_cli SET dados = ?, ts = ?').bind((() => { let j = JSON.stringify(b.dados || null); if (j.length > 300000 && b.dados && Array.isArray(b.dados.ambs)) { b.dados.ambs.forEach(a => { if (a) a.foto = ''; }); j = JSON.stringify(b.dados); } return j.length > 300000 ? 'null' : j; })(), Date.now()).run(); return jsonR({ ok: true }); } // v277
   if (p === '/bot/conversas/arquivo' && req.method === 'GET') { // v54: conversas dos últimos dias (padrão 14, máx. 30) para revisar o atendimento

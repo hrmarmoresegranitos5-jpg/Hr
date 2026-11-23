@@ -86,7 +86,7 @@
     var bt = document.createElement('button'); bt.id = 'btnTelaCli'; bt.type = 'button'; bt.title = 'Mostrar o orçamento ao cliente na TV ou no tablet';
     bt.style.cssText = 'border-radius:10px;padding:9px 11px;font:700 .72rem Outfit,sans-serif;cursor:pointer;white-space:nowrap;';
     box.insertBefore(bt, nv); pintar();
-    bt.onclick = function () { if (ligado()) { setLig(false); publicar({ off: true }, true); pintar(); toast('📺 Tela do cliente desligada'); } else abrirModal(); };
+    bt.onclick = function () { if (ligado()) abrirPainel(); else abrirModal(); };
   }
   function pintar() { var bt = document.getElementById('btnTelaCli'); if (!bt) return; var on = ligado();
     bt.textContent = on ? '📺 Ao vivo' : '📺 TV';
@@ -111,6 +111,46 @@
     m.onclick = function (ev) { if (ev.target === m || ev.target.id === 'telaCliX') m.remove(); };
     document.getElementById('telaCliCop').onclick = function () { if (!link) return; try { navigator.clipboard.writeText(link); toast('Link copiado'); } catch (e) {} };
     document.getElementById('telaCliOn').onclick = function () { setLig(true); pintar(); ultimo = ''; tick(); m.remove(); toast('📺 Tela do cliente ligada'); };
+  }
+  // Painel da tela ligada: Pix na TV (QR do Mercado Pago gerado pelo bot) e desligar
+  function fm2(v) { return (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function abrirPainel() {
+    var b = base(), val = valores(), vista = val ? val.vista : 0, prazo = Math.round(vista * 1.15 * 100) / 100;
+    var m = document.createElement('div'); m.id = 'telaCliPn';
+    m.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.75);display:flex;align-items:flex-end;justify-content:center;';
+    var bt = 'min-height:42px;border-radius:12px;border:1px solid rgba(201,168,76,.45);background:none;color:#f0d78c;font-weight:700;font-family:inherit;';
+    m.innerHTML = '<div style="width:100%;max-width:520px;background:#12100b;border:1px solid rgba(201,168,76,.4);border-radius:20px 20px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));color:#f1ead8;font-family:Outfit,sans-serif;">' +
+      '<div style="font-size:1.05rem;font-weight:700;color:#e8c96a;margin-bottom:4px;">📺 Tela do cliente · ao vivo</div>' +
+      '<div style="font-size:.78rem;color:#bdb19a;margin-bottom:14px;">Gere um Pix e o QR code aparece na TV. Quando o cliente pagar, a TV mostra "Pagamento confirmado" e o senhor recebe o aviso.</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">' +
+      '<button data-v="' + (vista / 2) + '" data-t="Sinal de 50%" style="' + bt + '">Sinal 50%</button>' +
+      '<button data-v="' + vista + '" data-t="Pagamento à vista" style="' + bt + '">À vista</button>' +
+      '<button data-v="" data-t="Pagamento" style="' + bt + '">Outro valor</button></div>' +
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><span style="color:#bdb19a;font-size:.85rem;">R$</span><input id="tpxV" inputmode="decimal" placeholder="0,00" style="flex:1;min-height:44px;border-radius:12px;border:1px solid rgba(201,168,76,.4);background:rgba(255,255,255,.05);color:#f1ead8;font-size:1.1rem;padding:0 12px;font-family:inherit;"></div>' +
+      '<input id="tpxT" placeholder="Descrição (ex.: Sinal de 50%)" style="width:100%;min-height:40px;border-radius:12px;border:1px solid rgba(201,168,76,.25);background:rgba(255,255,255,.03);color:#f1ead8;padding:0 12px;font-family:inherit;margin-bottom:10px;">' +
+      '<button id="tpxGo" style="width:100%;min-height:48px;border-radius:12px;border:none;background:linear-gradient(135deg,#5fd28e,#3aa86a);color:#06140b;font-weight:800;font-size:1rem;font-family:inherit;">💠 Mostrar Pix na TV</button>' +
+      '<div id="tpxMsg" style="font-size:.8rem;color:#bdb19a;text-align:center;min-height:18px;margin-top:8px;"></div>' +
+      '<div style="display:flex;gap:8px;margin-top:6px;"><button id="tpxX" style="flex:1;' + bt + '">Tirar o Pix da TV</button><button id="tpxOff" style="flex:1;' + bt + 'color:#ff9a8a;border-color:rgba(255,120,100,.4);">Desligar a tela</button></div>' +
+      '<button id="tpxF" style="width:100%;margin-top:8px;background:none;border:none;color:#8a7f68;padding:8px;">Fechar</button></div>';
+    document.body.appendChild(m);
+    var iv = document.getElementById('tpxV'), it = document.getElementById('tpxT'), msg = document.getElementById('tpxMsg');
+    if (vista > 0) { iv.value = fm2(vista / 2); it.value = 'Sinal de 50%'; } else msg.textContent = 'Calcule o orçamento para preencher o sinal e o total.';
+    [].slice.call(m.querySelectorAll('button[data-t]')).forEach(function (x) { x.onclick = function () { var v = +x.getAttribute('data-v'); iv.value = v > 0 ? fm2(v) : ''; it.value = x.getAttribute('data-t'); if (!(v > 0)) iv.focus(); }; });
+    function post(corpo) { return fetch(b + '/bot/tela/pix', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, hdr()), body: JSON.stringify(corpo) }).then(function (r) { return r.json(); }); }
+    m.onclick = function (ev) { if (ev.target === m || ev.target.id === 'tpxF') m.remove(); };
+    document.getElementById('tpxGo').onclick = function () {
+      var v = parseFloat(String(iv.value).replace(/\./g, '').replace(',', '.'));
+      if (!(v >= 1)) { msg.textContent = 'Digite o valor do Pix.'; return; }
+      msg.textContent = 'Gerando o Pix…';
+      post({ valor: v, tipo: it.value || 'Pagamento', cli: (document.getElementById('oCliente') || {}).value || 'Cliente' }).then(function (j) {
+        if (j.error) { msg.textContent = '⚠️ ' + j.error; return; }
+        msg.innerHTML = '✅ QR de R$ ' + fm2(j.valor) + ' na TV. Aguardando o pagamento…'; acompanhar();
+      }).catch(function () { msg.textContent = 'Não consegui falar com o bot agora.'; });
+    };
+    function acompanhar() { var n = 0, t = setInterval(function () { if (!document.getElementById('tpxMsg') || ++n > 400) { clearInterval(t); return; }
+      post({ estado: 1 }).then(function (j) { if (j.status === 'pago') { clearInterval(t); var el = document.getElementById('tpxMsg'); if (el) el.innerHTML = '<b style="color:#5fd28e">💚 Pago! R$ ' + fm2(j.valor) + ' confirmado.</b>'; try { toast('💚 Pix da TV confirmado'); } catch (e) {} } }).catch(function () {}); }, 4000); }
+    document.getElementById('tpxX').onclick = function () { post({ cancelar: 1 }).then(function () { msg.textContent = 'Pix retirado da TV.'; }); };
+    document.getElementById('tpxOff').onclick = function () { setLig(false); publicar({ off: true }, true); post({ cancelar: 1 }).catch(function () {}); pintar(); m.remove(); toast('📺 Tela do cliente desligada'); };
   }
   window.HRTelaCli = { dados: dados, ligar: function () { setLig(true); pintar(); }, desligar: function () { setLig(false); pintar(); } };
 })();
