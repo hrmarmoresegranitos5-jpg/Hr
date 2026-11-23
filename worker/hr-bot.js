@@ -10837,6 +10837,9 @@ async function quitTool(env, from, x) {
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v285nicho'))) { await env.HR_KV.put('fix:v285nicho', '1', { expirationTtl: 30 * 86400 }); // v285: o álbum "nichos de banheiro" entrou como banheiro
+    const l = await inspLer(env); let n = 0; for (const x of l) if (x.album && x.album.includes('biC6zY4Ucdhsr9qS6') && x.cat !== 'nicho') { x.cat = 'nicho'; n++; }
+    if (n) await env.HR_KV.put('insp:lista', JSON.stringify(l)); }
   if (!(await env.HR_KV.get('fix:v284cassio')) && await travaEnvio(env, 'fix:v284cassio')) { await env.HR_KV.put('fix:v284cassio', '1', { expirationTtl: 30 * 86400 }); // v284: corte da cozinha (Preto São Gabriel) do Cássio pelo Fabrício valia 0 pontos (serviço fora da produção, sem peças)
     const L = [];
     try {
