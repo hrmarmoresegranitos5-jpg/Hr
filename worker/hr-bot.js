@@ -11944,6 +11944,12 @@ async function pendFotosRotina(env) {
       let v = null; try { v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
       if (!v || v.lembrado || !v.em || Date.now() - v.em < idade) continue;
       const f = telDe(k.name.slice(pref.length)); if (!f) continue;
+      if (pref === 'prod:fotopend:' && v.mid) { // v278: ele já respondeu com um nome depois da foto ("Osmailton") → a foto vai ao dono com esse nome; não cobra de novo
+        const tx = await txLer(env, f.tel).catch(() => null), resp = ((tx && tx.f) || []).filter(x => x && x.q === 'c' && x.t > v.em && x.t - v.em < 3 * 3600000 && String(x.x).split(/\s+/).length <= 5 && !/^\[/.test(String(x.x))).pop();
+        if (resp) { const quem = String(resp.x).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40);
+          await env.HR_KV.delete(k.name).catch(() => {});
+          try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: v.mid, caption: `📷 ${f.nome} mandou foto às ${horaTs(v.em)} e disse que é de *${quem}*. Não achei esse serviço aberto no sistema: confira e lance no pedido certo.` } }); } catch (_) {}
+          continue; } }
       const t = await txt(v, f); await env.HR_KV.put(k.name, JSON.stringify({ ...v, lembrado: Date.now() }), { expirationTtl: 6 * 3600 });
       if (t) await enviar(env, f.tel, avisoTeste(env) + t).catch(() => {});
     }
