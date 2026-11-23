@@ -22028,8 +22028,8 @@ async function telaToken(env) {
 // v282: GALERIA NA TV — o dono pede ao bot ("coloca modelos de cozinha na TV") e a Tela do cliente passa as fotos em tela cheia.
 // Fonte: portfólio do bot (trabalhos com categoria, fotos de obras finalizadas e pedras com foto) + fotos enviadas com a legenda "tv".
 const TELA_CATS = [
-  ['gourmet', /gourmet|churrasq/, 'Áreas gourmet'], ['servico', /area de servico|lavander|tanque/, 'Áreas de serviço'], ['banheiro', /banheir|lavator|\bpia de banh/, 'Banheiros e lavatórios'],
-  ['cozinha', /cozinh|bancada|pia\b/, 'Modelos de cozinhas'], ['mesa', /\bmesas?\b/, 'Modelos de mesas'], ['nicho', /\bnichos?\b/, 'Nichos'],
+  ['nicho', /\bnichos?\b/, 'Nichos'], ['gourmet', /gourmet|churrasq/, 'Áreas gourmet'], ['servico', /area de servico|lavander|tanque/, 'Áreas de serviço'], ['banheiro', /banheir|lavator|\bpia de banh/, 'Banheiros e lavatórios'],
+  ['cozinha', /cozinh|bancada|pia\b/, 'Modelos de cozinhas'], ['mesa', /\bmesas?\b/, 'Modelos de mesas'],
   ['lavabo', /lavabo/, 'Modelos de lavabos'], ['escada', /escad|degrau/, 'Modelos de escadas'], ['tumulo', /tumul|jazig|capela|cemit/, 'Modelos de túmulos'],
   ['soleira', /soleir|peitor/, 'Soleiras e peitoris'], ['varanda', /varand/, 'Modelos de varandas'], ['piso', /\bpiso/, 'Pisos'],
 ];
