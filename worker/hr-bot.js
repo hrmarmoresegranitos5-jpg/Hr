@@ -9030,6 +9030,10 @@ async function pv1Rotina(env) {
     let num = r.tel ? normalizarBR(r.tel.startsWith('55') ? r.tel : '55' + r.tel) : '';
     if (!num) num = normalizarBR(await numeroDoClientePorNome(env, r.cli).catch(() => '') || '');
     if (!num) { r.status = 'sem_tel'; await env.HR_KV.put(k.name, JSON.stringify(r), { expirationTtl: 120 * 86400 }); await pontoAvisarDono(env, `💬 *Pós-venda de 1 mês* de *${r.cli}* (${r.serv}): não tenho o WhatsApp dele. Salve o telefone no orçamento/cliente no app que eu mando sozinho.`).catch(() => {}); continue; }
+    { const dv = await dividaCliente(env, num).catch(() => null); // v275: quem está devendo não recebe pós-venda ("ficou tudo certo?") — segura até pagar
+      if (dv && dv.saldoC > 0) { const prim = !r.seguradoDivida; r.seguradoDivida = Date.now(); r.quando = Date.now() + 3 * 86400000; await env.HR_KV.put(k.name, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+        if (prim) await pontoAvisarDono(env, `💬 Segurei o *pós-venda de 1 mês* de *${r.cli}*: ainda está devendo ${moedaCb(dv.saldoC)}. Mando depois que pagar.`).catch(() => {});
+        continue; } }
     n++; r.num = num;
     try {
       if (await janela24h(env, num)) { await pv1Mandar(env, r, num); r.status = 'enviado'; }
