@@ -507,11 +507,11 @@
   }
   function nOut(pc) { var m = num(pc.mold, 0); return m > 0 ? m : 2; } // v33: medidas de DENTRO A DENTRO (como no orçamento): a moldura fica em volta do vão; sem moldura, aparece a caixa de 2 cm
   function frenteSvg(pc, s, x0, y0, idx) { // nicho e placas: vista de frente
-    var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', st = 'fill="' + TOM.top + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"';
+    var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', stF = 'fill="' + TOM.top + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"';
     if (pc.tipo === 'nicho') { // v33: vão de dentro a dentro A × H, moldura em volta com encontro em 45° (externo A+2m × H+2m), fundo
       var o = nOut(pc), mo = num(pc.mold, 0), pr = Math.max(4, num(pc.prof, 10)), ls = 'stroke="' + TOM.line + '" stroke-width="' + sw + '"';
       var OW = (A + 2 * o) * s, OH = (H + 2 * o) * s, iw = o * s, IX = x0 + iw, IY = y0 + iw, IW = A * s, IH = H * s;
-      h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + OW + '" height="' + OH + '" ' + st + '/>';
+      h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + OW + '" height="' + OH + '" ' + stF + '/>';
       h += '<rect x="' + IX + '" y="' + IY + '" width="' + IW + '" height="' + IH + '" fill="' + (num(pc.fundo, 0) ? '#e4e1da' : '#fff') + '" ' + ls + '/>';
       [[x0, y0, IX, IY], [x0 + OW, y0, IX + IW, IY], [x0, y0 + OH, IX, IY + IH], [x0 + OW, y0 + OH, IX + IW, IY + IH]].forEach(function (q) { h += '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[2] + '" y2="' + q[3] + '" ' + ls + '/>'; });
       var d = Math.min(pr * 0.5, A * 0.15) * s; // profundidade: o fundo visto em perspectiva leve
@@ -523,7 +523,7 @@
       h += dimTxt(x0 + OW / 2, y0 + OH + 32, (mo ? 'Moldura ' + f1(mo) + ' cm em 45° · ' : '') + 'Externo: ' + f1(A + 2 * o) + ' × ' + f1(H + 2 * o) + ' cm', 20, 'middle', false);
       // quantidade vai na etiqueta embaixo
     } else {
-      h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + (A * s) + '" height="' + (H * s) + '" ' + st + '/>';
+      h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + (A * s) + '" height="' + (H * s) + '" ' + stF + '/>';
       // nome e quantidade vão na etiqueta embaixo
       h += dimTxt(x0 + A * s + 12, y0 + H * s / 2 + 10, f1(H), 28, 'start', it && idx + '|H') + dimTxt(x0 + A * s / 2, y0 + H * s + 38, f1(A), 28, 'middle', it && idx + '|A');
     }
@@ -1354,5 +1354,15 @@
   }
   function iniciar() { var sb = document.getElementById('secBody'); if (!sb) return setTimeout(iniciar, 1500); cartaoSec(); new MutationObserver(cartaoSec).observe(sb, { childList: true }); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+  // v35: FICHA TÉCNICA direto do card do Histórico — abre o Projeto 2D já com as peças do orçamento (nichos, cozinha, lavatório…)
+  window.hrFichaTecnica = function (qId) {
+    var l = []; try { l = JSON.parse(localStorage.getItem('hr_q') || '[]') || []; } catch (e) {}
+    var q = (Array.isArray(l) ? l : []).filter(function (x) { return x && String(x.id) === String(qId); })[0];
+    if (!q || !(q.ambSnap || []).length) { aviso('Esse orçamento não tem as peças salvas. Abra e salve o orçamento de novo.'); return; }
+    abrir(); st.d = novo(); st.d.cliente = q.cli || ''; st.d.material = q.mat || ''; st.d.texto = textoDoOrcamento(q); st.d.pecas = interpretar(st.d.texto);
+    if (!st.d.pecas.length) { aviso('Não consegui montar as peças desse orçamento.'); return; }
+    st.aberta = -1; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render();
+    aviso('📐 Ficha técnica pronta. Toque em 📤 Imagem para baixar ou mandar.');
+  };
   window.abrirDesenho = abrir; window.__hrDesTeste = { paginacaoSvg: paginacaoSvg, planoCorte: planoCorte, pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
 })();

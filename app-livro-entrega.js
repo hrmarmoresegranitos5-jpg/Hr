@@ -89,6 +89,7 @@
     } else h += linha('Pagamentos', 'nenhum registrado');
     h += linha('Pago / falta', '<b style="color:#4ade80;">R$ ' + money(pago) + '</b> / ' + (falta > 0.009 ? '<b style="color:#f59e0b;">R$ ' + money(falta) + '</b>' : '<b style="color:#4ade80;">quitado</b>'));
     if (q._entregaObs) h += linha('Obs. da entrega', esc(q._entregaObs));
+    if (typeof window.hrFichaTecnica === 'function' && (q.ambSnap || []).length) h += '<button class="btn btn-o" style="width:100%;margin-top:8px;padding:9px;font-size:.78rem;" onclick="event.stopPropagation();hrFichaTecnica(\'' + esc(q.id) + '\')">📐 Ficha técnica (desenho e lista de corte)</button>'; // v35
     if (typeof window.gerarExtratoClientePDF === 'function') h += '<button class="btn btn-o" style="width:100%;margin-top:8px;padding:9px;font-size:.78rem;" onclick="event.stopPropagation();hrLivroSaldoPDF(\'' + esc(q.id) + '\')">📄 ' + (falta > 0.009 ? 'PDF do saldo para o cliente (falta R$ ' + money(falta) + ')' : 'PDF de quitação para o cliente') + '</button>';
     return h;
   }
