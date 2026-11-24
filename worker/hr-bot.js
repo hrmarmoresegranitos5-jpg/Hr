@@ -2799,7 +2799,7 @@ Responda SÓ com o texto falado.`;
 const VOZ_V3_BASE = `Você é a voz da Helena, assistente virtual da HR Mármores e Granitos, de Pilão Arcado, Bahia. É sempre a mesma pessoa em todos os áudios: mulher brasileira adulta, timbre quente e levemente aveludado, simpática, segura e profissional.
 NATURALIDADE: fale como quem manda um áudio de WhatsApp para um cliente, nunca como quem lê. Cadência de conversa real, com pequenas variações de velocidade.
 ENTONAÇÃO: varie conforme o sentido de cada frase. Afirmações descem no fim; só pergunta de verdade sobe. Valor, prazo e medida ganham um leve destaque. Nunca repita o mesmo desenho de entonação em frases seguidas e não termine tudo no mesmo tom.
-RITMO: médio e confortável (cerca de 160 palavras por minuto), nem acelerado nem arrastado. Pausas curtas só entre ideias; dentro da frase, fale corrido.
+RITMO: ágil e fluido, como quem conversa no WhatsApp com desenvoltura (por volta de 185 palavras por minuto). NUNCA fale devagar, nunca arraste as sílabas nem alongue o fim das palavras. Pausas bem curtas, só entre ideias; dentro da frase, fale corrido.
 VOLUME: voz projetada, presente e com intensidade constante do começo ao fim. Não abaixe a voz no fim das frases nem no fim do áudio, não sussurre e não grite.
 PRONÚNCIA: Rangel = RAN-JÉU. Itaúnas = i-ta-Ú-nas. São Gabriel, Via Láctea, Ubatuba, Siena e Dallas como se fala no Brasil. Quartzito = quar-TZI-to. Porcelanato, frontão, sainha, rebaixo (re-BAI-xo), cuba, cooktop (cúqui-tópi), soleira, peitoril. Valores em reais e medidas em metros/centímetros com naturalidade.
 Leia exatamente as informações fornecidas, sem inventar, acrescentar ou modificar valores, medidas, nomes, prazos ou condições comerciais.`;
@@ -2808,10 +2808,10 @@ const VOZ_PERFIS = {
     instr: 'ESTILO NATURAL: espontânea e conversacional, como uma atendente simpática que já conhece o cliente. Sorriso leve na voz, energia tranquila. Sotaque brasileiro com um toque nordestino leve.',
     fala: 'Escreva como uma atendente simpática fala num áudio de WhatsApp: "tá", "pra", "né", "olha", "a gente" com naturalidade (sem exagerar), frases curtas e soltas.' },
   premium: { nome: 'Helena Premium', desc: 'elegante e profissional',
-    instr: 'ESTILO PREMIUM: elegante e profissional, como a consultora de uma loja de alto padrão. Dicção clara, voz calma e confiante, calorosa sem informalidade. Sotaque brasileiro neutro, influência baiana quase imperceptível.',
+    instr: 'ESTILO PREMIUM: elegante e profissional, como a consultora de uma loja de alto padrão. Dicção clara, voz confiante e fluida (calma não é lenta: mantenha o ritmo ágil), calorosa sem informalidade. Sotaque brasileiro neutro, influência baiana quase imperceptível.',
     fala: 'Escreva como uma consultora de loja de alto padrão fala num áudio: português correto e fluido, cordial, sem gírias e sem "né"; pode usar "pra" e "você". Frases bem construídas e curtas.' },
   regional: { nome: 'Helena Regional', desc: 'próxima, simpática, sotaque baiano discreto',
-    instr: 'ESTILO REGIONAL: próxima e simpática, com o jeito acolhedor do interior da Bahia. Vogais um pouco mais abertas e a melodia baiana discreta (sem caricatura e sem gírias forçadas). Calor humano e tranquilidade.',
+    instr: 'ESTILO REGIONAL: próxima e simpática, com o jeito acolhedor do interior da Bahia. Vogais um pouco mais abertas e a melodia baiana discreta (sem caricatura e sem gírias forçadas). Calor humano, com ritmo ágil de conversa (acolhedora não é lenta).',
     fala: 'Escreva como uma moça simpática do interior da Bahia fala num áudio para um cliente: acolhedora, "viu?", "tá certo?", "pode deixar" com naturalidade; nada de gíria forçada ("oxe", "painho") nem exagero.' },
 };
 function vozEhV3(cfg) { return !!(cfg && VOZ_PERFIS[cfg.perfil]); }
@@ -2914,8 +2914,8 @@ function vozContexto(t) {
   return '';
 }
 function vozInstrucoes(cfg, texto) {
-  if (vozEhV3(cfg)) { const ctx = cfg.emocao === false ? '' : vozContexto(texto); return [VOZ_V3_BASE, VOZ_PERFIS[cfg.perfil].instr, ctx ? 'TOM DESTE ÁUDIO: ' + VOZ_EMOCAO[ctx] : ''].filter(Boolean).join('\n'); }
-  const vel = +cfg.velocidade || 1, ritmo = vel <= 0.97 ? 'Ritmo um pouco mais calmo que o normal.' : vel >= 1.03 ? 'Ritmo um pouco mais ágil que o normal, sem atropelar.' : '';
+  if (vozEhV3(cfg)) { const ctx = cfg.emocao === false ? '' : vozContexto(texto), vel = +cfg.velocidade || 1; return [VOZ_V3_BASE, VOZ_PERFIS[cfg.perfil].instr, vel >= 1.03 ? 'Fale ainda mais ágil que o normal, sem atropelar.' : '', ctx ? 'TOM DESTE ÁUDIO: ' + VOZ_EMOCAO[ctx] : '', 'Lembre: ritmo ágil, nunca lento.'].filter(Boolean).join('\n'); }
+  const vel = +cfg.velocidade || 1, ritmo = vel <= 0.97 ? 'Ritmo de conversa normal, sem pressa (mas nunca arrastado).' : vel >= 1.03 ? 'Ritmo bem ágil, de quem fala rápido no dia a dia, sem atropelar as palavras.' : 'Ritmo ágil e fluido de conversa (por volta de 185 palavras por minuto): nunca fale devagar nem arraste as sílabas.'; // v296: estava lento
   const ctx = cfg.emocao ? vozContexto(texto) : '';
   return [cfg.instr || VOZ_INSTR_PADRAO, cfg.sotaque ? `Sotaque: ${cfg.sotaque}.` : '', 'O nome do dono é Rangel (escrito Hangel): pronuncie RAN-JÉU.', cfg.semPausas ? 'Não pare nas vírgulas: só respire de leve no fim das frases.' : '', ritmo, ctx ? 'Neste áudio: ' + VOZ_EMOCAO[ctx] : ''].filter(Boolean).join('\n');
 }
@@ -34555,7 +34555,7 @@ export default {
     await eqModoCarregar(env).catch(() => {}); // v154
     await expCarregar(env).catch(() => {}); // v168
     configurarRegras(env); // v27: limite de peças e pingadeira
-    if (!(await env.HR_KV.get('voz:v3teste')) && await travaEnvio(env, 'voz:v3teste').catch(() => false)) { await env.HR_KV.put('voz:v3teste', '1', { expirationTtl: 30 * 86400 }); ctx.waitUntil(vozVersoesWhatsApp(env, VOZ_MSG_TESTE).then(r => console.log('[VOZ] versões', JSON.stringify(r).slice(0, 300))).catch(e => console.log('[VOZ] versões:', e.message))); } // v295: as 4 versões da Helena, uma vez, no WhatsApp do dono
+    if (!(await env.HR_KV.get('voz:v3teste2')) && await travaEnvio(env, 'voz:v3teste2').catch(() => false)) { await env.HR_KV.put('voz:v3teste2', '1', { expirationTtl: 30 * 86400 }); ctx.waitUntil(vozVersoesWhatsApp(env, VOZ_MSG_TESTE).then(r => console.log('[VOZ] versões', JSON.stringify(r).slice(0, 300))).catch(e => console.log('[VOZ] versões:', e.message))); } // v295: as 4 versões da Helena, uma vez, no WhatsApp do dono
     ctx.waitUntil(filaReprocessar(env, 2).catch(e => console.log('[FILA]', e.message))); // v288: mensagem que ficou sem resposta (o agendamento tem mais tempo para responder)
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
