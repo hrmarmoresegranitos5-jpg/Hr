@@ -1017,7 +1017,7 @@ const pedSemProjeto = p => !itensPecas(p).length || !!p.estimado || (!!p.projeto
 const NOME_ETAPA_PTS = { corte: 'Corte', acabamento: 'Acabamento', polimento: 'Polimento', instalacao: 'Instalação', entrega: 'Entrega' };
 async function projetoNosPedidos(env, opc = {}) {
   const tkS = opc.soCliente ? tokensPedra(opc.soCliente) : null;
-  const peds = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && pedSemProjeto(p) && (!tkS || nomeNota(p.nome, tkS) >= 0.8)).catch(() => []);
+  const peds = await pedidosProducao(env, p => (!p.entregueEm || (opc.entregues && Date.now() - p.entregueEm < opc.entregues * 86400000)) && p.status !== 'recusado' && pedSemProjeto(p) && (!tkS || nomeNota(p.nome, tkS) >= 0.8)).catch(() => []);
   const L = [], faltam = [];
   for (const ped of peds) {
     const antes = { corte: ptsEtapa(ped, 'corte'), acab: ptsEtapa(ped, pedComplexo(ped) ? 'fabricacao' : 'acabamento') };
@@ -11326,7 +11326,27 @@ async function quitTool(env, from, x) {
   await enviarComBotoes(env, numeroDono(env), quitTextoCliente(env, antes.length ? { ...a, parciais: antes.map(p => ({ valor: p.valor })) } : a).slice(0, 1000), [{ id: 'acdp_ok|' + a.id, titulo: 'Confirmar e enviar' }, { id: 'acdp_no|' + a.id, titulo: 'Corrigir' }]);
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
+// v311: CORREÇÃO DO PASSADO — serviços já entregues (últimos 60 dias) recebem o projeto real do orçamento do app,
+// pagamentos parciais deixam de constar como "pago", e o dono recebe os pontos de cada um no mês, antes → depois.
+// Os pontos são calculados na hora a partir dos serviços, então o app do funcionário já mostra o valor novo.
+async function retroBonificacao(env, opc = {}) {
+  const hoje = dataBahia(), ini = hoje.slice(0, 8) + '01', cfg = await pontoCfg(env);
+  const soma = async () => { const m = await metasPontos(env, ini, hoje); const o = {}; for (const f of cfg.funcs) o[f.id] = (m[f.id] || {}).pts || 0; return o; };
+  const antes = await soma();
+  const r = await projetoNosPedidos(env, { entregues: 60, avisar: false }).catch(e => ({ feitos: 0, faltam: [], erro: e.message }));
+  const parciais = [];
+  for (const p of await pedidosProducao(env, x => x.recebidoEntrega && x.pago && Number(x.valor) > 0)) {
+    const recebido = (Number(p.recebidoEntrega.valor) || 0) + (p.sinal ? Number(p.sinal.valor) || 0 : 0);
+    if (recebido + 0.009 < Number(p.valor) && !p.recebidoEntrega.conferido) parciais.push(`${p.nome} (recebido R$ ${reais(recebido)} de R$ ${reais(p.valor)})`); // só mostra: o senhor confere se foi desconto combinado
+  }
+  const depois = await soma(), L = [];
+  for (const f of cfg.funcs) { const a = antes[f.id] || 0, d = depois[f.id] || 0; if (a || d) L.push(`• ${apelidoFunc(cfg, f) || String(f.nome).split(' ')[0]}: ${vPt(a)} → *${vPt(d)}*${Math.abs(d - a) > 0.04 ? (d > a ? ' ⬆️' : ' ⬇️') : ''}`); }
+  const txt = ['🔁 *Correção dos pontos (serviços já entregues incluídos)*', '', `Projetos corrigidos pelo orçamento do app: *${r.feitos || 0}*`, ...(r.faltam && r.faltam.length ? [`Sem PDF do orçamento (os pontos continuam estimados): ${[...new Set(r.faltam)].slice(0, 15).join(', ')}. Gere o PDF de cada um no app que eu refaço a conta.`] : []), ...(parciais.length ? [`Entregas marcadas como pagas que receberam menos que o valor (confira se foi desconto ou se falta cobrar): ${parciais.slice(0, 10).join('; ')}.`] : []), '', `*Pontos do mês (${dataBR(ini).slice(0, 5)} a hoje):*`, ...L, '', '_O app de cada funcionário já mostra os pontos novos._'].join('\n');
+  if (!opc.semAviso) await notificarDono(env, Date.now(), txt).catch(() => {});
+  return txt;
+}
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v311retro')) && await travaEnvio(env, 'fix:v311retro')) { await env.HR_KV.put('fix:v311retro', '1', { expirationTtl: 60 * 86400 }); await retroBonificacao(env).catch(e => console.log('[RETRO]', e.message)); } // v311: uma vez
   { const dk = 'proj:passe:' + dataBahia(); if (!(await env.HR_KV.get(dk)) && await travaEnvio(env, dk)) { await env.HR_KV.put(dk, '1', { expirationTtl: 3 * 86400 }); await projetoNosPedidos(env, { avisar: true, faltas: !(await env.HR_KV.get('proj:faltas1')) }).catch(e => console.log('[PROJ]', e.message)); await env.HR_KV.put('proj:faltas1', '1', { expirationTtl: 7 * 86400 }); } } // v286
   if (!(await env.HR_KV.get('fix:v285nicho'))) { await env.HR_KV.put('fix:v285nicho', '1', { expirationTtl: 30 * 86400 }); // v285: o álbum "nichos de banheiro" entrou como banheiro
     const l = await inspLer(env); let n = 0; for (const x of l) if (x.album && x.album.includes('biC6zY4Ucdhsr9qS6') && x.cat !== 'nicho') { x.cat = 'nicho'; n++; }
@@ -12759,6 +12779,7 @@ async function desempComandoDono(env, from, msg, bruto) {
     const v = parseFloat(m[2].replace(/\./g, '').replace(',', '.')); if (!(v > 100)) return false; const s = await salariosLer(env); s[f.id] = v; await env.HR_KV.put('cfg:salarios', JSON.stringify(s));
     await enviar(env, from, `Anotado: salário do ${apelidoFunc(cfg, f)} = ${dsmBRL(v)}/mês. Agora o desempenho mostra se ele está se pagando.`); return true; }
   m = msg.match(/^referencia de retorno (\d+(?:[.,]\d)?) ?x?$/); if (m) { const c = await dsmCfg(env); c.mult = parseFloat(m[1].replace(',', '.')); await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); await enviar(env, from, `Referência de retorno: ${c.mult}× o salário.`); return true; }
+  if (/^(corrigir|recalcular|refazer) (os )?pontos( (do mes|de todos|entregues))?$/.test(msg)) { await enviar(env, from, 'Refazendo a conta dos pontos com os projetos do app (inclusive os já entregues)…'); await retroBonificacao(env); return true; } // v311
   if (/^(auditoria|auditoria (dos pontos|de hoje|do dia)|conferir pontos)$/.test(msg)) { await enviar(env, from, (await auditoriaTexto(env)) || 'Hoje ainda não há etapas registradas.'); return true; } // v181
   if (/^auditoria de ontem$/.test(msg)) { await enviar(env, from, (await auditoriaTexto(env, dataBahia(-1))) || 'Ontem não houve etapas registradas.'); return true; }
   if (/^(quem merece aumento\??|aumento|aumentos|avaliacao (da equipe|de aumento)|quem (esta|ta) (se )?pagando( o salario)?\??)$/.test(msg)) { await enviar(env, from, await aumentoTexto(env)); return true; }
