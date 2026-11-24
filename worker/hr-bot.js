@@ -11309,6 +11309,33 @@ async function quitAntesRotina(env) { // v258
   if (!(await env.HR_KV.get('fix:v285nicho'))) { await env.HR_KV.put('fix:v285nicho', '1', { expirationTtl: 30 * 86400 }); // v285: o álbum "nichos de banheiro" entrou como banheiro
     const l = await inspLer(env); let n = 0; for (const x of l) if (x.album && x.album.includes('biC6zY4Ucdhsr9qS6') && x.cat !== 'nicho') { x.cat = 'nicho'; n++; }
     if (n) await env.HR_KV.put('insp:lista', JSON.stringify(l)); }
+  if (!(await env.HR_KV.get('fix:v305cassio')) && await travaEnvio(env, 'fix:v305cassio')) { await env.HR_KV.put('fix:v305cassio', '1', { expirationTtl: 60 * 86400 }); // v305: o projeto do Cássio é 4 lavatórios + 1 área gourmet; o Fabrício cortou 2 lavatórios e a área gourmet
+    try {
+      const cfg = await pontoCfg(env), fab = (cfg.funcs || []).find(x => /^fabr/.test(normaliza(x.nome || ''))), fid = fab ? String(fab.id) : '';
+      const ped = (await pedidosProducao(env, p => p.status !== 'recusado' && nomeNota(p.nome, tokensPedra('Cássio')) >= 2).catch(() => [])).sort((a, b) => (+b.criado || 0) - (+a.criado || 0))[0];
+      if (ped && fid) {
+        const r = await projetoDoCliente(env, ped.nome).catch(() => null), real = r && r.resumo && (r.resumo.itens || []).length >= 2;
+        if (real) { ped.resumoApp = { ...(ped.resumoApp || {}), ...r.resumo }; ped.pecas = pecasDoResumo(r.resumo); ped.projetoDe = r.orcNum || r.qId || 'orçamento do app'; delete ped.estimado; }
+        else { // sem o PDF com as peças: 4 lavatórios + área gourmet com medidas típicas, ajustadas ao m² do orçamento (o PDF substitui depois)
+          const snap = await lerSnapshotCompleto(env).catch(() => null), o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && nomeNota(x.cliente || '', tokensPedra(ped.nome)) > 0 && +x.m2 > 0).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
+          const lav = () => ({ ambiente: 'Lavatório', acabamento: '', pecas: [{ qtd: 1, comp_cm: 100, larg_cm: 50, tipoP: 'bancada' }, { qtd: 1, comp_cm: 100, larg_cm: 10, tipoP: 'frontao' }, { qtd: 1, comp_cm: 100, larg_cm: 10, tipoP: 'saia' }] });
+          const gou = { ambiente: 'Área gourmet', acabamento: '', pecas: [{ qtd: 1, comp_cm: 200, larg_cm: 60, tipoP: 'bancada' }, { qtd: 1, comp_cm: 200, larg_cm: 10, tipoP: 'frontao' }, { qtd: 1, comp_cm: 200, larg_cm: 10, tipoP: 'saia' }, { qtd: 2, comp_cm: 80, larg_cm: 60, tipoP: 'pe' }] };
+          const itens = [lav(), lav(), lav(), lav(), gou], m2e = itens.reduce((t, it) => t + it.pecas.reduce((u, pc) => u + pc.qtd * pc.comp_cm * pc.larg_cm / 1e4, 0), 0), f = o ? Math.max(0.6, Math.min(1.6, +o.m2 / m2e)) : 1;
+          itens.forEach(it => it.pecas.forEach(pc => { pc.comp_cm = Math.round(pc.comp_cm * f); }));
+          ped.resumoApp = { ...(ped.resumoApp || {}), pedra: (ped.resumoApp && ped.resumoApp.pedra) || ped.cor || 'Preto São Gabriel', itens }; ped.pecas = pecasDoResumo(ped.resumoApp); ped.estimado = { m2: o ? +o.m2 : 0, de: 'projeto: 4 lavatórios + área gourmet' }; ped.projetoApp = '4 lavatórios + área gourmet'; }
+        const antes = (ped.prodLog || []).filter(x => x.e === 'corte'), ts0 = Math.min(...antes.map(x => +x.ts || Date.now()), Date.now());
+        ped.prodLog = (ped.prodLog || []).filter(x => x.e !== 'corte'); ped.prog = { ...(ped.prog || {}), corte: [] }; ped.corteEm = null; ped.corteFeitoPor = null; ped.cortadas = 0; ped.fabResp = ped.fabResp || fid;
+        const U = unidadesPed(ped, 'corte'), lavs = U.filter(u => /lavat/.test(u.tipo + ' ' + normaliza(u.nome))).slice(0, 2), gs = U.filter(u => /gourmet/.test(u.tipo + ' ' + normaliza(u.nome))).slice(0, 1), sel = [...lavs, ...gs];
+        const frac = Math.round(sel.reduce((t, u) => t + u.frac, 0) * 1000) / 1000;
+        if (sel.length) { ped.prog.corte = sel.map(u => u.i); ped.prodLog.push({ e: 'corte', por: [fid], ts: ts0, frac, itens: sel.map(u => u.i), rec: 1 }); ped.cortadas = sel.length; }
+        await salvarPedido(env, ped);
+        const pts = meio(ptsEtapa(ped, 'corte', ts0) * frac) || 0.5, falta = U.filter(u => !ped.prog.corte.includes(u.i)).map(u => u.nome);
+        await notificarDono(env, Date.now(), [`*Projeto de ${ped.nome} corrigido*`, `${U.map(u => u.nome).join(', ')}${real ? ' (peças do PDF do orçamento)' : ' (medidas estimadas pelo m² do orçamento; quando o PDF do orçamento chegar, eu recalculo)'}.`, `Corte: Fabrício cortou ${sel.map(u => u.nome).join(', ')} = ${vPt(pts)} ponto(s). Faltam: ${falta.join(', ') || 'nada'}.`, 'Cada item (lavatório, área gourmet) é uma etapa; sainha e frontão fazem parte do item.'].join('\n')).catch(() => {});
+        if (fab.tel) await eqTexto(env, normalizarBR(String(fab.tel).replace(/\D/g, '').replace(/^(?!55)/, '55')), `${apelidoFunc(cfg, fab) || 'Fabrício'}, corrigi o projeto de *${ped.nome}*: são 4 lavatórios e 1 área gourmet. Anotei o seu corte de ${sel.map(u => u.nome).join(', ')} (${vPt(pts)} ponto(s)). Faltam ${falta.join(' e ') || 'nada'}.`).catch(() => {});
+        await metaChecar(env, fid).catch(() => {});
+      }
+    } catch (e) { console.log('[FIX305]', e.message); }
+  }
   if (!(await env.HR_KV.get('fix:v304rec')) && await travaEnvio(env, 'fix:v304rec')) { await env.HR_KV.put('fix:v304rec', '1', { expirationTtl: 60 * 86400 }); // v304: o dono pediu para resolver todos os pontos não recebidos
     try {
       const cfg = await pontoCfg(env), fid = t => { const f = (cfg.funcs || []).find(x => tokensPedra(x.nome || '')[0] === tokensPedra(t)[0]); return f ? String(f.id) : ''; };
@@ -12829,7 +12856,7 @@ function unidadesPed(p, et) {
     if (qt > 1 && solta) { const pi = ptsEtapa(ptsItemPed(p, it), 'acabamento') || 1, ar = (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) || 1;
       for (const pc of it.pecas || []) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ i: U.length, nome: `${nm} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: pi * area(pc) / ar, tipo: normaliza(it.ambiente || ''), larg: +pc.larg_cm || 0 });
       return; }
-    U.push({ i: U.length, nome: mesmos > 1 ? `${nm} ${k}` : nm, peso: ptsEtapa(ptsItemPed(p, it), 'acabamento') || (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) / 1e4 || 1, tipo: normaliza(it.ambiente || ''), larg: Math.max(0, ...(it.pecas || []).map(pc => +pc.larg_cm || 0)) }); });
+    U.push({ i: U.length, nome: mesmos > 1 ? `${nm} ${k}` : nm, peso: (et === 'corte' || et === 'fabricacao' ? ptsEtapa(ptsItemPed(p, it), et) : 0) || ptsEtapa(ptsItemPed(p, it), 'acabamento') || (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) / 1e4 || 1, tipo: normaliza(it.ambiente || ''), larg: Math.max(0, ...(it.pecas || []).map(pc => +pc.larg_cm || 0)) }); });
   else { const amb = normaliza(its[0].ambiente || p.interesse || '');
     for (const pc of its[0].pecas || []) for (let k = 0; k < Math.min(+pc.qtd || 1, 20); k++) { const est = (+pc.larg_cm || 0) <= 25;
       const tipo = /reten/.test(normaliza(String(pc.rot || pc.desc || ''))) ? 'pedra de retenção' : /peitor/.test(amb) ? 'peitoril' : /soleir/.test(amb) ? 'soleira' : est ? 'frontão/saia' : /lavat|banheir/.test(amb) ? 'lavatório' : 'bancada'; // v192
@@ -12860,7 +12887,9 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   const id = String(f.id), l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && p.status !== 'recusado');
   let ach = l.filter(p => nomeParecido(p, texto)); if (!ach.length) ach = await prodPorApelido(env, l, texto).catch(() => []);
   if (!ach.length) { let fu = null; try { fu = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {} if (fu && Date.now() - fu.em < 30 * 60000) ach = l.filter(p => String(p.id) === String(fu.pid)); }
-  if (!ach.length) { const mine = l.filter(p => [p.fabResp, p.fab2Resp, p.acabResp, p.poliResp].map(String).includes(id) && unidadesPed(p).length > 1); if (mine.length === 1) ach = mine; }
+  if (!ach.length) { const mine = l.filter(p => [p.fabResp, p.fab2Resp, p.acabResp, p.poliResp].map(String).includes(id) && unidadesPed(p).length > 1);
+    const outroNome = (msg.match(/\b(?:de|do|da|dos|das)\s+([a-z]{3,})/g) || []).map(x => x.split(/\s+/).pop()).filter(w => !/^(preto|branco|verde|cinza|marrom|sao|gabriel|absoluto|granito|marmore|quartzo|pedra|cozinha|banheiro|lavatorio|lavatorios|peitoril|peitoris|soleira|soleiras|bancada|corte|acabamento|hoje|ontem|manha|tarde|novo|nova|servico|item|itens|pecas|peca|area|gourmet|frontao|saia|sainha)$/.test(w));
+    if (mine.length === 1 && !(outroNome.length && !outroNome.some(w => nomeParecido(mine[0], w)))) ach = mine; } // v305: "peitoril de Jacó cortado" não vira pergunta sobre o Cássio
   if (ach.length !== 1) return false;
   const ped = ach[0];
   const papel = (await funcoesEquipe(env)).map[id] || [];
@@ -13119,6 +13148,7 @@ function servicosHugo(it) {
 }
 function unidadesEtapa(p, et) {
   const its = ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length); if (!its.length || !pedComplexo(p) || !['corte', 'polimento', 'fabricacao'].includes(et)) return null;
+  if (its.length > 1 && (et === 'corte' || et === 'fabricacao')) return null; // v305: projeto com vários itens → cada item (lavatório, área gourmet…) é uma etapa; sainha e frontão vão junto do item
   const U = [], mais = its.length > 1;
   its.forEach((it, i) => {
     const nm = capT(it.ambiente || 'item'), mesmos = its.filter(x => x.ambiente === it.ambiente).length, pre = mais ? (mesmos > 1 ? `${nm} ${its.slice(0, i + 1).filter(x => x.ambiente === it.ambiente).length}` : nm) + ' · ' : '';
@@ -22726,7 +22756,7 @@ async function prodPedirDono(env, f, from, x, texto, nome) {
 async function pedEstimarDoOrc(env, ped, cliente) {
   const snap = await lerSnapshotCompleto(env).catch(() => null), tkc = tokensPedra(String(cliente || ''));
   const o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && nomeNota(x.cliente || '', tkc) > 0).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
-  if (o && +o.m2 > 0) { const q = Math.max(1, Math.min(20, Math.round(+o.m2 / 0.6))); ped.pecas = [{ tipo: 'peça', qtd: q, comp_cm: 1, larg_cm: 1 }]; ped.projetoApp = ped.projetoApp === 'Serviço' && o.projeto ? String(o.projeto).slice(0, 40) : ped.projetoApp; ped.estimado = { m2: +o.m2, de: 'orcamento do app' }; }
+  if (o && +o.m2 > 0) { const q = Math.max(1, Math.min(20, Math.round(+o.m2 / 0.6))); ped.pecas = [{ tipo: 'peça', qtd: q, comp_cm: 100, larg_cm: Math.max(30, Math.round(+o.m2 * 10000 / q / 100)) }]; ped.projetoApp = ped.projetoApp === 'Serviço' && o.projeto ? String(o.projeto).slice(0, 40) : ped.projetoApp; ped.estimado = { m2: +o.m2, de: 'orcamento do app' }; }
   return o || null;
 }
 // v300: o funcionário disse que COMEÇOU um serviço que o dono esqueceu de abrir na produção → o bot abre sozinho e já marca o início.
