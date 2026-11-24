@@ -78,8 +78,8 @@ aside .fim .bt{flex:1}
 </style></head><body>
 <div id="app">
   <nav><div class="lg">HR</div>
-    <button data-t="expl" class="on"><span>📘</span>Explicar</button>
-    <button data-t="fotos"><span>🖼️</span>Modelos</button>
+    <button id="btOrc" onclick="abrirOrcamento()"><span>💰</span>Orçamento</button>
+    <button data-t="fotos" class="on"><span>🖼️</span>Modelos</button>
     <button data-t="pedras"><span>💎</span>Pedras</button>
     <button data-t="arqs"><span>📁</span>Meus arquivos</button>
     <button data-t="pix"><span>💳</span>Pix</button>
@@ -110,11 +110,16 @@ function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace
 function post(c, b) { return fetch(api(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }).then(function (r) { return r.json(); }); }
 try { if ('serviceWorker' in navigator) navigator.serviceWorker.register(api('/totem/sw.js'), { scope: '/totem' }).catch(function () {}); } catch (e) {}
 
-/*<<EXPL>>*/
+var EXPL = [];
+// v319: as explicações saíram; o orçamento é feito no app (modo balcão)
+function abrirOrcamento() {
+  if (window.top !== window) { try { window.parent.postMessage({ hr: 'go', pg: 0 }, '*'); return; } catch (e) {} }
+  location.href = 'https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1';
+}
 // ═══ estado e navegação ═══
-var ABA = 'expl', CAT = null, EST = null, ARQS = [], LISTA = null, MOD = [], PED = [];
-document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { abrir(b.dataset.t); }; });
-function abrir(t) { ABA = t; document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === t); }); $('cabAc').innerHTML = ''; $('corpo').scrollTop = 0; ({ expl: abaExpl, fotos: abaFotos, pedras: abaPedras, arqs: abaArqs, pix: abaPix })[t](); }
+var ABA = 'fotos', CAT = null, EST = null, ARQS = [], LISTA = null, MOD = [], PED = [];
+document.querySelectorAll('nav button[data-t]').forEach(function (b) { b.onclick = function () { abrir(b.dataset.t); }; });
+function abrir(t) { ABA = t; document.querySelectorAll('nav button[data-t]').forEach(function (b) { b.classList.toggle('on', b.dataset.t === t); }); $('cabAc').innerHTML = ''; $('corpo').scrollTop = 0; ({ expl: abaExpl, fotos: abaFotos, pedras: abaPedras, arqs: abaArqs, pix: abaPix })[t](); }
 // LISTA: as chaves (data-k) dos cartões na ordem dos itens que foram para a TV, para marcar o que está passando
 function mostrar(show, chaves) {
   LISTA = chaves || null; if (chaves) CUR = null;
@@ -355,5 +360,5 @@ function pedirWake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock
 document.addEventListener('visibilitychange', function () { if (!document.hidden) { pedirWake(); estado(); } });
 document.addEventListener('pointerdown', pedirWake);
 fetch('/portfolio/catalogo').then(function (r) { return r.json(); }).then(function (j) { CAT = j; if (ABA === 'pedras') abaPedras(); }).catch(function () {});
-escala(); abrir('expl'); estado(); setInterval(estado, 3000);
+escala(); abrir('fotos'); estado(); setInterval(estado, 3000);
 </script></body></html>

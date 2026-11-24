@@ -5,7 +5,7 @@
    O tablet do balcão abre o app com ?balcao=1 (fica guardado).
    Mostra só: 💰 Orçamento · 📋 Histórico · 👥 Clientes · 📺 TV.
    • O orçamento feito no tablet vai sozinho para a TV (Tela do cliente ligada).
-   • Aba TV: o controle da TV (explicações, modelos, pedras, fotos, Pix) com o
+   • Aba TV: o controle da TV (modelos, pedras, fotos e vídeos, Pix) com o
      espelho do que está passando na TV agora e se a TV está no ar.
    • Esconde o que é só do dono (imposto, sobra, finanças, RH, configurações).
    • Para sair: aba TV → "Sair do modo balcão" (pede a senha de proprietário).
@@ -85,6 +85,8 @@
     if (typeof openAdminPin === 'function') { openAdminPin(); var t = setInterval(function () { if (typeof _adOn !== 'undefined' && _adOn) { clearInterval(t); fim(); } }, 500); setTimeout(function () { clearInterval(t); }, 120000); }
     else if (confirm('Sair do modo balcão?')) fim();
   }
+  // v319: o botão "Orçamento" do controle da TV (dentro da aba TV) volta para a tela de orçamento
+  window.addEventListener('message', function (e) { try { if (e.data && e.data.hr === 'go' && typeof go === 'function') go(+e.data.pg || 0); } catch (x) {} });
   window.HR_BALCAO = { sair: sair, recarregar: function () { linkTv = ''; abrirTv(); }, abrirTv: abrirTv };
 
   var tent = 0;
