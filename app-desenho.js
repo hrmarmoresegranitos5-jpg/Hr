@@ -230,9 +230,9 @@
   function chapaSvg(b, bi, k, foto, inter, pag, larg, numerar) {
     var W = b.W * k, H = b.H * k, id = 'chp' + (++nCh), h = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + (W + 2) + ' ' + (H + 18) + '"' + (larg ? ' style="width:' + larg + ';height:auto;display:block;touch-action:' + (inter ? 'none' : 'auto') + '"' : ' width="' + (W + 2) + '" height="' + (H + 18) + '"') + ' font-family="' + FONTE + '">';
     var R = function (q) { return { x: 1 + q.x * k, y: 1 + q.y * k, w: q.w * k, h: q.h * k }; };
-    h += numerar && !foto ? '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="#f3f1ec" stroke="#8b877e" stroke-width="1.5" stroke-dasharray="6 4" rx="3"/>' : '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="' + (foto ? '#222' : b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
+    h += numerar ? '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="#f3f1ec" stroke="#8b877e" stroke-width="1.5" stroke-dasharray="6 4" rx="3"/>' : '<rect x="1" y="1" width="' + W + '" height="' + H + '" fill="' + (foto ? '#222' : b.tipo === 'sobra' ? '#2f3a33' : '#3a352c') + '" rx="3"/>';
     if (foto) { // foto apagada fora das peças, clara dentro delas
-      h += '<image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none" opacity=".35"/>';
+      if (!numerar) h += '<image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none" opacity=".35"/>'; // na folha, a pedra só aparece dentro das peças
       h += '<clipPath id="' + id + '">' + b.p.map(function (q) { var r = R(q); return '<rect x="' + r.x.toFixed(1) + '" y="' + r.y.toFixed(1) + '" width="' + r.w.toFixed(1) + '" height="' + r.h.toFixed(1) + '"/>'; }).join('') + '</clipPath><image href="' + foto + '" x="1" y="1" width="' + W + '" height="' + H + '" preserveAspectRatio="none" clip-path="url(#' + id + ')"/>';
     }
     var fsz = Math.max(9, Math.min(15, k * 4.2));
