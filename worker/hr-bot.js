@@ -8721,6 +8721,45 @@ async function impReciboBot(env, cli, valor, forma, refer, extra) {
   return impEnfileirar(env, { tipo: 'recibo', ref: `rec:${impPrim(cli)}|${Math.round(+valor * 100)}|${dataBahia()}`, titulo: 'RECIBO', sub: cli || 'cliente',
     linhas: [`Data|${dataBR(dataBahia())} ${horaTs(Date.now())}`, `Recebemos de|${cli || '-'}`, `**Valor|R$ ${reais(+valor)}`, `Forma|${forma || 'Pix'}`, ...(refer ? [`Referente|${refer}`] : []), ...(extra || [])] });
 }
+
+// ═══ v304: CONFERÊNCIA DE PONTOS — serviços entregues/etapas feitas que não deram ponto a ninguém ═══
+// Etapa que aconteceu (corte, acabamento, fabricação, entrega/instalação) e não tem quem fez → vai para o responsável designado.
+// Confirmações de finalização que estavam esperando o dono → aprovadas. O dono recebe a lista do que foi resolvido e do que falta decidir.
+async function pontosReconciliar(env, opc = {}) {
+  const cfg = await pontoCfg(env), nm = async id => (await respNome(env, id).catch(() => '')) || String(id);
+  const desde = Date.now() - (opc.dias || 45) * 86400000, L = [], pend = [], afetados = new Set();
+  // 1) confirmações que ficaram esperando o toque do dono
+  for (const [pre, bt] of [['fimconf:', 'fimc'], ['etpconf:', 'etpc']]) {
+    const ks = await env.HR_KV.list({ prefix: pre, limit: 100 }).catch(() => ({ keys: [] }));
+    for (const k of ks.keys || []) { let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (!c) continue;
+      const cid = k.name.slice(pre.length); env._painelCap = []; // o retorno ao dono vira a lista abaixo
+      try { if (bt === 'fimc') await fimConfBotao(env, numeroDono(env), `fimc|${cid}|s`); else await etapaConfBotao(env, numeroDono(env), `etpc|${cid}|s`); } catch (e) { console.log('[REC] conf:', e.message); }
+      env._painelCap = null; let cli = c.cliente || ''; if (!cli && c.pid) { const pd = await lerPedido(env, c.pid).catch(() => null); cli = pd ? pd.nome : ''; } L.push(`${c.nome || c.func || 'Funcionário'}: ${bt === 'fimc' ? 'finalização' : (ETAPA_NOME2[c.etapa] || 'serviço')} de ${cli || 'cliente'} confirmada`); if (c.fid) afetados.add(String(c.fid)); }
+  }
+  // 2) etapas sem quem fez
+  const peds = await pedidosProducao(env, p => p.status !== 'recusado' && Math.max(+p.atualizado || 0, +p.criado || 0, +p.entregueEm || 0, +p.fabProntoEm || 0) > desde).catch(() => []);
+  for (const p of peds) {
+    const log = Array.isArray(p.prodLog) ? p.prodLog : (p.prodLog = []), cx = pedComplexo(p), mud = [];
+    const tem = (...es) => log.some(x => es.includes(x.e) && Array.isArray(x.por) && x.por.length);
+    const pronto = p.fabProntoEm || p.prontoEm || p.entregueEm || 0;
+    const marca = (e, id, ts) => { log.push({ e, por: [String(id)], ts, rec: 1 }); afetados.add(String(id)); };
+    if ((p.corteEm || pronto) && !tem('corte') && !p.corteFeitoPor) { if (p.fabResp) { marca('corte', p.fabResp, p.corteEm || pronto); p.corteFeitoPor = String(p.fabResp); p.corteEm = p.corteEm || pronto; mud.push('corte → ' + await nm(p.fabResp)); } else pend.push(`${p.nome}: o corte foi feito, mas não sei quem cortou`); }
+    if (p.acabResp && (p.acabEm || (!cx && p.entregueEm)) && !tem('acabamento', 'polimento')) { marca('acabamento', p.acabResp, p.acabEm || p.entregueEm); p.acabEm = p.acabEm || p.entregueEm; mud.push('acabamento → ' + await nm(p.acabResp)); }
+    if (cx && pronto && !tem('fabricacao') && !p.fabFeitoPor) { const q = p.fab2Resp || p.fabResp; if (q) { marca('fabricacao', q, p.fabProntoEm || p.prontoEm || pronto); p.fabFeitoPor = String(q); mud.push('fabricação → ' + await nm(q)); } else pend.push(`${p.nome}: a fabricação foi feita, mas não sei quem fez`); }
+    if (p.entregueEm && String(p.entrega || '') !== 'retirada' && !tem('entrega', 'instalacao') && !p.entFeitoPor) { if (p.entResp) { log.push({ e: cx ? 'instalacao' : 'entrega', por: [...new Set([String(p.entResp), ...(p.entAjud || []).map(String)])], ts: p.entregueEm, rec: 1 }); afetados.add(String(p.entResp)); p.entFeitoPor = String(p.entResp); mud.push((cx ? 'instalação' : 'entrega') + ' → ' + await nm(p.entResp)); } else pend.push(`${p.nome}: ${cx ? 'instalado' : 'entregue'}, mas não sei quem ${cx ? 'instalou' : 'entregou'}`); }
+    if (!p.entregueEm && p.instIniEm && Date.now() - p.instIniEm > 2 * 86400000) pend.push(`${p.nome}: a instalação começou ${dataBR(diaDe(p.instIniEm))} e ninguém avisou que terminou`);
+    if (mud.length) { await salvarPedido(env, p); L.push(`${p.nome}: ${mud.join(', ')}`); }
+  }
+  // 3) casos que o dono mostrou (conversas do Gibson e do Lucas)
+  for (const k of (opc.extras || [])) { try { const r = await k(); if (r) { L.push(r.txt); if (r.id) afetados.add(String(r.id)); } } catch (e) { console.log('[REC] extra:', e.message); } }
+  for (const id of afetados) await metaChecar(env, id).catch(() => {});
+  return { L, pend };
+}
+async function pontosReconciliarTexto(env, opc) {
+  const { L, pend } = await pontosReconciliar(env, opc);
+  return ['*Conferência de pontos*', '', L.length ? 'Resolvido:\n' + L.map(x => '• ' + x).join('\n') : 'Nada pendente: todas as etapas entregues já tinham quem fez.',
+    ...(pend.length ? ['', 'Falta o senhor me dizer (é só escrever, ex.: _Gibson instalou o do Fulano_):', ...pend.map(x => '• ' + x)] : [])].join('\n');
+}
 // ficha de um pedido fechado fora do WhatsApp (balcão/telefone): o dono dita e a ficha vai ao Fabrício (e a entrega ao Gibson)
 async function fichaProducao(env, a) {
   const nome = String(a.cliente || '').trim().slice(0, 60); if (!nome) return { erro: true, texto: 'Falta o nome do cliente.' };
@@ -11270,6 +11309,24 @@ async function quitAntesRotina(env) { // v258
   if (!(await env.HR_KV.get('fix:v285nicho'))) { await env.HR_KV.put('fix:v285nicho', '1', { expirationTtl: 30 * 86400 }); // v285: o álbum "nichos de banheiro" entrou como banheiro
     const l = await inspLer(env); let n = 0; for (const x of l) if (x.album && x.album.includes('biC6zY4Ucdhsr9qS6') && x.cat !== 'nicho') { x.cat = 'nicho'; n++; }
     if (n) await env.HR_KV.put('insp:lista', JSON.stringify(l)); }
+  if (!(await env.HR_KV.get('fix:v304rec')) && await travaEnvio(env, 'fix:v304rec')) { await env.HR_KV.put('fix:v304rec', '1', { expirationTtl: 60 * 86400 }); // v304: o dono pediu para resolver todos os pontos não recebidos
+    try {
+      const cfg = await pontoCfg(env), fid = t => { const f = (cfg.funcs || []).find(x => tokensPedra(x.nome || '')[0] === tokensPedra(t)[0]); return f ? String(f.id) : ''; };
+      const ontem = h => Date.parse(isoSomaDias(dataBahia(), -1) + 'T' + h + ':00-03:00');
+      const achar = async nome => (await pedidosProducao(env, p => p.status !== 'recusado' && nomeNota(p.nome, tokensPedra(nome)) >= 2).catch(() => [])).sort((a, b) => (+b.criado || 0) - (+a.criado || 0))[0];
+      const extras = [
+        async () => { const g = fid('Gibson'), p = await achar('Poliano'); if (!g || !p) return null; const lg = p.prodLog = p.prodLog || [];
+          if (lg.some(x => ['instalacao', 'entrega'].includes(x.e) && (x.por || []).map(String).includes(g))) return null;
+          const ts = p.entregueEm || ontem('10:18'); lg.push({ e: 'instalacao', por: [g], ts, rec: 1 }); p.entFeitoPor = p.entFeitoPor || g; p.fabProntoEm = p.fabProntoEm || ts; if (!p.entregueEm) { p.entregueEm = ts; await appMarcarEntregue(env, p); } await salvarPedido(env, p);
+          return { id: g, txt: `${p.nome}: instalação → Gibson (foto "Finalizando o serviço de poliano", ontem 10:18)` }; },
+        async () => { const l = fid('Lucas'), p = await achar('Ésio Caveira'); if (!l || !p) return null; const lg = p.prodLog = p.prodLog || [];
+          if (lg.some(x => ['acabamento', 'polimento', 'fabricacao'].includes(x.e) && (x.por || []).map(String).includes(l))) return null;
+          lg.push({ e: 'acabamento', por: [l], ts: ontem('17:05'), rec: 1 }); await salvarPedido(env, p);
+          return { id: l, txt: `${p.nome}: divisórias finalizadas → Lucas (foto de ontem 17:05)` }; },
+      ];
+      await notificarDono(env, Date.now(), await pontosReconciliarTexto(env, { extras })).catch(() => {});
+    } catch (e) { console.log('[REC]', e.message); }
+  }
   if (!(await env.HR_KV.get('fix:v284cassio')) && await travaEnvio(env, 'fix:v284cassio')) { await env.HR_KV.put('fix:v284cassio', '1', { expirationTtl: 30 * 86400 }); // v284: corte da cozinha (Preto São Gabriel) do Cássio pelo Fabrício valia 0 pontos (serviço fora da produção, sem peças)
     const L = [];
     try {
@@ -21007,6 +21064,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await vozComando(env, from, msg).catch(e => { console.log('[VOZ] comando:', e.message); return false; })) return; // v160
     if (await eqModoComando(env, from, msg).catch(e => { console.log('[EQ] modo:', e.message); return false; })) return; // v154
     if (await inspAlbumComando(env, from, bruto, msg).catch(e => { console.log('[INSP] comando:', e.message); return false; })) return; // v283
+    if (/^(confere|conferir|conferencia de|resolve|resolver|acerta|acertar) (os )?pontos\b|\bpontos (nao recebidos|pendentes|que faltam)\b/.test(msg)) { await enviar(env, from, 'Conferindo todos os serviços e etapas, um momento.'); await enviar(env, from, await pontosReconciliarTexto(env, {})); return; } // v304
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
