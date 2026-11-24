@@ -359,7 +359,7 @@
   function bboxPeca(pc) {
     if (oblq(pc)) { var b = bboxOb(pc); return { w: b.x1 - b.x0, h: b.y1 - b.y0, mL: 110, mR: 110, mT: pc.reb && pc.reb.on && pc.tipo !== 'prateleira' ? 135 : 78, mB: (pc.tipo === 'L' ? 78 : 30) + 40 }; }
     var A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H));
-    return pc.tipo === 'nicho' ? { w: A + 2 * nOut(pc), h: H + 2 * nOut(pc), mL: 30, mR: 40, mT: 20, mB: 90 } : { w: A, h: H, mL: 30, mR: 80, mT: 20, mB: 100 };
+    return pc.tipo === 'nicho' ? { w: A + 2 * nOut(pc), h: H + 2 * nOut(pc), mL: 80, mR: 30, mT: 70, mB: 90 } : { w: A, h: H, mL: 30, mR: 80, mT: 20, mB: 100 };
   }
 
   // ── desenho de uma peça em perspectiva ──
@@ -517,9 +517,10 @@
       var d = Math.min(pr * 0.5, A * 0.15) * s; // profundidade: o fundo visto em perspectiva leve
       h += '<rect x="' + (IX + d) + '" y="' + (IY + d) + '" width="' + Math.max(1, IW - 2 * d) + '" height="' + Math.max(1, IH - 2 * d) + '" fill="none" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.6) + '"/>';
       [[IX, IY, IX + d, IY + d], [IX + IW, IY, IX + IW - d, IY + d], [IX, IY + IH, IX + d, IY + IH - d], [IX + IW, IY + IH, IX + IW - d, IY + IH - d]].forEach(function (q) { h += '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[2] + '" y2="' + q[3] + '" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.6) + '"/>'; });
-      h += dimTxt(IX + IW / 2, IY + d + 34, f1(A), 28, 'middle', it && idx + '|A') + dimTxt(IX + d + 12, IY + IH / 2 + 10, f1(H), 28, 'start', it && idx + '|H');
-      h += dimTxt(IX + IW / 2, IY + IH / 2 + 22, 'prof. ' + f1(pr), 24, 'middle', it && idx + '|prof');
-      h += dimTxt(x0 + OW / 2, y0 + OH + 32, (mo ? 'moldura ' + f1(mo) + ' em 45° · ' : '') + 'externo ' + f1(A + 2 * o) + ' × ' + f1(H + 2 * o), 20, 'middle', it && mo && idx + '|mold');
+      h += cota([IX, y0], [IX + IW, y0], [0, -1], 26, f1(A) + ' cm', 26, it && idx + '|A') + cota([x0, IY], [x0, IY + IH], [-1, 0], 26, f1(H) + ' cm', 26, it && idx + '|H'); // v34: cotas por fora, como no orçamento
+      if (mo) h += dimTxt(IX + IW + iw / 2, IY + IH / 2 + 8, f1(mo), 22, 'middle', it && idx + '|mold');
+      h += dimTxt(IX + IW / 2, IY + IH / 2 + 9, 'Prof. ' + f1(pr) + ' cm', 24, 'middle', it && idx + '|prof');
+      h += dimTxt(x0 + OW / 2, y0 + OH + 32, (mo ? 'Moldura ' + f1(mo) + ' cm em 45° · ' : '') + 'Externo: ' + f1(A + 2 * o) + ' × ' + f1(H + 2 * o) + ' cm', 20, 'middle', false);
       // quantidade vai na etiqueta embaixo
     } else {
       h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + (A * s) + '" height="' + (H * s) + '" ' + st + '/>';
