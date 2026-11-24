@@ -24,6 +24,7 @@
     'html.balcao #nav .ni{display:none!important}',
     'html.balcao #nav .ni-sep{display:none!important}',
     'html.balcao #nav .ni[data-pg="0"],html.balcao #nav .ni[data-pg="7"],html.balcao #nav .ni.bl-ni{display:flex!important}',
+    'html.balcao body #nav .ni[data-pg="77"]{display:none!important}',
     'html.balcao .so-dono{display:none!important}'
   ].join('\n');
   document.head.appendChild(st);
