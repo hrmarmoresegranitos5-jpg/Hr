@@ -21303,6 +21303,7 @@ async function tratarPayload(env, payload) {
     }
   }
   await filaReprocessar(env).catch(e => console.log('[FILA]', e.message)); // v288
+  if (!(await env.HR_KV.get('voz:regional1')) && await travaEnvio(env, 'voz:regional1').catch(() => false)) { await env.HR_KV.put('voz:regional1', '1', { expirationTtl: 90 * 86400 }); await vozCfgSalvar(env, { perfil: 'regional', reescrever: true, emocao: true }, 'dono escolheu a Regional').catch(e => console.log('[VOZ] regional:', e.message)); } // v297: o dono escolheu a Helena Regional
   if (!(await env.HR_KV.get('voz:v3teste2')) && await travaEnvio(env, 'voz:v3teste2').catch(() => false)) { await env.HR_KV.put('voz:v3teste2', '1', { expirationTtl: 30 * 86400 }); await vozVersoesWhatsApp(env, VOZ_MSG_TESTE).catch(e => console.log('[VOZ] versões:', e.message)); } // v296
   await pedirAvaliacoes(env); // sem depender do gatilho agendado: confere quem parou de responder (no máximo a cada 5 minutos)
   await rodarDepois(env).catch(e => falhou(env, 'bot no lugar do app', e)); // v27
