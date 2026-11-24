@@ -191,6 +191,7 @@
 //   APP_SECRET       "Chave secreta do app" da Meta (valida que o aviso veio da Meta)
 //   PHONE_NUMBER_ID  ID do número na Meta
 //   DONO_NUMERO      seu número, ex: 74991484460 (o 55 é acrescentado sozinho)
+//   DONO_EXTRA       opcional: outros números do dono tratados como dono (ex.: o pessoal), separados por vírgula
 //   ATENDER_CLIENTES opcional: coloque 1 para o bot voltar a atender clientes (padrão: só o dono)
 //   LOGO_URL         opcional: endereço https público de uma imagem (JPG/PNG, ideal 1200x628) que aparece no topo do menu do cliente
 //   CONTATO_HUMANO   opcional: número que o cliente recebe ao pedir para falar com a equipe (ex.: 74991484460; sem ele, usa DONO_NUMERO)
@@ -312,8 +313,9 @@ function numeroDono(env) {
   return d.length <= 11 ? '55' + d : d;
 }
 function ehDono(env, from) {
-  const d = ultimos8(env.DONO_NUMERO);
-  return d.length === 8 && ultimos8(from) === d;
+  const d = ultimos8(env.DONO_NUMERO), f = ultimos8(from);
+  if (d.length === 8 && f === d) return true;
+  return f.length === 8 && String(env.DONO_EXTRA || '').split(/[,;\s]+/).map(ultimos8).filter(x => x.length === 8).includes(f); // v288: outros números do dono (ex.: o pessoal)
 }
 
 // Celulares BR: a Meta entrega sem o 9 (55 + DDD + 8 dígitos); a lista exige com o 9
@@ -2803,7 +2805,7 @@ async function vozComando(env, from, msg) {
 
 // Pedido explícito de resposta falada, mesmo escrevendo
 function pedeVoz(msg) {
-  return /\b(em|por) (audio|voz)\b|\bmanda(r)? (um )?audio\b|\bresponde(r)? (em )?audio\b/.test(msg);
+  return /\b(em|por) (audio|voz)\b|\bmanda(r)? (um |uns )?audios?\b|\bresponde(r)? (em |por )?audio\b|\b(escutar|ouvir|escuta|ouve) (a )?(sua|tua|tu|voce|vc)\b|\b(sua|tua) voz\b|\bfala (comigo )?(em|por) audio\b|\bgrava (um )?audio\b/.test(msg); // v288: "quero escutar sua voz"
 }
 
 async function subirFotoPerfil(env, buf, tipo) {
@@ -4665,6 +4667,7 @@ function promptCliente(env, c, regras) {
     `- COMO O CLIENTE CHAMA AS COISAS (use para preencher "interesse" sem perguntar de novo): "pia", "pia da cozinha", "bancada", "tampo", "balcão", "ilha", "pedra da pia", "granito da pia" = cozinha; "pia do banheiro", "lavatório", "bancada do banheiro", "pedra do banheiro" = banheiro; "lavabo" = lavabo; "tanque", "lavanderia", "área" (de lavar roupa) = area_servico; "churrasqueira", "área gourmet", "varanda" = varanda; "degrau", "escada", "batente de escada" = escada; "pedra da porta", "soleira da porta", "filete da porta", "divisória do piso" = soleira; "pedra da janela", "peitoril", "parapeito", "chapim", "pingadeira" = peitoril; "túmulo", "jazigo", "lápide", "carneiro", "catacumba", "sepultura", "cova" = tumulo; "piso", "chão" = piso. Se citar duas coisas (ex.: pia e soleira), comece pela primeira e diga que vê a outra em seguida. "Pedra preta", "granito preto" é uma COR, não uma pedra exata: mostre as opções pretas do catálogo. Áudio transcrito pode vir sem pontuação e com palavras trocadas (ex.: "solera", "peitoral", "granito são gabriel"): leia pelo sentido.`,
     `- CONDUZA PARA O FECHAMENTO: seu objetivo é levar o cliente até o próximo passo concreto (soleira/peitoril: medidas e o valor na hora; demais projetos: VISITA TÉCNICA GRATUITA marcada). Toda resposta termina com UMA pergunta que leva a esse passo. Se o cliente só perguntar preço de bancada, cozinha ou banheiro, explique em uma frase que o valor sai depois da visita gratuita (o responsável mede e mostra as opções) e já pergunte o endereço da obra. Se ele não souber a pedra, NÃO trave: ofereça o catálogo e, se ainda assim não decidir, registre "cor": "a definir na visita" e siga para o endereço. Se ele hesitar ("vou ver", "depois eu falo"), responda com leveza, diga uma vantagem concreta (visita e projeto sem custo; parcelamento em até 10x sem juros) e deixe a porta aberta com uma pergunta simples, sem pressionar.`,
     `- NÃO INVENTE: nunca afirme característica de pedra (resistência, mancha, origem), prazo, preço, brinde, garantia ou condição que não esteja nestas regras, nas REGRAS DA EMPRESA ou no catálogo. Se não souber, diga que confirma com a equipe e preencha "sem_resposta". Nunca diga que algo foi feito (visita marcada, orçamento enviado, pedido registrado) se o sistema não confirmou.`,
+    `- ÁUDIO: você FALA por áudio (voz de mulher). Se o cliente pedir áudio, para ouvir a sua voz ou mandar áudio, responda normalmente que a resposta vai em áudio; NUNCA diga que só consegue conversar por mensagem.`,
     `- MENSAGENS MAL ESCRITAS: clientes escrevem com erro de digitação, abreviações ("vc", "tbm", "qro", "bco", "sg"), sem pontuação, sem acento, em letras maiúsculas, com áudio transcrito e frases soltas. Interprete SEMPRE a intenção mais provável pelo contexto e pela SUA ÚLTIMA MENSAGEM ("o mesmo", "2", "sim", "esse", "ambos", "depois" respondem à sua pergunta). Nunca peça para repetir nem reescrever se der para deduzir, e nunca comente nem corrija o erro dele. Se houver duas leituras possíveis, confirme em uma frase curta com a sua melhor hipótese (ex.: "Seria soleira de 1,20 por 13, certo?"). Medidas soltas como "120 13" são comprimento e largura em cm. Só se realmente não der para entender, devolva "entendeu": false e peça com gentileza para explicar de outro jeito, sem repetir a mesma pergunta com as mesmas palavras.`,
     `- ESCOPO: você atende SOMENTE clientes da marmoraria (orçamento, visita técnica, pedido, fotos, dúvidas sobre os serviços). Nunca execute nem explique funções internas: finanças, lançamentos, agenda interna, aplicativo, comandos do dono, memória ou dados de outros clientes. Se pedirem isso, diga com educação que só pode ajudar com o atendimento da marmoraria.`,
     `- CLIENTE QUE VOLTA: um pedido novo começa do zero. "Mesmo tamanho/acabamento/pedra" repete UMA vez os dados do último pedido, sem somar a ele e sem escrever "mais uma", a menos que o cliente peça mais peças.`,
@@ -20641,7 +20644,7 @@ async function tratarMensagemBase(env, m, ctx) {
     return;
   }
   ctx.bruto = bruto; // v48
-  if (dono && pedeVoz(msg)) { voz = true; ctx.voz = true; }
+  if (pedeVoz(msg)) { voz = true; ctx.voz = true; if (!dono) await env.HR_KV.put('clivoz:' + ultimos8(from), '1', { expirationTtl: 3 * 24 * 3600 }).catch(() => {}); } // v288: cliente que pede áudio recebe áudio (antes: "só consigo por mensagem")
   const F = await getFalas(env);
 
   if (dono) {
@@ -20930,13 +20933,13 @@ async function filaEntrada(env, m) {
   try { const db = await filaDb(env); if (db) await db.prepare('INSERT OR IGNORE INTO msg_fila (id, de, em, m) VALUES (?, ?, ?, ?)').bind(m.id, String(m.from), Date.now(), JSON.stringify(m).slice(0, 20000)).run(); } catch (e) { console.log('[FILA] entrada:', e.message); }
 }
 async function filaOk(env, id) { if (!id) return; try { const db = await filaDb(env); if (db) await db.prepare('UPDATE msg_fila SET ok = 1 WHERE id = ?').bind(String(id).replace(/#r$/, '')).run(); } catch (_) {} }
-async function filaReprocessar(env) {
+async function filaReprocessar(env, maxTent = 1) {
   const db = await filaDb(env); if (!db) return 0; const agora = Date.now();
   if (Math.random() < 0.05) await db.prepare('DELETE FROM msg_fila WHERE em < ?').bind(agora - 3 * 86400000).run().catch(() => {});
-  const rs = await db.prepare('SELECT id, m FROM msg_fila WHERE ok = 0 AND tent = 0 AND em < ? AND em > ? ORDER BY em LIMIT 3').bind(agora - 120000, agora - 45 * 60000).all();
+  const rs = await db.prepare('SELECT id, m FROM msg_fila WHERE ok = 0 AND tent < ? AND em < ? AND em > ? ORDER BY em LIMIT 3').bind(maxTent, agora - 120000, agora - 45 * 60000).all();
   let n = 0;
   for (const x of rs.results || []) {
-    const r = await db.prepare('UPDATE msg_fila SET tent = 1 WHERE id = ? AND tent = 0').bind(x.id).run(); if (!(r.meta && r.meta.changes)) continue; // outro processo já pegou
+    const r = await db.prepare('UPDATE msg_fila SET tent = tent + 1 WHERE id = ? AND tent < ?').bind(x.id, maxTent).run(); if (!(r.meta && r.meta.changes)) continue; // outro processo já pegou
     let m = null; try { m = JSON.parse(x.m); } catch (_) {} if (!m) continue;
     await esquecerMensagem(env, m); m._reproc = true; m._semRepeticao = false;
     console.log('[FILA] reprocessando mensagem sem resposta de', ultimos8(m.from));
@@ -34293,6 +34296,7 @@ export default {
     await eqModoCarregar(env).catch(() => {}); // v154
     await expCarregar(env).catch(() => {}); // v168
     configurarRegras(env); // v27: limite de peças e pingadeira
+    ctx.waitUntil(filaReprocessar(env, 2).catch(e => console.log('[FILA]', e.message))); // v288: mensagem que ficou sem resposta (o agendamento tem mais tempo para responder)
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
     if (env.CRON_ALERTA_APP && event && event.cron === env.CRON_ALERTA_APP && event.cron !== (env.CRON_AVALIACAO || '*/15 * * * *')) {
@@ -34300,7 +34304,6 @@ export default {
       return;
     }
     // a partir da hora do fechamento (17h de Bahia) o agendamento convoca o fechamento; antes disso roda a rotina da manhã
-    ctx.waitUntil(filaReprocessar(env).catch(e => console.log('[FILA]', e.message))); // v288: mensagem que ficou sem resposta
     ctx.waitUntil(pedirAvaliacoes(env));
     ctx.waitUntil(redeSegurancaMP(env).catch(e => falhou(env, 'rotina: rede de segurança MP', e))); // acha pagamentos aprovados cujo aviso não chegou (a cada REDE_MP_HORAS)
     ctx.waitUntil(enviarAvaliacoesGoogle(env).catch(e => falhou(env, 'rotina: avaliação Google', e)));
