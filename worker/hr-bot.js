@@ -22821,6 +22821,7 @@ async function prodReclamaPontos(env, f, from, texto, nome, msg) {
   let ul = null; try { ul = JSON.parse((await env.HR_KV.get('prod:ultleg:' + ultimos8(from))) || 'null'); } catch (_) {}
   const reenviaLegenda = async () => { // v302: a legenda da última foto dele não virou registro → roda de novo (uma vez)
     if (!ul || !ul.leg || env._ultlegUsada || Date.now() - ul.em > 24 * 3600000) return false;
+    if (!soPonto && /\?|\b(quero saber|queria saber|quanto|quantos|qual|quais|como (ta|esta|fica)|me (diz|fala|explica)|ver (os|meus) pontos)\b/.test(normaliza(texto) + (String(texto).includes('?') ? ' ?' : ''))) return false; // v307: pergunta sobre pontos não reaproveita a legenda da foto antiga (a secretária responde com os dados)
     env._ultlegUsada = 1;
     for (const pre of ['fimconf:', 'etpconf:']) { // já está com o dono para confirmar: não manda de novo
       const ks = await env.HR_KV.list({ prefix: pre, limit: 60 }).catch(() => ({ keys: [] }));
