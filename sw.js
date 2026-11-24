@@ -3,7 +3,7 @@
 // Cache de arquivos versionados (?v=N) + rede primeiro para index.html + app abre offline
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v262';
+var CACHE_NAME = 'hr-shell-v263';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',
