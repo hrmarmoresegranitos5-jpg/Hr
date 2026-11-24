@@ -8015,7 +8015,7 @@ async function semDonoNaFila(env) { // serviço que ninguém pegou ainda
 }
 async function funcPerguntas(env, f, from, texto, nome, msg) {
   if (await prodReclamaPontos(env, f, from, texto, nome, msg).catch(e => { console.log('[PROD] reclamação:', e.message); return false; })) return true; // v284
-  if (/\b(quantos pontos|meus pontos|minha meta|minha pontuacao|pontuacao|quanto (eu )?(tenho|fiz|to|estou) de ponto|como (ta|esta) (a )?minha (meta|semana))\b/.test(msg)) {
+  if (/\b(quantos pontos|meus pontos|minha meta|minha pontuacao|pontuacao|quanto (eu )?(tenho|fiz|to|estou) de ponto|como (ta|esta) (a )?minha (meta|semana))\b/.test(msg) && !/\b(nao (me )?(contou|contaram|deu|deram|entrou|entraram|veio|apareceu|ganhei|recebi)|cade|faltou|faltando|errad|so (um|1)|pouco|por que|porque|pq)\b/.test(msg) && msg.split(' ').length <= 12) { // v288: reclamação/dúvida vai para a IA com os dados
     const pn = await metaPainel(env, f.id).catch(() => null);
     if (!pn || !pn.ok) { await enviar(env, from, `${nome}, ainda não tenho a sua meta calculada. Pergunte ao Sr. Hangel.`); return true; }
     await enviar(env, from, [`📊 *${nome}, sua semana:* ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos (${pn.pct}%)`, `Hoje: ${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}`, pn.prox ? `Faltam ${vPt(pn.prox.faltam)} para o ${pn.prox.nome || 'próximo nível'}.` : '', pn.ptsMes != null ? `Mês: ${vPt(pn.ptsMes)} pontos.` : ''].filter(Boolean).join('\n'));
@@ -20920,6 +20920,31 @@ async function travaDOChamar(stub, acao, dados) {
   return r.json();
 }
 // libera o id para a Meta reenviar (usado quando o tratamento falhou)
+// v288: REDE DE SEGURANÇA — o Worker responde 200 à Meta e processa em segundo plano; se o processamento morre no meio
+// (publicação nova do bot, limite de tempo do segundo plano), a Meta não reenvia e a mensagem ficava sem resposta.
+// Cada mensagem recebida é anotada; quando termina, é baixada. Se passar de 2 min sem baixa, o bot trata de novo (uma vez).
+let __filaOk = false;
+async function filaDb(env) { if (!env.HR_DB) return null; if (!__filaOk) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS msg_fila (id TEXT PRIMARY KEY, de TEXT, em INTEGER, m TEXT, ok INTEGER DEFAULT 0, tent INTEGER DEFAULT 0)').run(); __filaOk = true; } return env.HR_DB; }
+async function filaEntrada(env, m) {
+  if (!m || !m.id || !m.from || m.type === 'reaction' || m._reproc) return;
+  try { const db = await filaDb(env); if (db) await db.prepare('INSERT OR IGNORE INTO msg_fila (id, de, em, m) VALUES (?, ?, ?, ?)').bind(m.id, String(m.from), Date.now(), JSON.stringify(m).slice(0, 20000)).run(); } catch (e) { console.log('[FILA] entrada:', e.message); }
+}
+async function filaOk(env, id) { if (!id) return; try { const db = await filaDb(env); if (db) await db.prepare('UPDATE msg_fila SET ok = 1 WHERE id = ?').bind(String(id).replace(/#r$/, '')).run(); } catch (_) {} }
+async function filaReprocessar(env) {
+  const db = await filaDb(env); if (!db) return 0; const agora = Date.now();
+  if (Math.random() < 0.05) await db.prepare('DELETE FROM msg_fila WHERE em < ?').bind(agora - 3 * 86400000).run().catch(() => {});
+  const rs = await db.prepare('SELECT id, m FROM msg_fila WHERE ok = 0 AND tent = 0 AND em < ? AND em > ? ORDER BY em LIMIT 3').bind(agora - 120000, agora - 45 * 60000).all();
+  let n = 0;
+  for (const x of rs.results || []) {
+    const r = await db.prepare('UPDATE msg_fila SET tent = 1 WHERE id = ? AND tent = 0').bind(x.id).run(); if (!(r.meta && r.meta.changes)) continue; // outro processo já pegou
+    let m = null; try { m = JSON.parse(x.m); } catch (_) {} if (!m) continue;
+    await esquecerMensagem(env, m); m._reproc = true; m._semRepeticao = false;
+    console.log('[FILA] reprocessando mensagem sem resposta de', ultimos8(m.from));
+    try { await comTrava(env, m.from, () => tratarMensagem(env, m), m); } catch (e) { console.log('[FILA] reprocesso:', e.message); }
+    await filaOk(env, x.id); n++;
+  }
+  return n;
+}
 async function esquecerMensagem(env, m) {
   if (!m || !m.id) return;
   const st = travaDO(env, m.from);
@@ -21006,10 +21031,12 @@ async function tratarPayload(env, payload) {
       }
       for (const m of ch.value?.messages || []) {
         m._perfil = perfis[m.from] || '';
-        if (await esperarRajada(env, m).catch(e => { console.log('[RAJ]', e.message); return false; })) continue; // v272: veio mensagem mais nova: ela responde por todas
-        try { await comTrava(env, m.from, () => tratarMensagem(env, m), m); }
+        await filaEntrada(env, m); // v288: toda mensagem fica anotada até ser respondida (nada some em silêncio)
+        if (await esperarRajada(env, m).catch(e => { console.log('[RAJ]', e.message); return false; })) { await filaOk(env, m.id); continue; } // v272: veio mensagem mais nova: ela responde por todas
+        try { await comTrava(env, m.from, () => tratarMensagem(env, m), m); await filaOk(env, m.id); }
         catch (e) {
           console.log('[BOT] erro ao tratar mensagem:', e.message);
+          await filaOk(env, m.id); // v288: o erro já é avisado abaixo; não reprocessa
           await esquecerMensagem(env, m); // libera o id (TRAVA e KV): um reenvio da Meta volta a ser tratado
           if (!ehDono(env, m.from)) { // cliente nunca fica sem resposta em silêncio: o dono é avisado com o texto e o link
             const txt = m.type === 'text' ? String(m.text?.body || '').slice(0, 200) : '[' + m.type + ']';
@@ -21027,6 +21054,7 @@ async function tratarPayload(env, payload) {
       }
     }
   }
+  await filaReprocessar(env).catch(e => console.log('[FILA]', e.message)); // v288
   await pedirAvaliacoes(env); // sem depender do gatilho agendado: confere quem parou de responder (no máximo a cada 5 minutos)
   await rodarDepois(env).catch(e => falhou(env, 'bot no lugar do app', e)); // v27
 }
@@ -31677,6 +31705,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
     if (/^(ok|okay|blz|beleza|certo|ta certo|ta bom|ta|show|top|entendi|combinado|fechou|sim|isso|tranquilo|de boa|joia|positivo)[!. ]*$/.test(t0)) { await enviar(env, from, '👍'); return true; } }
   const atual = await pontoResumo(env, f.id, dataBahia());
   const tab = r => r ? r.dias.map(l => `${l.data}: entrada ${l.e || '-'}, almoço ${l.ai || '-'} a ${l.af || '-'}, saída ${l.s || '-'}, feito ${hmPonto(l.feito)}, esperado ${hmPonto(l.esp)}, extra ${l.extra ? hmPonto(l.extra) : '0:00'}${l.oficial ? '' : ' (ainda não conferido pelo RH)'}`).join('\n') + `\nTOTAL feito ${hmPonto(r.total.feito)}, esperado ${hmPonto(r.total.esperado)}, extra ${hmPonto(r.total.extra)}` : '(nada)';
+  const eqCtx = await eqContextoIA(env, f, texto).catch(e => { console.log('[EQ] contexto:', e.message); return ''; }); // v288
   const sistema = `Você é a Helena, secretária de RH da HR Mármores e Granitos, falando pelo WhatsApp com o funcionário ${f.nome}.
 Responda em português simples, curto e educado (no máximo 5 linhas), chamando-o de ${nome}.
 Use SÓ os dados abaixo, que são do próprio ${nome}. Nunca fale de outros funcionários. Valores em dinheiro: só os do relatório dele (abaixo); não invente nem prometa outros valores.
@@ -31684,7 +31713,13 @@ Como as horas são contadas: feito = saída − entrada − almoço. Esperado = 
 Se ele disser que um horário está errado, faltou dia, ou pedir correção: peça UMA vez o que faltar entre (dia, horário certo, motivo). Se no histórico você já pediu e ele não soube dizer, insistiu ou reclamou de novo, NÃO pergunte de novo: diga que vai passar para o Sr. Hangel conferir com ele e marque "escalar": true, com resumo_para_dono explicando a reclamação dele em uma frase. Quando tiver os dados, também escale. Não prometa que vai mudar.
 Se ele disser que está tudo certo / aprovado, marque "aprovou": true.
 Clientes na produção (se ele falar um nome parecido, mal transcrito do áudio, use o nome certo desta lista): ${(await pedidosProducao(env, p => !p.entregueEm).catch(() => [])).map(p => p.nome).slice(0, 30).join(', ') || '(nenhum)'}.
-Assunto que não for ponto, horas ou relatório: responda como colega de equipe (nunca como atendente de cliente, nunca "vou passar seu recado ao responsável"): diga em poucas palavras que avisou o Sr. Hangel sobre aquilo e marque "escalar": true. Se for de SERVIÇO/PRODUÇÃO (nome de cliente, peça cortada, foto, etapa), diga "Avisei o Sr. Hangel sobre o serviço de <nome>".
+ENTENDA TUDO o que ele disser (a mensagem pode ser áudio transcrito com erros: "Acunento" pode ser "cozinha"/"o corte", nomes de cliente vêm trocados — use a lista de clientes). Pense no que ele QUER e responda isso com os dados abaixo, como uma colega de equipe que conhece a produção.
+- PONTOS: explique de onde vêm os pontos dele com os dados de PONTOS e de COMO FORAM CALCULADOS (cada peça, recorte, sainha, pé, instalação contam horas; 1 ponto ≈ as horas indicadas). Se ele diz que um serviço não contou ou contou pouco e o serviço NÃO aparece nas tarefas dele, marque "acao":"registrar" com cliente e etapa (o bot registra ou pede ao Sr. Hangel para confirmar). Se aparece, mostre quanto valeu e por quê; se ele ainda achar injusto, "escalar": true.
+- SERVIÇO FEITO ("cortei", "terminei", "instalei", "fiz o acabamento"): "acao":"registrar", com cliente e etapa (corte, acabamento, polimento, fabricacao, instalacao).
+- O QUE FAZER / PRÓXIMO SERVIÇO: use SERVIÇOS DELE.
+- Problema (pedra trincou, faltou material, máquina quebrou), recado, pedido ou qualquer outra coisa: responda com naturalidade e "escalar": true com um resumo claro para o Sr. Hangel.
+Nunca pergunte data de nascimento, dia ou horário se ele está falando de serviço ou pontos. Nunca responda só "Avisei o Sr. Hangel": diga o que você entendeu.
+${eqCtx}
 RELATÓRIO ENVIADO${rel ? ` (${rel.label}, ${rel.di} a ${rel.df}, situação: ${rel.status})` : ''}:
 ${rel ? tab(rel) : '(nenhum relatório enviado ainda)'}
 ${rel && rel.fin ? `VALORES DO RELATÓRIO (o PDF que ele recebeu): ${rel.pago ? 'já quitado' : 'vai receber ' + brl(rel.valor)}\n${rel.fin.map(x => (x.sub ? '   · ' : '- ') + x.label + ': ' + (x.sinal || '') + brl(x.valor)).join('\n')}\nHoras extras são pagas com adicional (dobradas ×2, triplicadas ×3); horas a menos descontam primeiro das extras.` : ''}
@@ -31692,13 +31727,19 @@ ${rel && rel.diasPdf ? 'DIAS NO PDF: ' + rel.diasPdf.map(d => `${d.data} ${d.e}-
 PERÍODO ATUAL (${atual.label}, ${atual.di} a ${atual.df}, em andamento):
 ${tab(atual)}
 Em "assunto": "ponto" se a mensagem fala do ponto, horas, relatório ou pagamento dele; "outro" para qualquer outra coisa (serviço, medidas, peças, recado).
-Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resumo_para_dono":"","aprovou":false,"assunto":"ponto"}`;
+Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resumo_para_dono":"","aprovou":false,"assunto":"ponto","acao":"","cliente":"","etapa":""}`;
   let hist = []; try { hist = JSON.parse((await env.HR_KV.get('rh:hist:' + f.id)) || '[]'); } catch (_) {}
   let out = null;
   try {
     const t = await chamarIA(env, sistema, hist.slice(-6), texto, { maxTokens: 400, model: env.AI_MODEL_RH || 'claude-haiku-5-5', cat: 'equipe' }); // v184: Haiku basta para o RH
     const mj = /\{[\s\S]*\}/.exec(t || ''); out = mj ? JSON.parse(mj[0]) : null;
   } catch (e) { console.log('[RH] IA:', e.message); }
+  if (out && out.acao === 'registrar' && out.cliente) { // v288: a IA entendeu o serviço: o fluxo da produção registra (ou pede ao dono para confirmar)
+    const et = ETAPA_NOME2[out.etapa] ? out.etapa : 'corte', fr = `${et === 'instalacao' ? 'instalei' : 'terminei o ' + ETAPA_NOME2[et]} de ${out.cliente}`;
+    const x = { cliente: out.cliente, etapa: et, item: '', feito: true };
+    const feito = await producaoFuncionario(env, f, from, fr, '', nome).catch(() => false) || await prodPedirDono(env, f, from, x, texto, nome).catch(() => false);
+    if (feito) { hist = hist.concat([{ role: 'user', content: texto.slice(0, 800) }, { role: 'assistant', content: '[registrei: ' + fr + ']' }]).slice(-12); await env.HR_KV.put('rh:hist:' + f.id, JSON.stringify(hist), { expirationTtl: 3 * 86400 }); return true; }
+  }
   if (!out || !out.resposta) out = { resposta: `${nome}, recebi sua mensagem e vou passar para o responsável.`, escalar: true, resumo_para_dono: texto };
   out.resposta = String(out.resposta).replace(/\bObrigado\b/g, 'Obrigada').replace(/\bobrigado\b/g, 'obrigada'); // v162: a secretária é mulher
   await enviar(env, from, String(out.resposta).slice(0, 1200));
@@ -31712,6 +31753,29 @@ Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resum
   return true;
 }
 
+// v288: o que a secretária precisa saber para entender o funcionário: pontos (hoje/semana/mês e de onde vieram), serviços dele,
+// e a conta detalhada dos serviços que ele citou (peças, recortes, sainhas, pés → horas → pontos)
+async function eqContextoIA(env, f, texto) {
+  const L = [], id = String(f.id);
+  const pn = await metaPainel(env, f.id).catch(() => null);
+  if (pn && pn.ok) {
+    L.push(`PONTOS DELE: hoje ${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)} · semana ${vPt(pn.pts)} de ${vPt(pn.meta)} (${pn.pct}%)${pn.ptsMes != null ? ` · mês ${vPt(pn.ptsMes)} de ${pn.metaMes}` : ''}.`);
+    L.push('TAREFAS QUE JÁ CONTARAM NA SEMANA: ' + ((pn.tarefas || []).map(t => `${t.dia ? dataBR(t.dia).slice(0, 5) : ''} ${t.tipo} de ${t.nome}: ${vPt(t.pts)} pt`).join('; ') || '(nenhuma)'));
+  }
+  try { const mt = await minhasTarefas(env, f); L.push('SERVIÇOS DELE AGORA: ' + (mt.length ? mt.join(' | ').replace(/[*_]/g, '').slice(0, 900) : '(nenhum atribuído)')); } catch (_) {}
+  const tk = tokensPedra(String(texto || ''));
+  if (tk.length) {
+    const peds = (await pedidosProducao(env, p => p.status !== 'recusado' && (!p.entregueEm || Date.now() - p.entregueEm < 20 * 86400000)).catch(() => [])).filter(p => nomeNota(p.nome, tk) > 0).slice(0, 2);
+    for (const p of peds) {
+      const meus = (p.prodLog || []).filter(l => (l.por || []).map(String).includes(id));
+      const ets = [...new Set([...meus.map(l => l.e), 'corte', pedComplexo(p) ? 'polimento' : 'acabamento'])].filter(e => ['corte', 'acabamento', 'polimento', 'instalacao', 'entrega'].includes(e)).slice(0, 3);
+      const pcs = itensPecas(p).map(it => `${it.ambiente || 'item'}: ` + it.pecas.map(x => `${x.qtd > 1 ? x.qtd + '× ' : ''}${(NOME_PECA[tipoDaPeca(x, it)] || 'peça').toLowerCase()} ${vPt(x.comp_cm)}×${vPt(x.larg_cm)}`).join(', ')).join(' / ');
+      L.push(`SERVIÇO ${p.nome}${p.projetoApp ? ' (' + p.projetoApp + ')' : ''}: ${pcs || 'sem peças na ficha' + (p.estimado ? ' (pontos estimados pelo m² do orçamento)' : '')}. Etapas registradas: ${(p.prodLog || []).map(l => l.e + (l.por && l.por.map(String).includes(id) ? ' (ELE)' : '')).join(', ') || 'nenhuma'}.`);
+      for (const e of ets) { const ex = explicarPontos(p, e, (meus.find(l => l.e === e) || {}).ts || Date.now()); if (ex) L.push(`COMO FOI CALCULADO — ${NOME_ETAPA_PTS[e] || e} de ${p.nome}:\n${ex.replace(/\*/g, '')}`); }
+    }
+  }
+  return L.join('\n').slice(0, 3500);
+}
 // v49: relatório que não chegou no funcionário → vai para o dono com o PDF e um botão "Enviar para <nome>" (uma vez só)
 async function pontoRelFalhaDono(env, f, per, rel) {
   const k = `ponto:relfalha:${f.id}:${per.df}`;
@@ -34236,6 +34300,7 @@ export default {
       return;
     }
     // a partir da hora do fechamento (17h de Bahia) o agendamento convoca o fechamento; antes disso roda a rotina da manhã
+    ctx.waitUntil(filaReprocessar(env).catch(e => console.log('[FILA]', e.message))); // v288: mensagem que ficou sem resposta
     ctx.waitUntil(pedirAvaliacoes(env));
     ctx.waitUntil(redeSegurancaMP(env).catch(e => falhou(env, 'rotina: rede de segurança MP', e))); // acha pagamentos aprovados cujo aviso não chegou (a cada REDE_MP_HORAS)
     ctx.waitUntil(enviarAvaliacoesGoogle(env).catch(e => falhou(env, 'rotina: avaliação Google', e)));
