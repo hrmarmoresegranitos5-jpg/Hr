@@ -2967,12 +2967,14 @@ async function vozV2(env) { let c = null; try { c = JSON.parse((await env.HR_KV.
 async function vozVersoesWhatsApp(env, texto) {
   const dono = numeroDono(env), base = await vozCfg(env), v2 = await vozV2(env), out = [];
   const lista = [['v2', 'Helena V2 (atual)', v2], ...Object.entries(VOZ_PERFIS).map(([k, v]) => [k, v.nome + ' — ' + v.desc, { ...base, ...v2, perfil: k, reescrever: true, emocao: true }])];
-  for (const [k, nome, cfg] of lista) {
-    try {
-      const fala = await vozPrepararFala(env, texto, cfg, false), g = await vozSpeech(env, fala, cfg, 'opus');
-      await enviarTextoPuro(env, dono, `🎙️ *${nome}*`); await subirVozEnviar(env, dono, g.audio, fala); await vozUso(env, g.via, fala.length);
-      out.push({ k, ok: true, fala });
-    } catch (e) { out.push({ k, ok: false, erro: String(e.message).slice(0, 160) }); }
+  const gerados = await Promise.all(lista.map(async ([k, nome, cfg]) => { // v296: gera as 4 ao mesmo tempo (cabe no tempo do Worker)
+    try { const fala = await vozPrepararFala(env, texto, cfg, false), g = await vozSpeech(env, fala, cfg, 'opus'); return { k, nome, fala, g }; }
+    catch (e) { return { k, nome, erro: String(e.message).slice(0, 160) }; }
+  }));
+  for (const x of gerados) {
+    if (x.erro) { out.push({ k: x.k, ok: false, erro: x.erro }); continue; }
+    try { await enviarTextoPuro(env, dono, `🎙️ *${x.nome}*`, 'parte'); await subirVozEnviar(env, dono, x.g.audio, x.fala); await vozUso(env, x.g.via, x.fala.length); out.push({ k: x.k, ok: true, fala: x.fala }); }
+    catch (e) { out.push({ k: x.k, ok: false, erro: String(e.message).slice(0, 160) }); }
   }
   return { ok: out.some(x => x.ok), versoes: out };
 }
