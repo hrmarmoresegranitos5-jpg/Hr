@@ -1,5 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════
-// HR — Atualização automática (app-atualizar.js v2)
+// HR — Atualização automática (app-atualizar.js v3)
+// v3: SEM botão. Versão nova → atualiza sozinho: na hora se o app estiver parado/em segundo plano;
+// se estiver mexendo, espera 8 s sem tocar na tela (e sem nada digitado num campo) e atualiza.
 // v2: atualiza SOZINHO quando o app está parado ou em segundo plano; o botão só aparece se o
 // senhor estiver mexendo no app naquela hora — e mesmo assim atualiza sozinho ao parar de mexer.
 // O app instalado no celular volta do segundo plano sem recarregar, então ficava
@@ -13,12 +15,12 @@
   var mostrado = false, conferindo = false, ultima = 0, mexeu = 0, indo = false; // ao abrir, ainda não mexeu: atualiza direto
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchmove'].forEach(function (ev) { document.addEventListener(ev, function () { mexeu = Date.now(); }, { passive: true, capture: true }); });
   function digitando() { var a = document.activeElement; return !!(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable) && String(a.value || a.textContent || '').length); }
-  function podeSozinho() { return document.hidden || (Date.now() - mexeu > 45000 && !digitando()); }
+  function podeSozinho() { return document.hidden || (Date.now() - mexeu > 8000 && !digitando()); }
   function recentes() { try { return JSON.parse(sessionStorage.getItem('hr_atu_auto') || '[]').filter(function (t) { return Date.now() - t < 10 * 60000; }); } catch (e) { return []; } }
   function novaVersao() { // até 2 atualizações sozinhas em 10 min (se o GitHub ainda não terminou de publicar, não fica recarregando)
     var r = recentes();
     if (podeSozinho() && r.length < 2) { r.push(Date.now()); try { sessionStorage.setItem('hr_atu_auto', JSON.stringify(r)); } catch (e) {} atualizar(); }
-    else if (r.length < 2) mostrar();
+    else if (r.length < 2) mostrar(); // v3: só marca pendente (sem botão); atualiza assim que parar de mexer
   }
 
   function lista(html) {
@@ -51,16 +53,7 @@
     try { navigator.serviceWorker && navigator.serviceWorker.getRegistration().then(function (r) { r && r.update().catch(function () {}); }); } catch (e) {}
   }
 
-  function mostrar() {
-    if (mostrado) return; mostrado = true;
-    var b = document.createElement('div');
-    b.id = 'hrAtualizar';
-    b.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:99999;display:flex;align-items:center;gap:10px;padding:12px 12px 12px 16px;border-radius:16px;background:#1a1712;border:1.5px solid #c9a84c;box-shadow:0 10px 30px rgba(0,0,0,.6);font-family:Outfit,sans-serif;color:#fff;';
-    b.innerHTML = '<div style="flex:1;font-size:.86rem;line-height:1.3;"><b style="color:#e8c96a;">Nova versão do app</b><br><span style="color:#aaa;font-size:.76rem;">Toque em Atualizar para usar agora</span></div>'
-      + '<button id="hrAtualizarBt" style="padding:11px 16px;border-radius:11px;border:none;background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#000;font-weight:800;font-size:.86rem;cursor:pointer;font-family:inherit;">Atualizar</button>';
-    document.body.appendChild(b);
-    document.getElementById('hrAtualizarBt').onclick = atualizar;
-  }
+  function mostrar() { mostrado = true; } // v3: nada aparece na tela; o intervalo abaixo atualiza quando puder
 
   function atualizar() {
     if (indo) return; indo = true;
@@ -87,8 +80,8 @@
   }
 
   setTimeout(conferir, 8000);
-  setInterval(conferir, 3 * 60000);
-  setInterval(function () { if (mostrado && podeSozinho()) atualizar(); }, 15000);
+  setInterval(conferir, 2 * 60000);
+  setInterval(function () { if (mostrado && podeSozinho()) atualizar(); }, 3000);
   document.addEventListener('visibilitychange', function () { if (document.hidden) { if (mostrado) atualizar(); } else { ultima = 0; conferir(); } }); // saiu do app com o botão na tela → atualiza enquanto está fora
   window.addEventListener('online', conferir);
   window.HRAtualizar = { conferir: conferir, mostrar: mostrar, atualizar: atualizar };
