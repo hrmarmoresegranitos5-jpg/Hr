@@ -508,6 +508,18 @@
   function nOut(pc) { var m = num(pc.mold, 0); return m > 0 ? m : 2; } // v33: medidas de DENTRO A DENTRO (como no orçamento): a moldura fica em volta do vão; sem moldura, aparece a caixa de 2 cm
   function frenteSvg(pc, s, x0, y0, idx) { // nicho e placas: vista de frente
     var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', stF = 'fill="' + TOM.top + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"';
+    if (pc.tipo === 'nicho' && typeof window.buildNichoProjetoSVG === 'function') { // v36: o desenho 3D do orçamento (pedra, paredes, fundo e cotas)
+      var o3 = nOut(pc), mo3 = num(pc.mold, 0), ne3 = { nW: A, nH: H, nP: Math.max(4, num(pc.prof, 10)), nE: 2, nM: mo3, semMoldura: !mo3, comFundo: !!num(pc.fundo, 0) }, mat3 = null;
+      try { var mn = semAc((st.d && st.d.material) || ''); if (mn) mat3 = ((window.CFG || {}).stones || []).filter(function (x) { return [x.nm, x.nome, x.n, x.name].some(function (v) { return v && semAc(v) === mn; }); })[0] || null; } catch (e) {}
+      var sv3 = ''; try { sv3 = window.buildNichoProjetoSVG(ne3, { light: true, maxW: 300, maxH: 220, mat: mat3 }) || ''; } catch (e) { sv3 = ''; }
+      var vb3 = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(sv3);
+      if (vb3) {
+        var OW3 = (A + 2 * o3) * s, OH3 = (H + 2 * o3) * s, bw = OW3 + 100, bh = OH3 + 150;
+        h += '<svg x="' + (x0 - 70) + '" y="' + (y0 - 60) + '" width="' + bw + '" height="' + bh + '" viewBox="0 0 ' + vb3[1] + ' ' + vb3[2] + '" preserveAspectRatio="xMidYMid meet" font-family="Arial,sans-serif">' + sv3.slice(sv3.indexOf('>') + 1);
+        if (it) { st.lay[idx] = { s: s }; h = '<g data-pcsel="' + idx + '"><rect x="' + (x0 - 24) + '" y="' + (y0 - 24) + '" width="' + (OW3 + 48) + '" height="' + (OH3 + 48) + '" rx="18" fill="#fff" fill-opacity="0"/>' + h + '</g>'; }
+        return h;
+      }
+    }
     if (pc.tipo === 'nicho') { // v33: vão de dentro a dentro A × H, moldura em volta com encontro em 45° (externo A+2m × H+2m), fundo
       var o = nOut(pc), mo = num(pc.mold, 0), pr = Math.max(4, num(pc.prof, 10)), ls = 'stroke="' + TOM.line + '" stroke-width="' + sw + '"';
       var OW = (A + 2 * o) * s, OH = (H + 2 * o) * s, iw = o * s, IX = x0 + iw, IY = y0 + iw, IW = A * s, IH = H * s;
@@ -523,9 +535,12 @@
       h += dimTxt(x0 + OW / 2, y0 + OH + 32, (mo ? 'Moldura ' + f1(mo) + ' cm em 45° · ' : '') + 'Externo: ' + f1(A + 2 * o) + ' × ' + f1(H + 2 * o) + ' cm', 20, 'middle', false);
       // quantidade vai na etiqueta embaixo
     } else {
+      var ep = Math.max(8, Math.min(22, 2 * s * 2.2)), dx = ep, dy = -ep * 0.7, W3 = A * s, H3 = H * s; // v36: placa em 3D (espessura de 2 cm em perspectiva)
+      h += '<polygon points="' + [[x0, y0], [x0 + dx, y0 + dy], [x0 + W3 + dx, y0 + dy], [x0 + W3, y0]].map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' ') + '" fill="' + mixc(TOM.top, '#ffffff', 0.25) + '" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.8) + '" stroke-linejoin="round"/>';
+      h += '<polygon points="' + [[x0 + W3, y0], [x0 + W3 + dx, y0 + dy], [x0 + W3 + dx, y0 + H3 + dy], [x0 + W3, y0 + H3]].map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' ') + '" fill="' + mixc(TOM.top, '#000000', 0.22) + '" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.8) + '" stroke-linejoin="round"/>';
       h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + (A * s) + '" height="' + (H * s) + '" ' + stF + '/>';
       // nome e quantidade vão na etiqueta embaixo
-      h += dimTxt(x0 + A * s + 12, y0 + H * s / 2 + 10, f1(H), 28, 'start', it && idx + '|H') + dimTxt(x0 + A * s / 2, y0 + H * s + 38, f1(A), 28, 'middle', it && idx + '|A');
+      h += dimTxt(x0 + A * s + 14 + dx, y0 + H * s / 2 + 10, f1(H), 28, 'start', it && idx + '|H') + dimTxt(x0 + A * s / 2, y0 + H * s + 38, f1(A), 28, 'middle', it && idx + '|A');
     }
     if (it) { var fw = pc.tipo === 'nicho' ? (A + 2 * nOut(pc)) * s : A * s, fh = pc.tipo === 'nicho' ? (H + 2 * nOut(pc)) * s : H * s; st.lay[idx] = { s: s }; h = '<g data-pcsel="' + idx + '"><rect x="' + (x0 - 24) + '" y="' + (y0 - 24) + '" width="' + (fw + 48) + '" height="' + (fh + 48) + '" rx="16" fill="#fff" fill-opacity="0"' + (st.sel === idx && st.d.pecas.length > 1 ? ' stroke="#c9a84c" stroke-width="3" stroke-dasharray="12 8"' : '') + '/>' + h + '</g>'; }
     return h;
@@ -905,7 +920,7 @@
     return x.join(' · ');
   }
   // v4: puxar o projeto de um orçamento salvo no app (hr_q): cada ambiente vira uma linha do texto
-  function orcamentos() { try { var l = JSON.parse(localStorage.getItem('hr_q') || '[]') || []; return (Array.isArray(l) ? l : []).filter(function (q) { return q && (q.ambSnap || []).length; }).slice(-40).reverse(); } catch (e) { return []; } }
+  function orcamentos() { try { var l = (typeof DB !== 'undefined' && Array.isArray(DB.q) && DB.q.length) ? DB.q : (JSON.parse(localStorage.getItem('hr_q') || '[]') || []); return (Array.isArray(l) ? l : []).filter(function (q) { return q && (q.ambSnap || []).length; }).slice(-40).reverse(); } catch (e) { return []; } }
   function textoDoOrcamento(q) {
     var L = [];
     (q.ambSnap || []).forEach(function (a) {
@@ -1356,8 +1371,9 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
   // v35: FICHA TÉCNICA direto do card do Histórico — abre o Projeto 2D já com as peças do orçamento (nichos, cozinha, lavatório…)
   window.hrFichaTecnica = function (qId) {
-    var l = []; try { l = JSON.parse(localStorage.getItem('hr_q') || '[]') || []; } catch (e) {}
-    var q = (Array.isArray(l) ? l : []).filter(function (x) { return x && String(x.id) === String(qId); })[0];
+    var l = []; try { if (typeof DB !== 'undefined' && Array.isArray(DB.q)) l = DB.q.slice(); } catch (e) {} // v36: o Histórico guarda em DB.q
+    try { l = l.concat(JSON.parse(localStorage.getItem('hr_q') || '[]') || []); } catch (e) {}
+    var q = l.filter(function (x) { return x && String(x.id) === String(qId) && (x.ambSnap || []).length; })[0];
     if (!q || !(q.ambSnap || []).length) { aviso('Esse orçamento não tem as peças salvas. Abra e salve o orçamento de novo.'); return; }
     abrir(); st.d = novo(); st.d.cliente = q.cli || ''; st.d.material = q.mat || ''; st.d.texto = textoDoOrcamento(q); st.d.pecas = interpretar(st.d.texto);
     if (!st.d.pecas.length) { aviso('Não consegui montar as peças desse orçamento.'); return; }
