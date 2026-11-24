@@ -222,6 +222,37 @@ async function telaArqServir(req, env, url) {
   }
   return new Response(value, { headers: { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Content-Length': String(tot), 'Cache-Control': 'public, max-age=604800' } });
 }
+// v320: PAREAR O TABLET — o app no modo balcão não tem a chave do bot; mostra um código de 6 números,
+// o dono manda "parear 123456" no WhatsApp e o tablet recebe o link do controle da TV (vale 10 min, uma vez).
+async function balcaoRota(req, env, url) {
+  const cab = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  const j = o => new Response(JSON.stringify(o), { headers: cab });
+  if (req.method === 'OPTIONS') return new Response(null, { headers: { ...cab, 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'Content-Type' } });
+  if (url.pathname === '/balcao/codigo' && req.method === 'POST') {
+    const ip = req.headers.get('cf-connecting-ip') || 'x', k = 'par:lim:' + ip, n = +(await env.HR_KV.get(k)) || 0;
+    if (n >= 10) return j({ erro: 'Muitas tentativas. Espere uma hora.' });
+    await env.HR_KV.put(k, String(n + 1), { expirationTtl: 3600 });
+    const c = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    await env.HR_KV.put('par:' + c, JSON.stringify({ em: Date.now() }), { expirationTtl: 600 });
+    return j({ codigo: c });
+  }
+  if (url.pathname === '/balcao/par') {
+    const c = String(url.searchParams.get('c') || '').replace(/\D/g, '').slice(0, 6); if (c.length !== 6) return j({ erro: 'código' });
+    let p = null; try { p = JSON.parse((await env.HR_KV.get('par:' + c)) || 'null'); } catch (_) {}
+    if (!p) return j({ expirou: true });
+    if (!p.link) return j({ esperando: true });
+    await env.HR_KV.delete('par:' + c); return j({ link: p.link });
+  }
+  return null;
+}
+async function balcaoParearDono(env, from, msg) {
+  const n = normaliza(msg), m = n.match(/\b(parear|parea|conectar)\b\D{0,30}(\d{6})\b/);
+  if (!m) return false;
+  let p = null; try { p = JSON.parse((await env.HR_KV.get('par:' + m[2])) || 'null'); } catch (_) {}
+  if (!p) { await enviar(env, from, `Não achei o código ${m[2]} (ele vale 10 minutos). No tablet, toque de novo em 📺 TV para gerar outro.`); return true; }
+  p.link = await totemLink(env); await env.HR_KV.put('par:' + m[2], JSON.stringify(p), { expirationTtl: 600 });
+  await enviar(env, from, '✅ Tablet pareado. O botão 📺 TV do tablet já abre o controle da TV.'); return true;
+}
 async function rotaTotem(req, env, ctx, url) {
   const p = url.pathname.replace(/\/+$/, '');
   if (p !== '/totem' && !p.startsWith('/totem/')) return null;

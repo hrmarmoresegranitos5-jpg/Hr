@@ -43,6 +43,7 @@
 
   function base() { try { return String(_getBotCfg().url || '').replace(/\/+$/, ''); } catch (e) { return ''; } }
   function hdr() { try { return _botHeaders(); } catch (e) { return {}; } }
+  var WK = 'https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev';
   function aviso(t) { try { toast(t); } catch (e) { alert(t); } }
 
   // TV: janela própria com o link do controle (link de verdade: o Android não bloqueia como bloqueia janela aberta por script)
@@ -58,12 +59,28 @@
     document.body.appendChild(ov);
     ov.querySelector('#blTvX').onclick = function () { ov.remove(); };
     ov.querySelector('#blTvLnk').onclick = function () { setTimeout(function () { ov.remove(); }, 300); };
-    var msg = ov.querySelector('#blTvMsg'), b = base();
-    if (!b) { msg.innerHTML = 'Este tablet ainda não está ligado ao bot.<br>Entre com a conta Google da HR (ícone 👥 no topo) e tente de novo.'; return; }
+    var msg = ov.querySelector('#blTvMsg'), b = base(), a = ov.querySelector('#blTvLnk');
+    var salvo = ''; try { salvo = localStorage.getItem('hr_tv_link') || ''; } catch (e) {}
+    var mostra = function (u, txt) { a.href = u; a.style.display = 'block'; msg.innerHTML = txt || 'Abre numa janela separada. Para voltar ao orçamento, use o botão 💰 Orçamento de lá.'; };
+    if (salvo) { mostra(salvo, 'Abre numa janela separada. <a href="#" id="blTvNovo" style="color:#ecd27c">Parear de novo</a>'); var nv = ov.querySelector('#blTvNovo'); if (nv) nv.onclick = function (e) { e.preventDefault(); try { localStorage.removeItem('hr_tv_link'); } catch (x) {} abrirTv(); }; return; }
+    if (!b) { // sem a chave do bot neste aparelho: pareia pelo WhatsApp com um código
+      msg.textContent = 'Gerando o código para ligar este tablet…';
+      fetch(WK + '/balcao/codigo', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (j) {
+        if (!j.codigo) throw new Error(j.erro || 'sem código');
+        msg.innerHTML = 'Mande no WhatsApp da Helena (do seu celular):<div style="font-size:2rem;font-weight:700;color:#f3d982;letter-spacing:.12em;margin:10px 0">parear ' + j.codigo + '</div>Vale 10 minutos. Assim que você mandar, o botão aparece aqui.';
+        var n = 0, t = setInterval(function () {
+          if (!document.getElementById('blTv') || n++ > 200) { clearInterval(t); return; }
+          fetch(WK + '/balcao/par?c=' + j.codigo).then(function (r) { return r.json(); }).then(function (p) {
+            if (p.link) { clearInterval(t); try { localStorage.setItem('hr_tv_link', p.link); } catch (x) {} mostra(p.link, '✅ Tablet ligado. Toque para abrir o controle da TV.'); }
+            else if (p.expirou) { clearInterval(t); msg.textContent = 'O código venceu. Feche e toque em 📺 TV de novo.'; }
+          }).catch(function () {});
+        }, 3000);
+      }).catch(function (e) { msg.textContent = 'Não consegui gerar o código (' + e.message + '). Confira a internet.'; });
+      return;
+    }
     fetch(b + '/bot/totem/link', { headers: hdr() }).then(function (r) { return r.json(); }).then(function (j) {
       if (!j || !j.url) throw new Error((j && j.error) || 'sem link');
-      var a = ov.querySelector('#blTvLnk'); a.href = j.url; a.style.display = 'block';
-      msg.textContent = j.status || 'Abre numa janela separada. Para voltar ao orçamento, use o botão 💰 Orçamento de lá.';
+      try { localStorage.setItem('hr_tv_link', j.url); } catch (x) {} mostra(j.url, j.status);
     }).catch(function (e) { msg.textContent = 'Não consegui falar com o bot (' + e.message + '). Confira a internet.'; });
   }
   function sair() {

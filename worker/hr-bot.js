@@ -11960,6 +11960,7 @@ async function dividaLimparPedidosFalsos(env) {
 
 async function acdComandoDono(env, from, msg) {
   if (await telaComandoDono(env, from, msg)) return true; // v282: galeria na TV
+  if (await balcaoParearDono(env, from, msg)) return true; // v320: parear o tablet do balcão
   if (await totemComandoDono(env, from, msg)) return true; // v312: link do totem
   if (await quitPagamentoParcial(env, from, msg)) return true; // v251
   if (await cartaoComandoDono(env, from, msg)) return true; // v271
@@ -35097,6 +35098,37 @@ async function telaArqServir(req, env, url) {
   }
   return new Response(value, { headers: { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Content-Length': String(tot), 'Cache-Control': 'public, max-age=604800' } });
 }
+// v320: PAREAR O TABLET — o app no modo balcão não tem a chave do bot; mostra um código de 6 números,
+// o dono manda "parear 123456" no WhatsApp e o tablet recebe o link do controle da TV (vale 10 min, uma vez).
+async function balcaoRota(req, env, url) {
+  const cab = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  const j = o => new Response(JSON.stringify(o), { headers: cab });
+  if (req.method === 'OPTIONS') return new Response(null, { headers: { ...cab, 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'Content-Type' } });
+  if (url.pathname === '/balcao/codigo' && req.method === 'POST') {
+    const ip = req.headers.get('cf-connecting-ip') || 'x', k = 'par:lim:' + ip, n = +(await env.HR_KV.get(k)) || 0;
+    if (n >= 10) return j({ erro: 'Muitas tentativas. Espere uma hora.' });
+    await env.HR_KV.put(k, String(n + 1), { expirationTtl: 3600 });
+    const c = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    await env.HR_KV.put('par:' + c, JSON.stringify({ em: Date.now() }), { expirationTtl: 600 });
+    return j({ codigo: c });
+  }
+  if (url.pathname === '/balcao/par') {
+    const c = String(url.searchParams.get('c') || '').replace(/\D/g, '').slice(0, 6); if (c.length !== 6) return j({ erro: 'código' });
+    let p = null; try { p = JSON.parse((await env.HR_KV.get('par:' + c)) || 'null'); } catch (_) {}
+    if (!p) return j({ expirou: true });
+    if (!p.link) return j({ esperando: true });
+    await env.HR_KV.delete('par:' + c); return j({ link: p.link });
+  }
+  return null;
+}
+async function balcaoParearDono(env, from, msg) {
+  const n = normaliza(msg), m = n.match(/\b(parear|parea|conectar)\b\D{0,30}(\d{6})\b/);
+  if (!m) return false;
+  let p = null; try { p = JSON.parse((await env.HR_KV.get('par:' + m[2])) || 'null'); } catch (_) {}
+  if (!p) { await enviar(env, from, `Não achei o código ${m[2]} (ele vale 10 minutos). No tablet, toque de novo em 📺 TV para gerar outro.`); return true; }
+  p.link = await totemLink(env); await env.HR_KV.put('par:' + m[2], JSON.stringify(p), { expirationTtl: 600 });
+  await enviar(env, from, '✅ Tablet pareado. O botão 📺 TV do tablet já abre o controle da TV.'); return true;
+}
 async function rotaTotem(req, env, ctx, url) {
   const p = url.pathname.replace(/\/+$/, '');
   if (p !== '/totem' && !p.startsWith('/totem/')) return null;
@@ -35764,6 +35796,7 @@ export default {
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
     if (url.pathname === '/totem' || url.pathname.startsWith('/totem/')) { const r = await rotaTotem(req, env, ctx, url); if (r) return r; } // v312: totem do balcão
+    if (url.pathname.startsWith('/balcao/')) { const r = await balcaoRota(req, env, url); if (r) return r; } // v320: parear o tablet
     if (url.pathname.startsWith('/cam/')) { const r = await rotaCam(req, env, url); if (r) return r; } // v317: câmeras (agente do PC)
     if (url.pathname === '/tela' || url.pathname === '/tela/dados' || url.pathname.startsWith('/tela/img/') || url.pathname.startsWith('/tela/insp/') || url.pathname.startsWith('/tela/arq/') || url.pathname.startsWith('/tela/vid/')) { const r = await rotaTela(req, env, url); if (r) return r; } // v277
     if (url.pathname === '/painel' || url.pathname.startsWith('/painel/')) { const r = await rotaPainelVendas(req, comKV(env), url, ctx); if (r) return r; } // v103
