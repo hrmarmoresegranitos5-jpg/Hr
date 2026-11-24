@@ -2798,7 +2798,7 @@ Responda SÓ com o texto falado.`;
 // ═══ v295: HELENA V3 — PERFIL VOCAL PERMANENTE + 3 ESTILOS (a V2 fica guardada para comparação) ═══
 const VOZ_V3_BASE = `Você é a voz da Helena, assistente virtual da HR Mármores e Granitos, de Pilão Arcado, Bahia. É sempre a mesma pessoa em todos os áudios: mulher brasileira adulta, timbre quente e levemente aveludado, simpática, segura e profissional.
 NATURALIDADE: fale como quem manda um áudio de WhatsApp para um cliente, nunca como quem lê. Cadência de conversa real, com pequenas variações de velocidade.
-ENTONAÇÃO: varie conforme o sentido de cada frase. Afirmações descem no fim; só pergunta de verdade sobe. Valor, prazo e medida ganham um leve destaque. Nunca repita o mesmo desenho de entonação em frases seguidas e não termine tudo no mesmo tom.
+ENTONAÇÃO: varie conforme o sentido de cada frase. Afirmações descem no fim. TODA frase que termina com "?" é pergunta: a entonação SOBE claramente no final, como quem espera resposta (inclusive "tá bom?", "viu?", "pode ser?", "quer que eu agende?"). Nunca leia uma pergunta como afirmação. Valor, prazo e medida ganham um leve destaque. Nunca repita o mesmo desenho de entonação em frases seguidas e não termine tudo no mesmo tom.
 RITMO: ágil e fluido, como quem conversa no WhatsApp com desenvoltura (por volta de 185 palavras por minuto). NUNCA fale devagar, nunca arraste as sílabas nem alongue o fim das palavras. Pausas bem curtas, só entre ideias; dentro da frase, fale corrido.
 VOLUME: voz projetada, presente e com intensidade constante do começo ao fim. Não abaixe a voz no fim das frases nem no fim do áudio, não sussurre e não grite.
 PRONÚNCIA: Rangel = RAN-JÉU. Itaúnas = i-ta-Ú-nas. São Gabriel, Via Láctea, Ubatuba, Siena e Dallas como se fala no Brasil. Quartzito = quar-TZI-to. Porcelanato, frontão, sainha, rebaixo (re-BAI-xo), cuba, cooktop (cúqui-tópi), soleira, peitoril. Valores em reais e medidas em metros/centímetros com naturalidade.
@@ -2824,6 +2824,7 @@ Regras:
 - Fale para a pessoa, em primeira pessoa, como numa conversa. Listas e tópicos viram frases ligadas ("primeiro… depois…", "e também"). Link, PDF ou foto: "te mandei aqui embaixo" (nunca leia link).
 - Tire o que só serve no texto: asteriscos, emojis, "segue abaixo", "conforme solicitado", repetições e instruções do tipo "toque no botão" (diga "é só me responder aqui").
 - Varie o tamanho das frases. Poucas vírgulas (a voz para nelas): use no máximo uma por frase.
+- Toda pergunta do texto continua sendo pergunta e termina com "?". Nunca transforme pergunta em afirmação.
 - Valores, medidas, datas, horários e números: EXATAMENTE os mesmos e em algarismos.
 - Nomes de clientes, pedras e materiais: iguais.
 - Não acrescente informação, promessa, pergunta ou saudação que não esteja no texto. Pode ficar mais curto.
@@ -2831,7 +2832,8 @@ Responda SÓ com o texto falado.`;
   try {
     const r = await Promise.race([chamarIA(env, sis, [], t.slice(0, 1500), { maxTokens: 500, model: env.AI_MODEL_VOZ || 'claude-haiku-5-5', cat: 'voz' }), new Promise(res => setTimeout(() => res(''), 7000))]);
     const x = String(r || '').replace(/^["“]|["”]$/g, '').replace(/[*_#•]/g, '').trim();
-    return x && x.length < t.length * 1.3 + 40 && vozMesmosNumeros(t, x) ? x : t;
+    const nq = z => (String(z).match(/\?/g) || []).length;
+    return x && x.length < t.length * 1.3 + 40 && vozMesmosNumeros(t, x) && nq(x) >= nq(t) ? x : t; // v298: não pode perder pergunta
   } catch (_) { return t; }
 }
 // V3: pausas leves — tira dois-pontos e ponto e vírgula; vírgula só fica uma por frase, e só em frase longa
@@ -2842,8 +2844,12 @@ function falaPausasLeves(t) {
 }
 // pronúncia extra: datas, horas, metros, "nº"
 const MESES_FALA = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const RE_PERGUNTA = /^(quer|quero saber se|pode|posso|podemos|prefere|qual|quais|quanto|quantos|quantas|quando|onde|como|o que|que tal|tem|teria|seria|vai|vamos|gostaria|consegue|você (quer|pode|prefere|tem|consegue|gostaria|vai)|tá bom|ta bom|beleza|certo|combinado|fechado|pode ser)\b/i;
+function vozPerguntas(t) { // v298: frase com cara de pergunta que veio sem "?" ganha "?" (senão a voz lê como afirmação)
+  return String(t || '').split(/(?<=[.!?])\s+/).map(fr => { const n = fr.trim(); if (!n || /\?$/.test(n)) return fr; const sem = n.replace(/[.!]+$/, ''); const fim = sem.split(/[,;]\s*/).pop().trim(); return RE_PERGUNTA.test(sem) || /\b(tá bom|ta bom|viu|né|certo|pode ser|combinado|beleza)$/i.test(fim) && sem.split(/\s+/).length > 2 ? sem + '?' : fr; }).join(' ');
+}
 function vozNormalizarV3(t) {
-  return vozNormalizar(String(t || '')
+  return vozNormalizar(vozPerguntas(String(t || ''))
     .replace(/\b(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?\b/g, (m0, d, m) => +m >= 1 && +m <= 12 && +d >= 1 && +d <= 31 ? `${+d} de ${MESES_FALA[+m - 1]}` : m0)
     .replace(/\b(\d{1,2})h(\d{2})\b/g, (m0, h, mi) => `${+h} e ${mi}`).replace(/\b(\d{1,2})h\b/g, '$1 horas')
     .replace(/\b(\d+),(\d{1,2})\s*m\b(?!²)/g, (m0, a, b) => `${a} metro${+a > 1 ? 's' : ''} e ${b.length === 1 ? b + '0' : b}`)
