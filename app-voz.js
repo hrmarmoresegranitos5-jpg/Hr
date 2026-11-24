@@ -1,4 +1,4 @@
-// app-voz.js — v1 (23/11/2026)
+// app-voz.js — v2 (23/11/2026): versões V2 / Natural / Premium / Regional
 // IDENTIDADE VOCAL DA HELENA: modelo, voz, velocidade, instruções, sotaque, teste com áudio, comparação de vozes,
 // configuração padrão, histórico e custo. Tudo fica salvo no bot (KV), então vale no WhatsApp e em qualquer aparelho.
 // Entrada: cartão no topo das Configurações.
@@ -45,7 +45,7 @@
   function form() {
     var a = D.atual;
     return {
-      modelo: document.getElementById('vzMod').value, voz: document.getElementById('vzVoz').value, velocidade: +document.getElementById('vzVel').value,
+      perfil: document.getElementById('vzPerf').value, modelo: document.getElementById('vzMod').value, voz: document.getElementById('vzVoz').value, velocidade: +document.getElementById('vzVel').value,
       instr: document.getElementById('vzIns').value, sotaque: document.getElementById('vzSot').value,
       emocao: document.getElementById('vzEmo').checked, reescrever: document.getElementById('vzRee').checked, semPausas: document.getElementById('vzPau').checked,
       _a: a
@@ -54,6 +54,8 @@
   function desenhar() {
     var a = D.atual, u = D.uso || {}, ov = document.getElementById('vozOv');
     var h = '<div class="vz"><div class="fx"><div><h2>🎙️ Identidade vocal da Helena</h2><div class="sub">O que você salvar aqui vale para todos os áudios do WhatsApp.</div></div><button class="bs" id="vzX">Fechar</button></div>';
+    var PF = Object.assign({ v2: { nome: 'Helena V2', desc: 'a versão atual, guardada para comparação' } }, D.perfis || {});
+    h += '<div class="cx"><h3>Versão da Helena</h3><select id="vzPerf">' + opt(Object.keys(PF), a.perfil || 'v2', function (k) { return PF[k].nome + ' — ' + PF[k].desc; }) + '</select><div class="res">A versão escolhida e salva vale para todos os áudios: mesma voz, mesmo jeito.</div></div>';
     h += '<div class="cx"><h3>Voz</h3><div class="lin"><div><label>Modelo</label><select id="vzMod">' + opt(Object.keys(D.modelos), a.modelo, function (k) { return D.modelos[k]; }) + '</select></div>';
     h += '<div><label>Voz</label><select id="vzVoz">' + opt(D.vozes, a.voz, function (v) { return ROT[v] || v; }) + '</select></div>';
     h += '<div><label>Velocidade</label><select id="vzVel">' + opt(['0.95', '1', '1.05'], String(a.velocidade || 1), function (v) { return v === '1' ? '1,0 (normal)' : v.replace('.', ','); }) + '</select></div></div>';
@@ -63,7 +65,8 @@
     h += '<label class="chk"><input type="checkbox" id="vzEmo"' + (a.emocao ? ' checked' : '') + '> Emoção pelo contexto (orçamento, reclamação, cobrança…)</label>';
     h += '<label class="chk"><input type="checkbox" id="vzRee"' + (a.reescrever ? ' checked' : '') + '> Reescrever o texto como fala (números nunca mudam)</label>';
     h += '<label class="chk"><input type="checkbox" id="vzPau"' + (a.semPausas ? ' checked' : '') + '> Tirar pausas de vírgula</label></div>';
-    h += '<div class="cx"><h3>Teste</h3><textarea id="vzTxt">' + esc(TXT) + '</textarea>';
+    h += '<div class="cx"><h3>Teste</h3><textarea id="vzTxt">' + esc(D.msgTeste || TXT) + '</textarea>';
+    h += '<div class="lin" style="margin-top:10px"><button class="bo" id="vzVers">▶ Ouvir V2 + Natural, Premium e Regional</button><button class="bs" id="vzZap">Mandar as 4 no meu WhatsApp</button></div>';
     h += '<div class="lin" style="margin-top:10px"><button class="bo" id="vzOuvir">▶ Gerar e ouvir</button><button class="bs" id="vzComp">Comparar Marin, Coral, Nova e Shimmer</button></div>';
     h += '<label class="chk"><input type="checkbox" id="vzVels"> Na comparação, testar também 0,95 e 1,05</label><div id="vzRes"></div></div>';
     h += '<div class="lin"><button class="bo" id="vzSalvar">✓ Salvar para a Helena</button><button class="bs" id="vzPad">Restaurar configuração padrão</button></div>';
@@ -71,7 +74,9 @@
     h += '<div class="cx"><h3>Histórico</h3>' + ((D.hist || []).length ? D.hist.map(function (x, i) { var c = x.cfg || {}; return '<div class="hi"><span>' + new Date(x.em).toLocaleString('pt-BR').slice(0, 16) + ' · ' + esc(ROT[c.voz] || c.voz) + ' · ' + esc(String(c.modelo || '').replace('gpt-', '')) + ' · ' + String(c.velocidade || 1).replace('.', ',') + '</span><button class="bs" data-vzh="' + i + '">Usar esta</button></div>'; }).join('') : '<div class="res">Ainda não há configurações anteriores.</div>') + '</div></div>';
     ov.innerHTML = h;
     document.getElementById('vzX').onclick = fechar;
-    document.getElementById('vzOuvir').onclick = function () { testar([{ voz: document.getElementById('vzVoz').value, velocidade: +document.getElementById('vzVel').value }]); };
+    document.getElementById('vzOuvir').onclick = function () { testar([{ voz: document.getElementById('vzVoz').value, velocidade: +document.getElementById('vzVel').value, perfil: document.getElementById('vzPerf').value }]); };
+    document.getElementById('vzVers').onclick = function () { var v = document.getElementById('vzVoz').value, s = +document.getElementById('vzVel').value; testar(['v2', 'natural', 'premium', 'regional'].map(function (k) { return { voz: v, velocidade: s, perfil: k, rot: PF[k].nome }; })); };
+    document.getElementById('vzZap').onclick = function () { aviso('Gerando as 4 versões…'); api('/bot/voz/versoes', { texto: document.getElementById('vzTxt').value }).then(function (j) { aviso(j.ok ? '✓ Mandei as versões no seu WhatsApp.' : '❌ ' + ((j.versoes || [])[0] || {}).erro); }).catch(function (e) { aviso('❌ ' + e.message); }); };
     document.getElementById('vzComp').onclick = function () {
       var vs = document.getElementById('vzVels').checked ? [0.95, 1, 1.05] : [+document.getElementById('vzVel').value], l = [];
       ['marin', 'coral', 'nova', 'shimmer'].forEach(function (v) { vs.forEach(function (s) { l.push({ voz: v, velocidade: s }); }); });
@@ -87,11 +92,12 @@
     res.innerHTML = ''; var i = 0;
     function prox() {
       if (i >= lista.length) return; var it = lista[i++], id = 'vza' + i;
-      res.insertAdjacentHTML('beforeend', '<div class="amo" id="' + id + '"><b>' + esc(ROT[it.voz] || it.voz) + '</b> · ' + String(it.velocidade).replace('.', ',') + ' <span class="res">gerando…</span></div>');
-      api('/bot/voz/teste', { texto: txt, modelo: f.modelo, voz: it.voz, velocidade: it.velocidade, instr: f.instr, sotaque: f.sotaque, reescrever: f.reescrever, semPausas: f.semPausas }).then(function (j) {
+      var nomeIt = it.rot || ROT[it.voz] || it.voz;
+      res.insertAdjacentHTML('beforeend', '<div class="amo" id="' + id + '"><b>' + esc(nomeIt) + '</b> · ' + String(it.velocidade).replace('.', ',') + ' <span class="res">gerando…</span></div>');
+      api('/bot/voz/teste', { texto: txt, perfil: it.perfil || f.perfil, modelo: f.modelo, voz: it.voz, velocidade: it.velocidade, instr: f.instr, sotaque: f.sotaque, reescrever: f.reescrever, semPausas: f.semPausas }).then(function (j) {
         var el = document.getElementById(id);
-        if (!j.ok) { el.innerHTML = '<b>' + esc(ROT[it.voz] || it.voz) + '</b> · <span style="color:#ff8f7e">' + esc(j.error || 'falhou') + '</span>'; return; }
-        el.innerHTML = '<b>' + esc(ROT[it.voz] || it.voz) + '</b> · ' + String(it.velocidade).replace('.', ',') + ' <span class="res">' + (j.ms / 1000).toFixed(1) + ' s · US$ ' + (j.custoUsd || 0).toFixed(4) + (j.contexto ? ' · tom: ' + esc(j.contexto) : '') + '</span>' +
+        if (!j.ok) { el.innerHTML = '<b>' + esc(nomeIt) + '</b> · <span style="color:#ff8f7e">' + esc(j.error || 'falhou') + '</span>'; return; }
+        el.innerHTML = '<b>' + esc(nomeIt) + '</b> · ' + String(it.velocidade).replace('.', ',') + ' <span class="res">' + (j.ms / 1000).toFixed(1) + ' s · US$ ' + (j.custoUsd || 0).toFixed(4) + (j.contexto ? ' · tom: ' + esc(j.contexto) : '') + '</span>' +
           '<audio controls src="data:' + j.mime + ';base64,' + j.audio + '"></audio><div class="res">Falado: ' + esc(j.fala) + (j.transcricao ? '<br>Realtime leu: ' + esc(j.transcricao) : '') + '</div>';
         if (lista.length === 1) { var au = el.querySelector('audio'); if (au) au.play().catch(function () {}); }
       }).catch(function (e) { var el = document.getElementById(id); if (el) el.innerHTML = '<span style="color:#ff8f7e">' + esc(e.message) + '</span>'; }).then(prox);

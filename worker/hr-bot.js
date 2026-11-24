@@ -2774,6 +2774,12 @@ async function subirVozEnviar(env, para, audio, fala) {
 }
 // v289: TEXTO ESCRITO → FALA DE GENTE. O que a secretária escreve é formal ("Por gentileza", vírgulas, listas);
 // lido do jeito que está, o áudio sai robótico. Uma IA rápida reescreve como uma pessoa falaria num áudio, sem mudar nenhum dado.
+async function vozPrepararFala(env, texto, cfg, rapido) { // v295: o mesmo caminho para todos os áudios (consistência)
+  let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL');
+  if (vozEhV3(cfg)) { if (!rapido && cfg.reescrever !== false) fala = await falaV3(env, fala, cfg); fala = falaPausasLeves(vozNormalizarV3(fala)); }
+  else { if (!rapido && cfg.reescrever) fala = await falaNatural(env, fala); fala = vozNormalizar(fala); if (cfg.semPausas) fala = falaSemPausas(fala); }
+  return fala.replace(/\bHangel\b/g, 'Rangel');
+}
 async function falaNatural(env, fala) {
   const t = String(fala || '').trim(); if (t.length < 25 || String(env.VOZ_REESCREVER ?? '1') === '0') return t;
   const sis = `Reescreva o texto como uma moça baiana simpática FALARIA num áudio de WhatsApp para alguém conhecido. Regras:
@@ -2789,6 +2795,60 @@ Responda SÓ com o texto falado.`;
     return x && x.length < t.length * 1.4 + 40 && vozMesmosNumeros(t, x) ? x : t; // v294: mudou algum número → fica o texto original
   } catch (_) { return t; }
 }
+// ═══ v295: HELENA V3 — PERFIL VOCAL PERMANENTE + 3 ESTILOS (a V2 fica guardada para comparação) ═══
+const VOZ_V3_BASE = `Você é a voz da Helena, assistente virtual da HR Mármores e Granitos, de Pilão Arcado, Bahia. É sempre a mesma pessoa em todos os áudios: mulher brasileira adulta, timbre quente e levemente aveludado, simpática, segura e profissional.
+NATURALIDADE: fale como quem manda um áudio de WhatsApp para um cliente, nunca como quem lê. Cadência de conversa real, com pequenas variações de velocidade.
+ENTONAÇÃO: varie conforme o sentido de cada frase. Afirmações descem no fim; só pergunta de verdade sobe. Valor, prazo e medida ganham um leve destaque. Nunca repita o mesmo desenho de entonação em frases seguidas e não termine tudo no mesmo tom.
+RITMO: médio e confortável (cerca de 160 palavras por minuto), nem acelerado nem arrastado. Pausas curtas só entre ideias; dentro da frase, fale corrido.
+VOLUME: voz projetada, presente e com intensidade constante do começo ao fim. Não abaixe a voz no fim das frases nem no fim do áudio, não sussurre e não grite.
+PRONÚNCIA: Rangel = RAN-JÉU. Itaúnas = i-ta-Ú-nas. São Gabriel, Via Láctea, Ubatuba, Siena e Dallas como se fala no Brasil. Quartzito = quar-TZI-to. Porcelanato, frontão, sainha, rebaixo (re-BAI-xo), cuba, cooktop (cúqui-tópi), soleira, peitoril. Valores em reais e medidas em metros/centímetros com naturalidade.
+Leia exatamente as informações fornecidas, sem inventar, acrescentar ou modificar valores, medidas, nomes, prazos ou condições comerciais.`;
+const VOZ_PERFIS = {
+  natural: { nome: 'Helena Natural', desc: 'espontânea e conversacional',
+    instr: 'ESTILO NATURAL: espontânea e conversacional, como uma atendente simpática que já conhece o cliente. Sorriso leve na voz, energia tranquila. Sotaque brasileiro com um toque nordestino leve.',
+    fala: 'Escreva como uma atendente simpática fala num áudio de WhatsApp: "tá", "pra", "né", "olha", "a gente" com naturalidade (sem exagerar), frases curtas e soltas.' },
+  premium: { nome: 'Helena Premium', desc: 'elegante e profissional',
+    instr: 'ESTILO PREMIUM: elegante e profissional, como a consultora de uma loja de alto padrão. Dicção clara, voz calma e confiante, calorosa sem informalidade. Sotaque brasileiro neutro, influência baiana quase imperceptível.',
+    fala: 'Escreva como uma consultora de loja de alto padrão fala num áudio: português correto e fluido, cordial, sem gírias e sem "né"; pode usar "pra" e "você". Frases bem construídas e curtas.' },
+  regional: { nome: 'Helena Regional', desc: 'próxima, simpática, sotaque baiano discreto',
+    instr: 'ESTILO REGIONAL: próxima e simpática, com o jeito acolhedor do interior da Bahia. Vogais um pouco mais abertas e a melodia baiana discreta (sem caricatura e sem gírias forçadas). Calor humano e tranquilidade.',
+    fala: 'Escreva como uma moça simpática do interior da Bahia fala num áudio para um cliente: acolhedora, "viu?", "tá certo?", "pode deixar" com naturalidade; nada de gíria forçada ("oxe", "painho") nem exagero.' },
+};
+function vozEhV3(cfg) { return !!(cfg && VOZ_PERFIS[cfg.perfil]); }
+// escrito ≠ falado: transforma a resposta escrita (listas, links, PDF, negrito) no que uma pessoa diria
+async function falaV3(env, fala, cfg) {
+  const t = String(fala || '').trim(), pf = VOZ_PERFIS[cfg.perfil]; if (!pf || t.length < 25) return t;
+  const sis = `Você transforma uma resposta ESCRITA de WhatsApp no texto que a Helena vai FALAR num áudio. Uma resposta escrita não se fala do mesmo jeito.
+${pf.fala}
+Regras:
+- Fale para a pessoa, em primeira pessoa, como numa conversa. Listas e tópicos viram frases ligadas ("primeiro… depois…", "e também"). Link, PDF ou foto: "te mandei aqui embaixo" (nunca leia link).
+- Tire o que só serve no texto: asteriscos, emojis, "segue abaixo", "conforme solicitado", repetições e instruções do tipo "toque no botão" (diga "é só me responder aqui").
+- Varie o tamanho das frases. Poucas vírgulas (a voz para nelas): use no máximo uma por frase.
+- Valores, medidas, datas, horários e números: EXATAMENTE os mesmos e em algarismos.
+- Nomes de clientes, pedras e materiais: iguais.
+- Não acrescente informação, promessa, pergunta ou saudação que não esteja no texto. Pode ficar mais curto.
+Responda SÓ com o texto falado.`;
+  try {
+    const r = await Promise.race([chamarIA(env, sis, [], t.slice(0, 1500), { maxTokens: 500, model: env.AI_MODEL_VOZ || 'claude-haiku-5-5', cat: 'voz' }), new Promise(res => setTimeout(() => res(''), 7000))]);
+    const x = String(r || '').replace(/^["“]|["”]$/g, '').replace(/[*_#•]/g, '').trim();
+    return x && x.length < t.length * 1.3 + 40 && vozMesmosNumeros(t, x) ? x : t;
+  } catch (_) { return t; }
+}
+// V3: pausas leves — tira dois-pontos e ponto e vírgula; vírgula só fica uma por frase, e só em frase longa
+function falaPausasLeves(t) {
+  return String(t || '').replace(/(\d),(\d)/g, '$1\u0001$2').replace(/\.{2,}|…/g, '.').replace(/\s*[;:]\s*/g, ' ')
+    .split(/(?<=[.!?])\s+/).map(fr => { const n = fr.split(/\s+/).length; let k = 0; return fr.replace(/\s*,\s*/g, () => (n >= 14 && k++ === 0) ? ', ' : ' '); }).join(' ')
+    .replace(/\u0001/g, ',').replace(/\s{2,}/g, ' ').trim();
+}
+// pronúncia extra: datas, horas, metros, "nº"
+const MESES_FALA = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+function vozNormalizarV3(t) {
+  return vozNormalizar(String(t || '')
+    .replace(/\b(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?\b/g, (m0, d, m) => +m >= 1 && +m <= 12 && +d >= 1 && +d <= 31 ? `${+d} de ${MESES_FALA[+m - 1]}` : m0)
+    .replace(/\b(\d{1,2})h(\d{2})\b/g, (m0, h, mi) => `${+h} e ${mi}`).replace(/\b(\d{1,2})h\b/g, '$1 horas')
+    .replace(/\b(\d+),(\d{1,2})\s*m\b(?!²)/g, (m0, a, b) => `${a} metro${+a > 1 ? 's' : ''} e ${b.length === 1 ? b + '0' : b}`)
+    .replace(/\bn[º°]\s*/gi, 'número '));
+}
 // ═══ v294: IDENTIDADE VOCAL DA HELENA ═══════════════════════════════════════════════════════════════════════
 // Módulos separados: (1) normalização do texto para fala, (2) interpretação vocal (instruções + emoção pelo contexto),
 // (3) integração OpenAI (Speech API ou Realtime), (4) uso e custo. O atendimento (IA comercial) continua separado:
@@ -2796,7 +2856,7 @@ Responda SÓ com o texto falado.`;
 const VOZ_INSTR_PADRAO = 'Interprete a fala como Helena, assistente virtual brasileira especializada em atendimento comercial de uma marmoraria de alto padrão. Fale em português brasileiro, com naturalidade, simpatia e segurança.\n\nUtilize um sotaque brasileiro com uma influência baiana extremamente sutil. Evite pronúncias estrangeiras, formalidade excessiva, entonação teatral e ritmo mecânico.\n\nFale como em uma conversa espontânea pelo WhatsApp. Varie naturalmente a velocidade, a intensidade e a melodia das frases. Faça pequenas pausas quando necessário, sem exagerar.\n\nDemonstre interesse genuíno pelo assunto, mantendo profissionalismo. Não transforme todas as frases em perguntas e não termine todas as sentenças com a mesma entonação.\n\nLeia exatamente as informações fornecidas, sem inventar, acrescentar ou modificar valores, medidas, nomes, prazos ou condições comerciais.';
 const VOZ_MODELOS = { 'gpt-4o-mini-tts-2025-12-15': 'GPT-4o mini TTS (dez/2025) · Speech API', 'gpt-4o-mini-tts': 'GPT-4o mini TTS · Speech API', 'gpt-realtime-2.1-mini': 'GPT Realtime 2.1 mini · Realtime API (teste no painel)' };
 const VOZ_VOZES = ['marin', 'coral', 'nova', 'shimmer', 'sage', 'cedar'];
-const VOZ_CFG_PADRAO = { modelo: 'gpt-4o-mini-tts-2025-12-15', voz: 'shimmer', velocidade: 1, instr: VOZ_INSTR_PADRAO, sotaque: 'baiano sutil, do interior da Bahia, sem exagero', emocao: true, reescrever: true, semPausas: true };
+const VOZ_CFG_PADRAO = { perfil: 'v2', modelo: 'gpt-4o-mini-tts-2025-12-15', voz: 'shimmer', velocidade: 1, instr: VOZ_INSTR_PADRAO, sotaque: 'baiano sutil, do interior da Bahia, sem exagero', emocao: true, reescrever: true, semPausas: true };
 const VOZ_EMOCAO = {
   primeiro: 'Primeiro atendimento: receptiva e simpática.',
   orcamento: 'Apresentação de orçamento: segura, clara e objetiva.',
@@ -2822,6 +2882,8 @@ async function vozCfgSalvar(env, nova, quem) {
   if (typeof nova.instr === 'string' && nova.instr.trim().length > 20) limpa.instr = nova.instr.trim().slice(0, 3000);
   if (typeof nova.sotaque === 'string') limpa.sotaque = nova.sotaque.trim().slice(0, 200);
   ['emocao', 'reescrever', 'semPausas'].forEach(k => { if (typeof nova[k] === 'boolean') limpa[k] = nova[k]; });
+  if (nova.perfil === 'v2' || VOZ_PERFIS[nova.perfil]) limpa.perfil = nova.perfil;
+  if (!c.v2) c.v2 = { ...VOZ_CFG_PADRAO, ...(c.atual || {}), perfil: 'v2' }; // v295: a V2 fica guardada como estava
   if (nova.padrao) Object.assign(limpa, VOZ_CFG_PADRAO);
   if (c.atual && Object.keys(c.atual).length) c.hist = [{ em: Date.now(), quem: quem || 'painel', cfg: c.atual }, ...(c.hist || [])].slice(0, 15);
   c.atual = { ...VOZ_CFG_PADRAO, ...c.atual, ...limpa };
@@ -2852,6 +2914,7 @@ function vozContexto(t) {
   return '';
 }
 function vozInstrucoes(cfg, texto) {
+  if (vozEhV3(cfg)) { const ctx = cfg.emocao === false ? '' : vozContexto(texto); return [VOZ_V3_BASE, VOZ_PERFIS[cfg.perfil].instr, ctx ? 'TOM DESTE ÁUDIO: ' + VOZ_EMOCAO[ctx] : ''].filter(Boolean).join('\n'); }
   const vel = +cfg.velocidade || 1, ritmo = vel <= 0.97 ? 'Ritmo um pouco mais calmo que o normal.' : vel >= 1.03 ? 'Ritmo um pouco mais ágil que o normal, sem atropelar.' : '';
   const ctx = cfg.emocao ? vozContexto(texto) : '';
   return [cfg.instr || VOZ_INSTR_PADRAO, cfg.sotaque ? `Sotaque: ${cfg.sotaque}.` : '', 'O nome do dono é Rangel (escrito Hangel): pronuncie RAN-JÉU.', cfg.semPausas ? 'Não pare nas vírgulas: só respire de leve no fim das frases.' : '', ritmo, ctx ? 'Neste áudio: ' + VOZ_EMOCAO[ctx] : ''].filter(Boolean).join('\n');
@@ -2898,6 +2961,21 @@ async function vozRealtimeWav(env, fala, cfg) {
   dv.setUint32(24, 24000, true); dv.setUint32(28, 48000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, pcm.length, true); wav.set(pcm, 44);
   return { audio: wav.buffer, via: 'rt:' + cfg.modelo + ':' + cfg.voz, mime: 'audio/wav', seg: pcm.length / 48000, transcricao: trans };
 }
+const VOZ_MSG_TESTE = 'Oi, Rangel! Aqui é a Helena, da HR Mármores e Granitos. O orçamento da cozinha em granito Preto São Gabriel ficou pronto: são 3,20 m de bancada com rebaixo americano e sainha em 45°, no total de R$ 4.850,00, em até 10x. A medição pode ser na quinta, 26/11, às 14h30. Te mandei o PDF aqui embaixo, tá bom?';
+async function vozV2(env) { let c = null; try { c = JSON.parse((await env.HR_KV.get('cfg:vozid')) || 'null'); } catch (_) {} return { ...VOZ_CFG_PADRAO, ...((c && (c.v2 || (c.atual && (!c.atual.perfil || c.atual.perfil === 'v2') ? c.atual : null))) || {}), perfil: 'v2' }; }
+// as 4 versões (V2 + 3 da V3) com a MESMA mensagem, no WhatsApp do dono, para ouvir no celular
+async function vozVersoesWhatsApp(env, texto) {
+  const dono = numeroDono(env), base = await vozCfg(env), v2 = await vozV2(env), out = [];
+  const lista = [['v2', 'Helena V2 (atual)', v2], ...Object.entries(VOZ_PERFIS).map(([k, v]) => [k, v.nome + ' — ' + v.desc, { ...base, ...v2, perfil: k, reescrever: true, emocao: true }])];
+  for (const [k, nome, cfg] of lista) {
+    try {
+      const fala = await vozPrepararFala(env, texto, cfg, false), g = await vozSpeech(env, fala, cfg, 'opus');
+      await enviarTextoPuro(env, dono, `🎙️ *${nome}*`); await subirVozEnviar(env, dono, g.audio, fala); await vozUso(env, g.via, fala.length);
+      out.push({ k, ok: true, fala });
+    } catch (e) { out.push({ k, ok: false, erro: String(e.message).slice(0, 160) }); }
+  }
+  return { ok: out.some(x => x.ok), versoes: out };
+}
 // (4) USO E CUSTO (estimado: Speech ≈ US$ 0,015/min; Realtime mini ≈ US$ 0,02/min)
 async function vozUso(env, via, chars, seg) {
   try {
@@ -2926,10 +3004,7 @@ async function enviarVoz(env, para, texto, opts = {}) {
     await vozEscolhaCarregar(env).catch(() => {});
     let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
-    const vcfg = await vozCfg(env);
-    if (!env._vozRapida && vcfg.reescrever) fala = (await falaNatural(env, fala)).replace(/\bHangel\b/g, 'Rangel'); // v289 (pula quando o tempo está curto)
-    fala = vozNormalizar(fala); // v294: R$, medidas, %, 45°, 8x, siglas
-    if (vcfg.semPausas) fala = falaSemPausas(fala); // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
+    fala = await vozPrepararFala(env, texto, await vozCfg(env), !!env._vozRapida); // v295 // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
     let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
     await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
@@ -15351,6 +15426,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- RESUMO DO MÊS: para \"como está o mês\" o sistema já responde sozinho com os números do app. Para perguntas mais específicas (\"quanto gastei de material?\", \"o lucro caiu?\", \"compare com o mês passado\"), use o bloco resumoFinanceiro dos DADOS DO APP (mesAtual e mesAnterior), cite valores em R$ e diga a variação. Nunca invente números.`,
       `- PRÓ-LABORE (\"quanto posso retirar?\", \"posso tirar 2 mil?\", \"quanto já retirei?\"): responda com o bloco proLabore dos DADOS DO APP: sugeridoMes, jaRetiradoMes, restanteSugerido, tetoSegurancaCaixa, dividaMesesAnteriores e lucroLivreAposReserva, valores em R$. Se ele perguntar por um valor específico, compare com restanteSugerido e com o teto de segurança e diga claramente se cabe, sem decidir por ele. Se proLabore não existir nos dados, diga que o aplicativo precisa sincronizar. Nunca invente números.`,
       `- PAGAMENTO A FUNCIONÁRIO (pagar_funcionario): \"paguei 150 pro diarista\", \"adiantamento de 200 pro João\", \"dei um vale de 100 ao Pedro\", \"paguei o decêndio do Carlos\". Use a lista de funcionarios dos DADOS DO APP. Se não estiver claro se é adiantamento, vale ou pagamento do decêndio, faça UMA pergunta curta antes. NÃO use lancar_financeiro para isso: o RH precisa do registro para o saldo do funcionário ficar certo. Se ele falar de retirada ou gasto pessoal dele e o funcionário marcado como socio existir, registre pagar_funcionario no sócio, tipo adiantamento (com obs do motivo, ex.: Aluguel da casa).`,
+      `- VOZ: você FALA por áudio (a sua resposta vira áudio com a sua voz quando ele manda áudio ou pede para ouvir a sua voz). NUNCA diga que não consegue falar em áudio ou que só escreve.`,
       `- LANÇAMENTOS (lancar_financeiro): qualquer relato de pagamento, compra, gasto ou recebimento (\"paguei\", \"gastei\", \"comprei\", \"abasteci\", \"saiu\", \"o João pagou\", \"entrou\", \"recebi\") JÁ É pedido para anotar: execute, sem perguntar se deve anotar. Descrição curta e limpa, só o que foi (\"Aluguel da casa\", nunca a frase inteira nem instruções como \"descontar...\"). Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join('; ')}. GASTO PESSOAL do Sr. Hangel (aluguel da casa dele, conta pessoal) ou frase com \"descontar/abater do meu pró-labore\" ou \"retirada\" = categoria prolabore, NUNCA custo fixo da empresa. Mais de um gasto na mesma mensagem = uma chamada por item. Se ele citar quantidade e preço (\"2 sacos de cimento por 150\"), o valor é o TOTAL pago, não a quantidade. Se ele corrigir o que acabou de ser lançado (\"era 600\", \"muda para pró-labore\", \"foi ontem\", \"era entrada\") use corrigir_ultimo_lancamento; para apagar use desfazer_ultimo_lancamento. Só pergunte se faltar o valor ou se for realmente impossível saber se é entrada ou saída. Perguntas sobre finanças, boletos, agenda, orçamentos já existentes e leads você responde com os dados.`,
       `- LIVRO DE ENTREGAS E PAGAMENTOS: quando o Sr. Hangel disser que ENTREGOU um serviço, que um cliente PAGOU (valor, forma e data) ou informar o TELEFONE de um cliente, CHAME registrar_entrega_pagamento para ficar salvo de forma permanente (se for dinheiro novo que entrou, chame também lancar_financeiro). Para perguntas sobre datas de entrega, formas de pagamento, quem ainda deve ou saldo, use o LIVRO acima ou consultar_entregas_pagamentos. Nunca diga que não tem onde guardar essas informações. O telefone salvo no livro é usado automaticamente na cobrança; se faltar telefone, peça UMA vez e grave com registrar_entrega_pagamento.`,
       `- QUEM É "ELA", "ELE", "ESSE CLIENTE", "ESSE SERVIÇO": é o cliente da mensagem que ele citou (vem como [O Sr. Hangel respondeu em cima desta mensagem do bot: …]) ou, sem citação, o do assunto MAIS RECENTE do histórico (inclusive [Aviso do bot…] e o que o bot acabou de responder). Nunca use um cliente de assunto mais antigo. Se ficar entre dois, pergunte citando os dois nomes. Valor e serviço que o bot acabou de calcular ("calculei: R$ …") valem para link, Pix, PDF e cobrança sem perguntar de novo. Se ele corrigir o nome do cliente, corrija o MESMO pedido/orçamento (não crie outro com o nome antigo) e diga qual ficou.`,
@@ -25666,14 +25742,14 @@ async function rotaBotInterna(req, env, url) {
 
   // v294: IDENTIDADE VOCAL DA HELENA (painel do app)
   if (p === '/bot/voz/cfg' && req.method === 'GET') { let c = null; try { c = JSON.parse((await env.HR_KV.get('cfg:vozid')) || 'null'); } catch (_) {} const mes = dataBahia().slice(0, 7); let uso = {}; try { uso = JSON.parse((await env.HR_KV.get('voz:uso:' + mes)) || '{}'); } catch (_) {}
-    return jsonR({ ok: true, atual: await vozCfg(env), padrao: VOZ_CFG_PADRAO, hist: (c && c.hist) || [], modelos: VOZ_MODELOS, vozes: VOZ_VOZES, emocoes: VOZ_EMOCAO, uso: { mes, ...uso }, elevenlabs: !!env.ELEVENLABS_KEY, escolhaAntiga: globalThis.__voz || '' }); }
+    return jsonR({ ok: true, perfis: Object.fromEntries(Object.entries(VOZ_PERFIS).map(([k, v]) => [k, { nome: v.nome, desc: v.desc }])), msgTeste: VOZ_MSG_TESTE, atual: await vozCfg(env), padrao: VOZ_CFG_PADRAO, hist: (c && c.hist) || [], modelos: VOZ_MODELOS, vozes: VOZ_VOZES, emocoes: VOZ_EMOCAO, uso: { mes, ...uso }, elevenlabs: !!env.ELEVENLABS_KEY, escolhaAntiga: globalThis.__voz || '' }); }
   if (p === '/bot/voz/cfg' && req.method === 'POST') { const b = await req.json().catch(() => ({})); const c = await vozCfgSalvar(env, b, 'painel'); if (b.voz) { await env.HR_KV.delete('cfg:voz').catch(() => {}); globalThis.__voz = ''; } return jsonR({ ok: true, atual: c.atual, hist: c.hist }); }
+  if (p === '/bot/voz/versoes' && req.method === 'POST') { const b = await req.json().catch(() => ({})); return jsonR(await vozVersoesWhatsApp(env, String(b.texto || '').trim() || VOZ_MSG_TESTE)); }
   if (p === '/bot/voz/teste' && req.method === 'POST') {
     const b = await req.json().catch(() => ({})), base = await vozCfg(env);
-    const cfg = { ...base, ...(VOZ_MODELOS[b.modelo] ? { modelo: b.modelo } : {}), ...(VOZ_VOZES.includes(b.voz) ? { voz: b.voz } : {}), ...(+b.velocidade ? { velocidade: +b.velocidade } : {}), ...(typeof b.instr === 'string' && b.instr.trim().length > 20 ? { instr: b.instr } : {}), ...(typeof b.sotaque === 'string' ? { sotaque: b.sotaque } : {}) };
-    let fala = falaCasual(textoParaFala(String(b.texto || 'Oi! Aqui é a Helena, da HR Mármores e Granitos. O seu orçamento da cozinha em Preto São Gabriel ficou em R$ 2.500,00, com rebaixo americano e sainha em 45°.').slice(0, 600)));
-    if (b.reescrever ?? cfg.reescrever) fala = await falaNatural(env, fala);
-    fala = vozNormalizar(fala); if (b.semPausas ?? cfg.semPausas) fala = falaSemPausas(fala);
+    const cfg = { ...base, ...(b.perfil === 'v2' ? (await vozV2(env)) : VOZ_PERFIS[b.perfil] ? { perfil: b.perfil } : {}), ...(VOZ_MODELOS[b.modelo] ? { modelo: b.modelo } : {}), ...(VOZ_VOZES.includes(b.voz) ? { voz: b.voz } : {}), ...(+b.velocidade ? { velocidade: +b.velocidade } : {}), ...(typeof b.instr === 'string' && b.instr.trim().length > 20 ? { instr: b.instr } : {}), ...(typeof b.sotaque === 'string' ? { sotaque: b.sotaque } : {}) };
+    if (typeof b.reescrever === 'boolean') cfg.reescrever = b.reescrever; if (typeof b.semPausas === 'boolean') cfg.semPausas = b.semPausas;
+    const fala = await vozPrepararFala(env, String(b.texto || VOZ_MSG_TESTE).slice(0, 600), cfg, false);
     const t0 = Date.now();
     try {
       const g = /realtime/.test(cfg.modelo) ? await vozRealtimeWav(env, fala, cfg) : await vozSpeech(env, fala, cfg, 'mp3');
@@ -34479,6 +34555,7 @@ export default {
     await eqModoCarregar(env).catch(() => {}); // v154
     await expCarregar(env).catch(() => {}); // v168
     configurarRegras(env); // v27: limite de peças e pingadeira
+    if (!(await env.HR_KV.get('voz:v3teste')) && await travaEnvio(env, 'voz:v3teste').catch(() => false)) { await env.HR_KV.put('voz:v3teste', '1', { expirationTtl: 30 * 86400 }); ctx.waitUntil(vozVersoesWhatsApp(env, VOZ_MSG_TESTE).then(r => console.log('[VOZ] versões', JSON.stringify(r).slice(0, 300))).catch(e => console.log('[VOZ] versões:', e.message))); } // v295: as 4 versões da Helena, uma vez, no WhatsApp do dono
     ctx.waitUntil(filaReprocessar(env, 2).catch(e => console.log('[FILA]', e.message))); // v288: mensagem que ficou sem resposta (o agendamento tem mais tempo para responder)
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
