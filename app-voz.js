@@ -98,7 +98,7 @@
         var el = document.getElementById(id);
         if (!j.ok) { el.innerHTML = '<b>' + esc(nomeIt) + '</b> · <span style="color:#ff8f7e">' + esc(j.error || 'falhou') + '</span>'; return; }
         el.innerHTML = '<b>' + esc(nomeIt) + '</b> · ' + String(it.velocidade).replace('.', ',') + ' <span class="res">' + (j.ms / 1000).toFixed(1) + ' s · US$ ' + (j.custoUsd || 0).toFixed(4) + (j.contexto ? ' · tom: ' + esc(j.contexto) : '') + '</span>' +
-          '<audio controls src="data:' + j.mime + ';base64,' + j.audio + '"></audio><div class="res">Falado: ' + esc(j.fala) + (j.transcricao ? '<br>Realtime leu: ' + esc(j.transcricao) : '') + '</div>';
+          '<audio controls src="data:' + j.mime + ';base64,' + j.audio + '"></audio><div class="res">' + (j.direcao ? '🎭 ' + esc(j.direcao) + '<br>' : '') + 'Falado: ' + esc(j.fala) + (j.transcricao ? '<br>Realtime leu: ' + esc(j.transcricao) : '') + '</div>';
         if (lista.length === 1) { var au = el.querySelector('audio'); if (au) au.play().catch(function () {}); }
       }).catch(function (e) { var el = document.getElementById(id); if (el) el.innerHTML = '<span style="color:#ff8f7e">' + esc(e.message) + '</span>'; }).then(prox);
     }

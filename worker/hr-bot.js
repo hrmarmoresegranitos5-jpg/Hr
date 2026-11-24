@@ -2754,7 +2754,7 @@ async function gerarVoz(env, fala, escolha) {
       return { audio: await r.arrayBuffer(), via: 'el:' + elId };
     } catch (e) { console.log('[BOT] voz ElevenLabs:', e.message); if (op && op.prov === 'el') throw e; }
   } else if (op && op.prov === 'el') throw new Error('falta a chave ELEVENLABS_KEY');
-  { const cfg = await vozCfg(env); if (op && op.prov === 'oa') cfg.voz = op.id; // v294: identidade vocal (modelo, voz, instruções, emoção)
+  { const cfg = { ...(await vozCfg(env)), _direcao: env._vozDirecao || '' }; if (op && op.prov === 'oa') cfg.voz = op.id; // v294: identidade vocal (modelo, voz, instruções, emoção)
     const g = await vozSpeech(env, fala, { ...cfg }, 'opus'); await vozUso(env, g.via, fala.length); return g; }
   const chave = chaveVoz(env); if (!chave) throw new Error('sem chave de voz');
   const tts = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -2776,7 +2776,7 @@ async function subirVozEnviar(env, para, audio, fala) {
 // lido do jeito que está, o áudio sai robótico. Uma IA rápida reescreve como uma pessoa falaria num áudio, sem mudar nenhum dado.
 async function vozPrepararFala(env, texto, cfg, rapido) { // v295: o mesmo caminho para todos os áudios (consistência)
   let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL');
-  if (vozEhV3(cfg)) { if (!rapido && cfg.reescrever !== false) fala = await falaV3(env, fala, cfg); fala = falaPausasLeves(vozNormalizarV3(fala)); }
+  if (vozEhV3(cfg)) { if (!rapido && cfg.reescrever !== false) fala = await falaV3(env, fala, cfg, env._ctx && (env._ctx.bruto || '')); fala = falaPausasLeves(vozNormalizarV3(fala)); }
   else { if (!rapido && cfg.reescrever) fala = await falaNatural(env, fala); fala = vozNormalizar(fala); if (cfg.semPausas) fala = falaSemPausas(fala); }
   return fala.replace(/\bHangel\b/g, 'Rangel');
 }
@@ -2816,7 +2816,7 @@ const VOZ_PERFIS = {
 };
 function vozEhV3(cfg) { return !!(cfg && VOZ_PERFIS[cfg.perfil]); }
 // escrito ≠ falado: transforma a resposta escrita (listas, links, PDF, negrito) no que uma pessoa diria
-async function falaV3(env, fala, cfg) {
+async function falaV3(env, fala, cfg, contexto) {
   const t = String(fala || '').trim(), pf = VOZ_PERFIS[cfg.perfil]; if (!pf || t.length < 25) return t;
   const sis = `Você transforma uma resposta ESCRITA de WhatsApp no texto que a Helena vai FALAR num áudio. Uma resposta escrita não se fala do mesmo jeito.
 ${pf.fala}
@@ -2828,10 +2828,13 @@ Regras:
 - Valores, medidas, datas, horários e números: EXATAMENTE os mesmos e em algarismos.
 - Nomes de clientes, pedras e materiais: iguais.
 - Não acrescente informação, promessa, pergunta ou saudação que não esteja no texto. Pode ficar mais curto.
-Responda SÓ com o texto falado.`;
+EMOÇÃO DE VERDADE: a Helena sente o que fala. Pode abrir com uma reação curta e sincera quando combinar com a situação ("Ah, que bom!", "Poxa, entendo…", "Opa!", "Que notícia boa!", "Olha só…"), sem exagero e sem repetir sempre a mesma.
+Responda SÓ com JSON: {"fala":"o texto falado","direcao":"1 ou 2 frases curtas de direção de atriz para a voz: a emoção e como ela muda ao longo do áudio (ex.: começa alegre e sorridente com a novidade, fica segura e clara no valor, termina carinhosa na pergunta)"}`;
   try {
-    const r = await Promise.race([chamarIA(env, sis, [], t.slice(0, 1500), { maxTokens: 500, model: env.AI_MODEL_VOZ || 'claude-haiku-5-5', cat: 'voz' }), new Promise(res => setTimeout(() => res(''), 7000))]);
-    const x = String(r || '').replace(/^["“]|["”]$/g, '').replace(/[*_#•]/g, '').trim();
+    const r = await Promise.race([chamarIA(env, sis, [], (contexto ? `O cliente/pessoa tinha dito: "${String(contexto).slice(0, 300)}"\n\nResposta escrita da Helena:\n` : '') + t.slice(0, 1500), { maxTokens: 600, model: env.AI_MODEL_VOZ || 'claude-haiku-5-5', cat: 'voz' }), new Promise(res => setTimeout(() => res(''), 7000))]);
+    let j = null; try { j = lerJsonIA(String(r || '')); } catch (_) {}
+    const x = String((j && j.fala) || '').replace(/^["“]|["”]$/g, '').replace(/[*_#•]/g, '').trim();
+    if (j && j.direcao) cfg._direcao = String(j.direcao).slice(0, 300);
     const nq = z => (String(z).match(/\?/g) || []).length;
     return x && x.length < t.length * 1.3 + 40 && vozMesmosNumeros(t, x) && nq(x) >= nq(t) ? x : t; // v298: não pode perder pergunta
   } catch (_) { return t; }
@@ -2920,7 +2923,7 @@ function vozContexto(t) {
   return '';
 }
 function vozInstrucoes(cfg, texto) {
-  if (vozEhV3(cfg)) { const ctx = cfg.emocao === false ? '' : vozContexto(texto), vel = +cfg.velocidade || 1; return [VOZ_V3_BASE, VOZ_PERFIS[cfg.perfil].instr, vel >= 1.03 ? 'Fale ainda mais ágil que o normal, sem atropelar.' : '', ctx ? 'TOM DESTE ÁUDIO: ' + VOZ_EMOCAO[ctx] : '', 'Lembre: ritmo ágil, nunca lento.'].filter(Boolean).join('\n'); }
+  if (vozEhV3(cfg)) { const ctx = cfg.emocao === false ? '' : vozContexto(texto), vel = +cfg.velocidade || 1; return [VOZ_V3_BASE, VOZ_PERFIS[cfg.perfil].instr, vel >= 1.03 ? 'Fale ainda mais ágil que o normal, sem atropelar.' : '', ctx ? 'TOM DESTE ÁUDIO: ' + VOZ_EMOCAO[ctx] : '', cfg._direcao ? 'DIREÇÃO DESTE ÁUDIO (interprete com emoção real, como atriz): ' + cfg._direcao : '', 'Emoção verdadeira na voz: sorria quando a notícia é boa, fique séria e acolhedora quando é problema, mostre interesse real. Nada de voz neutra de leitura.', 'Lembre: ritmo ágil, nunca lento.'].filter(Boolean).join('\n'); }
   const vel = +cfg.velocidade || 1, ritmo = vel <= 0.97 ? 'Ritmo de conversa normal, sem pressa (mas nunca arrastado).' : vel >= 1.03 ? 'Ritmo bem ágil, de quem fala rápido no dia a dia, sem atropelar as palavras.' : 'Ritmo ágil e fluido de conversa (por volta de 185 palavras por minuto): nunca fale devagar nem arraste as sílabas.'; // v296: estava lento
   const ctx = cfg.emocao ? vozContexto(texto) : '';
   return [cfg.instr || VOZ_INSTR_PADRAO, cfg.sotaque ? `Sotaque: ${cfg.sotaque}.` : '', 'O nome do dono é Rangel (escrito Hangel): pronuncie RAN-JÉU.', cfg.semPausas ? 'Não pare nas vírgulas: só respire de leve no fim das frases.' : '', ritmo, ctx ? 'Neste áudio: ' + VOZ_EMOCAO[ctx] : ''].filter(Boolean).join('\n');
@@ -3012,7 +3015,7 @@ async function enviarVoz(env, para, texto, opts = {}) {
     await vozEscolhaCarregar(env).catch(() => {});
     let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
-    fala = await vozPrepararFala(env, texto, await vozCfg(env), !!env._vozRapida); // v295 // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
+    { const vc = { ...(await vozCfg(env)) }; fala = await vozPrepararFala(env, texto, vc, !!env._vozRapida); env._vozDirecao = vc._direcao || ''; } // v295 · v299: direção emocional // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
     let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
     await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
@@ -25765,7 +25768,7 @@ async function rotaBotInterna(req, env, url) {
     try {
       const g = /realtime/.test(cfg.modelo) ? await vozRealtimeWav(env, fala, cfg) : await vozSpeech(env, fala, cfg, 'mp3');
       await vozUso(env, g.via, fala.length, g.seg);
-      return jsonR({ ok: true, audio: bytesParaBase64(new Uint8Array(g.audio)), mime: g.mime, ms: Date.now() - t0, fala, via: g.via, transcricao: g.transcricao || '', contexto: cfg.emocao ? vozContexto(fala) : '', custoUsd: Math.round(((g.seg || fala.length / 14) / 60 * (/^rt:/.test(g.via) ? 0.02 : 0.015)) * 10000) / 10000 });
+      return jsonR({ ok: true, audio: bytesParaBase64(new Uint8Array(g.audio)), mime: g.mime, ms: Date.now() - t0, fala, via: g.via, transcricao: g.transcricao || '', direcao: cfg._direcao || '', contexto: cfg.emocao ? vozContexto(fala) : '', custoUsd: Math.round(((g.seg || fala.length / 14) / 60 * (/^rt:/.test(g.via) ? 0.02 : 0.015)) * 10000) / 10000 });
     } catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 300), ms: Date.now() - t0 }, 200); }
   }
   if (p === '/bot/status' && req.method === 'GET') {
