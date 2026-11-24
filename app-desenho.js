@@ -39,7 +39,7 @@
     if (t === 'L') { p.A = 250; p.B = 100; p.Bv = 2; p.cuba.tipo = 'retangular'; p.frD = true; }
     if (t === 'lavatorio') { p.A = 80; p.p = 45; p.saiaAlt = 10; p.cuba = { tipo: 'redonda', inst: 'embutida', ref: 'esq', x: '', w: 40, h: 40, fy: '' }; }
     if (t === 'prateleira') { p.A = 80; p.p = 35; p.frF = false; }
-    if (t === 'nicho') { p.A = 60; p.H = 30; p.prof = 10; p.mold = 0; p.fundo = 0; p.saia = 'nenhuma'; p.frF = false; }
+    if (t === 'nicho') { p.A = 60; p.H = 30; p.prof = 10; p.mold = 8; p.fundo = 1; p.saia = 'nenhuma'; p.frF = false; }
     if (t === 'placa') { p.A = 40; p.H = 80; p.nome = 'Divisória'; p.saia = 'nenhuma'; p.frF = false; }
     return p;
   }
@@ -359,7 +359,7 @@
   function bboxPeca(pc) {
     if (oblq(pc)) { var b = bboxOb(pc); return { w: b.x1 - b.x0, h: b.y1 - b.y0, mL: 110, mR: 110, mT: pc.reb && pc.reb.on && pc.tipo !== 'prateleira' ? 135 : 78, mB: (pc.tipo === 'L' ? 78 : 30) + 40 }; }
     var A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H));
-    return pc.tipo === 'nicho' ? { w: A + 2 * nOut(pc), h: H + 2 * nOut(pc), mL: 30, mR: 70, mT: 20, mB: 60 } : { w: A, h: H, mL: 30, mR: 80, mT: 20, mB: 100 };
+    return pc.tipo === 'nicho' ? { w: A + 2 * nOut(pc), h: H + 2 * nOut(pc), mL: 30, mR: 40, mT: 20, mB: 90 } : { w: A, h: H, mL: 30, mR: 80, mT: 20, mB: 100 };
   }
 
   // ── desenho de uma peça em perspectiva ──
@@ -505,25 +505,21 @@
     }
     return h;
   }
-  function nOut(pc) { var m = num(pc.mold, 0); return m > 2 ? m - 2 : 0; } // v32: quanto a moldura passa da caixa (moldura de 8 cobre 2 cm da borda e sai 6)
+  function nOut(pc) { var m = num(pc.mold, 0); return m > 0 ? m : 2; } // v33: medidas de DENTRO A DENTRO (como no orçamento): a moldura fica em volta do vão; sem moldura, aparece a caixa de 2 cm
   function frenteSvg(pc, s, x0, y0, idx) { // nicho e placas: vista de frente
     var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', st = 'fill="' + TOM.top + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"';
-    if (pc.tipo === 'nicho') { // v32: caixa (base, topo, laterais), fundo e moldura com cantos em 45°
-      var o = nOut(pc), mo = num(pc.mold, 0), e = 2, pr = Math.max(4, num(pc.prof, 10)), X = x0 + o * s, Y = y0 + o * s, W = A * s, Hh = H * s, ls = 'stroke="' + TOM.line + '" stroke-width="' + sw + '"';
-      if (o) { // moldura: 4 réguas com encontro em 45°
-        var OW = (A + 2 * o) * s, OH = (H + 2 * o) * s, iw = mo * s;
-        h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + OW + '" height="' + OH + '" ' + st + '/>';
-        h += '<rect x="' + (x0 + iw) + '" y="' + (y0 + iw) + '" width="' + (OW - 2 * iw) + '" height="' + (OH - 2 * iw) + '" fill="none" ' + ls + '/>';
-        [[x0, y0, x0 + iw, y0 + iw], [x0 + OW, y0, x0 + OW - iw, y0 + iw], [x0, y0 + OH, x0 + iw, y0 + OH - iw], [x0 + OW, y0 + OH, x0 + OW - iw, y0 + OH - iw]].forEach(function (q) { h += '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[2] + '" y2="' + q[3] + '" ' + ls + '/>'; });
-      } else h += '<rect x="' + X + '" y="' + Y + '" width="' + W + '" height="' + Hh + '" ' + st + '/>';
-      var IX = x0 + (o ? mo : e) * s, IY = y0 + (o ? mo : e) * s, IW = (A + 2 * o - 2 * (o ? mo : e)) * s, IH = (H + 2 * o - 2 * (o ? mo : e)) * s, d = Math.min(pr * 0.45, A * 0.2) * s, b = Math.min(pr * 0.45, H * 0.2) * s;
-      h += '<rect x="' + IX + '" y="' + IY + '" width="' + IW + '" height="' + IH + '" fill="' + (num(pc.fundo, 0) ? TOM.top : '#fff') + '" ' + ls + '/>';
-      h += '<line x1="' + (IX + IW - d) + '" y1="' + IY + '" x2="' + (IX + IW - d) + '" y2="' + (IY + IH - b) + '" ' + ls + '/>';
-      h += '<line x1="' + IX + '" y1="' + (IY + IH - b) + '" x2="' + (IX + IW - d) + '" y2="' + (IY + IH - b) + '" ' + ls + '/>';
-      h += '<line x1="' + (IX + IW - d) + '" y1="' + (IY + IH - b) + '" x2="' + (IX + IW) + '" y2="' + (IY + IH) + '" ' + ls + '/>';
-      h += dimTxt(IX + 14, IY + IH / 2 + 10, f1(H), 30, 'start', it && idx + '|H') + dimTxt(IX + IW / 2, IY + IH - b - 14, f1(A), 30, 'middle', it && idx + '|A');
-      h += dimTxt(x0 + (A + 2 * o) * s + 10, Y + Hh / 2 + 8, '↔ ' + f1(pr), 24, 'start', it && idx + '|prof');
-      if (o) h += dimTxt(x0 + (A + 2 * o) * s / 2, y0 - 10, 'moldura ' + f1(mo) + ' · 45°', 22, 'middle', it && idx + '|mold');
+    if (pc.tipo === 'nicho') { // v33: vão de dentro a dentro A × H, moldura em volta com encontro em 45° (externo A+2m × H+2m), fundo
+      var o = nOut(pc), mo = num(pc.mold, 0), pr = Math.max(4, num(pc.prof, 10)), ls = 'stroke="' + TOM.line + '" stroke-width="' + sw + '"';
+      var OW = (A + 2 * o) * s, OH = (H + 2 * o) * s, iw = o * s, IX = x0 + iw, IY = y0 + iw, IW = A * s, IH = H * s;
+      h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + OW + '" height="' + OH + '" ' + st + '/>';
+      h += '<rect x="' + IX + '" y="' + IY + '" width="' + IW + '" height="' + IH + '" fill="' + (num(pc.fundo, 0) ? '#e4e1da' : '#fff') + '" ' + ls + '/>';
+      [[x0, y0, IX, IY], [x0 + OW, y0, IX + IW, IY], [x0, y0 + OH, IX, IY + IH], [x0 + OW, y0 + OH, IX + IW, IY + IH]].forEach(function (q) { h += '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[2] + '" y2="' + q[3] + '" ' + ls + '/>'; });
+      var d = Math.min(pr * 0.5, A * 0.15) * s; // profundidade: o fundo visto em perspectiva leve
+      h += '<rect x="' + (IX + d) + '" y="' + (IY + d) + '" width="' + Math.max(1, IW - 2 * d) + '" height="' + Math.max(1, IH - 2 * d) + '" fill="none" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.6) + '"/>';
+      [[IX, IY, IX + d, IY + d], [IX + IW, IY, IX + IW - d, IY + d], [IX, IY + IH, IX + d, IY + IH - d], [IX + IW, IY + IH, IX + IW - d, IY + IH - d]].forEach(function (q) { h += '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[2] + '" y2="' + q[3] + '" stroke="' + TOM.line + '" stroke-width="' + (sw * 0.6) + '"/>'; });
+      h += dimTxt(IX + IW / 2, IY + d + 34, f1(A), 28, 'middle', it && idx + '|A') + dimTxt(IX + d + 12, IY + IH / 2 + 10, f1(H), 28, 'start', it && idx + '|H');
+      h += dimTxt(IX + IW / 2, IY + IH / 2 + 22, 'prof. ' + f1(pr), 24, 'middle', it && idx + '|prof');
+      h += dimTxt(x0 + OW / 2, y0 + OH + 32, (mo ? 'moldura ' + f1(mo) + ' em 45° · ' : '') + 'externo ' + f1(A + 2 * o) + ' × ' + f1(H + 2 * o), 20, 'middle', it && mo && idx + '|mold');
       // quantidade vai na etiqueta embaixo
     } else {
       h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + (A * s) + '" height="' + (H * s) + '" ' + st + '/>';
@@ -737,9 +733,9 @@
   // ── lista de peças (corte) e serviços, para a produção ──
   function corte(pc) {
     var q = Math.max(1, Math.round(num(pc.qtd, 1))), L = [], add = function (nome, tipo, c, l, n) { if (c > 0 && l > 0) L.push({ nome: nome, tipo: tipo, qtd: (n || 1) * q, c: Math.round(Math.max(c, l) * 10) / 10, l: Math.round(Math.min(c, l) * 10) / 10 }); };
-    if (pc.tipo === 'nicho') { var A = num(pc.A), H = num(pc.H), pr = num(pc.prof, 10), mo = num(pc.mold, 0), o = nOut(pc); add('Nicho – base (caixa)', 'outro', A, pr); add('Nicho – topo (caixa)', 'outro', A, pr); add('Nicho – laterais (caixa)', 'outro', Math.max(1, H - 4), pr, 2);
-      if (num(pc.fundo, 0)) add('Nicho – fundo (fecha o nicho)', 'outro', A, H);
-      if (mo > 0) { add('Moldura – topo/base (corte 45°)', 'saia', A + 2 * o, mo, 2); add('Moldura – laterais (corte 45°)', 'saia', H + 2 * o, mo, 2); }
+    if (pc.tipo === 'nicho') { var A = num(pc.A), H = num(pc.H), pr = num(pc.prof, 10), mo = num(pc.mold, 0); add('Nicho – base (caixa)', 'outro', A + 4, pr); add('Nicho – topo (caixa)', 'outro', A + 4, pr); add('Nicho – laterais (caixa)', 'outro', H, pr, 2);
+      if (num(pc.fundo, 0)) add('Nicho – fundo (fecha o nicho)', 'outro', A + 4, H + 4);
+      if (mo > 0) { add('Moldura – topo/base (corte 45°)', 'saia', A + 2 * mo, mo, 2); add('Moldura – laterais (corte 45°)', 'saia', H + 2 * mo, mo, 2); }
       return L; }
     if (pc.tipo === 'placa') { add(nomePeca(pc), 'outro', num(pc.A), num(pc.H)); return L; }
     var g = geo(pc), nm = nomePeca(pc);
@@ -920,7 +916,7 @@
         var grupos = [], g = null;
         nich.forEach(function (p) { var r = rotDe(p); if (!g || (/base/.test(r) && g.base)) { g = {}; grupos.push(g); } if (/moldura/.test(r)) g.mold = Math.min(+p.w, +p.h); else if (/fundo/.test(r)) g.fundo = p; else if (/base/.test(r)) g.base = p; else if (/topo/.test(r)) g.topo = p; else if (/lateral/.test(r)) g.lat = p; });
         grupos.forEach(function (x) {
-          var b = x.base || x.topo, A = x.fundo ? Math.max(+x.fundo.w, +x.fundo.h) : b ? Math.max(+b.w, +b.h) : 0, H = x.fundo ? Math.min(+x.fundo.w, +x.fundo.h) : x.lat ? Math.max(+x.lat.w, +x.lat.h) + 4 : 0, P = b ? Math.min(+b.w, +b.h) : x.lat ? Math.min(+x.lat.w, +x.lat.h) : 10;
+          var b = x.base || x.topo, A = b ? Math.max(+b.w, +b.h) - 4 : x.fundo ? Math.max(+x.fundo.w, +x.fundo.h) - 4 : 0, H = x.lat ? Math.max(+x.lat.w, +x.lat.h) : x.fundo ? Math.min(+x.fundo.w, +x.fundo.h) - 4 : 0, P = b ? Math.min(+b.w, +b.h) : x.lat ? Math.min(+x.lat.w, +x.lat.h) : 10;
           if (A > 0 && H > 0) L.push('Nicho ' + f1(A) + ' x ' + f1(H) + ', profundidade ' + f1(P) + (x.mold ? ', moldura ' + f1(x.mold) : '') + (x.fundo ? ', com fundo' : ''));
         });
         pcs = pcs.filter(function (p) { return nich.indexOf(p) < 0; }); if (!pcs.length) return;
@@ -1037,7 +1033,7 @@
         if (pc.pe !== 'nenhum') h += '<div class="des-g2">' + campo('peAlt', 'Altura do pé (cm)', pc.peAlt, true) + '<div></div></div>';
       }
       h += '<span class="des-l" style="margin-top:9px">Vista</span>' + chips('vista', +pc.vista || 0, [[0, 'Automática'], [1, 'Fundo p/ direita'], [-1, 'Fundo p/ esquerda']]);
-    } else if (pc.tipo === 'nicho') h += '<div class="des-g">' + campo('A', 'Largura', pc.A, true) + campo('H', 'Altura', pc.H, true) + campo('prof', 'Profundidade', pc.prof, true) + '</div><div class="des-g2">' + campo('mold', 'Moldura 45° (cm, 0 = sem)', pc.mold || 0, true) + '<div></div></div><span class="des-l" style="margin-top:9px">Fundo</span>' + chips('fundo', num(pc.fundo, 0), [[0, 'Sem fundo'], [1, 'Com fundo (fecha o nicho)']]);
+    } else if (pc.tipo === 'nicho') h += '<div class="des-g">' + campo('A', 'Largura (dentro)', pc.A, true) + campo('H', 'Altura (dentro)', pc.H, true) + campo('prof', 'Profundidade', pc.prof, true) + '</div><div class="des-g2">' + campo('mold', 'Moldura 45° (cm, 0 = sem)', pc.mold || 0, true) + '<div></div></div><span class="des-l" style="margin-top:9px">Fundo</span>' + chips('fundo', num(pc.fundo, 0), [[0, 'Sem fundo'], [1, 'Com fundo (fecha o nicho)']]);
     else h += '<div class="des-g2">' + campo('A', 'Largura', pc.A, true) + campo('H', 'Altura', pc.H, true) + '</div>';
     h += '<div style="margin-top:8px"><span class="des-l">Observação desta peça (vai embaixo da folha)</span><input class="des-i" data-f="obs" value="' + esc(pc.obs || '') + '" placeholder="ex.: válvula oculta, nicho para papel"></div>';
     h += avisos(pc).map(function (a) { return '<div class="des-av">⚠️ ' + esc(a) + '</div>'; }).join('');
