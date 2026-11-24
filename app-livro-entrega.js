@@ -89,8 +89,22 @@
     } else h += linha('Pagamentos', 'nenhum registrado');
     h += linha('Pago / falta', '<b style="color:#4ade80;">R$ ' + money(pago) + '</b> / ' + (falta > 0.009 ? '<b style="color:#f59e0b;">R$ ' + money(falta) + '</b>' : '<b style="color:#4ade80;">quitado</b>'));
     if (q._entregaObs) h += linha('Obs. da entrega', esc(q._entregaObs));
+    if (typeof window.gerarExtratoClientePDF === 'function') h += '<button class="btn btn-o" style="width:100%;margin-top:8px;padding:9px;font-size:.78rem;" onclick="event.stopPropagation();hrLivroSaldoPDF(\'' + esc(q.id) + '\')">📄 ' + (falta > 0.009 ? 'PDF do saldo para o cliente (falta R$ ' + money(falta) + ')' : 'PDF de quitação para o cliente') + '</button>';
     return h;
   }
+  // v1: PDF só deste orçamento — total, o que já pagou (cada pagamento) e quanto falta, para mandar ao cliente
+  window.hrLivroSaldoPDF = function (id) {
+    var q = achaQ(id); if (!q) return;
+    var pags = todosPags(q), pago = r2(pags.reduce(function (t, p) { return t + p.valor; }, 0)), total = r2(q.vista || 0);
+    var cliInfo = null; try { if (typeof _cliBuscar === 'function') { var m = _cliBuscar(q.cli, 70); if (m.length) cliInfo = m[0].c; } } catch (e) {}
+    var d = {
+      nome: q.cli || 'Cliente',
+      jobs: [{ id: 'q' + q.id, qId: q.id, desc: (q.tipo || 'Serviço') + (q.mat ? ' — ' + q.mat : ''), start: q._aceitoData || q.date || null, end: entregaDe(q) || null, value: total, pago: pago, done: false }],
+      pagamentos: pags.map(function (p) { return { type: 'in', desc: (p.forma || 'Pagamento') + (p.obs ? ' — ' + p.obs : ''), date: p.data || '', value: p.valor }; }),
+      totalContratado: total, totalPago: pago, saldoAberto: r2(total - pago), totalCredito: pago > total ? r2(pago - total) : 0, cliInfo: cliInfo
+    };
+    window.gerarExtratoClientePDF(d.nome, d);
+  };
   window.hrLivroCardHtml = function (q) {
     try {
       if (!q || !STS[stDe(q)]) return '';

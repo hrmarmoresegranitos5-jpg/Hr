@@ -107,7 +107,7 @@ function _extStatusJob(j) {
 }
 
 // ─── Gera o PDF do extrato ───────────────────────────────────
-window.gerarExtratoClientePDF = function (nomeArg) {
+window.gerarExtratoClientePDF = function (nomeArg, dPronto) { // dPronto: dados já montados (ex.: saldo de um orçamento só)
   var nome = nomeArg || window._cpNomeAtual || '';
   if (!nome) { if (typeof toast === 'function') toast('Selecione um cliente'); return; }
 
@@ -118,14 +118,14 @@ window.gerarExtratoClientePDF = function (nomeArg) {
     s1.onload = function () {
       var s2 = document.createElement('script');
       s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-      s2.onload = function () { window.gerarExtratoClientePDF(nome); };
+      s2.onload = function () { window.gerarExtratoClientePDF(nome, dPronto); };
       document.head.appendChild(s2);
     };
     document.head.appendChild(s1);
     return;
   }
 
-  var d = _extDadosCliente(nome);
+  var d = dPronto || _extDadosCliente(nome);
   if (!d || !d.jobs.length) {
     if (typeof toast === 'function') toast('Nenhum serviço encontrado para ' + nome);
     return;
