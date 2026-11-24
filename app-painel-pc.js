@@ -171,6 +171,7 @@
         '<div class="pp-c s4"><h3>Orçamentos esperando resposta<a data-ir="7">Histórico →</a></h3>' + lista(A.abertos.slice().sort(function (a, b) { return (+b.vista || 0) - (+a.vista || 0); }).slice(0, 7).map(function (x) { var d = Math.round((new Date() - new Date(x.date + 'T12:00:00')) / 864e5); return '<div class="pp-l" data-ir="7"><div class="n">' + esc(x.cli || 'cliente') + '<small>' + esc((x.tipo || '') + (x.mat ? ' · ' + x.mat : '') + ' · há ' + d + ' dia' + (d === 1 ? '' : 's')) + '</small></div><div class="v o">' + R(x.vista) + '</div></div>'; }), 'Nenhum orçamento esperando.') + '</div>' +
         '<div class="pp-c s4"><h3>Tela do cliente (TV)<a data-tv="link">Abrir na TV →</a></h3><div style="font-size:.82rem;color:#c8bb9c;margin-bottom:10px;">' + (B.tela && B.tela.pix ? '💠 Pix de ' + R(B.tela.pix) + ' na tela, esperando o pagamento.' : B.tela && B.tela.gal ? '🖼️ Mostrando: <b>' + esc(B.tela.gal) + '</b>' : 'Mostrando o orçamento (ou a tela de espera).') + '</div>' +
           '<div class="pp-btns">' + ['Cozinhas', 'Gourmet', 'Banheiros', 'Lavanderia', 'Túmulos', 'Nichos', 'Mesas', 'Pedras'].map(function (t) { return '<button data-cmd="coloca ' + (t === 'Pedras' ? 'pedras' : 'modelos de ' + t.toLowerCase()) + ' na TV">' + t + '</button>'; }).join('') + '<button data-cmd="tira da TV">✕ Voltar ao orçamento</button></div></div>' +
+        (window.HR_IMP ? HR_IMP.cardHtml() : '') +
         '<div class="pp-c s12" id="ppFeedC"><h3>Bot · respostas</h3><div class="pp-feed" id="ppFeed">' + (feed.length ? feed.map(function (m) { return '<div class="pp-msg ' + m.q + '">' + esc(m.t).replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/_([^_\n]+)_/g, '<i>$1</i>') + '</div>'; }).join('') : '<div class="pp-vz">Escreva um comando na barra de cima. A resposta do bot aparece aqui — é o mesmo que mandar no WhatsApp.</div>') + '</div></div>' +
       '</div></div>';
     el.innerHTML = html;
@@ -182,7 +183,8 @@
     if (inp) { inp.onkeydown = function (e) { if (e.key === 'Enter') comando(inp.value); }; }
     if (bt) bt.onclick = function () { comando(inp.value); };
     el.onclick = function (e) {
-      var a = e.target.closest('[data-ir],[data-cmd],[data-crm],[data-tv]'); if (!a || !el.contains(a)) return;
+      var a = e.target.closest('[data-ir],[data-cmd],[data-crm],[data-tv],[data-imp]'); if (!a || !el.contains(a)) return;
+      if (a.hasAttribute('data-imp')) { if (window.HR_IMP) HR_IMP.clique(a); return; }
       if (a.hasAttribute('data-cmd')) { comando(a.getAttribute('data-cmd')); return; }
       if (a.hasAttribute('data-crm')) { if (typeof abrirCRM === 'function') abrirCRM(); return; }
       if (a.hasAttribute('data-tv')) { telaLink(); return; }

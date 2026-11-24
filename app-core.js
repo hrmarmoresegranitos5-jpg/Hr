@@ -10666,6 +10666,7 @@ function gerarComprovante(id){
                valor: h.value || 0, tipo: h.type };
     })
   };
+  if (arguments[2] === 'fila') return dadosTerm; // v301: recibo vai para a fila de impressão do PC
   var html;
   if (fmtRec === '58' || fmtRec === '80') {
     // ── CUPOM TÉRMICO: só preto, letra grande, largura da bobina ──

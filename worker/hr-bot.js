@@ -8183,6 +8183,7 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
   const doDono = numeroDono(env);
   const nums = await lerNumeros(env); // o que você definiu no WhatsApp/painel vale mais que as variáveis do Cloudflare
   await prodAtribuir(env, ped, opc.so).catch(e => console.log('[EQ] atribuir:', e.message)); // v146
+  if (opc.so !== 'entrega') await impFicha(env, ped).catch(() => {}); // v301
   const rFab = await respTel(env, ped.fabResp), rEnt = await respTel(env, ped.entResp);
   const numFab = rFab || nums.fabrica || env.FABRICA_NUMERO || doDono, numEnt = rEnt || nums.entrega || env.ENTREGA_NUMERO || doDono;
   const comAviso = (texto, n) => (AVISO_TESTE.length && ultimos8(n) !== ultimos8(doDono)) ? [...AVISO_TESTE, texto].join('\n') : texto;
@@ -8642,6 +8643,57 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
     await enviar(env, from, `Valeu, ${nome}! Anotei a entrega de *${ped.nome}*. Recebeu os R$ ${reais(cobrar)}? Me diga como (dinheiro, cartão ou Pix) ou se ficou para depois.`);
   } else await enviar(env, from, `Valeu, ${nome}! Anotei a entrega de *${ped.nome}* e avisei o Sr. Hangel.`);
   return true;
+}
+
+// ═══ v301: FILA DE IMPRESSÃO — a térmica no PC (Central HR aberta) imprime sozinha recibos, fichas, tarefas do dia e orçamentos aprovados ═══
+// O PC busca a fila a cada 20 s (/bot/imprimir/fila). Sem PC imprimindo há 7 dias, nada é enfileirado. Item com mais de 24 h é descartado.
+const IMP_TIPOS = ['recibo', 'ficha', 'tarefas', 'orcamento'];
+async function impCfg(env) { let c = null; try { c = JSON.parse((await env.HR_KV.get('imp:cfg')) || 'null'); } catch (_) {} return { recibo: true, ficha: true, tarefas: true, orcamento: true, ...(c || {}) }; }
+const impPrim = t => (normaliza(t || '').match(/[a-z]{3,}/) || [''])[0];
+async function impEnfileirar(env, job) {
+  try {
+    if (!job || !IMP_TIPOS.includes(job.tipo)) return false;
+    if ((await impCfg(env))[job.tipo] === false) return false;
+    const visto = +((await env.HR_KV.get('imp:visto')) || 0); if (!visto || Date.now() - visto > 7 * 86400000) return false;
+    if (job.ref) { const k = 'imp:ref:' + String(job.ref).slice(0, 120); if (await env.HR_KV.get(k)) return false; await env.HR_KV.put(k, '1', { expirationTtl: 86400 }); }
+    let l = []; try { l = JSON.parse((await env.HR_KV.get('imp:fila')) || '[]'); } catch (_) {}
+    l = l.filter(x => Date.now() - x.em < 24 * 3600000);
+    l.push({ id: estId(8), em: Date.now(), tipo: job.tipo, titulo: String(job.titulo || '').slice(0, 60), sub: String(job.sub || '').slice(0, 120), linhas: (job.linhas || []).slice(0, 150).map(x => String(x == null ? '' : x).slice(0, 300)), ...(job.dados ? { dados: job.dados } : {}) });
+    await env.HR_KV.put('imp:fila', JSON.stringify(l.slice(-40)));
+    return true;
+  } catch (e) { console.log('[IMP]', e.message); return false; }
+}
+function impPecasLinhas(ped) {
+  const r = ped.resumoApp || {}, L = [];
+  const itens = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[ped.interesse] || 'Peças', acabamento: ped.acabamento || '', pecas: ped.pecas || [] }];
+  for (const it of itens) {
+    L.push('**' + (it.ambiente || 'Peças') + (ORC_ACAB_TXT[it.acabamento] ? ' - ' + ORC_ACAB_TXT[it.acabamento] : ''));
+    for (const x of (it.pecas || [])) { if (!(+x.comp_cm > 1 && +x.larg_cm > 1)) { L.push(`${x.qtd || 1}x ${x.tipo || 'peça'} (medidas no orçamento)`); continue; } L.push(`${x.qtd || 1}x ${(x.rot || NOME_PECA[tipoDaPeca(x, it)] || 'Peça')}|${vPt(x.comp_cm)} x ${vPt(x.larg_cm)}`); }
+    if (it.sv && it.sv.length) L.push('Serviços: ' + it.sv.join(', '));
+    if (it.cubaInst) L.push('Cuba: ' + it.cubaInst);
+    L.push('');
+  }
+  return L;
+}
+async function impFicha(env, ped) {
+  if (!ped || !ped.nome) return false;
+  const r = ped.resumoApp || {}, prev = /^\d{4}-\d{2}-\d{2}$/.test(String(ped.entrega_prevista || '')) ? dataBR(ped.entrega_prevista) : '';
+  const quem = async id => id ? await respNome(env, id).catch(() => '') : '';
+  const L = [`Pedra|${r.pedra || ped.cor || 'a confirmar'}`, ...(ped.fabResp ? [`Corte|${await quem(ped.fabResp)}`] : []), ...(ped.acabResp ? [`Acabamento|${await quem(ped.acabResp)}`] : []), ...(ped.fab2Resp && ped.fab2Resp !== ped.fabResp ? [`Fabricação|${await quem(ped.fab2Resp)}`] : []),
+    ...(prev ? [`Entrega prevista|${prev}`] : []), `Recebimento|${String(ped.entrega) === 'retirada' ? 'Retirada' : pedComplexo(ped) ? 'Instalação' : 'Entrega'}`, '---', ...impPecasLinhas(ped),
+    ...(ped.estimado ? ['(peças estimadas pelo m² do orçamento)'] : []), ...(ped.referencia ? ['---', 'Obs: ' + ped.referencia] : [])];
+  return impEnfileirar(env, { tipo: 'ficha', ref: 'ficha:' + ped.id, titulo: 'FICHA DE PRODUÇÃO', sub: ped.nome, linhas: L });
+}
+async function impOrcamento(env, ped) {
+  if (!ped || !ped.nome) return false;
+  const r = ped.resumoApp || {}, sn = ped.sinal && ped.sinal.valor ? ped.sinal : null;
+  const L = [...(ped.orcNum ? [`Orçamento|${ped.orcNum}`] : []), ...(ped.projetoApp ? [`Projeto|${ped.projetoApp}`] : []), `Pedra|${r.pedra || ped.cor || '-'}`, ...(+ped.valor ? [`**Valor|R$ ${reais(+ped.valor)}`] : []),
+    `Pagamento|${sn ? `sinal ${sn.pct}% R$ ${reais(sn.valor)} + R$ ${reais(sn.resto)} na entrega` : ped.pago ? 'pago' : ped.forma_pagto === 'pix' ? 'Pix' : 'na entrega'}`, ...(ped.numero ? [`Contato|${String(ped.numero).replace(/^55/, '')}`] : []), '---', ...impPecasLinhas(ped)];
+  return impEnfileirar(env, { tipo: 'orcamento', ref: 'orc:' + ped.id, titulo: 'ORÇAMENTO APROVADO', sub: ped.nome, linhas: L });
+}
+async function impReciboBot(env, cli, valor, forma, refer, extra) {
+  return impEnfileirar(env, { tipo: 'recibo', ref: `rec:${impPrim(cli)}|${Math.round(+valor * 100)}|${dataBahia()}`, titulo: 'RECIBO', sub: cli || 'cliente',
+    linhas: [`Data|${dataBR(dataBahia())} ${horaTs(Date.now())}`, `Recebemos de|${cli || '-'}`, `**Valor|R$ ${reais(+valor)}`, `Forma|${forma || 'Pix'}`, ...(refer ? [`Referente|${refer}`] : []), ...(extra || [])] });
 }
 // ficha de um pedido fechado fora do WhatsApp (balcão/telefone): o dono dita e a ficha vai ao Fabrício (e a entrega ao Gibson)
 async function fichaProducao(env, a) {
@@ -9126,6 +9178,7 @@ async function agendaProdDia(env) {
       if (p.fichaEnviadaEm && !p.fabProntoEm) { if (!p.corteEm) add(p.fabResp, `✂️ Cortar: ${p.nome} — ${resumoPecas(p)}`); if (p.fab2Resp && p.fab2Resp !== p.fabResp) add(p.fab2Resp, `${p.corteEm ? '🔧 Fabricar' : '⏳ Depois do corte'}: ${p.nome} — ${resumoPecas(p)}`); }
       if (p.janelaEtapa === 'confirmada' && diaIso(p.janela.ini) === hoje) add(p.entResp, `🚚 ${horaTs(p.janela.ini)}–${horaTs(p.janela.fim)} ${p.nome}${p.entrega && p.entrega.endereco ? ' · ' + p.entrega.endereco : ''}${cobrarNaEntrega(p) ? ' · cobrar R$ ' + reais(cobrarNaEntrega(p)) : ''}`);
     }
+    for (const [id, itens] of Object.entries(por)) await impEnfileirar(env, { tipo: 'tarefas', ref: 'tar:' + hoje + ':' + id, titulo: 'TAREFAS DO DIA', sub: `${await respNome(env, id)} - ${dataBR(hoje)}`, linhas: itens.flatMap(x => [x, '']) }).catch(() => {}); // v301
     for (const [id, itens] of Object.entries(por)) { const t = await respTel(env, id); if (t) await enviar(env, t, [`${avisoTeste(env)}☀️ *Bom dia, ${await respNome(env, id)}! Hoje:*`, '', ...itens, '', '📸 Lembre: na entrega, foto com todas as peças.'].join('\n')).catch(() => {}); }
     if (Object.keys(por).length) { const c0 = l.filter(p => p.fichaEnviadaEm && !p.fabProntoEm).length, r0 = l.filter(p => String(p.entrega) === 'retirada' && p.horaRetirada && p.horaRetirada.dia === hoje).length, e0 = l.filter(p => p.janelaEtapa === 'confirmada' && diaIso(p.janela.ini) === hoje).length; if (c0 || r0 || e0) await pontoAvisarDono(env, `☀️ *Produção de hoje:* ${c0} na fábrica · ${e0} entrega(s) · ${r0} retirada(s). Mande _produção_ para ver tudo.`).catch(() => {}); return; } // v215: usava variáveis antes de existirem (dava erro e o resumo do dono não saía)
   }
@@ -13842,6 +13895,7 @@ async function processarPagamentoMP(env, idPag, opc = {}) {
   if (liberar) ped.despachadoEm = Date.now();
   await salvarPedido(env, ped);
   const ehSinal = !!(ped.sinal && ped.sinal.valor);
+  await impReciboBot(env, ped.nome, pago, 'Pix (Mercado Pago)', ped.projetoApp || (INTERESSES[ped.interesse] || ''), ehSinal ? [`Sinal|${ped.sinal.pct}%`, `Restante na entrega|R$ ${reais(ped.sinal.resto)}`] : []).catch(() => {}); // v301
   if (ped.orcApp) await confEnfileirar(env, { tipo: 'orc_sinal', orcId: ped.orcApp, cliente: ped.nome || '', valor: pago, sinal: ehSinal }).catch(e => console.log('[BOT] orc_sinal:', e.message)); // v271: pagou → obra agendada no app
   await avisarPagador(env, ped, pg, pago, opc).catch(e => console.log('[BOT] conferência do pagador:', e.message));
 
@@ -22614,6 +22668,7 @@ async function prodIniciarForaDaLista(env, f, from, texto, nome, ac0) {
   if (et === 'aci') { ped.acabResp = id; ped.corteEm = ts; ped.acabIniEm = ts; ped.acabIniPor = id; } else { ped.fabResp = id; ped.corteIniEm = ts; ped.corteIniPor = id; }
   await salvarPedido(env, ped);
   if (r) await projetoNosPedidos(env, { soCliente: cliente, avisar: false }).catch(e => console.log('[INIAUTO] projeto:', e.message));
+  await impFicha(env, (await lerPedido(env, ped.id).catch(() => null)) || ped).catch(() => {}); // v301
   const oq = et === 'aci' ? 'acabamento' : 'corte', pn = cliente.split(' ')[0];
   await enviar(env, from, `▶️ Anotado, ${nome}: ${oq} de *${cliente}*${item ? ' (' + item + ')' : ''} começou às ${horaTs(ts)}. Abri esse serviço na produção e avisei o Sr. Hangel. Quando terminar, me diga: _terminei o de ${pn}_.`);
   await pontoAvisarDono(env, `▶️ *${f.nome}* começou o ${oq} de *${cliente}*${item ? ' (' + item + ')' : ''}. Esse serviço não estava aberto na produção, então abri sozinho${r ? ' com as peças do orçamento do app' : ' (peças estimadas pelo m² do orçamento; quando sair o PDF do orçamento eu recalculo)'}. Se não for desse cliente, me avise.`).catch(() => {});
@@ -22712,6 +22767,7 @@ async function telaPixPago(env, pg) {
   const v = Number(pg.transaction_amount) || 0, cli = (pix && pix.cli) || 'cliente';
   await notificarDono(env, Date.now(), `*Pix da TV confirmado:* R$ ${reais(v)} de ${cli}${pix && pix.tipo ? ' (' + pix.tipo + ')' : ''}. Pagador no banco: ${pagadorMP(pg) || 'não informado'}.`).catch(e => falhou(env, 'telaPixPago', e));
   if (pix && pix.orcId) await confEnfileirar(env, { tipo: 'orc_sinal', orcId: pix.orcId, cliente: cli, valor: v, sinal: /sinal/i.test(pix.tipo || '') }).catch(() => {});
+  await impReciboBot(env, cli, v, 'Pix', pix && pix.tipo ? pix.tipo : '').catch(() => {}); // v301
 }
 async function telaPixEstado(env) {
   const pix = await telaPixLer(env); if (!pix) return null;
@@ -25829,6 +25885,11 @@ async function rotaBotInterna(req, env, url) {
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
   if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
   if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
+  if (p === '/bot/imprimir/fila' && req.method === 'GET') { if (Date.now() - +((await env.HR_KV.get('imp:visto')) || 0) > 3600000) await env.HR_KV.put('imp:visto', String(Date.now())); let l = []; // v301: grava no máximo 1×/hora (limite de escrita do KV)
+    try { l = JSON.parse((await env.HR_KV.get('imp:fila')) || '[]'); } catch (_) {} return jsonR({ fila: l.filter(x => Date.now() - x.em < 24 * 3600000), cfg: await impCfg(env) }); } // v301
+  if (p === '/bot/imprimir/ok' && req.method === 'POST') { const b = await req.json().catch(() => ({})), ids = new Set((b.ids || []).map(String)); let l = []; try { l = JSON.parse((await env.HR_KV.get('imp:fila')) || '[]'); } catch (_) {} await env.HR_KV.put('imp:fila', JSON.stringify(l.filter(x => !ids.has(String(x.id))))); return jsonR({ ok: true }); }
+  if (p === '/bot/imprimir/cfg' && req.method === 'POST') { const b = await req.json().catch(() => ({})), c = await impCfg(env); for (const k of IMP_TIPOS) if (typeof b[k] === 'boolean') c[k] = b[k]; await env.HR_KV.put('imp:cfg', JSON.stringify(c)); return jsonR({ ok: true, cfg: c }); }
+  if (p === '/bot/imprimir' && req.method === 'POST') { const b = await req.json().catch(() => ({})); return jsonR({ ok: await impEnfileirar(env, b) }); }
   if (p === '/bot/painel' && req.method === 'GET') { if (url.searchParams.get('novo')) await env.HR_KV.delete('painel:cache').catch(() => {}); return jsonR(await painelResumo(env)); } // v286
   if (p === '/bot/painel/comando' && req.method === 'POST') { const b = await req.json().catch(() => ({})); if (!String(b.texto || '').trim()) return jsonR({ error: 'Escreva o comando.' }, 400); try { return jsonR({ ok: true, respostas: (await painelComando(env, b.texto)).filter(Boolean) }); } catch (e) { return jsonR({ error: e.message }, 500); } }
   if (p === '/bot/tela/galeria' && req.method === 'POST') { // v282: o app também manda a galeria para a TV
@@ -27286,6 +27347,7 @@ async function funilMarca(env, etapa, ped) {
     const marca = `funm:${ped.id}:${etapa}`;
     if (await env.HR_KV.get(marca)) return;
     await env.HR_KV.put(marca, '1', { expirationTtl: 60 * 24 * 3600 });
+    if (etapa === 'aprovou' && ped.nome) await impOrcamento(env, ped).catch(() => {}); // v301
     const chave = 'fun:' + dataBahia();
     const d = await kvJson(env, chave, {});
     d[etapa] = (d[etapa] || 0) + 1;

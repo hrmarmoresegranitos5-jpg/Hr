@@ -544,10 +544,47 @@
       + (cfg.modo === 'html' ? 'configurar impressão direta' : _nomeModo()) + '</button>';
   }
 
+
+  /* ─────────── Texto livre (fila de impressão automática do PC) ───────────
+     linhas: "## Título" grande · "**negrito" · "---" separador · "Chave|Valor" · texto comum (quebra sozinho) */
+  function montarTexto(job, larg, c, logo) {
+    c = c || cfg; var cols = larg === '80' ? 48 : 32, b = [];
+    var raw = function () { for (var i = 0; i < arguments.length; i++) { var a = arguments[i]; if (typeof a === 'number') b.push(a & 255); else for (var j = 0; j < a.length; j++) b.push(a[j] & 255); } };
+    var ln = function (s) { raw(_enc(s, c.codepage)); b.push(10); };
+    var al = function (n) { raw(0x1B, 0x61, n); }, bold = function (on) { raw(0x1B, 0x45, on ? 1 : 0); }, size = function (w, h) { raw(0x1D, 0x21, ((w - 1) << 4) | (h - 1)); };
+    raw(0x1B, 0x40, 0x1C, 0x2E); raw(0x1B, 0x74, c.codepage === '860' ? 3 : c.codepage === 'none' ? 0 : 2); raw(0x1B, 0x52, 0);
+    al(1); if (logo && logo.length) { raw(logo); b.push(10); }
+    if (job.titulo) { bold(1); size(1, 2); _wrap(_san(job.titulo), cols).forEach(ln); size(1, 1); bold(0); }
+    if (job.sub) _wrap(_san(job.sub), cols).forEach(ln);
+    al(0); ln(new Array(cols + 1).join('='));
+    (job.linhas || []).forEach(function (l) {
+      l = String(l == null ? '' : l);
+      if (l === '---') { ln(new Array(cols + 1).join('-')); return; }
+      if (l.indexOf('## ') === 0) { bold(1); size(1, 2); _wrap(_san(l.slice(3)), cols).forEach(ln); size(1, 1); bold(0); return; }
+      if (l.indexOf('**') === 0) { bold(1); _wrap(_san(l.slice(2)), cols).forEach(ln); bold(0); return; }
+      var k = l.indexOf('|');
+      if (k > 0) { var a = _san(l.slice(0, k)), v = _san(l.slice(k + 1)); if (a.length + v.length + 1 <= cols) ln(a + _spaces(cols - a.length - v.length) + v); else { ln(a); _wrap(v, cols - 2).forEach(function (x) { ln('  ' + x); }); } return; }
+      if (!l.trim()) { b.push(10); return; }
+      _wrap(_san(l), cols).forEach(ln);
+    });
+    ln(new Array(cols + 1).join('='));
+    al(1); ln(new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })); al(0);
+    raw(0x1B, 0x64, 4); if (c.corte) raw(0x1D, 0x56, 0x42, 0x00);
+    return new Uint8Array(b);
+  }
+  async function imprimirTexto(job, larg) {
+    larg = (larg || cfg.larg) === '80' ? '80' : '58';
+    var emp = (typeof CFG !== 'undefined' && CFG && CFG.emp) ? CFG.emp : {};
+    var logo = (cfg.logo && job.logo !== false && emp.logoUrl) ? await _logoRaster(emp.logoUrl, larg === '80' ? 576 : 384) : null;
+    await enviar(montarTexto(job, larg, cfg, logo), false);
+  }
+
   window.HR_TERMICA = {
     cfg: function () { return cfg; },
     modoDireto: modoDireto,
     imprimirRecibo: imprimirRecibo,
+    imprimirTexto: imprimirTexto,
+    _montarTexto: montarTexto,
     imprimirTeste: imprimirTeste,
     configurar: configurar,
     botaoConfigHtml: botaoConfigHtml,
