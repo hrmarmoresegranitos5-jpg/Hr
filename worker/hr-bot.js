@@ -1336,6 +1336,16 @@ async function orcEnvValorDono(env, from, msg) {
   if (novo) await enviar(env, from, `Certo, R$ ${reais(v.n)}. Já perguntei a forma de pagamento a ${novo.nome || 'ela'}; depois sigo com a entrega e a localização.`);
   return true;
 }
+// v303: conversa recente com um número (o que ele mandou e o que o bot/dono mandou), para a IA não perder o fio
+async function crmConversa(env, num, n = 12, horas = 48) {
+  try { if (!crmAtivo(env)) return []; await crmTabela(env);
+    const r = await env.HR_DB.prepare('SELECT q, texto, tipo, extra, ts FROM crm_msg WHERE num = ? AND ts > ? ORDER BY ts DESC LIMIT ?').bind(normalizarBR(num), Date.now() - horas * 3600000, n).all();
+    return ((r && r.results) || []).reverse().map(x => ({ q: x.q, ts: x.ts, texto: String(x.texto || (x.tipo && x.tipo !== 'text' ? '[' + x.tipo + ']' : '')).slice(0, 600) })).filter(x => x.texto);
+  } catch (_) { return []; }
+}
+async function crmTextoCitado(env, wamid) {
+  try { if (!wamid || !crmAtivo(env)) return ''; await crmTabela(env); const r = await env.HR_DB.prepare('SELECT texto FROM crm_msg WHERE wamid = ? LIMIT 1').bind(String(wamid)).first(); return r ? String(r.texto || '').slice(0, 400) : ''; } catch (_) { return ''; }
+}
 async function crmUltimaDoCliente(env, num) {
   try { if (!crmAtivo(env)) return 0; await crmTabela(env); const r = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(normalizarBR(num)).first(); return (r && Number(r.t)) || 0; } catch (_) { return 0; }
 }
@@ -10722,7 +10732,7 @@ async function prodAcabadorEscolhido(env, f, from, idB, nome) {
   ped.acabResp = quem === 'eu' ? String(f.id) : quem; await salvarPedido(env, ped);
   const an = await respNome(env, ped.acabResp);
   if (ped.corteEm) { await enviar(env, from, quem === 'eu' ? `Fechado, ${nome}: o acabamento de *${ped.nome}* é com você. Quando terminar: _terminei o acabamento de ${String(ped.nome).split(' ')[0]}_.` : `Fechado! Avisei o ${an} para fazer o acabamento de *${ped.nome}*.`); } else
-  await enviar(env, from, quem === 'eu' ? `Fechado, ${nome}: corte e acabamento de *${ped.nome}* com você. Quando terminar tudo: _terminei o da ${String(ped.nome).split(' ')[0]}_.` : `Fechado! Quando você cortar, eu aviso o ${an} para fazer o acabamento de *${ped.nome}*.`);
+  await enviar(env, from, quem === 'eu' ? `Fechado, ${nome}: corte e acabamento de *${ped.nome}* com você. Quando terminar tudo: _terminei o de ${String(ped.nome).split(' ')[0]}_.` : `Fechado! Quando você cortar, eu aviso o ${an} para fazer o acabamento de *${ped.nome}*.`);
   if (quem !== 'eu') { const t = await respTel(env, ped.acabResp); if (t) await enviar(env, t, ped.corteEm ? `${avisoTeste(env)}🪨 ${an}, as peças de *${ped.nome}* (${resumoPecas(ped)}) já estão cortadas. Pode fazer o *acabamento*. Quando terminar: _terminei o acabamento de ${String(ped.nome).split(' ')[0]}_.` : `${avisoTeste(env)}🪨 ${an}, o acabamento de *${ped.nome}* (${resumoPecas(ped)}) vai ser seu. Te aviso quando o ${nome} terminar o corte.`).catch(() => {}); } // v177: já cortado → avisa para começar
   return true;
 }
@@ -11092,7 +11102,7 @@ async function acdIniciar(env, a) { // depois do "Confirmar e enviar"
   const insts = (a.insts || []).map(id => cfg.funcs.find(z => String(z.id) === id)).filter(Boolean); if (!insts.length && ped && ped.entResp) { const f = cfg.funcs.find(z => String(z.id) === String(ped.entResp)); if (f) insts.push(f); }
   for (const f of insts) {
     const t = await respTel(env, f.id); if (!t) continue;
-    await enviar(env, t, `${avisoTeste(env)}🔧 ${apelidoFunc(cfg, f)}, ${a.dataInst ? diaFalado(a.dataInst) : 'na próxima instalação'}: *${nome}*${ped && ped.entrega && ped.entrega.endereco ? ' · ' + ped.entrega.endereco : ''}.\n💰 ${naInst > 0 ? `*Receber R$ ${reais(naInst)}* (Pix ou dinheiro). O restante já está combinado comigo, não precisa cobrar.` : 'Não precisa cobrar nada: o pagamento está combinado comigo.'}\n📸 No fim, foto com todas as peças instaladas.\nQuando terminar: _instalei o da ${nome.split(' ')[0]}, recebi ${naInst > 0 ? reais(naInst) : ''} no pix_`).catch(() => {});
+    await enviar(env, t, `${avisoTeste(env)}🔧 ${apelidoFunc(cfg, f)}, ${a.dataInst ? diaFalado(a.dataInst) : 'na próxima instalação'}: *${nome}*${ped && ped.entrega && ped.entrega.endereco ? ' · ' + ped.entrega.endereco : ''}.\n💰 ${naInst > 0 ? `*Receber R$ ${reais(naInst)}* (Pix ou dinheiro). O restante já está combinado comigo, não precisa cobrar.` : 'Não precisa cobrar nada: o pagamento está combinado comigo.'}\n📸 No fim, foto com todas as peças instaladas.\nQuando terminar: _instalei o de ${nome.split(' ')[0]}, recebi ${naInst > 0 ? reais(naInst) : ''} no pix_`).catch(() => {});
     inst = inst ? inst + ' e ' + apelidoFunc(cfg, f) : apelidoFunc(cfg, f);
   }
   return `✅ Acordo ${a.n} em andamento. ${cli} ${inst ? `${inst} já ${inst.includes(' e ') ? 'sabem' : 'sabe'} quanto receber.` : 'Não achei o instalador no RH para avisar.'}`;
@@ -11999,7 +12009,7 @@ async function prodFotoInicio(env, f, from, ped, buf, tipo, nome) {
   if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('inicio:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(e => console.log('[FOTO]', e.message));
   ped.instIniFotoEm = Date.now(); await salvarPedido(env, ped);
   try { const up = await subirImagemMeta(env, buf, 'inicio-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📍 Início da instalação · ${ped.nome} · ${nome} · ${horaTs(ped.instIniEm || Date.now())}` } }).catch(() => {}); } catch (_) {}
-  await enviar(env, from, `📸 Foto do início guardada. Bom trabalho! Quando terminar: _instalei o da ${String(ped.nome).split(' ')[0]}_ e a foto com todas as peças instaladas.`);
+  await enviar(env, from, `📸 Foto do início guardada. Bom trabalho! Quando terminar: _instalei o de ${String(ped.nome).split(' ')[0]}_ e a foto com todas as peças instaladas.`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -12431,7 +12441,7 @@ async function pendFotosRotina(env) {
   for (const p of inst) {
     p.instLembEm = Date.now(); await salvarPedido(env, p);
     const t = await respTel(env, p.instIniPor || p.entResp), nm = await respNome(env, p.instIniPor || p.entResp);
-    if (t) await enviar(env, t, `${avisoTeste(env)}🔧 ${nm}, a instalação de *${p.nome}* começou às ${horaTs(p.instIniEm)}. Já terminou? Quando acabar: _instalei o da ${String(p.nome).split(' ')[0]}_ e a foto com tudo instalado.`).catch(() => {});
+    if (t) await enviar(env, t, `${avisoTeste(env)}🔧 ${nm}, a instalação de *${p.nome}* começou às ${horaTs(p.instIniEm)}. Já terminou? Quando acabar: _instalei o de ${String(p.nome).split(' ')[0]}_ e a foto com tudo instalado.`).catch(() => {});
   }
 }
 // v178: lembretes de foto pendente (uma vez) e a legenda escolhe a opção certa da lista.
@@ -32091,6 +32101,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
     return true;
   }
   let texto = m.type === 'text' ? String(m.text?.body || '').trim() : (m._texto || '');
+  const citado = m.context && m.context.id ? await crmTextoCitado(env, m.context.id) : ''; // v303: respondeu citando uma mensagem ("Ss" à pergunta do Sr. Hangel)
   if (!texto && m.type === 'audio') { try { texto = (await ouvirAudio(env, from, m, false)) || ''; m._texto = texto; } catch (_) {} }
   if (m.type === 'audio' && texto && env._ctx && String(env.VOZ_FUNC ?? '1') !== '0') { env._ctx.voz = true; env._ctx.func = true; } // v284: respondeu por áudio → a resposta vai em áudio
   if (texto && !idB && await prodQualCliResposta(env, f, from, texto, nome).catch(e => { console.log('[PROD] qualcli:', e.message); return false; })) return true; // v284
@@ -32108,9 +32119,9 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   if (await rhPedidoVale(env, cfg, f, from, texto, nome)) return true; // v46
   // v44: resposta a um recado do dono (até 24 h depois): repassa ao dono
   const rp = +(await env.HR_KV.get('ponto:recpend:' + f.id)) || 0;
-  if (rp && Date.now() - rp < 24 * 3600000) {
+  if ((rp && Date.now() - rp < 24 * 3600000) || (citado && /\?\s*$/.test(citado) && String(texto).length < 80)) { // v303: respondeu citando uma pergunta → repassa ao dono
     await env.HR_KV.delete('ponto:recpend:' + f.id);
-    await pontoAvisarDono(env, `💬 *${f.nome}* respondeu ao seu recado: "${texto.slice(0, 500)}"`);
+    await pontoAvisarDono(env, `💬 *${f.nome}* respondeu ao seu recado${citado ? ' ("' + citado.slice(0, 120) + '")' : ''}: "${texto.slice(0, 500)}"`);
     await enviar(env, from, `Certo, ${nome}! Passei a sua resposta para o Sr. Hangel.`);
     return true;
   }
@@ -32121,7 +32132,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   }
   { const t0 = normaliza(texto); // v184: agradecimento e "ok" não gastam IA
     if (/^(obrigad[oa]|obg|brigad[oa]|valeu|vlw|agradeco|muito obrigad[oa])( (viu|mesmo|demais|dona|moca|secretaria))*[!. ]*$/.test(t0) || /^[\p{Extended_Pictographic}\s\u200d\ufe0f]+$/u.test(String(texto || '').trim())) { await enviar(env, from, `Por nada, ${nome}! 💪`); return true; }
-    if (/^(ok|okay|blz|beleza|certo|ta certo|ta bom|ta|show|top|entendi|combinado|fechou|sim|isso|tranquilo|de boa|joia|positivo)[!. ]*$/.test(t0)) { await enviar(env, from, '👍'); return true; } }
+    if (!citado && /^(ok|okay|okk+|blz|beleza|certo|ta certo|ta bom|ta|show|top|entendi|combinado|fechou|tranquilo|de boa|joia|positivo|ok obrigad[oa]|ok valeu)[!. ]*$/.test(t0)) return true; } // v303: "ok" não precisa de resposta (profissional, sem eco)
   const atual = await pontoResumo(env, f.id, dataBahia());
   const tab = r => r ? r.dias.map(l => `${l.data}: entrada ${l.e || '-'}, almoço ${l.ai || '-'} a ${l.af || '-'}, saída ${l.s || '-'}, feito ${hmPonto(l.feito)}, esperado ${hmPonto(l.esp)}, extra ${l.extra ? hmPonto(l.extra) : '0:00'}${l.oficial ? '' : ' (ainda não conferido pelo RH)'}`).join('\n') + `\nTOTAL feito ${hmPonto(r.total.feito)}, esperado ${hmPonto(r.total.esperado)}, extra ${hmPonto(r.total.extra)}` : '(nada)';
   const eqCtx = await eqContextoIA(env, f, texto).catch(e => { console.log('[EQ] contexto:', e.message); return ''; }); // v288
@@ -32138,6 +32149,8 @@ ENTENDA TUDO o que ele disser (a mensagem pode ser áudio transcrito com erros: 
 - O QUE FAZER / PRÓXIMO SERVIÇO: use SERVIÇOS DELE.
 - Problema (pedra trincou, faltou material, máquina quebrou), recado, pedido ou qualquer outra coisa: responda com naturalidade e "escalar": true com um resumo claro para o Sr. Hangel.
 Nunca pergunte data de nascimento, dia ou horário se ele está falando de serviço ou pontos. Nunca responda só "Avisei o Sr. Hangel": diga o que você entendeu.
+POSTURA PROFISSIONAL (obrigatório): você é uma secretária experiente. Leia o HISTÓRICO antes de responder. Resposta curta ("sim", "ss", "não", "foi", "já") é resposta à última pergunta do histórico: entenda assim e siga (nunca responda "Olá, como posso ajudar?"). NÃO cumprimente de novo se já houve conversa hoje. NÃO repita uma pergunta que já foi feita ou respondida no histórico; NÃO peça de novo o que ele já disse. Uma pergunta por vez, só quando faltar algo de verdade. Sem frases genéricas.
+PONTOS MERECIDOS: se pelo histórico ele fez um serviço (foto "finalizando/finalizei/instalei/terminei o de X", "já foi entregue") e ainda não aparece nos PONTOS dele, use "acao":"registrar" com o cliente e a etapa certa (instalacao para quem instala), em vez de pedir para ele repetir.
 ${eqCtx}
 RELATÓRIO ENVIADO${rel ? ` (${rel.label}, ${rel.di} a ${rel.df}, situação: ${rel.status})` : ''}:
 ${rel ? tab(rel) : '(nenhum relatório enviado ainda)'}
@@ -32148,6 +32161,12 @@ ${tab(atual)}
 Em "assunto": "ponto" se a mensagem fala do ponto, horas, relatório ou pagamento dele; "outro" para qualquer outra coisa (serviço, medidas, peças, recado).
 Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resumo_para_dono":"","aprovou":false,"assunto":"ponto","acao":"","cliente":"","etapa":""}`;
   let hist = []; try { hist = JSON.parse((await env.HR_KV.get('rh:hist:' + f.id)) || '[]'); } catch (_) {}
+  { const cv = await crmConversa(env, from, 14, 48); // v303: a conversa de verdade (inclui o que o Sr. Hangel e os avisos do bot mandaram) — a IA não perde o fio nem repete pergunta
+    if (cv.length) { const h2 = []; for (const x of cv) { const role = x.q === 'c' ? 'user' : 'assistant'; if (h2.length && h2[h2.length - 1].role === role) h2[h2.length - 1].content += '\n' + x.texto; else h2.push({ role, content: x.texto }); }
+      while (h2.length && h2[h2.length - 1].role === 'user') h2.pop(); // a mensagem de agora vai separada
+      while (h2.length && h2[0].role !== 'user') h2.shift();
+      if (h2.length) hist = h2; } }
+  if (citado) texto = `(respondendo à mensagem: "${citado.slice(0, 300)}") ${texto}`;
   let out = null;
   try {
     const t = await chamarIA(env, sistema, hist.slice(-6), texto, { maxTokens: 400, model: env.AI_MODEL_RH || 'claude-haiku-5-5', cat: 'equipe' }); // v184: Haiku basta para o RH
