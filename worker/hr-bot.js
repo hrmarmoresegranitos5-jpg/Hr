@@ -20888,6 +20888,7 @@ async function tratarMensagemBase(env, m, ctx) {
   const F = await getFalas(env);
 
   if (dono) {
+    if (/\b(versoes|versao|vozes|testar|teste|ouvir|manda|mande|envia|envie)\b.*\b(helena|voz|vozes|versoes)\b/.test(msg) && /\b(versoes|natural|premium|regional|v3|4|quatro|tres)\b/.test(msg)) { await enviar(env, from, 'Gerando as versões da Helena, já mando.'); const r = await vozVersoesWhatsApp(env, VOZ_MSG_TESTE).catch(e => ({ ok: false, versoes: [{ erro: e.message }] })); if (!r.ok) await enviar(env, from, 'Não consegui gerar: ' + ((r.versoes || [])[0] || {}).erro); return; } // v296: "manda as versões da Helena"
     if (await qrMandarPraEle(env, from, bruto, msg).catch(e => { console.log('[QR] mandar pra ele:', e.message); return false; })) return; // v115
     if (await pontoRespostaTexto(env, from, msg).catch(e => { console.log('[PONTO] texto:', e.message); return false; })) return; // v123
     if (await pqRespostaDono(env, from, bruto, msg).catch(e => { console.log('[PQ] resposta do dono:', e.message); return false; })) return; // v119
@@ -21300,6 +21301,7 @@ async function tratarPayload(env, payload) {
     }
   }
   await filaReprocessar(env).catch(e => console.log('[FILA]', e.message)); // v288
+  if (!(await env.HR_KV.get('voz:v3teste2')) && await travaEnvio(env, 'voz:v3teste2').catch(() => false)) { await env.HR_KV.put('voz:v3teste2', '1', { expirationTtl: 30 * 86400 }); await vozVersoesWhatsApp(env, VOZ_MSG_TESTE).catch(e => console.log('[VOZ] versões:', e.message)); } // v296
   await pedirAvaliacoes(env); // sem depender do gatilho agendado: confere quem parou de responder (no máximo a cada 5 minutos)
   await rodarDepois(env).catch(e => falhou(env, 'bot no lugar do app', e)); // v27
 }
