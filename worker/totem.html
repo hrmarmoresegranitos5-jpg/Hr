@@ -312,16 +312,16 @@ function reduzir(f) {
   });
 }
 function enviarArqs(fs) {
-  if (!fs.length) return;
-  var f = fs.shift(), pg = $('prog');
+  if (!fs.length) { enviandoArq = false; return; }
+  var f = fs.shift(), pg = $('prog'); enviandoArq = true;
   if (pg) { pg.style.display = 'block'; pg.firstChild.style.width = '5%'; }
   reduzir(f).then(function (b) {
     if (b.size > 24 * 1024 * 1024) { toast('“' + f.name + '” passa de 24 MB. Grave um vídeo mais curto.', 5000); if (pg) pg.style.display = 'none'; return enviarArqs(fs); }
     var x = new XMLHttpRequest(); x.open('POST', api('/totem/arquivo'));
     x.setRequestHeader('Content-Type', b.type || f.type); x.setRequestHeader('X-Nome', encodeURIComponent(f.name || ''));
     x.upload.onprogress = function (e) { if (pg && e.lengthComputable) pg.firstChild.style.width = Math.round(e.loaded / e.total * 100) + '%'; };
-    x.onload = function () { var j = {}; try { j = JSON.parse(x.responseText); } catch (e) {} if (j.ok) { ARQS = j.arqs; desenhaArqs(); } else toast(j.erro || 'Não consegui enviar.', 5000); if (fs.length) enviarArqs(fs); else if ($('prog')) $('prog').style.display = 'none'; };
-    x.onerror = function () { toast('Falha na internet ao enviar.'); if ($('prog')) $('prog').style.display = 'none'; };
+    x.onload = function () { var j = {}; try { j = JSON.parse(x.responseText); } catch (e) {} if (j.ok) { ARQS = j.arqs; desenhaArqs(); } else toast(j.erro || 'Não consegui enviar.', 5000); if (fs.length) enviarArqs(fs); else { enviandoArq = false; if ($('prog')) $('prog').style.display = 'none'; } };
+    x.onerror = function () { enviandoArq = false; toast('Falha na internet ao enviar.'); if ($('prog')) $('prog').style.display = 'none'; };
     x.send(b);
   });
 }
@@ -378,13 +378,21 @@ function marcarAtivo() {
   else if (s && LISTA) alvo = LISTA[s.i] || '';
   document.querySelectorAll('.card').forEach(function (c) { c.classList.toggle('on', !!alvo && c.getAttribute('data-k') === alvo); });
 }
+// versão nova no ar: recarrega sozinho, mas nunca no meio de uma digitação ou de um envio de arquivo
+var enviandoArq = false;
+function atualizar() {
+  var ae = document.activeElement, digitando = ae && /^(INPUT|TEXTAREA)$/.test(ae.tagName);
+  if (digitando || enviandoArq || (ABA === 'pix' && PX.v)) return;
+  try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.update(); }); }); } catch (e) {}
+  location.reload();
+}
 var telaUrl = '';
 function estado() {
   return fetch(api('/totem/estado'), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
     var antes = EST && EST.pix ? EST.pix.status : '';
     EST = j; $('luz').classList.add('on');
     if (j.tela && j.tela !== telaUrl) { telaUrl = j.tela; $('ifr').src = j.tela; }
-    if (j.ver && j.ver !== VER) location.reload();
+    if (j.ver && j.ver !== VER) atualizar();
     if (!j.show) LISTA = null;
     painel(); marcarAtivo();
     if (ABA === 'pix' && antes !== (j.pix ? j.pix.status : '')) abaPix();
