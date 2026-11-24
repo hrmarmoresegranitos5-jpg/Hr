@@ -918,7 +918,7 @@
         nich.forEach(function (p) { var r = rotDe(p); if (!g || (/base/.test(r) && g.base)) { g = {}; grupos.push(g); } if (/moldura/.test(r)) g.mold = Math.min(+p.w, +p.h); else if (/fundo/.test(r)) g.fundo = p; else if (/base/.test(r)) g.base = p; else if (/topo/.test(r)) g.topo = p; else if (/lateral/.test(r)) g.lat = p; });
         grupos.forEach(function (x) {
           var b = x.base || x.topo, A = b ? Math.max(+b.w, +b.h) - 4 : x.fundo ? Math.max(+x.fundo.w, +x.fundo.h) - 4 : 0, H = x.lat ? Math.max(+x.lat.w, +x.lat.h) : x.fundo ? Math.min(+x.fundo.w, +x.fundo.h) - 4 : 0, P = b ? Math.min(+b.w, +b.h) : x.lat ? Math.min(+x.lat.w, +x.lat.h) : 10;
-          if (A > 0 && H > 0) L.push('Nicho ' + f1(A) + ' x ' + f1(H) + ', profundidade ' + f1(P) + (x.mold ? ', moldura ' + f1(x.mold) : '') + (x.fundo ? ', com fundo' : ''));
+          if (A > 0 && H > 0) L.push(((b && +b.q > 1) ? (+b.q) + ' nichos ' : 'Nicho ') + f1(A) + ' x ' + f1(H) + ', profundidade ' + f1(P) + (x.mold ? ', moldura ' + f1(x.mold) : '') + (x.fundo ? ', com fundo' : ''));
         });
         pcs = pcs.filter(function (p) { return nich.indexOf(p) < 0; }); if (!pcs.length) return;
       }

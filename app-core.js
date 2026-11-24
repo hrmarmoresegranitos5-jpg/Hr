@@ -4267,8 +4267,10 @@ function calcNichoPecas(ne){
   var M=ne.semMoldura?0:+(ne.nM||0);
   if(!Li||!Ai||!P)return [];
   var pecas=[];
+  var NQ=Math.max(1,Math.min(50,Math.round(+ne.nQ||1))); // quantidade de nichos iguais
   function add(desc,w,h,q){
     w=Math.round(w*100)/100; h=Math.round(h*100)/100;
+    if(NQ>1){q=(q||1)*NQ;desc=desc.replace(/ ×\d+$/,'');}
     var m2=(w/100)*(h/100)*(q||1);
     pecas.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
   }
@@ -4307,6 +4309,7 @@ function calcNichoPecas(ne){
       servicos.push({desc:'Mão de obra — fixação do fundo',dim:'—',w:0,h:0,q:1,m2:0,valor:prMoFundo,_isServico:true});
     }
   }
+  if(NQ>1)servicos.forEach(function(s){s.valor=(s.valor||0)*NQ;s.desc=s.desc+' ×'+NQ+' nichos';});
   return pecas.concat(servicos);
 }
 
@@ -5697,8 +5700,9 @@ function renderAmbientes(){
       h+='</div>';
       h+='<div class="r2">';
       h+='<div class="f"><label>Profundidade (cm)</label><input type="number" placeholder="15" style="background:var(--s3);" value="'+(ne.nP||'')+'" oninput="updNichoMed('+amb.id+',\'nP\',+this.value)"></div>';
-      h+='<div class="f"><label>Espessura da chapa</label><div style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:.78rem;color:var(--t3);">2cm <span style="color:var(--t4);font-size:.65rem;">(padrão de todas as chapas)</span></div></div>';
+      h+='<div class="f"><label>Quantidade (nichos iguais)</label><input type="number" min="1" max="50" placeholder="1" style="background:var(--s3);" value="'+(ne.nQ>1?ne.nQ:'')+'" oninput="updNichoMed('+amb.id+',\'nQ\',Math.max(1,Math.round(+this.value||1)))"></div>';
       h+='</div>';
+      h+='<div style="font-size:.57rem;color:var(--t4);margin:-4px 0 6px;line-height:1.4;">Chapa de 2 cm (padrão). Com quantidade 3, as peças, a M.O. e o preço saem para os 3 nichos.</div>';
       h+='<div class="f"><label>Profundidade da base (opcional)</label><input type="number" placeholder="deixe vazio se igual à profundidade acima" style="background:var(--s3);" value="'+(ne.nPBase||'')+'" oninput="updNichoMed('+amb.id+',\'nPBase\',+this.value)"></div>';
       h+='<div style="font-size:.57rem;color:var(--t4);margin:-4px 0 6px;line-height:1.4;">💡 Preencha só se a <b>base</b> precisa ir mais funda que topo/laterais — pra chegar até o fim do tijolo refratário.</div>';
       h+='<div class="f"><label>Corte diagonal do canto (opcional)</label><input type="number" placeholder="ex: 15,5 — deixe vazio pra não mostrar" style="background:var(--s3);" value="'+(ne.nDiag||'')+'" oninput="updNichoMed('+amb.id+',\'nDiag\',+this.value)"></div>';
