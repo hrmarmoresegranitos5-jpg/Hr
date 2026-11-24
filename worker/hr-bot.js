@@ -2791,7 +2791,7 @@ async function enviarVoz(env, para, texto, opts = {}) {
     await vozEscolhaCarregar(env).catch(() => {});
     let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
-    fala = (await falaNatural(env, fala)).replace(/\bHangel\b/g, 'Rangel'); // v289
+    if (!env._vozRapida) fala = (await falaNatural(env, fala)).replace(/\bHangel\b/g, 'Rangel'); // v289 (pula quando o tempo está curto)
     let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
     await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
@@ -5179,6 +5179,7 @@ function clienteEncerrou(c, bruto) {
   return true;
 }
 async function atenderClienteIA(env, from, bruto, perfil) {
+  filaPasso(env, 'ia');
   try {
     if (!(await limiteCliente(env, from))) return true; // passou do limite diário: fica em silêncio
     if (await pdfImgPedido(env, from, bruto).catch(e => { console.log('[PDFIMG]', e.message); return false; })) return true; // v76
@@ -20343,7 +20344,7 @@ async function tratarVision(env, from, m, dono, tipo) {
 async function tratarMensagem(env0, m) {
   const ctx = { voz: false, falou: false, cliente: false, textos: [], suprimiu: false, de: normalizarBR(m.from), citado: (m.context && m.context.id) || '', paraDono: [], agente: false, bruto: '', tx: [], crm: [] };
   const env = Object.create(env0);
-  env._ctx = ctx;
+  env._ctx = ctx; env._filaId = String(m.id || '').replace(/#r$/, ''); env._t0 = Date.now() - (m._esperou || 0);
   if (!ehDono(env0, m.from)) { // v62: transcrição
     const ent = extrairTexto(m) || (m.interactive && ((m.interactive.button_reply && m.interactive.button_reply.title) || (m.interactive.list_reply && m.interactive.list_reply.title))) || (m.button && m.button.text) || '';
     ctx.tx.push({ q: 'c', t: Date.now(), x: String(ent || ({ image: '[foto]', video: '[vídeo]', document: '[arquivo]', audio: '[áudio]', sticker: '[figurinha]', location: '[localização]', contacts: '[contato]' }[m.type] || '[' + (m.type || 'mensagem') + ']')).slice(0, 1200) });
@@ -20356,6 +20357,9 @@ async function tratarMensagem(env0, m) {
   else if (!ehDono(env0, m.from) && ctx.paraDono.length) await agNota(env, null, '[Aviso do bot ao Sr. Hangel] ' + ctx.paraDono.join('\n')); // v48: avisos sobre clientes/funcionários
   if (ctx.cliente) await avisarInicioConversa(env, m).catch(e => console.log('[BOT] aviso de início:', e.message));
   if (ctx.voz && !ctx.falou && ctx.textos.length) {
+    filaPasso(env, 'voz');
+    const tarde = Date.now() - (env._t0 || Date.now()) > 16000; // v290: o segundo plano tem ~30 s; se já passou da metade, o texto sai antes (o áudio vem depois, se der tempo)
+    if (tarde && ctx.suprimiu) { await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(() => {}); ctx.suprimiu = false; env._vozRapida = true; }
     const fala = textoParaFala(ctx.textos.join('\n\n'));
     if (!ehDono(env0, m.from)) ctx.tx.push({ q: 'b', t: Date.now(), x: '[áudio] ' + ctx.textos.join(' ').slice(0, 1100) }); // v62
     // cliente que falou só recebe áudio; se o áudio não couber ou falhar, o texto sai para ele não ficar sem resposta
@@ -20629,7 +20633,9 @@ async function tratarMensagemBase(env, m, ctx) {
   }
   let bruto, voz = false;
   if (m.type === 'audio') {
+    filaPasso(env, 'ouvindo');
     const t = m._texto || await ouvirAudio(env, from, m, dono);
+    filaPasso(env, 'ouviu');
     if (!t) return;
     m._texto = t;
     bruto = t; voz = true; ctx.voz = true; // falou → eu respondo falando (e também em texto)
@@ -20944,11 +20950,13 @@ async function travaDOChamar(stub, acao, dados) {
 // (publicação nova do bot, limite de tempo do segundo plano), a Meta não reenvia e a mensagem ficava sem resposta.
 // Cada mensagem recebida é anotada; quando termina, é baixada. Se passar de 2 min sem baixa, o bot trata de novo (uma vez).
 let __filaOk = false;
-async function filaDb(env) { if (!env.HR_DB) return null; if (!__filaOk) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS msg_fila (id TEXT PRIMARY KEY, de TEXT, em INTEGER, m TEXT, ok INTEGER DEFAULT 0, tent INTEGER DEFAULT 0)').run(); __filaOk = true; } return env.HR_DB; }
+async function filaDb(env) { if (!env.HR_DB) return null; if (!__filaOk) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS msg_fila (id TEXT PRIMARY KEY, de TEXT, em INTEGER, m TEXT, ok INTEGER DEFAULT 0, tent INTEGER DEFAULT 0, passo TEXT)').run(); __filaOk = true; } return env.HR_DB; }
 async function filaEntrada(env, m) {
   if (!m || !m.id || !m.from || m.type === 'reaction' || m._reproc) return;
   try { const db = await filaDb(env); if (db) await db.prepare('INSERT OR IGNORE INTO msg_fila (id, de, em, m) VALUES (?, ?, ?, ?)').bind(m.id, String(m.from), Date.now(), JSON.stringify(m).slice(0, 20000)).run(); } catch (e) { console.log('[FILA] entrada:', e.message); }
 }
+// diagnóstico: em que passo a mensagem estava quando o processamento morreu (ex.: 'audio 3,2s')
+function filaPasso(env, passo) { const id = env && env._filaId; if (!id || !env.HR_DB) return; const ms = Date.now() - (env._t0 || Date.now()); env.HR_DB.prepare('UPDATE msg_fila SET passo = ? WHERE id = ?').bind(`${passo} ${(ms / 1000).toFixed(1)}s`, id).run().catch(() => {}); }
 async function filaOk(env, id) { if (!id) return; try { const db = await filaDb(env); if (db) await db.prepare('UPDATE msg_fila SET ok = 1 WHERE id = ?').bind(String(id).replace(/#r$/, '')).run(); } catch (_) {} }
 async function filaReprocessar(env, maxTent = 1) {
   const db = await filaDb(env); if (!db) return 0; const agora = Date.now();
