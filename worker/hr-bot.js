@@ -2724,12 +2724,13 @@ function textoParaFala(t) {
 }
 
 // v127: a assistente é mulher: só vozes femininas (TTS_VOICE com voz masculina é ignorada)
-const VOZES_FEMININAS = ['coral', 'nova', 'shimmer', 'sage'];
+const VOZES_FEMININAS = ['marin', 'coral', 'nova', 'shimmer', 'sage'];
 function vozFeminina(env) { const v = String(env.TTS_VOICE || '').toLowerCase().trim(); return VOZES_FEMININAS.includes(v) ? v : 'shimmer'; } // v128: shimmer é a mais suave
 // v160: VOZ MAIS NATURAL — vozes brasileiras, entrega de conversa (não de locutora), texto preparado para fala e escolha pelo WhatsApp ("voz")
 const VOZ_OPCOES = [
   { k: 'el_roberta', prov: 'el', id: 'RGymW84CSmfVugnA5tvA', nome: 'Roberta (brasileira, conversa)' },
   { k: 'el_keren', prov: 'el', id: '33B4UnXyTNbgLmdEDh5P', nome: 'Keren (brasileira, jovem e doce)' },
+  { k: 'oa_marin', prov: 'oa', id: 'marin', nome: 'Marin (OpenAI, a mais natural)' },
   { k: 'oa_coral', prov: 'oa', id: 'coral', nome: 'Coral (OpenAI)' },
   { k: 'oa_sage', prov: 'oa', id: 'sage', nome: 'Sage (OpenAI)' },
   { k: 'oa_shimmer', prov: 'oa', id: 'shimmer', nome: 'Shimmer (OpenAI, a atual)' },
@@ -2753,6 +2754,8 @@ async function gerarVoz(env, fala, escolha) {
       return { audio: await r.arrayBuffer(), via: 'el:' + elId };
     } catch (e) { console.log('[BOT] voz ElevenLabs:', e.message); if (op && op.prov === 'el') throw e; }
   } else if (op && op.prov === 'el') throw new Error('falta a chave ELEVENLABS_KEY');
+  { const cfg = await vozCfg(env); if (op && op.prov === 'oa') cfg.voz = op.id; // v294: identidade vocal (modelo, voz, instruções, emoção)
+    const g = await vozSpeech(env, fala, { ...cfg }, 'opus'); await vozUso(env, g.via, fala.length); return g; }
   const chave = chaveVoz(env); if (!chave) throw new Error('sem chave de voz');
   const tts = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST', headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
@@ -2777,14 +2780,132 @@ async function falaNatural(env, fala) {
 - Português falado do dia a dia: "tá", "pra", "né", "viu", "a gente", "olha", "beleza"; nada de "por gentileza", "prezado", "informo", "senhor(a)" formal (pode manter "seu Rangel"/"Sr. Rangel" se o texto chamar assim).
 - Frases corridas, como se fala de verdade, SEM VÍRGULAS e sem dois-pontos (a voz para em cada vírgula). Junte as ideias com "e", "aí", "que". No máximo um ponto a cada duas ou três ideias. Sem listas, sem tópicos, sem parênteses, sem emoji.
 - Não repita saudação nem pergunta que já esteja no texto.
-- Valores, medidas, datas, horários, nomes e números: EXATAMENTE os mesmos (pode escrever por extenso o jeito de falar, ex.: "1,20" → "um e vinte").
+- Valores, medidas, datas, horários, nomes e números: EXATAMENTE os mesmos e em ALGARISMOS como estão (não escreva número por extenso; a voz já lê certo).
 - Não acrescente informação nem pergunta nova; não corte nada importante. Mesmo tamanho ou menor.
 Responda SÓ com o texto falado.`;
   try {
     const r = await Promise.race([chamarIA(env, sis, [], t.slice(0, 1500), { maxTokens: 500, model: env.AI_MODEL_VOZ || 'claude-haiku-5-5', cat: 'voz' }), new Promise(res => setTimeout(() => res(''), 7000))]);
     const x = String(r || '').replace(/^["“]|["”]$/g, '').replace(/[*_#•]/g, '').trim();
-    return x && x.length < t.length * 1.4 + 40 ? x : t;
+    return x && x.length < t.length * 1.4 + 40 && vozMesmosNumeros(t, x) ? x : t; // v294: mudou algum número → fica o texto original
   } catch (_) { return t; }
+}
+// ═══ v294: IDENTIDADE VOCAL DA HELENA ═══════════════════════════════════════════════════════════════════════
+// Módulos separados: (1) normalização do texto para fala, (2) interpretação vocal (instruções + emoção pelo contexto),
+// (3) integração OpenAI (Speech API ou Realtime), (4) uso e custo. O atendimento (IA comercial) continua separado:
+// a voz só LÊ o texto pronto; a reescrita para fala é conferida — se mudar qualquer número, vale o texto original.
+const VOZ_INSTR_PADRAO = 'Interprete a fala como Helena, assistente virtual brasileira especializada em atendimento comercial de uma marmoraria de alto padrão. Fale em português brasileiro, com naturalidade, simpatia e segurança.\n\nUtilize um sotaque brasileiro com uma influência baiana extremamente sutil. Evite pronúncias estrangeiras, formalidade excessiva, entonação teatral e ritmo mecânico.\n\nFale como em uma conversa espontânea pelo WhatsApp. Varie naturalmente a velocidade, a intensidade e a melodia das frases. Faça pequenas pausas quando necessário, sem exagerar.\n\nDemonstre interesse genuíno pelo assunto, mantendo profissionalismo. Não transforme todas as frases em perguntas e não termine todas as sentenças com a mesma entonação.\n\nLeia exatamente as informações fornecidas, sem inventar, acrescentar ou modificar valores, medidas, nomes, prazos ou condições comerciais.';
+const VOZ_MODELOS = { 'gpt-4o-mini-tts-2025-12-15': 'GPT-4o mini TTS (dez/2025) · Speech API', 'gpt-4o-mini-tts': 'GPT-4o mini TTS · Speech API', 'gpt-realtime-2.1-mini': 'GPT Realtime 2.1 mini · Realtime API (teste no painel)' };
+const VOZ_VOZES = ['marin', 'coral', 'nova', 'shimmer', 'sage', 'cedar'];
+const VOZ_CFG_PADRAO = { modelo: 'gpt-4o-mini-tts-2025-12-15', voz: 'shimmer', velocidade: 1, instr: VOZ_INSTR_PADRAO, sotaque: 'baiano sutil, do interior da Bahia, sem exagero', emocao: true, reescrever: true, semPausas: true };
+const VOZ_EMOCAO = {
+  primeiro: 'Primeiro atendimento: receptiva e simpática.',
+  orcamento: 'Apresentação de orçamento: segura, clara e objetiva.',
+  tecnica: 'Explicação técnica: paciente e didática.',
+  reclamacao: 'Reclamação: compreensiva e respeitosa, voz calma.',
+  negociacao: 'Negociação: confiante, sem pressionar o cliente.',
+  cobranca: 'Cobrança: cordial, discreta e profissional.',
+  fechamento: 'Finalização de venda: satisfeita e positiva, sem entusiasmo artificial.',
+};
+async function vozCfg(env) {
+  if (globalThis.__vozCfg && Date.now() - globalThis.__vozCfgEm < 60000) return globalThis.__vozCfg;
+  let c = null; try { c = JSON.parse((await env.HR_KV.get('cfg:vozid')) || 'null'); } catch (_) {}
+  const cfg = { ...VOZ_CFG_PADRAO, ...(c && c.atual || {}) };
+  globalThis.__vozCfg = cfg; globalThis.__vozCfgEm = Date.now(); return cfg;
+}
+async function vozCfgSalvar(env, nova, quem) {
+  let c = null; try { c = JSON.parse((await env.HR_KV.get('cfg:vozid')) || 'null'); } catch (_) {}
+  c = c || { atual: {}, hist: [] };
+  const limpa = {};
+  if (VOZ_MODELOS[nova.modelo]) limpa.modelo = nova.modelo;
+  if (VOZ_VOZES.includes(String(nova.voz || '').toLowerCase())) limpa.voz = String(nova.voz).toLowerCase();
+  if (+nova.velocidade >= 0.8 && +nova.velocidade <= 1.2) limpa.velocidade = Math.round(+nova.velocidade * 100) / 100;
+  if (typeof nova.instr === 'string' && nova.instr.trim().length > 20) limpa.instr = nova.instr.trim().slice(0, 3000);
+  if (typeof nova.sotaque === 'string') limpa.sotaque = nova.sotaque.trim().slice(0, 200);
+  ['emocao', 'reescrever', 'semPausas'].forEach(k => { if (typeof nova[k] === 'boolean') limpa[k] = nova[k]; });
+  if (nova.padrao) Object.assign(limpa, VOZ_CFG_PADRAO);
+  if (c.atual && Object.keys(c.atual).length) c.hist = [{ em: Date.now(), quem: quem || 'painel', cfg: c.atual }, ...(c.hist || [])].slice(0, 15);
+  c.atual = { ...VOZ_CFG_PADRAO, ...c.atual, ...limpa };
+  await env.HR_KV.put('cfg:vozid', JSON.stringify(c));
+  globalThis.__vozCfg = null; return c;
+}
+// (1) NORMALIZAÇÃO — escrito → pronúncia natural, sem mudar o significado
+function cmFalado(cm) { cm = Math.round(cm); const m = Math.floor(cm / 100), r = cm % 100; return m ? `${m === 1 ? 'um' : m} metro${m > 1 ? 's' : ''}${r ? ' e ' + r : ''}` : `${r} centímetros`; }
+const VOZ_SIGLAS = { HR: 'agá erre', MDF: 'eme dê efe', MDP: 'eme dê pê', PIX: 'pix', CPF: 'cê pê efe', CNPJ: 'cê ene pê jota', PDF: 'pê dê efe', AC3: 'a cê três', AC4: 'a cê quatro', LED: 'léd' };
+function vozNormalizar(t) {
+  let x = String(t || '');
+  x = x.replace(/(\d+[.,]\d{1,2})\s*(?:m\b)?\s*(?:[x×]|por)\s*(\d+[.,]\d{1,2})\s*m\b/gi, (m0, a, b) => { const A = numBR(a), B = numBR(b); return A > 0 && A <= 10 && B > 0 && B <= 10 ? `${cmFalado(A * 100)} por ${cmFalado(B * 100)}` : m0; }); // 1,80 × 0,60 m
+  x = x.replace(/(\d+)\s*°/g, '$1 graus').replace(/(\d+(?:[.,]\d+)?)\s*%/g, '$1 por cento').replace(/\b(\d{1,2})\s*x\b(?!\s*\d)/gi, '$1 vezes');
+  x = x.replace(/\b(HR|MDF|MDP|CPF|CNPJ|PDF|AC3|AC4|LED)\b/g, m0 => VOZ_SIGLAS[m0] || m0);
+  x = x.replace(/\bm²/g, ' metros quadrados').replace(/\bml\b/g, 'metros lineares').replace(/\bcm\b/g, 'centímetros');
+  return x;
+}
+// (2) INTERPRETAÇÃO — emoção pelo contexto do texto
+function vozContexto(t) {
+  const n = normaliza(t);
+  if (/\b(desculp|lament|sinto muito|reclama|problema|transtorno|chateado)/.test(n)) return 'reclamacao';
+  if (/\b(cobranca|vencid|em aberto|pendente|parcela|boleto|pagamento|pix)\b/.test(n)) return 'cobranca';
+  if (/\b(desconto|negoci|condicao especial|a vista|parcelar|consigo fazer)\b/.test(n)) return 'negociacao';
+  if (/\b(fechad|aprovad|confirmad|obrigada pela confianca|seja bem vindo a familia|pedido feito)\b/.test(n)) return 'fechamento';
+  if (/\b(orcamento|valor|total|reais|r\$)\b/.test(n)) return 'orcamento';
+  if (/\b(rebaixo|acabamento|sainha|frontao|espessura|cuba|recorte|instalacao|medida|granito|marmore)\b/.test(n)) return 'tecnica';
+  if (/\b(seja bem vind|aqui e a helena|prazer|como posso ajudar|boa (tarde|noite)|bom dia)\b/.test(n)) return 'primeiro';
+  return '';
+}
+function vozInstrucoes(cfg, texto) {
+  const vel = +cfg.velocidade || 1, ritmo = vel <= 0.97 ? 'Ritmo um pouco mais calmo que o normal.' : vel >= 1.03 ? 'Ritmo um pouco mais ágil que o normal, sem atropelar.' : '';
+  const ctx = cfg.emocao ? vozContexto(texto) : '';
+  return [cfg.instr || VOZ_INSTR_PADRAO, cfg.sotaque ? `Sotaque: ${cfg.sotaque}.` : '', 'O nome do dono é Rangel (escrito Hangel): pronuncie RAN-JÉU.', cfg.semPausas ? 'Não pare nas vírgulas: só respire de leve no fim das frases.' : '', ritmo, ctx ? 'Neste áudio: ' + VOZ_EMOCAO[ctx] : ''].filter(Boolean).join('\n');
+}
+// a reescrita para fala não pode mudar nenhum número (valor, medida, prazo, data)
+function vozMesmosNumeros(a, b) { const nums = t => (String(t).match(/\d+(?:[.,]\d+)?/g) || []).map(x => x.replace(/[.,]/g, '')).sort().join('|'); return nums(a) === nums(b); }
+// (3) INTEGRAÇÃO OPENAI
+async function vozSpeech(env, fala, cfg, formato) {
+  const chave = chaveVoz(env); if (!chave) throw new Error('sem chave de voz (OPENAI_KEY)');
+  const modelo = /realtime/.test(cfg.modelo) ? 'gpt-4o-mini-tts-2025-12-15' : cfg.modelo;
+  const r = await fetch('https://api.openai.com/v1/audio/speech', { method: 'POST', headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelo, voice: cfg.voz, input: fala, response_format: formato || 'opus', instructions: vozInstrucoes(cfg, fala) }) });
+  if (!r.ok) throw new Error(`voz ${r.status}: ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  return { audio: await r.arrayBuffer(), via: 'oa:' + modelo + ':' + cfg.voz, mime: formato === 'mp3' ? 'audio/mpeg' : 'audio/ogg' };
+}
+// Realtime API (WebSocket): devolve PCM 16 bits 24 kHz em WAV. Usado no painel para comparar; o WhatsApp precisa de OGG/Opus,
+// que o Worker ainda não consegue codificar a partir do PCM.
+async function vozRealtimeWav(env, fala, cfg) {
+  const chave = chaveVoz(env); if (!chave) throw new Error('sem chave de voz (OPENAI_KEY)');
+  const resp = await fetch('https://api.openai.com/v1/realtime?model=' + encodeURIComponent(cfg.modelo), { headers: { Upgrade: 'websocket', Authorization: `Bearer ${chave}` } });
+  const ws = resp.webSocket; if (!ws) throw new Error('Realtime recusou a conexão (' + resp.status + ')');
+  ws.accept();
+  const partes = []; let fim, erro, trans = '';
+  const pronto = new Promise((res, rej) => { fim = res; erro = rej; });
+  const timer = setTimeout(() => erro(new Error('Realtime demorou demais')), 25000);
+  ws.addEventListener('message', ev => {
+    let e = null; try { e = JSON.parse(ev.data); } catch (_) { return; }
+    if (e.type === 'response.output_audio.delta' || e.type === 'response.audio.delta') partes.push(e.delta);
+    else if (e.type === 'response.output_audio_transcript.delta' || e.type === 'response.audio_transcript.delta') trans += e.delta || '';
+    else if (e.type === 'response.done') fim();
+    else if (e.type === 'error') erro(new Error('Realtime: ' + ((e.error && e.error.message) || 'erro')));
+  });
+  ws.addEventListener('close', () => fim());
+  const sessao = { type: 'realtime', output_modalities: ['audio'], instructions: vozInstrucoes(cfg, fala) + '\n\nVocê NÃO conversa: apenas leia em voz alta, palavra por palavra, o texto que o usuário enviar, sem acrescentar, cortar ou responder nada.',
+    audio: { output: { format: { type: 'audio/pcm', rate: 24000 }, voice: cfg.voz, speed: +cfg.velocidade || 1 } } };
+  ws.send(JSON.stringify({ type: 'session.update', session: sessao }));
+  ws.send(JSON.stringify({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Leia exatamente: ' + fala }] } }));
+  ws.send(JSON.stringify({ type: 'response.create', response: { output_modalities: ['audio'] } }));
+  try { await pronto; } finally { clearTimeout(timer); try { ws.close(); } catch (_) {} }
+  if (!partes.length) throw new Error('Realtime não devolveu áudio');
+  const pcm = base64ParaBytes(partes.join('')), wav = new Uint8Array(44 + pcm.length), dv = new DataView(wav.buffer);
+  const w = (o, s0) => { for (let i = 0; i < s0.length; i++) wav[o + i] = s0.charCodeAt(i); };
+  w(0, 'RIFF'); dv.setUint32(4, 36 + pcm.length, true); w(8, 'WAVEfmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, 24000, true); dv.setUint32(28, 48000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, 'data'); dv.setUint32(40, pcm.length, true); wav.set(pcm, 44);
+  return { audio: wav.buffer, via: 'rt:' + cfg.modelo + ':' + cfg.voz, mime: 'audio/wav', seg: pcm.length / 48000, transcricao: trans };
+}
+// (4) USO E CUSTO (estimado: Speech ≈ US$ 0,015/min; Realtime mini ≈ US$ 0,02/min)
+async function vozUso(env, via, chars, seg) {
+  try {
+    const k = 'voz:uso:' + dataBahia().slice(0, 7), u = JSON.parse((await env.HR_KV.get(k)) || '{}');
+    const s = seg || chars / 14, usd = s / 60 * (/^rt:/.test(via) ? 0.02 : 0.015);
+    u.n = (u.n || 0) + 1; u.chars = (u.chars || 0) + chars; u.seg = Math.round(((u.seg || 0) + s) * 10) / 10; u.usd = Math.round(((u.usd || 0) + usd) * 10000) / 10000;
+    await env.HR_KV.put(k, JSON.stringify(u), { expirationTtl: 400 * 86400 });
+  } catch (_) {}
 }
 function falaSemPausas(t) {
   return String(t || '')
@@ -2805,8 +2926,10 @@ async function enviarVoz(env, para, texto, opts = {}) {
     await vozEscolhaCarregar(env).catch(() => {});
     let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
-    if (!env._vozRapida) fala = (await falaNatural(env, fala)).replace(/\bHangel\b/g, 'Rangel'); // v289 (pula quando o tempo está curto)
-    fala = falaSemPausas(fala); // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
+    const vcfg = await vozCfg(env);
+    if (!env._vozRapida && vcfg.reescrever) fala = (await falaNatural(env, fala)).replace(/\bHangel\b/g, 'Rangel'); // v289 (pula quando o tempo está curto)
+    fala = vozNormalizar(fala); // v294: R$, medidas, %, 45°, 8x, siglas
+    if (vcfg.semPausas) fala = falaSemPausas(fala); // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
     let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
     await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
@@ -25541,6 +25664,23 @@ async function rotaBotInterna(req, env, url) {
     return jsonR({ ok: true });
   }
 
+  // v294: IDENTIDADE VOCAL DA HELENA (painel do app)
+  if (p === '/bot/voz/cfg' && req.method === 'GET') { let c = null; try { c = JSON.parse((await env.HR_KV.get('cfg:vozid')) || 'null'); } catch (_) {} const mes = dataBahia().slice(0, 7); let uso = {}; try { uso = JSON.parse((await env.HR_KV.get('voz:uso:' + mes)) || '{}'); } catch (_) {}
+    return jsonR({ ok: true, atual: await vozCfg(env), padrao: VOZ_CFG_PADRAO, hist: (c && c.hist) || [], modelos: VOZ_MODELOS, vozes: VOZ_VOZES, emocoes: VOZ_EMOCAO, uso: { mes, ...uso }, elevenlabs: !!env.ELEVENLABS_KEY, escolhaAntiga: globalThis.__voz || '' }); }
+  if (p === '/bot/voz/cfg' && req.method === 'POST') { const b = await req.json().catch(() => ({})); const c = await vozCfgSalvar(env, b, 'painel'); if (b.voz) { await env.HR_KV.delete('cfg:voz').catch(() => {}); globalThis.__voz = ''; } return jsonR({ ok: true, atual: c.atual, hist: c.hist }); }
+  if (p === '/bot/voz/teste' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({})), base = await vozCfg(env);
+    const cfg = { ...base, ...(VOZ_MODELOS[b.modelo] ? { modelo: b.modelo } : {}), ...(VOZ_VOZES.includes(b.voz) ? { voz: b.voz } : {}), ...(+b.velocidade ? { velocidade: +b.velocidade } : {}), ...(typeof b.instr === 'string' && b.instr.trim().length > 20 ? { instr: b.instr } : {}), ...(typeof b.sotaque === 'string' ? { sotaque: b.sotaque } : {}) };
+    let fala = falaCasual(textoParaFala(String(b.texto || 'Oi! Aqui é a Helena, da HR Mármores e Granitos. O seu orçamento da cozinha em Preto São Gabriel ficou em R$ 2.500,00, com rebaixo americano e sainha em 45°.').slice(0, 600)));
+    if (b.reescrever ?? cfg.reescrever) fala = await falaNatural(env, fala);
+    fala = vozNormalizar(fala); if (b.semPausas ?? cfg.semPausas) fala = falaSemPausas(fala);
+    const t0 = Date.now();
+    try {
+      const g = /realtime/.test(cfg.modelo) ? await vozRealtimeWav(env, fala, cfg) : await vozSpeech(env, fala, cfg, 'mp3');
+      await vozUso(env, g.via, fala.length, g.seg);
+      return jsonR({ ok: true, audio: bytesParaBase64(new Uint8Array(g.audio)), mime: g.mime, ms: Date.now() - t0, fala, via: g.via, transcricao: g.transcricao || '', contexto: cfg.emocao ? vozContexto(fala) : '', custoUsd: Math.round(((g.seg || fala.length / 14) / 60 * (/^rt:/.test(g.via) ? 0.02 : 0.015)) * 10000) / 10000 });
+    } catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 300), ms: Date.now() - t0 }, 200); }
+  }
   if (p === '/bot/status' && req.method === 'GET') {
     const ok = !!(env.WHATSAPP_TOKEN && env.PHONE_NUMBER_ID && env.APP_SECRET && env.VERIFY_TOKEN && env.HR_KV);
     return jsonR({ status: ok ? 'connected' : 'disconnected', phone: numeroDono(env), code: null, modo: atenderClientes(env) ? 'clientes' : 'dono' });
