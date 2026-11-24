@@ -8437,6 +8437,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     // v215: o nome que ele falou manda ("comecei o acabamento do Osmailton" não pode virar o do Joel só porque o Joel é a única tarefa dele)
     const tkS = tokensPedra(texto), nomeado = nomeMelhores(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), tkS);
     let ped = null, assumiu = false;
+    if (!nomeado.length && await prodIniciarForaDaLista(env, f, from, texto, nome, ac).catch(e => { console.log('[INIAUTO]', e.message); return false; })) return true; // v300: falou de um cliente que não está na produção → abre sozinho (antes caía na única tarefa dele)
     if (nomeado.length === 1) { ped = nomeado[0]; assumiu = !l.some(x => x.id === ped.id); } else if (!nomeado.length) ped = l.length === 1 ? l[0] : null;
     if (ped && assumiu) { if (ac === 'aci') ped.acabResp = id; else ped.fabResp = id; await pontoAvisarDono(env, `ℹ️ *${nome}* pegou ${ac === 'aci' ? 'o acabamento' : 'o corte'} de *${ped.nome}* (não estava com ele). Os pontos dessa etapa vão para ele.`).catch(() => {}); }
     if (ped) { const k = ac === 'cti' ? 'corteIni' : 'acabIni'; ped[k + 'Em'] = Date.now(); ped[k + 'Por'] = id; await salvarPedido(env, ped); await enviar(env, from, `▶️ Anotado, ${nome}: ${ac === 'cti' ? 'corte' : 'acabamento'} de *${ped.nome}* começou às ${horaTs(Date.now())}. Bom trabalho!`); return true; }
@@ -8493,6 +8494,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
         await enviar(env, from, `Anotado, ${nome}: você começou ${nms.join(' e ')}. Quando terminar, me diga: _terminei o de ${nms[0].split(" ")[0]}_.`);
         await pontoAvisarDono(env, `▶️ *${nome}* começou: ${nms.join(', ')}.`).catch(() => {}); return true; }
       if (await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return false; // foto com legenda: o fluxo da foto pergunta
+      if (papel !== 'entrega' && await prodIniciarForaDaLista(env, f, from, texto, nome, '').catch(e => { console.log('[INIAUTO]', e.message); return false; })) return true; // v300: o dono não abriu o serviço → abre sozinho
       await enviar(env, from, `Anotado que você começou, ${nome}. De qual cliente é? Me diga assim: _iniciei o da Maria_.`); return true;
     }
   }
@@ -10699,11 +10701,7 @@ async function producaoStatusTool(env, a) {
   if (!ped) { // serviço que não passou pelo bot: abre um registro para contar a produção
     ped = { id: String(Date.now()), origem: 'manual', nome: String(a.cliente || 'Cliente').slice(0, 60), projetoApp: a.item ? String(a.item).slice(0, 40) : 'Serviço', interesse: /peitor/.test(item) ? 'peitoril' : /soleir/.test(item) ? 'soleira' : '', pecas: [], status: 'enviado', etapa: 'concluido', criado: Date.now(), fichaEnviadaEm: Date.now() };
     if (+a.pecas > 0) ped.pecas = [{ tipo: ped.interesse || 'peça', qtd: Math.round(+a.pecas), comp_cm: 1, larg_cm: 1 }];
-    else try { // v284: serviço que não passou pelo bot: usa o orçamento do app (m²) para estimar as peças e os pontos
-      const snap = await lerSnapshotCompleto(env).catch(() => null), tkc = tokensPedra(String(a.cliente || ''));
-      const o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && nomeNota(x.cliente || '', tkc) > 0 && (!item || normaliza(x.projeto || '').includes(item.split(' ')[0].replace(/s$/, '')) || true)).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
-      if (o && +o.m2 > 0) { const q = Math.max(1, Math.min(20, Math.round(+o.m2 / 0.6))); ped.pecas = [{ tipo: 'peça', qtd: q, comp_cm: 1, larg_cm: 1 }]; ped.projetoApp = ped.projetoApp === 'Serviço' && o.projeto ? String(o.projeto).slice(0, 40) : ped.projetoApp; ped.estimado = { m2: +o.m2, de: 'orcamento do app' }; }
-    } catch (_) {}
+    else await pedEstimarDoOrc(env, ped, a.cliente).catch(() => {}); // v284
   }
   const ts = isoOk(a.data) ? quandoTs(a.data, '17:00') : Date.now();
   ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
@@ -22583,6 +22581,42 @@ async function prodPedirDono(env, f, from, x, texto, nome) {
   await enviarComBotoes(env, numeroDono(env), `${f.nome} disse que fez o ${o}: "${String(texto).slice(0, 220)}"\n\nEsse serviço não está aberto na produção. Registro para ele (os pontos entram pelo tamanho do orçamento do app)?`,
     [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
   await enviar(env, from, `Entendi, ${nome}: ${o.replace(/\*/g, '')}. Esse serviço não estava aberto na produção, por isso não entrou ponto. Já mandei para o Sr. Hangel confirmar; quando ele confirmar, os pontos entram e eu te aviso.`);
+  return true;
+}
+// v284: serviço que não passou pelo bot: usa o orçamento do app (m²) para estimar as peças e os pontos (o PDF com as peças substitui depois)
+async function pedEstimarDoOrc(env, ped, cliente) {
+  const snap = await lerSnapshotCompleto(env).catch(() => null), tkc = tokensPedra(String(cliente || ''));
+  const o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && nomeNota(x.cliente || '', tkc) > 0).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
+  if (o && +o.m2 > 0) { const q = Math.max(1, Math.min(20, Math.round(+o.m2 / 0.6))); ped.pecas = [{ tipo: 'peça', qtd: q, comp_cm: 1, larg_cm: 1 }]; ped.projetoApp = ped.projetoApp === 'Serviço' && o.projeto ? String(o.projeto).slice(0, 40) : ped.projetoApp; ped.estimado = { m2: +o.m2, de: 'orcamento do app' }; }
+  return o || null;
+}
+// v300: o funcionário disse que COMEÇOU um serviço que o dono esqueceu de abrir na produção → o bot abre sozinho e já marca o início.
+// Só abre se o cliente existe num orçamento do app (PDF ou lista de orçamentos) — nome mal ouvido não vira serviço fantasma. O dono é avisado.
+async function prodIniciarForaDaLista(env, f, from, texto, nome, ac0) {
+  if (env.INICIO_AUTO === '0') return false;
+  const x = await servicoExtrair(env, f, texto); if (!x || !x.cliente) return false;
+  const tk = tokensPedra(String(x.cliente)); if (!tk.length) return false;
+  const naLista = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && nomeNota(p.nome, tk) >= 1).catch(() => []);
+  if (naLista.length) { // já está na produção (o nome veio errado no áudio): segue o fluxo normal com o nome certo
+    if (env._prodCorrigido || nomeNota(naLista[0].nome, tokensPedra(texto)) > 0) return false;
+    env._prodCorrigido = 1; return producaoFuncionario(env, f, from, `${texto} (do ${naLista[0].nome})`, '', nome); }
+  let cliente = '';
+  const r = await projetoDoCliente(env, x.cliente).catch(() => null); if (r && r.cliente) cliente = String(r.cliente);
+  if (!cliente) { const snap = await lerSnapshotCompleto(env).catch(() => null); const o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(o => o && o.cliente && nomeNota(o.cliente, tk) >= 1 && nomeNota(x.cliente, tokensPedra(o.cliente)) >= 1).sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')))[0]; if (o) cliente = String(o.cliente); }
+  if (!cliente) return false;
+  const et = ac0 || (/^(acabamento|polimento)$/.test(x.etapa) ? 'aci' : x.etapa === 'instalacao' ? '' : 'cti'); if (!et) return false;
+  const id = String(f.id), ts = Date.now(), dup = 'iniauto:' + normaliza(cliente).replace(/\s+/g, '');
+  if (await env.HR_KV.get(dup)) return false; await env.HR_KV.put(dup, '1', { expirationTtl: 600 });
+  const item = String(x.item || '').slice(0, 40);
+  const ped = { id: String(ts), origem: 'manual', autoInicio: id, nome: cliente.slice(0, 60), projetoApp: item || 'Serviço', interesse: /peitor/.test(normaliza(item)) ? 'peitoril' : /soleir/.test(normaliza(item)) ? 'soleira' : '', pecas: [], status: 'enviado', etapa: 'concluido', criado: ts, fichaEnviadaEm: ts, iniciadoEm: ts, prodLog: [{ e: 'inicio', por: [id], ts }] };
+  const o = r ? null : await pedEstimarDoOrc(env, ped, cliente).catch(() => null);
+  { const tel = String((o && o.tel) || (r && r.tel) || '').replace(/\D/g, ''); if (tel.length >= 10) ped.numero = tel.length <= 11 ? '55' + tel : tel; }
+  if (et === 'aci') { ped.acabResp = id; ped.corteEm = ts; ped.acabIniEm = ts; ped.acabIniPor = id; } else { ped.fabResp = id; ped.corteIniEm = ts; ped.corteIniPor = id; }
+  await salvarPedido(env, ped);
+  if (r) await projetoNosPedidos(env, { soCliente: cliente, avisar: false }).catch(e => console.log('[INIAUTO] projeto:', e.message));
+  const oq = et === 'aci' ? 'acabamento' : 'corte', pn = cliente.split(' ')[0];
+  await enviar(env, from, `▶️ Anotado, ${nome}: ${oq} de *${cliente}*${item ? ' (' + item + ')' : ''} começou às ${horaTs(ts)}. Abri esse serviço na produção e avisei o Sr. Hangel. Quando terminar, me diga: _terminei o de ${pn}_.`);
+  await pontoAvisarDono(env, `▶️ *${f.nome}* começou o ${oq} de *${cliente}*${item ? ' (' + item + ')' : ''}. Esse serviço não estava aberto na produção, então abri sozinho${r ? ' com as peças do orçamento do app' : ' (peças estimadas pelo m² do orçamento; quando sair o PDF do orçamento eu recalculo)'}. Se não for desse cliente, me avise.`).catch(() => {});
   return true;
 }
 async function prodReclamaPontos(env, f, from, texto, nome, msg) {
