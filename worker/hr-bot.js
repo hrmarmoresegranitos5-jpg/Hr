@@ -10393,7 +10393,7 @@ function horasDetalhe(p, e) {
       if (sv.includes('cook')) add(pre + 'recorte do cooktop', 0.3);
       if ((sv.includes('cuba_coz') || sv.includes('cuba_lav') || it.cuba) && !/sobrep/.test(String(it.cubaInst || '')) && !/esc/.test(String(it.cuba || ''))) add(pre + 'recorte da cuba', 0.2);
       const fur = (sv.includes('forn') ? 1 : 0) + (sv.includes('fralo') ? 1 : 0) + (/sobrep/.test(String(it.cubaInst || '')) ? 2 : 0); if (fur) add(pre + fur + ' furo(s)', 0.1 * fur);
-      const m45 = sv.includes('s_45') || it.acabamento === '45' ? mlTipo(it, 'saia') : 0; if (m45) add(`${pre}meia-esquadria 45° (${vPt(m45)} m)`, 0.12 * m45);
+      const m45 = sv.includes('s_45') || it.acabamento === '45' ? mlTipo(it, 'saia') : (it.pecas || []).filter(pc => /45/.test(String(pc.rot || ''))).reduce((t, pc) => t + (+pc.comp_cm || 0) * Math.min(+pc.qtd || 1, 50), 0) / 100; // v308: moldura de nicho em 45° (o nome da peça diz "corte 45°") if (m45) add(`${pre}meia-esquadria 45° (${vPt(m45)} m)`, 0.12 * m45);
     }
     return L;
   }

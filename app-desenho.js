@@ -39,7 +39,7 @@
     if (t === 'L') { p.A = 250; p.B = 100; p.Bv = 2; p.cuba.tipo = 'retangular'; p.frD = true; }
     if (t === 'lavatorio') { p.A = 80; p.p = 45; p.saiaAlt = 10; p.cuba = { tipo: 'redonda', inst: 'embutida', ref: 'esq', x: '', w: 40, h: 40, fy: '' }; }
     if (t === 'prateleira') { p.A = 80; p.p = 35; p.frF = false; }
-    if (t === 'nicho') { p.A = 60; p.H = 30; p.prof = 10; p.saia = 'nenhuma'; p.frF = false; }
+    if (t === 'nicho') { p.A = 60; p.H = 30; p.prof = 10; p.mold = 0; p.fundo = 0; p.saia = 'nenhuma'; p.frF = false; }
     if (t === 'placa') { p.A = 40; p.H = 80; p.nome = 'Divisória'; p.saia = 'nenhuma'; p.frF = false; }
     return p;
   }
@@ -359,7 +359,7 @@
   function bboxPeca(pc) {
     if (oblq(pc)) { var b = bboxOb(pc); return { w: b.x1 - b.x0, h: b.y1 - b.y0, mL: 110, mR: 110, mT: pc.reb && pc.reb.on && pc.tipo !== 'prateleira' ? 135 : 78, mB: (pc.tipo === 'L' ? 78 : 30) + 40 }; }
     var A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H));
-    return pc.tipo === 'nicho' ? { w: A + 16, h: H + 16, mL: 30, mR: 70, mT: 20, mB: 60 } : { w: A, h: H, mL: 30, mR: 80, mT: 20, mB: 100 };
+    return pc.tipo === 'nicho' ? { w: A + 2 * nOut(pc), h: H + 2 * nOut(pc), mL: 30, mR: 70, mT: 20, mB: 60 } : { w: A, h: H, mL: 30, mR: 80, mT: 20, mB: 100 };
   }
 
   // ── desenho de uma peça em perspectiva ──
@@ -505,24 +505,32 @@
     }
     return h;
   }
+  function nOut(pc) { var m = num(pc.mold, 0); return m > 2 ? m - 2 : 0; } // v32: quanto a moldura passa da caixa (moldura de 8 cobre 2 cm da borda e sai 6)
   function frenteSvg(pc, s, x0, y0, idx) { // nicho e placas: vista de frente
     var it = INTER && idx >= 0, A = Math.max(5, num(pc.A)), H = Math.max(5, num(pc.H)), sw = MINI ? 4 : Math.max(2.6, Math.min(4.6, s * 0.95)), h = '', st = 'fill="' + TOM.top + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"';
-    if (pc.tipo === 'nicho') {
-      var m = 8, pr = Math.max(4, num(pc.prof, 10)), X = x0 + m * s, Y = y0 + m * s, W = A * s, Hh = H * s, d = Math.min(pr * 0.45, A * 0.2) * s, b = Math.min(pr * 0.45, H * 0.2) * s;
-      h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + ((A + 2 * m) * s) + '" height="' + ((H + 2 * m) * s) + '" ' + st + '/>';
-      h += '<rect x="' + X + '" y="' + Y + '" width="' + W + '" height="' + Hh + '" ' + st + '/>';
-      h += '<line x1="' + (X + W - d) + '" y1="' + (Y) + '" x2="' + (X + W - d) + '" y2="' + (Y + Hh - b) + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"/>';
-      h += '<line x1="' + (X) + '" y1="' + (Y + Hh - b) + '" x2="' + (X + W - d) + '" y2="' + (Y + Hh - b) + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"/>';
-      h += '<line x1="' + (X + W - d) + '" y1="' + (Y + Hh - b) + '" x2="' + (X + W) + '" y2="' + (Y + Hh) + '" stroke="' + TOM.line + '" stroke-width="' + sw + '"/>';
-      h += dimTxt(X + 14, Y + Hh / 2 + 10, f1(H), 30, 'start', it && idx + '|H') + dimTxt(X + W / 2, Y + Hh - b - 14, f1(A), 30, 'middle', it && idx + '|A');
-      h += dimTxt(X + W + m * s + 10, Y + Hh / 2 + 8, '↔ ' + f1(pr), 24, 'start', it && idx + '|prof');
+    if (pc.tipo === 'nicho') { // v32: caixa (base, topo, laterais), fundo e moldura com cantos em 45°
+      var o = nOut(pc), mo = num(pc.mold, 0), e = 2, pr = Math.max(4, num(pc.prof, 10)), X = x0 + o * s, Y = y0 + o * s, W = A * s, Hh = H * s, ls = 'stroke="' + TOM.line + '" stroke-width="' + sw + '"';
+      if (o) { // moldura: 4 réguas com encontro em 45°
+        var OW = (A + 2 * o) * s, OH = (H + 2 * o) * s, iw = mo * s;
+        h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + OW + '" height="' + OH + '" ' + st + '/>';
+        h += '<rect x="' + (x0 + iw) + '" y="' + (y0 + iw) + '" width="' + (OW - 2 * iw) + '" height="' + (OH - 2 * iw) + '" fill="none" ' + ls + '/>';
+        [[x0, y0, x0 + iw, y0 + iw], [x0 + OW, y0, x0 + OW - iw, y0 + iw], [x0, y0 + OH, x0 + iw, y0 + OH - iw], [x0 + OW, y0 + OH, x0 + OW - iw, y0 + OH - iw]].forEach(function (q) { h += '<line x1="' + q[0] + '" y1="' + q[1] + '" x2="' + q[2] + '" y2="' + q[3] + '" ' + ls + '/>'; });
+      } else h += '<rect x="' + X + '" y="' + Y + '" width="' + W + '" height="' + Hh + '" ' + st + '/>';
+      var IX = x0 + (o ? mo : e) * s, IY = y0 + (o ? mo : e) * s, IW = (A + 2 * o - 2 * (o ? mo : e)) * s, IH = (H + 2 * o - 2 * (o ? mo : e)) * s, d = Math.min(pr * 0.45, A * 0.2) * s, b = Math.min(pr * 0.45, H * 0.2) * s;
+      h += '<rect x="' + IX + '" y="' + IY + '" width="' + IW + '" height="' + IH + '" fill="' + (num(pc.fundo, 0) ? TOM.top : '#fff') + '" ' + ls + '/>';
+      h += '<line x1="' + (IX + IW - d) + '" y1="' + IY + '" x2="' + (IX + IW - d) + '" y2="' + (IY + IH - b) + '" ' + ls + '/>';
+      h += '<line x1="' + IX + '" y1="' + (IY + IH - b) + '" x2="' + (IX + IW - d) + '" y2="' + (IY + IH - b) + '" ' + ls + '/>';
+      h += '<line x1="' + (IX + IW - d) + '" y1="' + (IY + IH - b) + '" x2="' + (IX + IW) + '" y2="' + (IY + IH) + '" ' + ls + '/>';
+      h += dimTxt(IX + 14, IY + IH / 2 + 10, f1(H), 30, 'start', it && idx + '|H') + dimTxt(IX + IW / 2, IY + IH - b - 14, f1(A), 30, 'middle', it && idx + '|A');
+      h += dimTxt(x0 + (A + 2 * o) * s + 10, Y + Hh / 2 + 8, '↔ ' + f1(pr), 24, 'start', it && idx + '|prof');
+      if (o) h += dimTxt(x0 + (A + 2 * o) * s / 2, y0 - 10, 'moldura ' + f1(mo) + ' · 45°', 22, 'middle', it && idx + '|mold');
       // quantidade vai na etiqueta embaixo
     } else {
       h += '<rect x="' + x0 + '" y="' + y0 + '" width="' + (A * s) + '" height="' + (H * s) + '" ' + st + '/>';
       // nome e quantidade vão na etiqueta embaixo
       h += dimTxt(x0 + A * s + 12, y0 + H * s / 2 + 10, f1(H), 28, 'start', it && idx + '|H') + dimTxt(x0 + A * s / 2, y0 + H * s + 38, f1(A), 28, 'middle', it && idx + '|A');
     }
-    if (it) { var fw = pc.tipo === 'nicho' ? (A + 16) * s : A * s, fh = pc.tipo === 'nicho' ? (H + 16) * s : H * s; st.lay[idx] = { s: s }; h = '<g data-pcsel="' + idx + '"><rect x="' + (x0 - 24) + '" y="' + (y0 - 24) + '" width="' + (fw + 48) + '" height="' + (fh + 48) + '" rx="16" fill="#fff" fill-opacity="0"' + (st.sel === idx && st.d.pecas.length > 1 ? ' stroke="#c9a84c" stroke-width="3" stroke-dasharray="12 8"' : '') + '/>' + h + '</g>'; }
+    if (it) { var fw = pc.tipo === 'nicho' ? (A + 2 * nOut(pc)) * s : A * s, fh = pc.tipo === 'nicho' ? (H + 2 * nOut(pc)) * s : H * s; st.lay[idx] = { s: s }; h = '<g data-pcsel="' + idx + '"><rect x="' + (x0 - 24) + '" y="' + (y0 - 24) + '" width="' + (fw + 48) + '" height="' + (fh + 48) + '" rx="16" fill="#fff" fill-opacity="0"' + (st.sel === idx && st.d.pecas.length > 1 ? ' stroke="#c9a84c" stroke-width="3" stroke-dasharray="12 8"' : '') + '/>' + h + '</g>'; }
     return h;
   }
 
@@ -571,7 +579,7 @@
     var cl = CLP; MINI = true; PLANTA = false; CLP = 'hrm' + (++nMini) + '_'; var h = ''; TOM = tomDe('');
     try {
       if (oblq(pc)) { var bb = bboxOb(pc), w = bb.x1 - bb.x0, hh = bb.y1 - bb.y0, pd = Math.max(w, hh) * 0.07; h = '<svg viewBox="' + (-pd).toFixed(1) + ' ' + (-pd).toFixed(1) + ' ' + (w + 2 * pd).toFixed(1) + ' ' + (hh + 2 * pd).toFixed(1) + '">' + pecaSvg(pc, 1, 0, 0, -1) + '</svg>'; }
-      else { var A = num(pc.A), H = num(pc.H), fw = pc.tipo === 'nicho' ? A + 16 : A, fh = pc.tipo === 'nicho' ? H + 16 : H; h = '<svg viewBox="-6 -6 ' + (fw + 12) + ' ' + (fh + 12) + '">' + frenteSvg(pc, 1, 0, 0, -1) + '</svg>'; }
+      else { var A = num(pc.A), H = num(pc.H), fw = pc.tipo === 'nicho' ? A + 2 * nOut(pc) : A, fh = pc.tipo === 'nicho' ? H + 2 * nOut(pc) : H; h = '<svg viewBox="-6 -6 ' + (fw + 12) + ' ' + (fh + 12) + '">' + frenteSvg(pc, 1, 0, 0, -1) + '</svg>'; }
     } finally { MINI = false; CLP = cl; }
     return h;
   }
@@ -702,10 +710,17 @@
       var yy = yn + 56; bl2.forEach(function (b) { h += '<circle cx="' + (M + 30) + '" cy="' + (yy - 6) + '" r="11" fill="' + (b.n === '•' ? OURO : ESC) + '"/>' + T(M + 30, yy - 1.5, b.n === '•' ? '' : b.n, 13, 'middle', '#fff', ' font-weight="700"');
         b.ls.forEach(function (l, k) { h += T(M + 52, yy, (k === 0 && b.tit ? b.tit + ' — ' : '') + l, 18.5, 'start', ESC); yy += lhn; }); });
     }
+    // v32: LISTA DE CORTE (ficha técnica): todas as peças da folha, iguais somadas
+    var agr = {}, ordem = []; (d.pecas || []).forEach(function (pc) { if (!pc) return; try { corte(pc).forEach(function (c) { var k = c.nome + '|' + c.c + '|' + c.l; if (!agr[k]) { agr[k] = { nome: c.nome, c: c.c, l: c.l, q: 0 }; ordem.push(k); } agr[k].q += c.qtd; }); } catch (e) {} });
+    var LC = ordem.map(function (k) { return agr[k]; }), lcRows = Math.ceil(Math.min(LC.length, 24) / 2), lcH = LC.length ? 50 + lcRows * 25 + 10 : 0, yl = (notH ? yn : yf) - 14 - lcH;
+    if (lcH) { var pecasTot = LC.reduce(function (t, x) { return t + x.q; }, 0);
+      h += cartao(M, yl, W, lcH) + lbl(M + 18, yl + 28, 'Lista de corte') + T(M + W - 18, yl + 28, pecasTot + ' peça' + (pecasTot > 1 ? 's' : ''), 14, 'end', CIN, ' font-weight="600"');
+      LC.slice(0, 24).forEach(function (x, i) { var col = i < lcRows ? 0 : 1, row = col ? i - lcRows : i, xx = M + 18 + col * (W / 2), yy = yl + 56 + row * 25;
+        h += T(xx, yy, x.q + '×', 16, 'start', OURO, ' font-weight="800"') + T(xx + 36, yy, String(x.nome).replace(/^Nicho – /, '').slice(0, 34), 16, 'start', ESC) + T(xx + W / 2 - 40, yy, f1(x.c) + ' × ' + f1(x.l), 16, 'end', ESC, ' font-weight="700"'); }); }
     // desenho
     var ps = (d.pecas || []).filter(function (pc) { return pc; });
     if (ps.length) {
-      var ay = y0 + 14, aH = (notH ? yn - 10 : yf - 14) - ay, Lay = layout(ps, M + 10, ay, W - 20, aH);
+      var ay = y0 + 14, aH = (lcH ? yl - 10 : notH ? yn - 10 : yf - 14) - ay, Lay = layout(ps, M + 10, ay, W - 20, aH);
       ps.forEach(function (pc, i) {
         var o = Lay[i], b = bboxPeca(pc); h += '<g filter="url(#sombra)">' + (oblq(pc) ? pecaSvg(pc, o.s, o.x, o.y, i) : frenteSvg(pc, o.s, o.x, o.y, i)) + '</g>';
         if (!MINI) { var cx = o.x + b.w * o.s / 2, ty = o.y + b.h * o.s + b.mB - 12, tt = nomePeca(pc) + (num(pc.qtd) > 1 ? '  ×' + num(pc.qtd) : ''), tw = tt.length * 10.5 + (varias ? 56 : 30);
@@ -722,7 +737,10 @@
   // ── lista de peças (corte) e serviços, para a produção ──
   function corte(pc) {
     var q = Math.max(1, Math.round(num(pc.qtd, 1))), L = [], add = function (nome, tipo, c, l, n) { if (c > 0 && l > 0) L.push({ nome: nome, tipo: tipo, qtd: (n || 1) * q, c: Math.round(Math.max(c, l) * 10) / 10, l: Math.round(Math.min(c, l) * 10) / 10 }); };
-    if (pc.tipo === 'nicho') { var A = num(pc.A), H = num(pc.H), pr = num(pc.prof, 10); add('Nicho – base e topo', 'outro', A, pr, 2); add('Nicho – laterais', 'outro', H, pr, 2); return L; }
+    if (pc.tipo === 'nicho') { var A = num(pc.A), H = num(pc.H), pr = num(pc.prof, 10), mo = num(pc.mold, 0), o = nOut(pc); add('Nicho – base (caixa)', 'outro', A, pr); add('Nicho – topo (caixa)', 'outro', A, pr); add('Nicho – laterais (caixa)', 'outro', Math.max(1, H - 4), pr, 2);
+      if (num(pc.fundo, 0)) add('Nicho – fundo (fecha o nicho)', 'outro', A, H);
+      if (mo > 0) { add('Moldura – topo/base (corte 45°)', 'saia', A + 2 * o, mo, 2); add('Moldura – laterais (corte 45°)', 'saia', H + 2 * o, mo, 2); }
+      return L; }
     if (pc.tipo === 'placa') { add(nomePeca(pc), 'outro', num(pc.A), num(pc.H)); return L; }
     var g = geo(pc), nm = nomePeca(pc);
     g.boxes.forEach(function (b) {
@@ -844,6 +862,8 @@
         if (usou && ctx) return;
         // medidas da peça
         if ((m = new RegExp('largura(?: da perna)?\\s*(?:de)?\\s*' + NUM).exec(c)) || (m = new RegExp(NUM + '\\s*(?:cm)?\\s*de largura').exec(c))) { if (/perna/.test(c)) pc.pB = nn(m[1]); else { pc.p = nn(m[1]); pc.pB = nn(m[1]); } return; }
+        if (tp === 'nicho' && /moldura/.test(c)) { var mm0 = new RegExp('moldura\\s*(?:de)?\\s*' + NUM).exec(c); pc.mold = mm0 ? nn(mm0[1]) : 8; return; }
+        if (tp === 'nicho' && /\bfundo\b/.test(c) && !new RegExp(NUM).test(c)) { pc.fundo = /sem fundo/.test(c) ? 0 : 1; return; }
         if ((m = new RegExp('profundidade\\s*(?:de)?\\s*' + NUM).exec(c))) { if (tp === 'nicho') pc.prof = nn(m[1]); else { pc.p = nn(m[1]); pc.pB = nn(m[1]); } return; }
         if ((m = new RegExp('altura\\s*(?:de)?\\s*' + NUM).exec(c))) { pc.H = nn(m[1]); return; }
         if ((m = new RegExp('(?:comprimento|fundo|parede)\\s*(?:de)?\\s*' + NUM).exec(c))) { pc.A = nn(m[1]); return; }
@@ -873,7 +893,7 @@
     var x = [(num(pc.qtd) > 1 ? num(pc.qtd) + '× ' : '') + nomePeca(pc)];
     if (pc.tipo === 'L') x.push(f1(num(pc.A)) + ' + perna ' + f1(num(pc.B)) + ' (' + (pc.perna === 'esq' ? 'esquerda' : 'direita') + '), largura ' + f1(num(pc.p)));
     else if (oblq(pc)) x.push(f1(num(pc.A)) + ' × ' + f1(num(pc.p)));
-    else x.push(f1(num(pc.A)) + ' × ' + f1(num(pc.H)) + (pc.tipo === 'nicho' ? ', prof. ' + f1(num(pc.prof)) : ''));
+    else x.push(f1(num(pc.A)) + ' × ' + f1(num(pc.H)) + (pc.tipo === 'nicho' ? ', prof. ' + f1(num(pc.prof)) + (num(pc.mold, 0) ? ', moldura ' + f1(num(pc.mold)) + ' em 45°' : '') + (num(pc.fundo, 0) ? ', com fundo' : '') : ''));
     if (oblq(pc)) {
       if (pc.saia === 'slim') x.push('acabamento slim (só a espessura)');
       if (temSaia(pc)) x.push('sainha ' + ({ reta: 'reta', slim: 'slim', '45': 'em 45°', boleada: 'boleada' }[pc.saia]) + ' de ' + f1(num(pc.saiaAlt)));
@@ -893,6 +913,18 @@
     var L = [];
     (q.ambSnap || []).forEach(function (a) {
       var t = semAc(a.tipo || ''), sv = Object.keys(a.svState || {}), pcs = (a.pecas || []).filter(function (p) { return +p.w > 0 && +p.h > 0; }); if (!pcs.length) return;
+      // v32: nichos do orçamento (base, topo, laterais, moldura 45°, fundo) → "Nicho 104 x 54, profundidade 10, moldura 8, com fundo"
+      var rotDe = function (p) { var r = ''; ['n', 'nome', 'label', 'desc', 'tipo', 't', 'obs'].forEach(function (k) { if (!r && typeof p[k] === 'string' && p[k].trim()) r = p[k]; }); return semAc(r); };
+      var nich = pcs.filter(function (p) { return /nicho|moldura/.test(rotDe(p)) || /nicho/.test(t); });
+      if (nich.length) {
+        var grupos = [], g = null;
+        nich.forEach(function (p) { var r = rotDe(p); if (!g || (/base/.test(r) && g.base)) { g = {}; grupos.push(g); } if (/moldura/.test(r)) g.mold = Math.min(+p.w, +p.h); else if (/fundo/.test(r)) g.fundo = p; else if (/base/.test(r)) g.base = p; else if (/topo/.test(r)) g.topo = p; else if (/lateral/.test(r)) g.lat = p; });
+        grupos.forEach(function (x) {
+          var b = x.base || x.topo, A = x.fundo ? Math.max(+x.fundo.w, +x.fundo.h) : b ? Math.max(+b.w, +b.h) : 0, H = x.fundo ? Math.min(+x.fundo.w, +x.fundo.h) : x.lat ? Math.max(+x.lat.w, +x.lat.h) + 4 : 0, P = b ? Math.min(+b.w, +b.h) : x.lat ? Math.min(+x.lat.w, +x.lat.h) : 10;
+          if (A > 0 && H > 0) L.push('Nicho ' + f1(A) + ' x ' + f1(H) + ', profundidade ' + f1(P) + (x.mold ? ', moldura ' + f1(x.mold) : '') + (x.fundo ? ', com fundo' : ''));
+        });
+        pcs = pcs.filter(function (p) { return nich.indexOf(p) < 0; }); if (!pcs.length) return;
+      }
       var lavC = /lavat|banheir|lavabo/.test(t) || sv.indexOf('cuba_lav') >= 0 || (a.selCuba && a.selCuba.tipo === 'lav');
       if (lavC) { sv = sv.filter(function (k) { return !/^reb_|^cook/.test(k); }); if (!/lavat|banheir|lavabo/.test(t)) t = 'lavatorio ' + t; }
       var ex = []; if (sv.indexOf('s_45') >= 0) ex.push('sainha 45'); else if (sv.indexOf('s_reta') >= 0) ex.push('sainha reta'); else if (sv.indexOf('s_slim') >= 0) ex.push('sainha slim'); else if (sv.indexOf('s_boleada') >= 0) ex.push('sainha boleada');
@@ -1005,7 +1037,7 @@
         if (pc.pe !== 'nenhum') h += '<div class="des-g2">' + campo('peAlt', 'Altura do pé (cm)', pc.peAlt, true) + '<div></div></div>';
       }
       h += '<span class="des-l" style="margin-top:9px">Vista</span>' + chips('vista', +pc.vista || 0, [[0, 'Automática'], [1, 'Fundo p/ direita'], [-1, 'Fundo p/ esquerda']]);
-    } else if (pc.tipo === 'nicho') h += '<div class="des-g">' + campo('A', 'Largura', pc.A, true) + campo('H', 'Altura', pc.H, true) + campo('prof', 'Profundidade', pc.prof, true) + '</div>';
+    } else if (pc.tipo === 'nicho') h += '<div class="des-g">' + campo('A', 'Largura', pc.A, true) + campo('H', 'Altura', pc.H, true) + campo('prof', 'Profundidade', pc.prof, true) + '</div><div class="des-g2">' + campo('mold', 'Moldura 45° (cm, 0 = sem)', pc.mold || 0, true) + '<div></div></div><span class="des-l" style="margin-top:9px">Fundo</span>' + chips('fundo', num(pc.fundo, 0), [[0, 'Sem fundo'], [1, 'Com fundo (fecha o nicho)']]);
     else h += '<div class="des-g2">' + campo('A', 'Largura', pc.A, true) + campo('H', 'Altura', pc.H, true) + '</div>';
     h += '<div style="margin-top:8px"><span class="des-l">Observação desta peça (vai embaixo da folha)</span><input class="des-i" data-f="obs" value="' + esc(pc.obs || '') + '" placeholder="ex.: válvula oculta, nicho para papel"></div>';
     h += avisos(pc).map(function (a) { return '<div class="des-av">⚠️ ' + esc(a) + '</div>'; }).join('');
