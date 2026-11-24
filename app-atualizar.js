@@ -1,5 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════
-// HR — Aviso de versão nova + botão "Atualizar"  (app-atualizar.js v1)
+// HR — Atualização automática (app-atualizar.js v2)
+// v2: atualiza SOZINHO quando o app está parado ou em segundo plano; o botão só aparece se o
+// senhor estiver mexendo no app naquela hora — e mesmo assim atualiza sozinho ao parar de mexer.
 // O app instalado no celular volta do segundo plano sem recarregar, então ficava
 // na versão velha. Aqui ele confere sozinho: ao abrir, ao voltar para o app e a
 // cada 10 minutos, busca o index.html do GitHub (sem cache) e confere se algum
@@ -8,7 +10,16 @@
 // ═══════════════════════════════════════════════════════════════════
 (function () {
   'use strict';
-  var mostrado = false, conferindo = false, ultima = 0;
+  var mostrado = false, conferindo = false, ultima = 0, mexeu = 0, indo = false; // ao abrir, ainda não mexeu: atualiza direto
+  ['pointerdown', 'keydown', 'input', 'wheel', 'touchmove'].forEach(function (ev) { document.addEventListener(ev, function () { mexeu = Date.now(); }, { passive: true, capture: true }); });
+  function digitando() { var a = document.activeElement; return !!(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable) && String(a.value || a.textContent || '').length); }
+  function podeSozinho() { return document.hidden || (Date.now() - mexeu > 45000 && !digitando()); }
+  function recentes() { try { return JSON.parse(sessionStorage.getItem('hr_atu_auto') || '[]').filter(function (t) { return Date.now() - t < 10 * 60000; }); } catch (e) { return []; } }
+  function novaVersao() { // até 2 atualizações sozinhas em 10 min (se o GitHub ainda não terminou de publicar, não fica recarregando)
+    var r = recentes();
+    if (podeSozinho() && r.length < 2) { r.push(Date.now()); try { sessionStorage.setItem('hr_atu_auto', JSON.stringify(r)); } catch (e) {} atualizar(); }
+    else if (r.length < 2) mostrar();
+  }
 
   function lista(html) {
     var out = [], re = /<script[^>]+src="([^"]+)"/g, m;
@@ -22,7 +33,9 @@
   }
 
   function conferir() {
-    if (mostrado || conferindo || !navigator.onLine) return;
+    if (indo || conferindo || !navigator.onLine) return;
+    if (mostrado) { if (podeSozinho()) atualizar(); return; }
+    if (recentes().length >= 2) return; // botão na tela e o senhor parou de mexer → atualiza
     if (Date.now() - ultima < 60000) return;
     conferindo = true; ultima = Date.now();
     fetch('./index.html?nv=' + Date.now(), { cache: 'no-store' })
@@ -31,7 +44,7 @@
         if (!html || html.indexOf('<script') < 0) return;
         // algum arquivo do index novo (ex.: app-core.js?v=75) não está rodando aqui → tem versão nova
         var novo = lista(html), agora = atual();
-        if (novo.length && novo.some(function (u) { return !agora[u]; })) mostrar();
+        if (novo.length && novo.some(function (u) { return !agora[u]; })) novaVersao();
       })
       .catch(function () {})
       .then(function () { conferindo = false; });
@@ -50,6 +63,7 @@
   }
 
   function atualizar() {
+    if (indo) return; indo = true;
     var bt = document.getElementById('hrAtualizarBt');
     if (bt) { bt.disabled = true; bt.textContent = 'Atualizando…'; }
     var limpar = Promise.resolve();
@@ -72,9 +86,10 @@
     try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
   }
 
-  setTimeout(conferir, 15000);
-  setInterval(conferir, 10 * 60000);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) conferir(); });
+  setTimeout(conferir, 8000);
+  setInterval(conferir, 3 * 60000);
+  setInterval(function () { if (mostrado && podeSozinho()) atualizar(); }, 15000);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) { if (mostrado) atualizar(); } else { ultima = 0; conferir(); } }); // saiu do app com o botão na tela → atualiza enquanto está fora
   window.addEventListener('online', conferir);
   window.HRAtualizar = { conferir: conferir, mostrar: mostrar, atualizar: atualizar };
 })();

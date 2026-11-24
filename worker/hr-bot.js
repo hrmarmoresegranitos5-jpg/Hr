@@ -8415,6 +8415,15 @@ async function papelFuncionario(env, f, from) {
 async function producaoFuncionario(env, f, from, texto, idB, nome) {
   const papel = await papelFuncionario(env, f, from); if (!papel) return false;
   const msg = normaliza(texto || '');
+  if (/\b(ja foi entregue|ja (foi |esta |estao |foram )?(entregue|entregues|instalad[oa]s?)|ja entregaram|ja entregamos|ja instalaram|ja instalamos|cliente ja (levou|buscou|pegou)|ja levaram)\b/.test(msg)) env._jaEntregue = 1;
+  if (!idB && env._jaEntregue && !env._jaEntregueFeito) { env._jaEntregueFeito = 1; // v302: qual serviço? o nome que ele falou; sem nome, a única tarefa dele (a da lista do dia)
+    const meus = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].map(String).includes(String(f.id)));
+    const tkJ = tokensPedra(texto).filter(w => !/^(esse|essa|isso|este|esta|servico|ja|foi|entregue|instalado|cliente|hoje|ontem|tambem)$/.test(w)), nomeados = nomeMelhores(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), tkJ).filter(p => nomeNota(p.nome, tkJ) >= 2);
+    const alvo = nomeados.length === 1 ? nomeados[0] : !nomeados.length && meus.length === 1 ? meus[0] : null;
+    if (alvo) return prodMarcarPronto(env, alvo, from, nome);
+    const ops = nomeados.length ? nomeados : meus;
+    if (ops.length) { await env.HR_KV.put('prod:jaent:' + ultimos8(from), '1', { expirationTtl: 3600 }); await enviarComBotoes(env, from, `${nome}, qual serviço já foi entregue?`, ops.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
+  } // v302: "já foi entregue esse serviço" → pronto E entregue, sem mandar entrega a ninguém
   if (idB && /^acb\|/.test(idB)) return prodAcabadorEscolhido(env, f, from, idB, nome); // v149
   if (idB && /^fdia\|/.test(idB)) return fimDiaBotao(env, f, from, idB, nome); // v217
   if (!idB && await funcPerguntas(env, f, from, texto, nome, msg).catch(e => { console.log('[PROD] perguntas:', e.message); return false; })) return true; // v215: lista, pontos, sem serviço, problema
@@ -8452,6 +8461,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   }
   if (papel !== 'entrega' && texto && await fechPrazoFabrica(env, from, texto, nome)) return true; // v135
   if (papel !== 'entrega' && texto && await prodRetiradaFabrica(env, from, texto, nome)) return true; // v137
+  if (idB && /^fpr\|/.test(idB) && await env.HR_KV.get('prod:jaent:' + ultimos8(from))) { await env.HR_KV.delete('prod:jaent:' + ultimos8(from)); env._jaEntregue = 1; } // v302
   if (idB && /^(fpr|fen)\|/.test(idB)) { const [ac, pid] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; } return ac === 'fpr' ? prodMarcarPronto(env, ped, from, nome) : prodMarcarEntregue(env, ped, from, nome, ''); }
   if (/\b(o que (tem|tenho|falta)|tarefas?|minhas? (tarefas?|entregas?|fichas?)|pedidos?( de hoje)?|fila|lista|tem (algo|alguma coisa|servico|entrega|corte))\b/.test(msg) && msg.split(' ').length <= 10) {
     const meu = p => !p.fabResp && !p.entResp ? true : [p.fabResp, p.fab2Resp, p.entResp, p.acabResp].includes(String(f.id));
@@ -8473,7 +8483,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
         await enviar(env, from, `Anotado, ${nome}: você vai junto na instalação de *${pV.nome}*. Os pontos da instalação são divididos entre quem foi.`); await pontoAvisarDono(env, `👥 *${nome}* vai junto na instalação de *${pV.nome}*.`).catch(() => {}); return true; }
     }
     const negP = /\b(nao|ainda nao|nem)\b[^.!?]{0,20}\b(pront[oa]s?|termin\w*|acab\w*|finaliz\w*)\b|^(so )?falta\w*\b|\bfalta\w* (terminar|acabar|pouco|so)\b|\bcontinu\w* amanha\b|\bfica (pra|para) amanha\b|\bamanha (eu )?(termino|acabo|continuo)\b/.test(msg) && !/\b(terminei|acabei|finalizei)\b/.test(msg);
-    const forte = /\b(terminei|acabei|finalizei|conclui|terminamos|acabamos|ficou pront\w*|(ta|esta|estao|tao|ja) pront\w*|ta feito|esta feito)\b/.test(msg);
+    const forte = /\b(terminei|acabei|finalizei|finalizad[oa]s?|terminad[oa]s?|conclui|terminamos|acabamos|ficou pront\w*|(ta|esta|estao|tao|ja) pront\w*|ta feito|esta feito)\b/.test(msg);
     const iniP = /\b(iniciei|iniciando|inicio|comecei|comecando|comecamos|vou comecar|vou iniciar|to comecando|estou comecando|peguei)\b/.test(msg);
     if (negP) { // v219: se o bot tinha acabado de dar como pronto (por engano), desfaz na hora
       const tkN = tokensPedra(texto), t12 = Date.now() - 12 * 3600000;
@@ -8499,7 +8509,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       await enviar(env, from, `Anotado que você começou, ${nome}. De qual cliente é? Me diga assim: _iniciei o da Maria_.`); return true;
     }
   }
-  if (papel !== 'entrega' && !(papel !== 'fabrica' && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei|instalamos|instalad[oa]s?|terminamos a instalacao|terminei a instalacao|finalizamos a instalacao|finalizei a instalacao|montamos|assentamos|assentei)\b/.test(msg)) && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
+  if (papel !== 'entrega' && !(papel !== 'fabrica' && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei|instalamos|instalad[oa]s?|terminamos a instalacao|terminei a instalacao|finalizamos a instalacao|finalizei a instalacao|montamos|assentamos|assentei)\b/.test(msg)) && /\b(pronto|pronta|prontos|prontas|cortei|terminei|acabei|finalizei|finalizad[oa]s?|terminad[oa]s?|acabad[oa]s?|concluid[oa]s?|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
     const l0 = await pedidosProducao(env, p => naFabrica(p) || (p.acabResp && !p.acabEm && !p.entregueEm)), mine = l0.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].map(String).includes(String(f.id)) && !(String(p.acabResp) !== String(f.id) && p.corteEm && !naFabrica(p))), l = mine.length ? mine : l0;
     const tkT = tokensPedra(texto); let ach = mine.length ? acharPorNome(l, texto) : nomeMelhores(l, tkT); // v180: sem tarefa dele, só pelo nome do cliente (nunca "a única da fábrica") if (!ach.length) ach = await prodPorApelido(env, l, texto); if (!ach.length && mine.length === 1) ach = mine; // v161: apelido do cliente ou a única tarefa dele
     if (ach.length === 1 && nomeNota(ach[0].nome, tkT) === 0) { // v214: só tinha uma tarefa e ele falou de OUTRO cliente: não marca a errada
@@ -8583,6 +8593,12 @@ async function prodMarcarPronto(env, ped, from, nome) {
   if (ped.acabResp && ped.acabEm && String(ped.acabResp) !== String(ped.fabFeitoPor)) await metaChecar(env, ped.acabResp); // v154
   const retirada = String(ped.entrega || '') === 'retirada';
   let entTxt = '';
+  if (env._jaEntregue) { // v302
+    ped.prontoEm = ped.prontoEm || Date.now(); ped.entregueEm = ped.entregueEm || Date.now(); ped.entregaAntesDoBot = 1; await appMarcarEntregue(env, ped); await salvarPedido(env, ped);
+    await enviar(env, from, `Certo, ${nome}! Anotei que o de *${ped.nome}* ficou pronto e já foi ${pedComplexo(ped) ? 'instalado' : 'entregue'}. Avisei o Sr. Hangel.`);
+    await pontoAvisarDono(env, `✅ *${nome}* avisou que *${ped.nome}* (${resumoPecas(ped)}) já ficou pronto e já foi ${pedComplexo(ped) ? 'instalado' : 'entregue'}. Marquei como entregue (não mandei entrega a ninguém).`).catch(() => {});
+    return true;
+  }
   if (ped.fechDono && !retirada && !ped.janela) { // v135: pronto agora → combina o horário com o cliente
     if (!ped.prontoPrevisto) ped.prontoPrevisto = { ts: Date.now(), dia: dataBahia(), hora: horaTs(Date.now()) };
     await salvarPedido(env, ped);
@@ -10083,10 +10099,11 @@ async function prodPedirFoto(env, ped, from, nome, texto, receb) {
 async function prodFotoRecebida(env, f, from, m, nome) {
   let pe = null; try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
   const leg = String((m.image && m.image.caption) || '').trim();
+  if (leg) await env.HR_KV.put('prod:ultleg:' + ultimos8(from), JSON.stringify({ leg, mid: m.image.id, em: Date.now() }), { expirationTtl: 24 * 3600 }).catch(() => {}); // v302: "não contou meus pontos" / "." respondendo a foto → usa a legenda
   if (pe && pe.tipo === 'inicio' && leg && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei|instalamos|instalad[oa]s?|terminamos a instalacao|terminei a instalacao|finalizamos a instalacao|finalizei a instalacao|montamos|assentamos|assentei)\b/.test(normaliza(leg))) { await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)); pe = null; await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); } // segue como foto com legenda de fim // v214: "poliana instalada" não é foto do início
   if (leg && !pe && await prodItensFuncionario(env, f, from, leg, nome, { mid: m.image.id }).catch(e => { console.log('[ITENS] foto:', e.message); return false; })) return true; // v182: "frontões do Papinha finalizados"
-  if (leg && !pe && !/\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalando|instalad[oa]s?|instalamos|terminamos|entreguei|entregando|terminei|terminando|pronto|pronta|acabei|cortei|montando|montei)\b/.test(normaliza(leg))) return prodFotoPerguntar(env, f, from, m, nome, leg); // v176: legenda só com o cliente ("Serviços da dona Renata") → lista desse cliente, sem passar pela IA
-  if (leg && (!pe || /\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalad[oa]s?|instalamos|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
+  if (leg && !pe && !/\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalando|instalad[oa]s?|instalamos|terminamos|entreguei|entregando|terminei|terminando|pronto|pronta|prontos|prontas|acabei|cortei|montando|montei|finaliz\w*|conclui\w*|terminad[oa]s?|acabad[oa]s?|cortad[oa]s?)\b/.test(normaliza(leg))) return prodFotoPerguntar(env, f, from, m, nome, leg); // v176: legenda só com o cliente ("Serviços da dona Renata") → lista desse cliente, sem passar pela IA
+  if (leg && (!pe || /\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalad[oa]s?|instalamos|entreguei|terminei|pronto|prontos|prontas|finaliz\w*|terminad[oa]s?|acabad[oa]s?)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
     await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); // v161: a foto espera ele dizer qual é
     await producaoFuncionario(env, f, from, leg, '', nome).catch(e => console.log('[FOTO] legenda:', e.message));
@@ -22675,9 +22692,25 @@ async function prodIniciarForaDaLista(env, f, from, texto, nome, ac0) {
   return true;
 }
 async function prodReclamaPontos(env, f, from, texto, nome, msg) {
-  const fala = /\b(ponto|pontos|pontuacao)\b/.test(msg) && /\b(nao (me )?(deu|deram|deu|ganhei|recebi|contou|contaram|entrou|veio|apareceu)|nao vou ganhar|cade|faltou|faltando|quero (os|meus)|ve (ai|mais)|cortei|cortamos|terminei|fiz|instalei|instalamos)\b/.test(msg);
-  if (!fala) return false;
-  const x = await servicoExtrair(env, f, texto); if (!x || !x.cliente) return false;
+  const fala = (/\b(ponto|pontos|pontuacao)\b/.test(msg) && /\b(nao (me )?(deu|deram|deu|ganhei|recebi|contou|contaram|entrou|veio|apareceu)|nao vou ganhar|cade|faltou|faltando|quero (os|meus)|ve (ai|mais)|cortei|cortamos|terminei|fiz|instalei|instalamos)\b/.test(msg))
+    || /\b(meu servico|o servico que (eu )?fiz|que (eu )?fiz hoje|nao (registrou|contou|marcou) (o )?(meu|o que)|nao registrou)\b/.test(msg);
+  const soPonto = !String(msg || '').replace(/[^a-z0-9]/g, '');
+  if (!fala && !soPonto) return false;
+  let ul = null; try { ul = JSON.parse((await env.HR_KV.get('prod:ultleg:' + ultimos8(from))) || 'null'); } catch (_) {}
+  const reenviaLegenda = async () => { // v302: a legenda da última foto dele não virou registro → roda de novo (uma vez)
+    if (!ul || !ul.leg || env._ultlegUsada || Date.now() - ul.em > 24 * 3600000) return false;
+    env._ultlegUsada = 1;
+    for (const pre of ['fimconf:', 'etpconf:']) { // já está com o dono para confirmar: não manda de novo
+      const ks = await env.HR_KV.list({ prefix: pre, limit: 60 }).catch(() => ({ keys: [] }));
+      for (const k of ks.keys || []) { let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (c && ultimos8(c.from || '') === ultimos8(from) && Date.now() - (c.em || 0) < 2 * 86400000) {
+        let cli = c.cliente || ''; if (!cli && c.pid) { const pd = await lerPedido(env, c.pid).catch(() => null); cli = pd ? pd.nome : ''; }
+        await enviar(env, from, `${nome}, o serviço${cli ? ' de *' + cli + '*' : ''} já está com o Sr. Hangel para confirmar. Assim que ele confirmar, os pontos entram e eu te aviso.`); return true; } }
+    } await env.HR_KV.delete('prod:ultleg:' + ultimos8(from)).catch(() => {});
+    if (ul.mid) await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: ul.mid, em: Date.now() }), { expirationTtl: 3 * 3600 }).catch(() => {});
+    await producaoFuncionario(env, f, from, ul.leg, '', nome); return true;
+  };
+  if (soPonto) return reenviaLegenda(); // "." respondendo a foto
+  const x = await servicoExtrair(env, f, texto); if (!x || !x.cliente) return reenviaLegenda();
   const tk = tokensPedra(String(x.cliente)), etp = ETAPA_NOME2[x.etapa] ? x.etapa : 'corte';
   const ped = (await pedidosProducao(env, p => nomeNota(p.nome, tk) > 0 && (!p.entregueEm || Date.now() - p.entregueEm < 7 * 86400000)).catch(() => []))[0];
   if (ped) {
