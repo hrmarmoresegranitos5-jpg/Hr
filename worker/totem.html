@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#0b0b0e"><meta name="mobile-web-app-capable" content="yes">
 <title>Atendimento · __EMP__</title>
-<link rel="manifest" id="mani">
+<link rel="manifest" id="mani" href="/totem/manifest.json?k=__K__"><link rel="icon" href="/totem/icone-192.png"><link rel="apple-touch-icon" href="/totem/icone-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--ouro:#c9a84c;--ouro2:#ecd27c;--fundo:#0b0b0e;--cx:#15151b;--txt:#f3ecdb;--sub:#a99c80;--linha:rgba(201,168,76,.25)}
@@ -228,7 +228,7 @@ function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function
 function reais(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function toast(t, ms) { var e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { e.style.display = 'none'; }, ms || 3500); }
 function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
-$('mani').href = api('/totem/manifest.json');
+try { if ('serviceWorker' in navigator) navigator.serviceWorker.register(api('/totem/sw.js'), { scope: '/totem' }).catch(function () {}); } catch (e) {}
 
 var CAT = null, TELA = 'descanso';
 function carregar() {
