@@ -2717,8 +2717,8 @@ function textoParaFala(t) {
     .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, '')
     .replace(/[*_~`]/g, '')
     .replace(/^[•\-]\s*/gm, '')
-    .replace(/\n{2,}/g, '. ')
-    .replace(/\n/g, ', ')
+    .replace(/([^.!?:;,])\s*\n+/g, '$1. ')
+    .replace(/\n+/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -2739,7 +2739,7 @@ async function vozEscolhaCarregar(env) { if (globalThis.__vozEm && Date.now() - 
 function falaCasual(t) { // v160: complemento do textoParaFala para áudio de conversa
   return String(t || '').replace(/https?:\/\/\S+/g, '').replace(/\bkkk+\b/gi, 'haha').replace(/\bvc\b/gi, 'você').replace(/\btb\b/gi, 'também').replace(/\bpq\b/gi, 'porque').replace(/\bblz\b/gi, 'beleza').replace(/!{2,}/g, '!').replace(/\.\s*\./g, '.').trim();
 }
-const VOZ_INSTR = 'O nome do dono é Rangel (escrito Hangel): pronuncie sempre RAN-JÉU, com o R forte do começo de rato. Fale como uma moça brasileira de verdade mandando um áudio no WhatsApp para alguém conhecido: português do Brasil com sotaque nordestino leve, ritmo natural de conversa (nem lento nem corrido), entonação que sobe e desce, pausas curtas onde a gente respira, sorriso leve na voz. Nada de voz de locutora, de atendimento eletrônico ou de leitura. Se o texto for brincalhão, fale com alegria e leveza; se for sério, com calma e firmeza.';
+const VOZ_INSTR = 'O nome do dono é Rangel (escrito Hangel): pronuncie sempre RAN-JÉU, com o R forte do começo de rato. Fale como uma moça baiana de verdade mandando um áudio no WhatsApp para alguém conhecido: português do Brasil com sotaque nordestino leve, jeito descontraído e próximo, ritmo de conversa solto e corrido (um pouco rápido, como quem fala no dia a dia), entonação viva que sobe e desce. VÍRGULA NÃO É PAUSA: passe pelas vírgulas emendando as palavras, sem parar; só respire de leve no fim das frases. Junte as palavras como na fala real ("tá", "pra", "né"). Nunca leia pausadamente, nunca separe palavra por palavra. Nada de voz de locutora, de atendimento eletrônico ou de leitura. Se o texto for brincalhão, fale com alegria e leveza; se for sério, com calma e firmeza.';
 async function gerarVoz(env, fala, escolha) {
   const op = VOZ_OPCOES.find(x => x.k === escolha) || null;
   const elId = op && op.prov === 'el' ? op.id : (!op && env.ELEVENLABS_KEY ? (env.ELEVENLABS_VOICE || 'RGymW84CSmfVugnA5tvA') : '');
@@ -2756,7 +2756,7 @@ async function gerarVoz(env, fala, escolha) {
   const chave = chaveVoz(env); if (!chave) throw new Error('sem chave de voz');
   const tts = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST', headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: env.TTS_MODEL || 'gpt-4o-mini-tts', voice: op && op.prov === 'oa' ? op.id : vozFeminina(env), input: fala, response_format: 'opus', instructions: env.TTS_INSTRUCOES || VOZ_INSTR }),
+    body: JSON.stringify({ model: env.TTS_MODEL || 'gpt-4o-mini-tts', voice: op && op.prov === 'oa' ? op.id : vozFeminina(env), input: fala, response_format: 'opus', instructions: env.TTS_INSTRUCOES ? env.TTS_INSTRUCOES + ' Vírgula não é pausa: emende as palavras e só respire de leve no fim das frases; jeito descontraído, nunca pausado.' : VOZ_INSTR }),
   });
   if (!tts.ok) throw new Error(`voz ${tts.status}: ${(await tts.text().catch(() => '')).slice(0, 200)}`);
   return { audio: await tts.arrayBuffer(), via: 'oa:' + (op && op.prov === 'oa' ? op.id : vozFeminina(env)) };
@@ -2769,12 +2769,29 @@ async function subirVozEnviar(env, para, audio, fala) {
   if (!up?.id) throw new Error('a Meta não devolveu o id do áudio');
   env._falaVoz = fala; try { await postarMsg(env, para, { type: 'audio', audio: { id: up.id } }); } finally { env._falaVoz = ''; }
 }
+// v289: TEXTO ESCRITO → FALA DE GENTE. O que a secretária escreve é formal ("Por gentileza", vírgulas, listas);
+// lido do jeito que está, o áudio sai robótico. Uma IA rápida reescreve como uma pessoa falaria num áudio, sem mudar nenhum dado.
+async function falaNatural(env, fala) {
+  const t = String(fala || '').trim(); if (t.length < 25 || String(env.VOZ_REESCREVER ?? '1') === '0') return t;
+  const sis = `Reescreva o texto como uma moça baiana simpática FALARIA num áudio de WhatsApp para alguém conhecido. Regras:
+- Português falado do dia a dia: "tá", "pra", "né", "viu", "a gente", "olha", "beleza"; nada de "por gentileza", "prezado", "informo", "senhor(a)" formal (pode manter "seu Rangel"/"Sr. Rangel" se o texto chamar assim).
+- Frases curtas e diretas. Poucas vírgulas: troque vírgula por ponto ou por "e". Sem listas, sem tópicos, sem parênteses, sem emoji.
+- Valores, medidas, datas, horários, nomes e números: EXATAMENTE os mesmos (pode escrever por extenso o jeito de falar, ex.: "1,20" → "um e vinte").
+- Não acrescente informação nem pergunta nova; não corte nada importante. Mesmo tamanho ou menor.
+Responda SÓ com o texto falado.`;
+  try {
+    const r = await Promise.race([chamarIA(env, sis, [], t.slice(0, 1500), { maxTokens: 500, model: env.AI_MODEL_VOZ || 'claude-haiku-5-5', cat: 'voz' }), new Promise(res => setTimeout(() => res(''), 7000))]);
+    const x = String(r || '').replace(/^["“]|["”]$/g, '').replace(/[*_#•]/g, '').trim();
+    return x && x.length < t.length * 1.4 + 40 ? x : t;
+  } catch (_) { return t; }
+}
 // Gera a voz (OGG/Opus), sobe na Meta e envia como mensagem de voz. Nunca derruba o fluxo.
 async function enviarVoz(env, para, texto, opts = {}) {
   try {
     await vozEscolhaCarregar(env).catch(() => {});
-    const fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
+    let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
+    fala = (await falaNatural(env, fala)).replace(/\bHangel\b/g, 'Rangel'); // v289
     let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
     await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
