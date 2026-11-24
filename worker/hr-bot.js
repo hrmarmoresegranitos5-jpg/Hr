@@ -4936,9 +4936,12 @@ function modeloCliente(env) {
 }
 // uma segunda tentativa se a primeira falhar ou demorar (a causa nº 1 de o cliente cair no menu antigo)
 async function iaCliente(env, sistema, hist, pergunta) {
-  const o = { model: modeloCliente(env), maxTokens: 900, timeoutMs: 25000 };
+  // v291: o segundo plano do Worker vive ~30 s depois de responder à Meta. Antes eram 25 s + 25 s de nova tentativa: a resposta morria no meio
+  // e o cliente ficava sem nada. Agora a 1ª tentativa usa o tempo que sobra e a 2ª vai num modelo rápido.
+  const resta = () => 26000 - (Date.now() - (env._t0 || Date.now()));
+  const o = { model: modeloCliente(env), maxTokens: 700, timeoutMs: Math.max(7000, Math.min(17000, resta() - 7000)) };
   try { return await chamarIA(env, sistema, hist, pergunta, o); }
-  catch (e) { console.log('[BOT] IA cliente, tentando de novo:', e.message); return await chamarIA(env, sistema, hist, pergunta, o); }
+  catch (e) { console.log('[BOT] IA cliente, tentando de novo (rápido):', e.message); return await chamarIA(env, sistema, hist, pergunta, { ...o, model: String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'claude-haiku-5-5' : o.model, timeoutMs: Math.max(6000, resta() - 2000) }); }
 }
 // true quando a mensagem é só a resposta direta à última pergunta do código e o próprio código consegue lê-la
 function respostaSimplesDaFalta(c, brutoL, pedras) {
