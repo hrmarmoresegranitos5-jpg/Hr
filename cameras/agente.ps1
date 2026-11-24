@@ -1,5 +1,6 @@
 # HR Mármores e Granitos — agente das câmeras (roda escondido no PC da loja)
-# go2rtc (vídeo ao vivo) + túnel da Cloudflare (ver de fora) + movimento (alertas e fotos para o ponto)
+# go2rtc (vídeo ao vivo) + gravação contínua no PC (blocos de 10 min) + servidor das gravações (com chave)
+# + túneis da Cloudflare (ver de fora) + movimento (alertas e fotos para o ponto). Não depende do app Yoosee.
 $ErrorActionPreference = 'Continue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Drawing
@@ -73,7 +74,22 @@ function LigaGo { Liga 'go2rtc' "$D\go2rtc.exe" "-config `"$D\go2rtc.yaml`"" "$D
 $URLT = ''
 function LigaTunel { Remove-Item "$D\tmp\tunel.log" -ErrorAction SilentlyContinue; Liga 'tunel' "$D\cloudflared.exe" 'tunnel --no-autoupdate --url http://127.0.0.1:1984' "$D\tmp\tunel.log"; $script:URLT = ''; $script:tunelEm = Get-Date }
 function LigaFf($c) { $f = "$D\tmp\$($c.id).jpg"; Liga "ff_$($c.id)" "$D\ffmpeg.exe" "-loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/$($c.id)_sub -vf fps=1,scale=640:-2 -q:v 6 -update 1 -y `"$f`"" "$D\tmp\ff_$($c.id).log" }
-LigaGo; Start-Sleep 3; LigaTunel; foreach ($c in $cams) { LigaFf $c }
+# gravações: blocos de 10 min por câmera, apagando as mais antigas quando o disco aperta
+$DIAS = $(if ($C.dias) { [int]$C.dias } else { 30 }); $MINLIVRE = $(if ($C.minLivreGB) { [int]$C.minLivreGB } else { 20 })
+$GT = -join ((48..57) + (97..122) | Get-Random -Count 28 | ForEach-Object { [char]$_ }); $PORTAG = 1985
+New-Item -ItemType Directory -Force "$D\gravacoes" | Out-Null
+$URLG = ''
+function LigaServ { $P['serv'] = Start-Process 'powershell.exe' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$D\servidor.ps1`" -D `"$D`" -porta $PORTAG -tok $GT" -WindowStyle Hidden -PassThru; Log 'ligou servidor das gravacoes' }
+function LigaTunel2 { Remove-Item "$D\tmp\tunel2.log" -ErrorAction SilentlyContinue; Liga 'tunel2' "$D\cloudflared.exe" "tunnel --no-autoupdate --url http://localhost:$PORTAG" "$D\tmp\tunel2.log"; $script:URLG = ''; $script:tunel2Em = Get-Date }
+function LigaRec($c) { New-Item -ItemType Directory -Force "$D\gravacoes\$($c.id)" | Out-Null; $q = $(if ($C.qualidade -eq 'baixa') { "$($c.id)_sub" } else { $c.id })
+  Liga "rec_$($c.id)" "$D\ffmpeg.exe" "-loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/$q -map 0:v -map 0:a? -c:v copy -c:a aac -b:a 32k -f segment -segment_time 600 -segment_atclocktime 1 -reset_timestamps 1 -strftime 1 -segment_format_options movflags=+frag_keyframe+empty_moov+default_base_moof `"$D\gravacoes\$($c.id)\%Y-%m-%d_%H-%M-%S.mp4`"" "$D\tmp\rec_$($c.id).log" }
+function Limpa {
+  $lim = (Get-Date).AddDays(-$DIAS); Get-ChildItem "$D\gravacoes" -Recurse -Filter *.mp4 -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt $lim } | Remove-Item -Force -ErrorAction SilentlyContinue
+  $todos = @(Get-ChildItem "$D\gravacoes" -Recurse -Filter *.mp4 -ErrorAction SilentlyContinue | Sort-Object LastWriteTime); $i = 0
+  while ($i -lt $todos.Count - 12 -and (Get-PSDrive $D.Substring(0, 1)).Free -lt $MINLIVRE * 1GB) { Remove-Item $todos[$i].FullName -Force -ErrorAction SilentlyContinue; $i++ }
+  if ($i) { Log "apaguei $i gravacoes antigas (disco cheio)" }
+}
+LigaGo; Start-Sleep 3; LigaTunel; LigaServ; LigaTunel2; foreach ($c in $cams) { LigaFf $c; LigaRec $c }; $ultLimpa = [datetime]::MinValue
 
 function Mini($f) { # 32x18 em cinza
   try { $fs = [IO.File]::Open($f, 'Open', 'Read', 'ReadWrite'); $img = [Drawing.Image]::FromStream($fs); $bmp = New-Object Drawing.Bitmap 32, 18; $g = [Drawing.Graphics]::FromImage($bmp); $g.DrawImage($img, 0, 0, 32, 18); $g.Dispose(); $img.Dispose(); $fs.Close()
@@ -87,9 +103,15 @@ while ($true) {
     if ($P['go2rtc'].HasExited) { Log 'go2rtc caiu'; LigaGo; Start-Sleep 2 }
     if ($P['tunel'].HasExited -or ((Get-Date) - $tunelEm).TotalHours -gt 24) { if (!$P['tunel'].HasExited) { $P['tunel'].Kill() }; LigaTunel }
     foreach ($c in $cams) { if ($P["ff_$($c.id)"].HasExited) { Start-Sleep 2; LigaFf $c } }
+    foreach ($c in $cams) { if ($P["rec_$($c.id)"].HasExited) { Start-Sleep 2; LigaRec $c } }
+    if ($P['serv'].HasExited) { LigaServ }
+    if ($P['tunel2'].HasExited -or ((Get-Date) - $tunel2Em).TotalHours -gt 24) { if (!$P['tunel2'].HasExited) { $P['tunel2'].Kill() }; LigaTunel2 }
+    if (((Get-Date) - $ultLimpa).TotalMinutes -ge 10) { $ultLimpa = Get-Date; Limpa }
     # túnel novo → avisa o bot
-    if (!$URLT -and (Test-Path "$D\tmp\tunel.log")) { $m = Select-String -Path "$D\tmp\tunel.log" -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1
-      if ($m) { $URLT = $m.Matches[0].Value; Log "tunel $URLT"; $r = Api '/cam/registrar' @{ url = $URLT; cams = $cams }; if ($r -and $r.cfg) { $limiar = 0.05 } } }
+    $novo = $false
+    if (!$URLT -and (Test-Path "$D\tmp\tunel.log")) { $m = Select-String -Path "$D\tmp\tunel.log" -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1; if ($m) { $URLT = $m.Matches[0].Value; Log "tunel $URLT"; $novo = $true } }
+    if (!$URLG -and (Test-Path "$D\tmp\tunel2.log")) { $m = Select-String -Path "$D\tmp\tunel2.log" -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1; if ($m) { $URLG = $m.Matches[0].Value; Log "tunel gravacoes $URLG"; $novo = $true } }
+    if ($novo -and $URLT) { Api '/cam/registrar' @{ url = $URLT; cams = $cams; grav = @{ url = $URLG; tok = $GT } } | Out-Null }
     if (((Get-Date) - $ultVivo).TotalMinutes -ge 5) { $ultVivo = Get-Date; Api '/cam/vivo' @{ n = $cams.Count } | Out-Null }
     # movimento
     foreach ($c in $cams) {
