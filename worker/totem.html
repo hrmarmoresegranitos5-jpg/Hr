@@ -113,8 +113,17 @@ try { if ('serviceWorker' in navigator) navigator.serviceWorker.register(api('/t
 var EXPL = [];
 // v319: as explicações saíram; o orçamento é feito no app (modo balcão)
 function abrirOrcamento() {
-  if (window.top !== window) { try { window.parent.postMessage({ hr: 'go', pg: 0 }, '*'); return; } catch (e) {} }
-  location.href = 'https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1';
+  var url = 'https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1';
+  if (window.top !== window) { // dentro do app (aba TV): pede ao app para ir ao orçamento; se o app não responder, abre o app de novo
+    var ok = false, f = function (e) { if (e.data && e.data.hr === 'go-ok') ok = true; };
+    window.addEventListener('message', f);
+    try { window.parent.postMessage({ hr: 'go', pg: 0 }, '*'); } catch (e) {}
+    setTimeout(function () { window.removeEventListener('message', f); if (!ok) { try { window.top.location.href = url; } catch (e) { window.open(url, '_blank'); } } }, 700);
+    return;
+  }
+  toast('Abrindo o app de orçamento…');
+  var w = null; try { w = window.open(url, '_blank'); } catch (e) {}
+  if (!w) location.href = url;
 }
 // ═══ estado e navegação ═══
 var ABA = 'fotos', CAT = null, EST = null, ARQS = [], LISTA = null, MOD = [], PED = [];

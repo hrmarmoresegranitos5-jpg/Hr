@@ -86,7 +86,7 @@
     else if (confirm('Sair do modo balcão?')) fim();
   }
   // v319: o botão "Orçamento" do controle da TV (dentro da aba TV) volta para a tela de orçamento
-  window.addEventListener('message', function (e) { try { if (e.data && e.data.hr === 'go' && typeof go === 'function') go(+e.data.pg || 0); } catch (x) {} });
+  window.addEventListener('message', function (e) { try { if (e.data && e.data.hr === 'go' && typeof go === 'function') { go(+e.data.pg || 0); if (e.source) e.source.postMessage({ hr: 'go-ok' }, '*'); } } catch (x) {} });
   window.HR_BALCAO = { sair: sair, recarregar: function () { linkTv = ''; abrirTv(); }, abrirTv: abrirTv };
 
   var tent = 0;
