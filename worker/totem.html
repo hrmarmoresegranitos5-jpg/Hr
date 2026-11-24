@@ -89,9 +89,10 @@ aside .fim .bt{flex:1}
     <div class="tt"><i id="luz"></i>Na TV agora</div>
     <div id="espelho"><iframe id="ifr" title="TV"></iframe></div>
     <div id="agora">Carregando…</div>
+    <div id="tvst" style="font-size:13px;margin:6px 0;color:var(--sub)"></div>
     <div class="nav2" id="nav2" style="display:none"><button class="bt" onclick="passo(-1)">‹</button><button class="bt" onclick="passo(1)">›</button></div>
     <div id="pontos"></div>
-    <div class="fim"><button class="bt verm" onclick="limparTv()">⏹ Tirar da TV</button><button class="bt" style="flex:0 0 60px" onclick="telaCheia()">⛶</button></div>
+    <div class="fim"><button class="bt" onclick="acordarTv()">🔌 Acordar TV</button><button class="bt verm" onclick="limparTv()">⏹ Tirar da TV</button><button class="bt" style="flex:0 0 60px" onclick="telaCheia()">⛶</button></div>
   </aside>
 </div>
 <input type="file" id="arqIn" accept="image/*,video/*" multiple style="display:none">
@@ -335,10 +336,17 @@ function estado() {
     if (j.tela && j.tela !== telaUrl) { telaUrl = j.tela; $('ifr').src = j.tela; }
     if (j.ver && j.ver !== VER) atualizar();
     if (!j.show) { LISTA = null; if (CUR && ABA === 'expl') { CUR = null; abaExpl(); } else CUR = null; }
-    painel(); marcarAtivo();
+    tvStatus(j.tv); painel(); marcarAtivo();
     if (ABA === 'pix' && antes !== (j.pix ? j.pix.status : '')) abaPix();
   }).catch(function () { $('luz').classList.remove('on'); $('agora').textContent = 'Sem internet no tablet'; });
 }
+function tvStatus(tv) { // v316: a TV (computador) está no ar?
+  var el = $('tvst'); if (!el) return;
+  var seg = tv && tv.em ? Math.round((Date.now() - tv.em) / 1000) : 1e9;
+  if (seg < 40) el.innerHTML = '🟢 <b>TV no ar</b>' + (tv.vis ? '' : ' · <span style="color:#f59e0b">a página da TV está escondida no computador</span>') + (tv.fs ? '' : ' · <span style="color:#f59e0b">toque na TV/computador para tela cheia</span>');
+  else el.innerHTML = '🔴 <b>TV fora do ar</b>' + (seg < 1e8 ? ' há ' + (seg < 3600 ? Math.round(seg / 60) + ' min' : Math.round(seg / 3600) + ' h') : '') + ' · ligue a TV e o computador e abra a Tela do cliente';
+}
+function acordarTv() { fetch(api('/totem/acordar'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(function (r) { return r.json(); }).then(function (j) { tvStatus(j.tv); toast(j.tv && Date.now() - j.tv.em < 40000 ? 'Mandei acordar a TV' : 'A TV não está respondendo: confira se a TV e o computador estão ligados'); }).catch(function () {}); }
 function escala() { $('ifr').style.transform = 'scale(' + ($('espelho').clientWidth / 1920) + ')'; }
 addEventListener('resize', escala);
 function telaCheia() { try { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {}); else document.exitFullscreen(); } catch (e) {} }

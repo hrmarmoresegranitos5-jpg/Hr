@@ -412,8 +412,8 @@ function buildOrcList(list) {
     if(q.vista>0){
       var _imp = _orcImposto(q.vista);
       if(_imp.valor>0){
-        h += '<div class="qdr"><span class="k">🧾 Imposto estimado ('+_imp.pct+'%)</span><span class="v" style="color:#f59e0b;">R$ '+fm(_imp.valor)+'</span></div>';
-        h += '<div class="qdr"><span class="k">Sobra após imposto (à vista)</span><span class="v grn">R$ '+fm(q.vista-_imp.valor)+'</span></div>';
+        h += '<div class="qdr so-dono"><span class="k">🧾 Imposto estimado ('+_imp.pct+'%)</span><span class="v" style="color:#f59e0b;">R$ '+fm(_imp.valor)+'</span></div>';
+        h += '<div class="qdr so-dono"><span class="k">Sobra após imposto (à vista)</span><span class="v grn">R$ '+fm(q.vista-_imp.valor)+'</span></div>';
       }
     }
     h += '</div>';
