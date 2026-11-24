@@ -16,7 +16,19 @@
     if (q === '1') localStorage.setItem(LS, '1'); else if (q === '0') localStorage.removeItem(LS);
   } catch (e) {}
   function ativo() { try { return localStorage.getItem(LS) === '1'; } catch (e) { return false; } }
-  if (!ativo()) return;
+  if (!ativo()) { // fora do modo balcão: em tela larga (tablet deitado/PC) o menu ganha "Modo balcão" para ligar neste aparelho
+    var t0 = 0;
+    (function botao() {
+      var nav = document.getElementById('nav');
+      if (!nav) { if (t0++ < 40) setTimeout(botao, 500); return; }
+      if (window.innerWidth < 900 || nav.querySelector('.bl-liga')) return;
+      var ni = document.createElement('div'); ni.className = 'ni bl-liga';
+      ni.innerHTML = '<span class="ni-i">🏪</span><span class="ni-l">Modo balcão</span>';
+      ni.addEventListener('click', function (e) { e.stopPropagation(); if (!confirm('Deixar este aparelho no modo balcão? Ele vai mostrar só Orçamento, Histórico e TV. Para sair depois: 🔒 Sair (pede a senha).')) return; try { localStorage.setItem(LS, '1'); } catch (x) {} location.reload(); }, true);
+      nav.appendChild(ni);
+    })();
+    return;
+  }
 
   document.documentElement.classList.add('balcao');
   var st = document.createElement('style');
