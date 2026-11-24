@@ -969,7 +969,7 @@ async function orcPdfLer(env, orcNum, qId) {
 function resumoLimpo(rs) { // v134: pedra e peças do orçamento do app (para a ficha de corte)
   if (!rs || typeof rs !== 'object' || !Array.isArray(rs.itens)) return null;
   const itens = rs.itens.slice(0, 8).map(it => ({ ambiente: String(it.ambiente || '').slice(0, 20), acabamento: String(it.acabamento || '').slice(0, 12), sv: (Array.isArray(it.sv) ? it.sv : []).slice(0, 20).map(x => String(x).slice(0, 16)), cuba: String(it.cuba || '').slice(0, 30), // v156
-    pecas: (Array.isArray(it.pecas) ? it.pecas : []).slice(0, 30).map(x => ({ qtd: Math.max(1, Math.round(Number(x.qtd)) || 1), comp_cm: Number(x.comp_cm) || 0, larg_cm: Number(x.larg_cm) || 0 })).filter(x => x.comp_cm > 0 && x.larg_cm > 0) })).filter(it => it.pecas.length);
+    cubaInst: String(it.cubaInst || '').slice(0, 12), pecas: (Array.isArray(it.pecas) ? it.pecas : []).slice(0, 30).map(x => ({ qtd: Math.max(1, Math.round(Number(x.qtd)) || 1), comp_cm: Number(x.comp_cm) || 0, larg_cm: Number(x.larg_cm) || 0, ...(x.rot ? { rot: String(x.rot).slice(0, 40) } : {}), ...(TIPOS_PECA.includes(x.tipoP) ? { tipoP: x.tipoP } : {}) })).filter(x => x.comp_cm > 0 && x.larg_cm > 0) })).filter(it => it.pecas.length); // v287: guarda o nome/tipo da peça (saia, frontão, pé…)
   return itens.length ? { pedra: String(rs.pedra || '').slice(0, 60), itens } : null;
 }
 async function orcPdfGuardar(env, d, bytes) {
@@ -1010,7 +1010,9 @@ async function projetoDoCliente(env, nome, depoisDe) {
   if (!cands.length) return null; cands.sort((a, b) => b.em - a.em);
   try { const r = JSON.parse((await env.HR_KV.get(cands[0].k)) || 'null'); return r && r.resumo ? r : null; } catch (_) { return null; }
 }
-const pedSemProjeto = p => !itensPecas(p).length || !!p.estimado;
+const semNomePecas = res => ((res || {}).itens || []).some(it => (it.pecas || []).some(x => !x.rot && !x.tipoP));
+const pedSemProjeto = p => !itensPecas(p).length || !!p.estimado || (!!p.projetoDe && semNomePecas(p.resumoApp)); // v287: projeto vindo de PDF antigo (sem nome das peças) é refeito quando sair um PDF novo
+const NOME_ETAPA_PTS = { corte: 'Corte', acabamento: 'Acabamento', polimento: 'Polimento', instalacao: 'Instalação', entrega: 'Entrega' };
 async function projetoNosPedidos(env, opc = {}) {
   const tkS = opc.soCliente ? tokensPedra(opc.soCliente) : null;
   const peds = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && pedSemProjeto(p) && (!tkS || nomeNota(p.nome, tkS) >= 0.8)).catch(() => []);
@@ -1019,10 +1021,13 @@ async function projetoNosPedidos(env, opc = {}) {
     const antes = { corte: ptsEtapa(ped, 'corte'), acab: ptsEtapa(ped, pedComplexo(ped) ? 'fabricacao' : 'acabamento') };
     const r = await projetoDoCliente(env, ped.nome).catch(() => null);
     if (!r) { faltam.push(ped.nome); continue; }
+    if (ped.projetoDe && itensPecas(ped).length && !ped.estimado && semNomePecas(r.resumo)) continue; // já estudado e ainda sem PDF novo: não repete o aviso
     ped.resumoApp = { ...(ped.resumoApp || {}), ...r.resumo }; ped.pecas = pecasDoResumo(r.resumo); delete ped.estimado; ped.projetoDe = r.orcNum || r.qId || 'orçamento do app'; await salvarPedido(env, ped);
-    const pcs = (r.resumo.itens || []).map(it => `${it.ambiente}: ` + it.pecas.map(x => `${x.qtd > 1 ? x.qtd + '× ' : ''}${vPt(x.comp_cm)}×${vPt(x.larg_cm)}`).join(', ') + (it.sv && it.sv.length ? ` (${it.sv.join(', ')})` : '')).join('\n');
+    const pcs = (r.resumo.itens || []).map(it => `${it.ambiente}: ` + it.pecas.map(x => `${x.qtd > 1 ? x.qtd + '× ' : ''}${(NOME_PECA[tipoDaPeca(x, it)] || 'Peça').toLowerCase()} ${vPt(x.comp_cm)}×${vPt(x.larg_cm)}`).join(', ') + (it.sv && it.sv.length ? ` (${it.sv.join(', ')})` : '')).join('\n');
+    const semNome = (r.resumo.itens || []).some(it => it.pecas.some(x => !x.rot && !x.tipoP)); // PDF antigo: sem o nome das peças
+    const conta = reguaAtiva(Date.now()) ? ['corte', pedComplexo(ped) ? 'polimento' : 'acabamento', 'instalacao'].map(e => { const t = explicarPontos(ped, e, Date.now()); return t ? `_${NOME_ETAPA_PTS[e]}_\n${t}` : ''; }).filter(Boolean).join('\n') : '';
     const feitos = (ped.prodLog || []).filter(l => ['corte', 'acabamento', 'polimento', 'fabricacao'].includes(l.e)).map(l => l.e);
-    L.push(`*${ped.nome}* — projeto do ${ped.projetoDe}\n${pcs}\nCorte: ${vPt(antes.corte)} → *${vPt(ptsEtapa(ped, 'corte'))} pts* · ${pedComplexo(ped) ? 'Fabricação' : 'Acabamento'}: ${vPt(antes.acab)} → *${vPt(ptsEtapa(ped, pedComplexo(ped) ? 'fabricacao' : 'acabamento'))} pts*${feitos.length ? `\n_Já feito: ${[...new Set(feitos)].join(', ')} — os pontos de quem fez já mudaram._` : ''}`);
+    L.push(`*${ped.nome}* — projeto do ${ped.projetoDe}\n${pcs}\nCorte: ${vPt(antes.corte)} → *${vPt(ptsEtapa(ped, 'corte'))} pts* · ${pedComplexo(ped) ? 'Fabricação' : 'Acabamento'}: ${vPt(antes.acab)} → *${vPt(ptsEtapa(ped, pedComplexo(ped) ? 'fabricacao' : 'acabamento'))} pts*${conta ? '\n\n*Como cheguei nos pontos:*\n' + conta : ''}${semNome ? '\n_Esse PDF é antigo e não diz o que é cada peça (pé, saia, frontão). Gere o PDF de novo no app que eu refaço a conta certinha._' : ''}${feitos.length ? `\n_Já feito: ${[...new Set(feitos)].join(', ')} — os pontos de quem fez já mudaram._` : ''}`);
   }
   if (opc.avisar && (L.length || (opc.faltas && faltam.length))) await notificarDono(env, Date.now(), ['📐 *Estudei o projeto pelo orçamento do app*', ...L, ...(opc.faltas && faltam.length ? [`Sem orçamento com as peças: ${faltam.join(', ')}. Abra o orçamento no app e gere o PDF que eu recalculo sozinho.`] : [])].join('\n\n')).catch(() => {});
   return { feitos: L.length, faltam };
@@ -9990,17 +9995,57 @@ function hSaiasItem(it) { // acabamento das saias que é do polidor (45° é do 
 }
 function reguaFator(e) { const f = (globalThis.__reguaFator || {})[e === 'polimento' ? 'acabamento' : e]; return f > 0 ? f : 1; } // v210: ajuste da régua pelo tempo medido (aprovado pelo dono)
 function horasRegua(p, e) { return horasRegua0(p, e) * (e === 'instalacao' ? 1 : reguaFator(e)); }
-function horasRegua0(p, e) {
-  const its = itensPecas(p), n = nPecasPed(p), cx = pedComplexo(p);
-  if (e === 'corte') { if (!its.length) return n * 0.3; let h = 0; for (const it of its) { for (const pc of it.pecas) h += hCortePeca(pc.comp_cm, pc.larg_cm) * Math.min(+pc.qtd || 1, 50); if ((it.sv || []).includes('reb_a')) h += 0.25; if ((it.sv || []).includes('cook')) h += 0.3; } return h; }
-  if (e === 'acabamento' || e === 'polimento') {
-    if (!its.length) return cx ? 1.5 : n * 0.5;
-    let h = 0; for (const it of its) { for (const pc of it.pecas) { const q = Math.min(+pc.qtd || 1, 50); if (cx) { if (pcEstreita(pc, it)) h += (0.25 + 0.25 * (+pc.comp_cm || 0) / 100) * q; } else h += hAcabPeca(pc.comp_cm, pc.larg_cm) * q; } h += hSaiasItem(it); }
-    return h;
+// v287: O PROJETO DETALHADO VIRA HORAS. Cada peça (pelo tamanho e pelo que ela é), cada recorte (cuba, rebaixo, cooktop, furos),
+// cada metro de sainha (reta, 45°, boleada), frontão e pé entra na conta da etapa certa. horasDetalhe devolve a lista para explicar os pontos.
+function horasDetalhe(p, e) {
+  const its = itensPecas(p), n = nPecasPed(p), cx = pedComplexo(p), L = [], add = (txt, h) => { if (h > 0) L.push({ txt, h: Math.round(h * 100) / 100 }); };
+  const mlTipo = (it, t) => (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === t).reduce((a, pc) => a + (+pc.comp_cm || 0) * Math.min(+pc.qtd || 1, 50), 0) / 100;
+  if (e === 'corte') {
+    if (!its.length) { add(`${n} peça(s) sem ficha (estimativa)`, n * 0.3); return L; }
+    for (const it of its) {
+      const sv = it.sv || [], pre = its.length > 1 ? (it.ambiente || 'item') + ': ' : '';
+      const porTipo = {}; for (const pc of it.pecas) { const t = tipoDaPeca(pc, it), q = Math.min(+pc.qtd || 1, 50); porTipo[t] = porTipo[t] || { q: 0, h: 0 }; porTipo[t].q += q; porTipo[t].h += hCortePeca(pc.comp_cm, pc.larg_cm) * q; }
+      for (const [t, v] of Object.entries(porTipo)) add(`${pre}${v.q}× ${(NOME_PECA[t] || 'Peça').toLowerCase()}`, v.h);
+      if (sv.includes('reb_a')) add(pre + 'recorte do rebaixo americano', 0.25); if (sv.includes('reb_n')) add(pre + 'corte do rebaixo normal', 0.2);
+      if (sv.includes('cook')) add(pre + 'recorte do cooktop', 0.3);
+      if ((sv.includes('cuba_coz') || sv.includes('cuba_lav') || it.cuba) && !/sobrep/.test(String(it.cubaInst || '')) && !/esc/.test(String(it.cuba || ''))) add(pre + 'recorte da cuba', 0.2);
+      const fur = (sv.includes('forn') ? 1 : 0) + (sv.includes('fralo') ? 1 : 0) + (/sobrep/.test(String(it.cubaInst || '')) ? 2 : 0); if (fur) add(pre + fur + ' furo(s)', 0.1 * fur);
+      const m45 = sv.includes('s_45') || it.acabamento === '45' ? mlTipo(it, 'saia') : 0; if (m45) add(`${pre}meia-esquadria 45° (${vPt(m45)} m)`, 0.12 * m45);
+    }
+    return L;
   }
-  if (e === 'instalacao') { const est = 3 + 1.5 * Math.max(0, its.length - 1); if (p.instIniEm && p.entregueEm && p.entregueEm > p.instIniEm) { const med = minUteis(globalThis.__envRegua || {}, p.instIniEm, p.entregueEm) / 60; return Math.min(est * 1.5, Math.max(est * 0.6, med)); } return est; }
-  if (e === 'entrega') return 0.75 + 0.1 * n;
-  return 0;
+  if (e === 'acabamento' || e === 'polimento') {
+    if (!its.length) { add(cx ? 'serviço sem ficha (estimativa)' : `${n} peça(s) sem ficha (estimativa)`, cx ? 1.5 : n * 0.5); return L; }
+    for (const it of its) {
+      const pre = its.length > 1 ? (it.ambiente || 'item') + ': ' : '';
+      if (cx) { let q = 0, h = 0; for (const pc of it.pecas) if (pcEstreita(pc, it)) { const k = Math.min(+pc.qtd || 1, 50); q += k; h += (0.25 + 0.25 * (+pc.comp_cm || 0) / 100) * k; } add(`${pre}polimento de ${q} saia(s)/frontão(ões)`, h); const pe = mlTipo(it, 'pe'); if (pe) add(`${pre}polimento do pé (${vPt(pe)} m)`, 0.4 * pe); }
+      else { let h = 0, q = 0; for (const pc of it.pecas) { const k = Math.min(+pc.qtd || 1, 50); q += k; h += hAcabPeca(pc.comp_cm, pc.larg_cm) * k; } add(`${pre}acabamento de ${q} peça(s)`, h); add(pre + 'polimento das saias', hSaiasItem(it)); }
+    }
+    return L;
+  }
+  if (e === 'instalacao') {
+    let est = 2;
+    L.push({ txt: 'base (ir, nivelar, fixar)', h: 2 });
+    for (const it of its) { const pre = its.length > 1 ? (it.ambiente || 'item') + ': ' : '', sv = it.sv || [], m2 = it.pecas.filter(pc => !pcEstreita(pc, it)).reduce((a, pc) => a + (+pc.comp_cm || 0) * (+pc.larg_cm || 0) * Math.min(+pc.qtd || 1, 50), 0) / 10000;
+      const hp = 0.6 * m2; add(`${pre}assentar ${vPt(m2)} m² de tampo`, hp); est += hp;
+      if (sv.includes('cuba_coz') || sv.includes('cuba_lav') || it.cuba) { add(pre + 'colar/vedar a cuba', 0.5); est += 0.5; }
+      if (sv.includes('cook')) { add(pre + 'encaixe do cooktop', 0.25); est += 0.25; }
+      const fr = mlTipo(it, 'frontao'); if (fr) { add(`${pre}frontão (${vPt(fr)} m)`, 0.3 * fr); est += 0.3 * fr; }
+      const npe = it.pecas.filter(pc => tipoDaPeca(pc, it) === 'pe').reduce((a, pc) => a + (+pc.qtd || 1), 0); if (npe) { add(`${pre}${npe} pé(s) estrutural(is)`, 0.75 * npe); est += 0.75 * npe; }
+    }
+    if (!its.length) { L.length = 0; const e0 = 3; L.push({ txt: 'instalação sem ficha (estimativa)', h: e0 }); est = e0; }
+    if (p.instIniEm && p.entregueEm && p.entregueEm > p.instIniEm) { const med = minUteis(globalThis.__envRegua || {}, p.instIniEm, p.entregueEm) / 60, h = Math.min(est * 1.5, Math.max(est * 0.6, med)); if (Math.abs(h - est) > 0.05) L.push({ txt: `ajuste pelo tempo real na obra (${vPt(med)} h)`, h: Math.round((h - est) * 100) / 100 }); }
+    return L;
+  }
+  if (e === 'entrega') { add('carregar, levar e entregar', 0.75); add(`${n} peça(s)`, 0.1 * n); return L; }
+  return L;
+}
+function horasRegua0(p, e) { return Math.max(0, horasDetalhe(p, e).reduce((t, x) => t + x.h, 0)); }
+// explica de onde vêm os pontos de uma etapa (para o dono, e quando o funcionário reclama dos pontos)
+function explicarPontos(p, e, ts) {
+  const L = horasDetalhe(p, e); if (!L.length) return '';
+  const tot = horasRegua(p, e), pts = ptsEtapa(p, e, ts);
+  return L.map(x => `• ${x.txt}: ${vPt(x.h)} h`).join('\n') + (reguaAtiva(ts) ? `\n= ${vPt(tot)} h de trabalho → *${vPt(pts)} pts* (1 ponto ≈ ${vPt(reguaH(ts))} h)` : `\n= *${vPt(pts)} pts*`);
 }
 const q4 = v => Math.max(0.25, Math.round(v * 4) / 4);
 function ptsRegua(p, e, ts) { return q4(horasRegua(p, e) / reguaH(ts)); }
@@ -12732,16 +12777,17 @@ async function mig188Etapas(env) {
 
 // v190: FICHA DE PRODUÇÃO no app — o Sr. Hangel confere/ajusta cada peça (bancada, frontão, saia, tampo), o tipo da saia e da cuba,
 // rebaixo e cooktop, e quem faz cada etapa. O bot usa isso nas partes de cada etapa e nos pontos (sem chute pela largura).
-const TIPOS_PECA = ['bancada', 'frontao', 'saia', 'tampo', 'peitoril', 'soleira', 'retencao', 'outro'];
+const TIPOS_PECA = ['bancada', 'frontao', 'saia', 'tampo', 'peitoril', 'soleira', 'retencao', 'pe', 'outro'];
 function tipoDaPeca(pc, it) {
   if (pc && TIPOS_PECA.includes(pc.tipoP)) return pc.tipoP;
   const r = normaliza(String((pc && pc.rot) || '')), amb = normaliza(String((it && it.ambiente) || ''));
   if (/reten/.test(r)) return 'retencao'; // v192: pedra de retenção da soleira
+  if (/(^|\s)(pe|pes|perna|coluna|cascata)(\s|$)|estrutural/.test(r)) return 'pe'; // v287: pé estrutural / cascata
   if (/front|espelho|rodabanc/.test(r)) return 'frontao'; if (/saia|testeira/.test(r)) return 'saia'; if (/tampo/.test(r)) return 'tampo'; if (/peitor/.test(r)) return 'peitoril'; if (/soleir/.test(r)) return 'soleira';
   if (/peitor/.test(amb)) return 'peitoril'; if (/soleir/.test(amb)) return 'soleira';
-  return (+pc.larg_cm || 0) > 0 && (+pc.larg_cm || 0) <= 25 ? 'frontao' : 'bancada'; // sem ficha: estreita = frontão/saia
+  { const w = +pc.larg_cm || 0; if (w > 0 && w <= 8) return 'saia'; return w > 0 && w <= 25 ? 'frontao' : 'bancada'; } // sem nome: até 8 cm = saia, até 25 = frontão (v287)
 }
-const NOME_PECA = { bancada: 'Bancada', frontao: 'Frontão', saia: 'Saia', tampo: 'Tampo', peitoril: 'Peitoril', soleira: 'Soleira', retencao: 'Pedra de retenção', outro: 'Peça' };
+const NOME_PECA = { pe: 'Pé estrutural', bancada: 'Bancada', frontao: 'Frontão', saia: 'Saia', tampo: 'Tampo', peitoril: 'Peitoril', soleira: 'Soleira', retencao: 'Pedra de retenção', outro: 'Peça' };
 async function retencaoCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('cfg:retencao')) || '{}') || {}; } catch (_) {} return { larg: +c.larg > 0 ? +c.larg : 4, ...c }; } // v192
 async function producaoPainel(env) {
   const { map, cfg } = await funcoesEquipe(env);
