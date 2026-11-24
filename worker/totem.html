@@ -124,18 +124,21 @@ function limparTv() { post('/totem/mostrar', { limpar: 1 }).then(function () { L
 var CUR = null, ED = {}, FOTOS_EXPL = {};
 fetch(api('/totem/expl-edit')).then(function (r) { return r.json(); }).then(function (j) { ED = j.ed || {}; }).catch(function () {});
 function tela(x, i) { var t = x.telas[i], o = ED[x.id] && ED[x.id][i]; return { tit: (o && o.tit) || t.tit, sub: t.sub, pontos: (o && o.pontos && o.pontos.length) ? o.pontos : t.pontos, num: t.num, svg: t.svg }; }
-function totalTelas(x) { return x.telas.length + ((FOTOS_EXPL[x.id] || []).length ? 1 : 0); }
+// sequência do assunto: vídeo animado (se tiver) → telas ilustradas → fotos de obras (se tiver)
+function seq(x) { var l = []; if (x.video) l.push({ k: 'video' }); x.telas.forEach(function (t, j) { l.push({ k: 'tela', j: j }); }); if ((FOTOS_EXPL[x.id] || []).length) l.push({ k: 'fotos' }); return l; }
+function totalTelas(x) { return seq(x).length; }
 function mandarTela(x, i) {
   CUR = { x: x, i: i };
-  var n = totalTelas(x), fotos = FOTOS_EXPL[x.id] || [];
-  if (i >= x.telas.length) { mostrar({ tipo: 'foto', itens: fotos.map(function (f) { return { u: f.u, tit: x.tit + ' · obra da HR', leg: f.leg }; }), i: 0 }, null); }
-  else { var t = tela(x, i); mostrar({ tipo: 'expl', tit: t.tit, sub: t.sub, pontos: t.pontos, num: t.num, svg: t.svg(), etapa: n > 1 ? (i + 1) + ' de ' + n : '' }, null); }
+  var l = seq(x), n = l.length, it = l[i] || l[0], fotos = FOTOS_EXPL[x.id] || [];
+  if (it.k === 'video') mostrar({ tipo: 'video', itens: [{ u: '/tela/vid/' + x.video, v: true, tit: x.tit, leg: '' }], i: 0 }, null);
+  else if (it.k === 'fotos') mostrar({ tipo: 'foto', itens: fotos.map(function (f) { return { u: f.u, tit: x.tit + ' · obra da HR', leg: f.leg }; }), i: 0 }, null);
+  else { var t = tela(x, it.j); mostrar({ tipo: 'expl', tit: t.tit, sub: t.sub, pontos: t.pontos, num: t.num, svg: t.svg(), etapa: n > 1 ? (i + 1) + ' de ' + n : '' }, null); }
   if (ABA === 'expl') detalhe();
 }
 function passo(d) {
   var sh = EST && EST.show;
   if (CUR) {
-    var naFoto = CUR.i >= CUR.x.telas.length && sh && sh.n > 1, j = sh ? sh.i + d : 0;
+    var it = seq(CUR.x)[CUR.i] || {}, naFoto = it.k === 'fotos' && sh && sh.n > 1, j = sh ? sh.i + d : 0;
     if (!(naFoto && j >= 0 && j < sh.n)) { var i = CUR.i + d, n = totalTelas(CUR.x); if (i < 0 || i >= n) { toast(i < 0 ? 'Essa é a primeira tela.' : 'Essa é a última tela.'); return; } mandarTela(CUR.x, i); return; }
   }
   if (!sh || !sh.n) return; var k = (sh.i + d + sh.n) % sh.n; sh.i = k; painel(); marcarAtivo(); post('/totem/passo', { i: k });
@@ -143,7 +146,7 @@ function passo(d) {
 function abaExpl() {
   if (CUR) return detalhe();
   $('tit').textContent = 'Explicar ao cliente';
-  $('corpo').innerHTML = '<div class="grade" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">' + EXPL.map(function (x, i) { return '<button class="card" data-k="expl:' + x.id + '" data-i="' + i + '"><span class="tv">NA TV</span><span class="im">' + x.telas[0].svg() + '</span><span class="tx"><b>' + esc(x.tit) + '</b><small>' + esc(x.sub) + (x.telas.length > 1 ? ' · ' + x.telas.length + ' telas' : '') + '</small></span></button>'; }).join('') + '</div>';
+  $('corpo').innerHTML = '<div class="grade" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">' + EXPL.map(function (x, i) { return '<button class="card" data-k="expl:' + x.id + '" data-i="' + i + '"><span class="tv">NA TV</span>' + (x.video ? '<span class="vid" style="top:8px;left:8px;background:#ecd27c;color:#1a1408;font-weight:700">▶ VÍDEO</span>' : '') + '<span class="im">' + x.telas[0].svg() + '</span><span class="tx"><b>' + esc(x.tit) + '</b><small>' + esc(x.sub) + '</small></span></button>'; }).join('') + '</div>';
   $('corpo').querySelectorAll('.card').forEach(function (b) { b.onclick = function () { abrirAssunto(EXPL[+b.dataset.i]); }; });
   marcarAtivo();
 }
@@ -152,19 +155,23 @@ function abrirAssunto(x) {
   if (x.busca && !FOTOS_EXPL[x.id]) fetch(api('/totem/busca?q=' + encodeURIComponent(x.busca))).then(function (r) { return r.json(); }).then(function (j) { FOTOS_EXPL[x.id] = j.itens || []; if (CUR && CUR.x === x && ABA === 'expl') detalhe(); }).catch(function () {});
 }
 function detalhe() {
-  var x = CUR.x, i = CUR.i, n = totalTelas(x), fotos = FOTOS_EXPL[x.id] || [];
+  var x = CUR.x, i = CUR.i, l = seq(x), n = l.length, it = l[i] || l[0], fotos = FOTOS_EXPL[x.id] || [];
   $('tit').textContent = x.tit;
   $('cabAc').innerHTML = '<button class="bt" id="voltaLista">‹ Assuntos</button>';
   $('voltaLista').onclick = function () { CUR = null; $('cabAc').innerHTML = ''; abaExpl(); };
-  var miniaturas = x.telas.map(function (t, k) { return '<button class="card' + (k === i ? ' on' : '') + '" data-t="' + k + '"><span class="im">' + t.svg() + '</span><span class="tx"><b>' + (k + 1) + '. ' + esc(tela(x, k).tit) + '</b></span></button>'; }).join('') +
-    (fotos.length ? '<button class="card' + (i >= x.telas.length ? ' on' : '') + '" data-t="' + x.telas.length + '"><span class="im" style="background-image:url(&quot;' + esc(fotos[0].u) + '&quot;)"></span><span class="tx"><b>' + (x.telas.length + 1) + '. Fotos de obras (' + fotos.length + ')</b></span></button>' : '');
-  var grande = i < x.telas.length ? '<div style="background:#101014;border:1px solid var(--linha);border-radius:16px;padding:8px;aspect-ratio:16/10">' + x.telas[i].svg() + '</div>' : '<div class="vazio">Fotos de obras na TV: use ‹ › ao lado para passar.</div>';
+  var miniaturas = l.map(function (q, k) {
+    var im = q.k === 'video' ? '<span class="im" style="position:relative"><video src="/tela/vid/' + x.video + '#t=3" muted preload="metadata"></video></span>' : q.k === 'fotos' ? '<span class="im" style="background-image:url(&quot;' + esc(fotos[0].u) + '&quot;)"></span>' : '<span class="im">' + x.telas[q.j].svg() + '</span>';
+    var nm = q.k === 'video' ? '▶ Vídeo animado' : q.k === 'fotos' ? 'Fotos de obras (' + fotos.length + ')' : esc(tela(x, q.j).tit);
+    return '<button class="card' + (k === i ? ' on' : '') + '" data-t="' + k + '">' + im + '<span class="tx"><b>' + (k + 1) + '. ' + nm + '</b></span></button>'; }).join('');
+  var grande = it.k === 'tela' ? '<div style="background:#101014;border:1px solid var(--linha);border-radius:16px;padding:8px;aspect-ratio:16/10">' + x.telas[it.j].svg() + '</div>'
+    : it.k === 'video' ? '<video src="/tela/vid/' + x.video + '" muted autoplay loop playsinline style="width:100%;border-radius:16px;border:1px solid var(--linha);background:#000"></video><div style="color:var(--sub);font-size:14px;margin-top:6px">O vídeo passa na TV com som. Aqui no tablet fica sem som.</div>'
+    : '<div class="vazio">Fotos de obras na TV: use ‹ › ao lado para passar.</div>';
   $('corpo').innerHTML = '<div style="display:flex;gap:10px;margin-bottom:12px"><button class="bt" id="tAnt"' + (i <= 0 ? ' disabled' : '') + '>◀ Anterior</button><div style="flex:1;align-self:center;text-align:center;color:var(--sub)">Tela ' + (i + 1) + ' de ' + n + '</div><button class="bt ouro" id="tProx"' + (i >= n - 1 ? ' disabled' : '') + '>Próxima ▶</button></div>' +
-    grande + (i < x.telas.length ? '<div style="display:flex;justify-content:flex-end;margin:10px 0 4px"><button class="bt" id="tEd">✏️ Editar o texto desta tela</button></div>' : '') +
+    grande + (it.k === 'tela' ? '<div style="display:flex;justify-content:flex-end;margin:10px 0 4px"><button class="bt" id="tEd">✏️ Editar o texto desta tela</button></div>' : '') +
     '<div class="grade" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin-top:10px">' + miniaturas + '</div>';
   $('tAnt').onclick = function () { mandarTela(x, i - 1); };
   $('tProx').onclick = function () { mandarTela(x, i + 1); };
-  if ($('tEd')) $('tEd').onclick = function () { editarTela(x, i); };
+  if ($('tEd')) $('tEd').onclick = function () { editarTela(x, it.j); };
   $('corpo').querySelectorAll('.card').forEach(function (b) { b.onclick = function () { mandarTela(x, +b.dataset.t); }; });
 }
 function editarTela(x, i) {
@@ -176,7 +183,7 @@ function editarTela(x, i) {
     '<textarea class="campo" id="edPt" style="min-height:220px;font-size:18px;line-height:1.5">' + esc(t.pontos.join('\n')) + '</textarea>' +
     '<div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap"><button class="bt ouro" id="edOk">Salvar e mostrar na TV</button><button class="bt" id="edRes">Voltar ao texto original</button><button class="bt verm" id="edX">Cancelar</button></div></div>';
   document.body.appendChild(ov);
-  var fim = function (corpo) { post('/totem/expl-edit', corpo).then(function (j) { if (j.ok) { ED = j.ed || ED; ov.remove(); mandarTela(x, i); toast('Texto salvo.'); } else toast('Não consegui salvar.'); }); };
+  var fim = function (corpo) { post('/totem/expl-edit', corpo).then(function (j) { if (j.ok) { ED = j.ed || ED; ov.remove(); mandarTela(x, CUR ? CUR.i : 0); toast('Texto salvo.'); } else toast('Não consegui salvar.'); }); };
   $('edOk').onclick = function () { fim({ id: x.id, i: i, tit: $('edTit').value.trim(), pontos: $('edPt').value.split('\n').map(function (l) { return l.trim(); }).filter(Boolean) }); };
   $('edRes').onclick = function () { fim({ id: x.id, i: i, restaurar: 1 }); };
   $('edX').onclick = function () { ov.remove(); };

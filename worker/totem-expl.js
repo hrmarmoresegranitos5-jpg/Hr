@@ -67,7 +67,7 @@ function NOTAS3(x, y, l) { // três barrinhas de nota: [rótulo, 1 a 5]
 
 // ═══ a biblioteca ═══
 var EXPL = [
- { id: 'rebaixo', tit: 'Rebaixo americano', sub: 'A área da cuba fica mais baixa que a bancada', busca: 'rebaixo',
+ { id: 'rebaixo', tit: 'Rebaixo americano', sub: 'A área da cuba fica mais baixa que a bancada', busca: 'rebaixo', video: 'rebaixo-americano.mp4',
    telas: [
     { tit: 'O que é o rebaixo americano', sub: 'Uma "bandeja" de pedra em volta da cuba', num: 1,
       pontos: ['Bancada: a pedra no nível normal', 'Rebaixo: a área em volta da cuba fica de 2 a 4 cm mais baixa', 'Cuba: fica embutida por baixo, dentro do rebaixo', 'A torneira fica na parte de trás do rebaixo ou na parede'],
