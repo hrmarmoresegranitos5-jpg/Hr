@@ -109,143 +109,77 @@ function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace
 function post(c, b) { return fetch(api(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }).then(function (r) { return r.json(); }); }
 try { if ('serviceWorker' in navigator) navigator.serviceWorker.register(api('/totem/sw.js'), { scope: '/totem' }).catch(function () {}); } catch (e) {}
 
-// ═══ desenhos das explicações ═══
-var DEFS = '<defs><linearGradient id="pd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bdb7ac"/><stop offset="1" stop-color="#7d786f"/></linearGradient>' +
-  '<linearGradient id="pe" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4a52"/><stop offset="1" stop-color="#26262c"/></linearGradient>' +
-  '<linearGradient id="cb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eef2f5"/><stop offset="1" stop-color="#9eabb6"/></linearGradient>' +
-  '<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#ecd27c"/></marker>' +
-  '<marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6fb7ff"/></marker></defs>';
-function SV(b, vb) { return '<svg viewBox="' + (vb || '0 0 800 500') + '" xmlns="http://www.w3.org/2000/svg" font-family="Outfit,Arial,sans-serif">' + DEFS + b + '</svg>'; }
-function T(x, y, t, o) { o = o || {}; return '<text x="' + x + '" y="' + y + '" fill="' + (o.c || '#ecd27c') + '" font-size="' + (o.s || 22) + '" text-anchor="' + (o.a || 'start') + '" font-weight="' + (o.w || 500) + '">' + t + '</text>'; }
-function L(x1, y1, x2, y2, o) { o = o || {}; var m = 'url(#' + (o.m || 'ar') + ')'; return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + (o.c || '#ecd27c') + '" stroke-width="' + (o.w || 2) + '"' + (o.d ? ' stroke-dasharray="' + o.d + '"' : '') + (o.n ? '' : ' marker-end="' + m + '"') + (o.dupla ? ' marker-start="' + m + '"' : '') + '/>'; }
-function P(d, f, s, w) { return '<path d="' + d + '" fill="' + (f || 'url(#pd)') + '" stroke="' + (s || '#2e2b27') + '" stroke-width="' + (w || 2) + '" stroke-linejoin="round"/>'; }
-function RC(x, y, w, h, f, r) { return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + (r || 0) + '" fill="' + (f || 'url(#pd)') + '" stroke="#2e2b27" stroke-width="2"/>'; }
-function GOTA(x, y, s) { s = s || 1; return '<path d="M' + x + ' ' + y + 'c' + (-7 * s) + ' ' + (10 * s) + ' ' + (-9 * s) + ' ' + (14 * s) + ' ' + (-9 * s) + ' ' + (18 * s) + 'a' + (9 * s) + ' ' + (9 * s) + ' 0 0 0 ' + (18 * s) + ' 0c0 ' + (-4 * s) + ' ' + (-2 * s) + ' ' + (-8 * s) + ' ' + (-9 * s) + ' ' + (-18 * s) + 'z" fill="#6fb7ff"/>'; }
-function PAREDE(x, y, w, h) { return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="url(#pe)"/>'; }
-function cubaMini(ox, oy, tipo, nome) {
-  var s = '', top = oy + 70, esp = 22, a = ox + 120, b = ox + 260, fundo = oy + 170;
-  var bacia = function (y0) { return P('M' + (a + 6) + ' ' + y0 + ' V' + (fundo - 30) + ' Q' + (a + 6) + ' ' + fundo + ' ' + (a + 50) + ' ' + fundo + ' H' + (b - 50) + ' Q' + (b - 6) + ' ' + fundo + ' ' + (b - 6) + ' ' + (fundo - 30) + ' V' + y0, 'url(#cb)', '#5b6670'); };
-  if (tipo === 'sobrepor') s += RC(ox + 20, top, a - ox - 14, esp) + RC(b + 6, top, ox + 360 - b - 6, esp) + bacia(top + esp) + RC(a - 18, top - 12, b - a + 36, 12, 'url(#cb)', 4);
-  else if (tipo === 'embutir') s += bacia(top + esp + 10) + RC(a - 16, top + esp, b - a + 32, 10, 'url(#cb)', 3) + RC(ox + 20, top, a - ox - 20, esp) + RC(b, top, ox + 360 - b, esp);
-  else if (tipo === 'flush') s += bacia(top + 10) + P('M' + (ox + 20) + ' ' + top + ' H' + (a - 14) + ' V' + (top + 10) + ' H' + a + ' V' + (top + esp) + ' H' + (ox + 20) + ' Z') + P('M' + (ox + 360) + ' ' + top + ' H' + (b + 14) + ' V' + (top + 10) + ' H' + b + ' V' + (top + esp) + ' H' + (ox + 360) + ' Z') + RC(a - 12, top, b - a + 24, 10, 'url(#cb)', 2);
-  else s += P('M' + (ox + 20) + ' ' + top + ' H' + a + ' L' + (a + 12) + ' ' + (fundo - 20) + ' Q' + (ox + 190) + ' ' + (fundo - 6) + ' ' + (b - 12) + ' ' + (fundo - 34) + ' L' + b + ' ' + top + ' H' + (ox + 360) + ' V' + (top + esp) + ' H' + (b + 14) + ' L' + (b + 2) + ' ' + (fundo - 14) + ' Q' + (ox + 190) + ' ' + (fundo + 18) + ' ' + (a - 2) + ' ' + (fundo + 4) + ' L' + (a - 14) + ' ' + (top + esp) + ' H' + (ox + 20) + ' Z');
-  return s + T(ox + 190, oy + 220, nome, { a: 'middle', s: 24, w: 600, c: '#f3ecdb' });
-}
-function borda(ox, oy, tipo, nome) {
-  var x = ox + 30, y = oy + 50, w = 250, h = 40, d = '';
-  if (tipo === 'reto') d = 'M' + x + ' ' + y + ' H' + (x + w - 3) + ' L' + (x + w) + ' ' + (y + 3) + ' V' + (y + h - 3) + ' L' + (x + w - 3) + ' ' + (y + h) + ' H' + x + ' Z';
-  else if (tipo === 'boleado') d = 'M' + x + ' ' + y + ' H' + (x + w - 20) + ' A20 20 0 0 1 ' + (x + w - 20) + ' ' + (y + h) + ' H' + x + ' Z';
-  else if (tipo === 'chanfro') d = 'M' + x + ' ' + y + ' H' + (x + w - 12) + ' L' + (x + w) + ' ' + (y + 12) + ' V' + (y + h - 12) + ' L' + (x + w - 12) + ' ' + (y + h) + ' H' + x + ' Z';
-  else d = 'M' + x + ' ' + y + ' H' + (x + w) + ' V' + (y + h + 60) + ' H' + (x + w - h) + ' V' + (y + h) + ' H' + x + ' Z';
-  return P(d) + (tipo === 's45' ? L(x + w - h, y + h, x + w, y, { n: 1, c: '#2e2b27', w: 2.5 }) : '') + T(ox + 155, oy + (tipo === 's45' ? 200 : 140), nome, { a: 'middle', s: 23, w: 600, c: '#f3ecdb' });
-}
-var EXPL = [
-  { id: 'rebaixo', tit: 'Rebaixo americano', sub: 'A área da cuba fica mais baixa que o resto da bancada',
-    pontos: ['Em volta da cuba a pedra fica de 2 a 4 cm mais baixa, como uma bandeja de pedra', 'Respingos e água ficam presos ali e escorrem direto para a cuba: o resto da bancada fica seco', 'Feito com recorte, polimento das bordas e um tampo de pedra colado por baixo', 'Acabamento sofisticado, sem rejunte na borda da cuba e fácil de limpar'],
-    svg: function () { return SV(PAREDE(0, 60, 800, 26) +
-      P('M40 190 H300 V222 H40 Z') + P('M500 190 H760 V222 H500 Z') + P('M268 222 H346 V252 H268 Z') + P('M454 222 H532 V252 H454 Z') +
-      P('M352 252 V330 Q352 385 400 385 Q448 385 448 330 V252', 'url(#cb)', '#5b6670') + RC(340, 252, 120, 8, 'url(#cb)', 3) +
-      GOTA(312, 160, .9) + GOTA(486, 150, .9) + L(318, 200, 344, 236, { c: '#6fb7ff', m: 'aa' }) + L(482, 200, 456, 236, { c: '#6fb7ff', m: 'aa' }) +
-      L(290, 190, 290, 222, { dupla: 1 }) + T(60, 170, 'Bancada', { c: '#f3ecdb' }) +
-      T(560, 150, 'Rebaixo de 2 a 4 cm') + L(556, 156, 470, 214) + T(560, 300, 'Tampo colado por baixo') + L(556, 294, 520, 248) +
-      T(90, 300, 'A água escorre') + T(90, 326, 'para a cuba') + L(250, 300, 330, 240, { c: '#6fb7ff', m: 'aa' }) + T(480, 380, 'Cuba') + L(476, 372, 448, 352)); } },
-  { id: 'cubas', tit: 'Tipos de cuba', sub: 'Como a cuba fica presa na pedra',
-    pontos: ['Sobrepor: a borda da cuba fica por cima da pedra. É a mais simples e econômica', 'Embutir: a cuba fica por baixo da pedra e só aparece a bacia. Mais bonita e fácil de limpar', 'Flush: a borda da cuba fica no mesmo nível da pedra, num rebaixo feito na bancada', 'Esculpida: a própria pedra vira a cuba, sem emenda aparente. A mais nobre'],
-    svg: function () { return SV(cubaMini(10, 0, 'sobrepor', 'Sobrepor') + cubaMini(410, 0, 'embutir', 'Embutir') + cubaMini(10, 250, 'flush', 'Flush (no nível)') + cubaMini(410, 250, 'esculpida', 'Esculpida na pedra')); } },
-  { id: 'esculpida', tit: 'Cuba esculpida', sub: 'A cuba é feita na própria pedra da bancada',
-    pontos: ['Peças da mesma pedra coladas e polidas formam a bacia: tudo combina', 'Fundo inclinado leva a água para um ralo escondido, coberto por uma tampa de pedra', 'Não tem borda de louça nem metal: limpeza fácil e visual de luxo', 'Muito usada em banheiros e lavabos'],
-    svg: function () { return SV(PAREDE(0, 40, 800, 26) +
-      P('M60 160 H230 L250 330 L560 300 L560 160 H740 V194 H596 V330 L570 352 L240 372 L208 194 H60 Z') +
-      '<path d="M250 330 L560 300" stroke="#6fb7ff" stroke-width="3"/>' + RC(520, 296, 44, 10, '#3a3a40', 2) +
-      L(270, 338, 500, 316, { c: '#6fb7ff', m: 'aa' }) + T(280, 420, 'Fundo inclinado para o ralo', { c: '#f3ecdb' }) +
-      T(600, 250, 'Ralo escondido') + L(640, 258, 548, 296) + T(70, 140, 'Tudo na mesma pedra', { c: '#f3ecdb' }) +
-      '<path d="M542 352 V470" stroke="#5b6670" stroke-width="12"/>' + T(560, 466, 'Esgoto', { c: '#a99c80', s: 18 })); } },
-  { id: 'bordas', tit: 'Acabamento da borda', sub: 'O formato da quina da pedra',
-    pontos: ['Reto: quina levemente quebrada. Moderno e o mais pedido', 'Boleado: borda arredondada. Mais seguro para crianças', 'Chanfrado: quinas cortadas em ângulo. Discreto e elegante', 'Saia em 45°: a borda parece uma pedra bem grossa'],
-    svg: function () { return SV(borda(60, 10, 'reto', 'Reto') + borda(430, 10, 'boleado', 'Boleado') + borda(60, 220, 'chanfro', 'Chanfrado') + borda(430, 190, 's45', 'Saia em 45°')); } },
-  { id: 'saia', tit: 'Saia em 45° (meia-esquadria)', sub: 'A bancada parece uma pedra maciça e grossa',
-    pontos: ['Uma faixa da mesma pedra é colada na frente, com as duas peças cortadas a 45°', 'A emenda fica na quina e quase não aparece', 'Altura comum: de 4 a 10 cm, à sua escolha', 'Valoriza muito cozinhas, ilhas e bancadas de banheiro'],
-    svg: function () { return SV(P('M80 170 H640 V330 H608 V202 H80 Z') + L(608, 202, 640, 170, { n: 1, c: '#2e2b27', w: 3 }) +
-      L(690, 170, 690, 330, { dupla: 1 }) + T(704, 256, 'Saia', { s: 22 }) + T(704, 282, '4 a 10 cm', { s: 20, c: '#f3ecdb' }) +
-      T(400, 120, 'Emenda a 45° na quina') + L(560, 128, 622, 182) + T(90, 150, 'Bancada (2 cm)', { c: '#f3ecdb' }) +
-      T(400, 420, 'De frente, parece uma pedra grossa e maciça', { a: 'middle', c: '#a99c80', s: 21 })); } },
-  { id: 'frontao', tit: 'Frontão', sub: 'A faixa de pedra encostada na parede',
-    pontos: ['Protege a parede de água, gordura e respingos', 'Altura comum de 7 a 15 cm, ou até o armário (espelho inteiro)', 'Feito da mesma pedra da bancada, com acabamento na parte de cima', 'Deixa a limpeza mais fácil atrás da torneira e do fogão'],
-    svg: function () { return SV(PAREDE(60, 40, 48, 420) + RC(108, 210, 32, 120) + RC(108, 330, 600, 34) +
-      GOTA(220, 260) + GOTA(262, 228, .8) + L(210, 250, 150, 238, { c: '#6fb7ff', m: 'aa' }) +
-      T(170, 190, 'Frontão (7 a 15 cm)') + L(166, 196, 142, 230) + T(420, 410, 'Bancada', { c: '#f3ecdb' }) + T(56, 30, 'Parede', { c: '#a99c80', s: 20 })); } },
-  { id: 'pedras', tit: 'Granito, mármore ou quartzo?', sub: 'Cada pedra tem o seu ponto forte',
-    pontos: ['Granito: natural, muito resistente e com o melhor custo. Cada chapa é única', 'Mármore: veios elegantes, mas risca e mancha com ácidos (limão, vinagre)', 'Quartzo: industrializado, cor uniforme e quase não mancha. Evite panela quente direto', 'Quartzito: natural, com cara de mármore e resistência de granito'],
-    svg: function () {
-      var lin = [['Resiste a risco', 4, 2, 4, 4], ['Resiste a mancha', 3, 1, 5, 3], ['Resiste ao calor', 5, 3, 2, 5], ['Preço', 1, 3, 3, 4]], cols = ['Granito', 'Mármore', 'Quartzo', 'Quartzito'], s = '';
-      cols.forEach(function (c, i) { s += T(250 + i * 145, 70, c, { a: 'middle', s: 22, w: 600, c: '#f3ecdb' }); });
-      lin.forEach(function (l, j) { var y = 140 + j * 85; s += T(10, y + 7, l[0], { s: 19 });
-        for (var i = 0; i < 4; i++) for (var k = 0; k < 5; k++) s += '<circle cx="' + (198 + i * 145 + k * 26) + '" cy="' + y + '" r="9" fill="' + (k < l[i + 1] ? (j === 3 ? '#e0a050' : '#5fd38a') : 'rgba(255,255,255,.12)') + '"/>'; });
-      return SV(s + T(400, 480, 'Mais bolinhas = mais resistente (no preço: mais caro)', { a: 'middle', s: 17, c: '#a99c80' }));
-    } },
-  { id: 'superficie', tit: 'Polido, levigado ou flameado?', sub: 'O acabamento da superfície',
-    pontos: ['Polido: brilhante, realça a cor. O mais usado em bancadas', 'Levigado (escovado): fosco e aveludado, disfarça marcas de dedo', 'Flameado ou apicoado: áspero e antiderrapante, para área externa, escada e piscina'],
-    svg: function () {
-      var dots = ''; for (var i = 0; i < 160; i++) dots += '<circle cx="' + (570 + (i * 37 % 180)) + '" cy="' + (125 + (i * 53 % 220)) + '" r="' + (1 + i % 3) + '" fill="rgba(40,36,30,.45)"/>';
-      return SV(RC(40, 110, 200, 240, 'url(#pd)', 14) + '<path d="M60 130 L120 130 L60 220 Z" fill="rgba(255,255,255,.55)"/><path d="M90 300 L220 140" stroke="rgba(255,255,255,.35)" stroke-width="10"/>' +
-        RC(300, 110, 200, 240, '#9d988e', 14) + RC(560, 110, 200, 240, '#8f8a80', 14) + dots +
-        T(140, 400, 'Polido', { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }) + T(400, 400, 'Levigado', { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }) + T(660, 400, 'Flameado', { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }) +
-        T(140, 430, 'brilho', { a: 'middle', s: 18, c: '#a99c80' }) + T(400, 430, 'fosco', { a: 'middle', s: 18, c: '#a99c80' }) + T(660, 430, 'antiderrapante', { a: 'middle', s: 18, c: '#a99c80' }));
-    } },
-  { id: 'nicho', tit: 'Nicho embutido', sub: 'Prateleira dentro da parede do box',
-    pontos: ['Fica embutido na parede: não ocupa espaço no banho', 'Base com leve caimento para a água não empoçar', 'Moldura em 45° na frente, com acabamento de pedra maciça', 'Medidas por dentro do jeito que você precisar (ex.: 60 x 30 cm)'],
-    svg: function () { return SV('<rect x="0" y="0" width="800" height="500" fill="#2a2a30"/>' + RC(190, 70, 420, 300, 'url(#pd)', 4) + RC(222, 102, 356, 236, '#16161a', 2) +
-      '<path d="M190 70 L222 102 M610 70 L578 102 M190 370 L222 338 M610 370 L578 338" stroke="#2e2b27" stroke-width="2"/>' +
-      P('M222 320 L578 310 V338 H222 Z') + L(240, 140, 560, 140, { dupla: 1 }) + T(400, 130, 'Largura por dentro', { a: 'middle', s: 20 }) +
-      L(250, 155, 250, 305, { dupla: 1 }) + T(262, 240, 'Altura', { s: 20 }) + T(400, 300, 'base com caimento', { a: 'middle', s: 18, c: '#a99c80' }) + T(400, 440, 'Moldura em 45°', { a: 'middle' }) + L(400, 418, 400, 372)); } },
-  { id: 'peitoril', tit: 'Peitoril e soleira com pingadeira', sub: 'Proteção contra água e infiltração',
-    pontos: ['Peitoril: com caimento para fora, a chuva não volta para a parede', 'Pingadeira: um friso por baixo da pedra que faz a gota cair longe da parede', 'Sem pingadeira a água escorre na parede e deixa mancha e mofo', 'Soleira: faz a divisa entre ambientes e segura a água do box e da área'],
-    svg: function () { return SV(PAREDE(80, 40, 140, 420) + RC(150, 60, 40, 150, '#6fa6c9') + T(80, 30, 'Janela', { c: '#a99c80', s: 18 }) +
-      P('M150 210 H620 L620 236 H560 V244 H548 V236 H150 Z') + GOTA(600, 150) + L(560, 196, 612, 212, { c: '#6fb7ff', m: 'aa' }) +
-      GOTA(578, 290, .8) + L(554, 250, 576, 284, { c: '#6fb7ff', m: 'aa', d: '4 4' }) +
-      T(300, 170, 'Caimento para fora') + T(250, 330, 'Pingadeira: a gota cai aqui,') + T(250, 356, 'longe da parede') + L(470, 312, 552, 250)); } },
-  { id: 'cooktop', tit: 'Recorte do cooktop e da cuba', sub: 'Feitos sob medida para o seu aparelho',
-    pontos: ['O recorte é feito pela medida do manual ou do próprio aparelho', 'Cantos arredondados por dentro evitam trincas na pedra', 'Deixamos a distância certa da borda e da parede', 'Furos de torneira e de misturador já saem prontos'],
-    svg: function () { return SV(RC(40, 90, 720, 300, 'url(#pd)', 6) + RC(110, 160, 220, 150, '#1b1b20', 16) + '<circle cx="170" cy="210" r="26" fill="none" stroke="#555" stroke-width="5"/><circle cx="270" cy="260" r="30" fill="none" stroke="#555" stroke-width="5"/>' +
-      RC(470, 160, 200, 150, 'url(#cb)', 26) + '<circle cx="570" cy="235" r="10" fill="#5b6670"/><circle cx="570" cy="130" r="9" fill="#2e2b27"/>' +
-      T(220, 350, 'Cooktop', { a: 'middle', c: '#f3ecdb' }) + T(570, 350, 'Cuba', { a: 'middle', c: '#f3ecdb' }) + T(590, 124, 'Furo da torneira', { s: 18 }) +
-      T(400, 450, 'Cantos arredondados por dentro: a pedra não trinca', { a: 'middle', s: 20, c: '#a99c80' })); } },
-  { id: 'processo', tit: 'Como fazemos o seu projeto', sub: 'Do orçamento à instalação',
-    pontos: ['Medição no local: medimos tudo no seu imóvel, sem chute', 'Projeto e aprovação: você vê o desenho e confirma pedra e acabamentos', 'Corte e acabamento na nossa oficina', 'Instalação pela nossa equipe, com limpeza no final', 'O prazo começa a contar depois da medição e do sinal'],
-    svg: function () { var n = ['Medição', 'Projeto', 'Oficina', 'Instalação'], ic = ['📏', '📐', '⚙️', '🏠'], s = '';
-      n.forEach(function (t, i) { var x = 110 + i * 193; s += '<circle cx="' + x + '" cy="210" r="70" fill="rgba(201,168,76,.13)" stroke="#ecd27c" stroke-width="3"/>' + T(x, 232, ic[i], { a: 'middle', s: 56 }) + T(x, 325, (i + 1) + '. ' + t, { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }); if (i < 3) s += L(x + 78, 210, x + 113, 210); });
-      return SV(s); } },
-  { id: 'cuidados', tit: 'Cuidados com a pedra', sub: 'Para durar a vida toda',
-    pontos: ['Limpe com pano úmido e detergente neutro', 'Evite limão, vinagre, água sanitária e produtos com ácido, principalmente no mármore', 'Use tábua para cortar e descanso para panela quente', 'Refaça a impermeabilização a cada 1 ou 2 anos'],
-    svg: function () { var it = [['🧽', 'Detergente neutro', 1], ['🍋', 'Limão e vinagre', 0], ['🍳', 'Panela quente direto', 0], ['💧', 'Impermeabilizar', 1]], s = '';
-      it.forEach(function (x, i) { var cx = 170 + (i % 2) * 380, cy = 140 + Math.floor(i / 2) * 210; s += '<circle cx="' + (cx - 60) + '" cy="' + cy + '" r="58" fill="' + (x[2] ? 'rgba(95,211,138,.16)' : 'rgba(255,100,80,.14)') + '"/>' + T(cx - 60, cy + 20, x[0], { a: 'middle', s: 54 }) +
-        T(cx + 15, cy - 4, x[1], { s: 23, w: 600, c: '#f3ecdb' }) + T(cx + 15, cy + 28, x[2] ? 'Pode usar' : 'Evite', { s: 20, c: x[2] ? '#5fd38a' : '#ff9e90' }); });
-      return SV(s); } },
-  { id: 'imperm', tit: 'Impermeabilização', sub: 'Uma proteção invisível contra manchas',
-    pontos: ['O produto entra nos poros da pedra e fecha a passagem de líquidos', 'Com proteção, a gota fica em cima e é só passar um pano', 'Sem proteção, óleo, café e vinho entram na pedra e mancham', 'Recomendamos refazer a cada 1 ou 2 anos'],
-    svg: function () { return SV(RC(40, 260, 330, 70) + RC(430, 260, 330, 70) + '<ellipse cx="205" cy="236" rx="46" ry="26" fill="#6fb7ff"/><ellipse cx="190" cy="228" rx="12" ry="6" fill="rgba(255,255,255,.6)"/>' +
-      '<ellipse cx="595" cy="262" rx="80" ry="9" fill="#5a85a8"/><path d="M535 268 Q595 320 655 268" fill="rgba(70,90,110,.65)"/>' +
-      T(205, 380, 'Com impermeabilizante', { a: 'middle', s: 22, w: 600, c: '#5fd38a' }) + T(205, 408, 'a gota fica em cima', { a: 'middle', s: 19, c: '#a99c80' }) +
-      T(595, 380, 'Sem proteção', { a: 'middle', s: 22, w: 600, c: '#ff9e90' }) + T(595, 408, 'a pedra absorve e mancha', { a: 'middle', s: 19, c: '#a99c80' })); } }
-];
-
+/*<<EXPL>>*/
 // ═══ estado e navegação ═══
 var ABA = 'expl', CAT = null, EST = null, ARQS = [], LISTA = null, MOD = [], PED = [];
 document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { abrir(b.dataset.t); }; });
 function abrir(t) { ABA = t; document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === t); }); $('cabAc').innerHTML = ''; $('corpo').scrollTop = 0; ({ expl: abaExpl, fotos: abaFotos, pedras: abaPedras, arqs: abaArqs, pix: abaPix })[t](); }
 // LISTA: as chaves (data-k) dos cartões na ordem dos itens que foram para a TV, para marcar o que está passando
 function mostrar(show, chaves) {
-  LISTA = chaves || null;
+  LISTA = chaves || null; if (chaves) CUR = null;
   return post('/totem/mostrar', show).then(function (j) { if (!j.ok) throw new Error(j.erro || 'Não foi'); return estado(); }).catch(function (e) { toast('Não consegui mandar para a TV: ' + e.message); });
 }
-function limparTv() { post('/totem/mostrar', { limpar: 1 }).then(function () { LISTA = null; estado(); toast('A TV voltou para o orçamento.'); }); }
-function passo(d) { if (!EST || !EST.show || !EST.show.n) return; var i = (EST.show.i + d + EST.show.n) % EST.show.n; EST.show.i = i; painel(); marcarAtivo(); post('/totem/passo', { i: i }); }
-
+function limparTv() { post('/totem/mostrar', { limpar: 1 }).then(function () { LISTA = null; CUR = null; if (ABA === 'expl') abaExpl(); estado(); toast('A TV voltou para o orçamento.'); }); }
+// ── explicações: cada assunto tem várias telas; CUR = assunto aberto e tela atual ──
+var CUR = null, ED = {}, FOTOS_EXPL = {};
+fetch(api('/totem/expl-edit')).then(function (r) { return r.json(); }).then(function (j) { ED = j.ed || {}; }).catch(function () {});
+function tela(x, i) { var t = x.telas[i], o = ED[x.id] && ED[x.id][i]; return { tit: (o && o.tit) || t.tit, sub: t.sub, pontos: (o && o.pontos && o.pontos.length) ? o.pontos : t.pontos, num: t.num, svg: t.svg }; }
+function totalTelas(x) { return x.telas.length + ((FOTOS_EXPL[x.id] || []).length ? 1 : 0); }
+function mandarTela(x, i) {
+  CUR = { x: x, i: i };
+  var n = totalTelas(x), fotos = FOTOS_EXPL[x.id] || [];
+  if (i >= x.telas.length) { mostrar({ tipo: 'foto', itens: fotos.map(function (f) { return { u: f.u, tit: x.tit + ' · obra da HR', leg: f.leg }; }), i: 0 }, null); }
+  else { var t = tela(x, i); mostrar({ tipo: 'expl', tit: t.tit, sub: t.sub, pontos: t.pontos, num: t.num, svg: t.svg(), etapa: n > 1 ? (i + 1) + ' de ' + n : '' }, null); }
+  if (ABA === 'expl') detalhe();
+}
+function passo(d) {
+  var sh = EST && EST.show;
+  if (CUR) {
+    var naFoto = CUR.i >= CUR.x.telas.length && sh && sh.n > 1, j = sh ? sh.i + d : 0;
+    if (!(naFoto && j >= 0 && j < sh.n)) { var i = CUR.i + d, n = totalTelas(CUR.x); if (i < 0 || i >= n) { toast(i < 0 ? 'Essa é a primeira tela.' : 'Essa é a última tela.'); return; } mandarTela(CUR.x, i); return; }
+  }
+  if (!sh || !sh.n) return; var k = (sh.i + d + sh.n) % sh.n; sh.i = k; painel(); marcarAtivo(); post('/totem/passo', { i: k });
+}
 function abaExpl() {
+  if (CUR) return detalhe();
   $('tit').textContent = 'Explicar ao cliente';
-  $('corpo').innerHTML = '<div class="grade">' + EXPL.map(function (x, i) { return '<button class="card" data-k="expl:' + x.id + '" data-i="' + i + '"><span class="tv">NA TV</span><span class="im">' + x.svg() + '</span><span class="tx"><b>' + esc(x.tit) + '</b><small>' + esc(x.sub) + '</small></span></button>'; }).join('') + '</div>';
-  $('corpo').querySelectorAll('.card').forEach(function (b) { b.onclick = function () { var x = EXPL[+b.dataset.i]; mostrar({ tipo: 'expl', tit: x.tit, sub: x.sub, pontos: x.pontos, svg: x.svg() }, ['expl:' + x.id]); }; });
+  $('corpo').innerHTML = '<div class="grade" style="grid-template-columns:repeat(auto-fill,minmax(210px,1fr))">' + EXPL.map(function (x, i) { return '<button class="card" data-k="expl:' + x.id + '" data-i="' + i + '"><span class="tv">NA TV</span><span class="im">' + x.telas[0].svg() + '</span><span class="tx"><b>' + esc(x.tit) + '</b><small>' + esc(x.sub) + (x.telas.length > 1 ? ' · ' + x.telas.length + ' telas' : '') + '</small></span></button>'; }).join('') + '</div>';
+  $('corpo').querySelectorAll('.card').forEach(function (b) { b.onclick = function () { abrirAssunto(EXPL[+b.dataset.i]); }; });
   marcarAtivo();
+}
+function abrirAssunto(x) {
+  mandarTela(x, 0);
+  if (x.busca && !FOTOS_EXPL[x.id]) fetch(api('/totem/busca?q=' + encodeURIComponent(x.busca))).then(function (r) { return r.json(); }).then(function (j) { FOTOS_EXPL[x.id] = j.itens || []; if (CUR && CUR.x === x && ABA === 'expl') detalhe(); }).catch(function () {});
+}
+function detalhe() {
+  var x = CUR.x, i = CUR.i, n = totalTelas(x), fotos = FOTOS_EXPL[x.id] || [];
+  $('tit').textContent = x.tit;
+  $('cabAc').innerHTML = '<button class="bt" id="voltaLista">‹ Assuntos</button>';
+  $('voltaLista').onclick = function () { CUR = null; $('cabAc').innerHTML = ''; abaExpl(); };
+  var miniaturas = x.telas.map(function (t, k) { return '<button class="card' + (k === i ? ' on' : '') + '" data-t="' + k + '"><span class="im">' + t.svg() + '</span><span class="tx"><b>' + (k + 1) + '. ' + esc(tela(x, k).tit) + '</b></span></button>'; }).join('') +
+    (fotos.length ? '<button class="card' + (i >= x.telas.length ? ' on' : '') + '" data-t="' + x.telas.length + '"><span class="im" style="background-image:url(&quot;' + esc(fotos[0].u) + '&quot;)"></span><span class="tx"><b>' + (x.telas.length + 1) + '. Fotos de obras (' + fotos.length + ')</b></span></button>' : '');
+  var grande = i < x.telas.length ? '<div style="background:#101014;border:1px solid var(--linha);border-radius:16px;padding:8px;aspect-ratio:16/10">' + x.telas[i].svg() + '</div>' : '<div class="vazio">Fotos de obras na TV: use ‹ › ao lado para passar.</div>';
+  $('corpo').innerHTML = '<div style="display:flex;gap:10px;margin-bottom:12px"><button class="bt" id="tAnt"' + (i <= 0 ? ' disabled' : '') + '>◀ Anterior</button><div style="flex:1;align-self:center;text-align:center;color:var(--sub)">Tela ' + (i + 1) + ' de ' + n + '</div><button class="bt ouro" id="tProx"' + (i >= n - 1 ? ' disabled' : '') + '>Próxima ▶</button></div>' +
+    grande + (i < x.telas.length ? '<div style="display:flex;justify-content:flex-end;margin:10px 0 4px"><button class="bt" id="tEd">✏️ Editar o texto desta tela</button></div>' : '') +
+    '<div class="grade" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin-top:10px">' + miniaturas + '</div>';
+  $('tAnt').onclick = function () { mandarTela(x, i - 1); };
+  $('tProx').onclick = function () { mandarTela(x, i + 1); };
+  if ($('tEd')) $('tEd').onclick = function () { editarTela(x, i); };
+  $('corpo').querySelectorAll('.card').forEach(function (b) { b.onclick = function () { mandarTela(x, +b.dataset.t); }; });
+}
+function editarTela(x, i) {
+  var t = tela(x, i), ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:95;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = '<div style="background:var(--cx);border:1px solid var(--linha);border-radius:18px;padding:20px;width:min(760px,96vw);max-height:94vh;overflow:auto">' +
+    '<b style="color:var(--ouro2);font-size:20px">Editar o texto da tela</b><div style="color:var(--sub);font-size:14px;margin:4px 0 12px">Escreva do seu jeito. Um tópico por linha. O desenho continua o mesmo.</div>' +
+    '<label class="rot">Título</label><input class="campo" id="edTit" value="' + esc(t.tit) + '"><label class="rot">Tópicos (um por linha)</label>' +
+    '<textarea class="campo" id="edPt" style="min-height:220px;font-size:18px;line-height:1.5">' + esc(t.pontos.join('\n')) + '</textarea>' +
+    '<div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap"><button class="bt ouro" id="edOk">Salvar e mostrar na TV</button><button class="bt" id="edRes">Voltar ao texto original</button><button class="bt verm" id="edX">Cancelar</button></div></div>';
+  document.body.appendChild(ov);
+  var fim = function (corpo) { post('/totem/expl-edit', corpo).then(function (j) { if (j.ok) { ED = j.ed || ED; ov.remove(); mandarTela(x, i); toast('Texto salvo.'); } else toast('Não consegui salvar.'); }); };
+  $('edOk').onclick = function () { fim({ id: x.id, i: i, tit: $('edTit').value.trim(), pontos: $('edPt').value.split('\n').map(function (l) { return l.trim(); }).filter(Boolean) }); };
+  $('edRes').onclick = function () { fim({ id: x.id, i: i, restaurar: 1 }); };
+  $('edX').onclick = function () { ov.remove(); };
 }
 var CATS = [['cozinha', 'Cozinhas'], ['banheiro', 'Banheiros'], ['lavabo', 'Lavabos'], ['gourmet', 'Áreas gourmet'], ['escada', 'Escadas'], ['soleira', 'Soleiras e peitoris'], ['nicho', 'Nichos'], ['servico', 'Áreas de serviço'], ['mesa', 'Mesas'], ['tumulo', 'Túmulos'], ['piso', 'Pisos']], modCat = 'cozinha';
 function abaFotos() {
@@ -367,14 +301,14 @@ function painel() {
   else if (g) t = '▶ <b>' + esc(g.titulo) + '</b> · ' + g.n + ' fotos passando';
   else t = 'Orçamento / tela de espera';
   $('agora').innerHTML = t;
-  $('nav2').style.display = s && s.n > 1 && !px ? 'flex' : 'none';
+  $('nav2').style.display = s && !px && (s.n > 1 || (CUR && totalTelas(CUR.x) > 1)) ? 'flex' : 'none';
   var pt = s && s.tipo === 'expl' && s.pontos && s.pontos.length && !px;
   $('pontos').style.display = pt ? 'block' : 'none';
   if (pt) $('pontos').innerHTML = '<b>Pontos para falar</b><ul>' + s.pontos.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
 }
 function marcarAtivo() {
   var s = EST && EST.show, alvo = '';
-  if (s && s.tipo === 'expl') { var x = EXPL.filter(function (e) { return e.tit === s.tit; })[0]; if (x) alvo = 'expl:' + x.id; }
+  if (s && s.tipo === 'expl' && CUR) alvo = 'expl:' + CUR.x.id;
   else if (s && LISTA) alvo = LISTA[s.i] || '';
   document.querySelectorAll('.card').forEach(function (c) { c.classList.toggle('on', !!alvo && c.getAttribute('data-k') === alvo); });
 }
@@ -393,7 +327,7 @@ function estado() {
     EST = j; $('luz').classList.add('on');
     if (j.tela && j.tela !== telaUrl) { telaUrl = j.tela; $('ifr').src = j.tela; }
     if (j.ver && j.ver !== VER) atualizar();
-    if (!j.show) LISTA = null;
+    if (!j.show) { LISTA = null; if (CUR && ABA === 'expl') { CUR = null; abaExpl(); } else CUR = null; }
     painel(); marcarAtivo();
     if (ABA === 'pix' && antes !== (j.pix ? j.pix.status : '')) abaPix();
   }).catch(function () { $('luz').classList.remove('on'); $('agora').textContent = 'Sem internet no tablet'; });
