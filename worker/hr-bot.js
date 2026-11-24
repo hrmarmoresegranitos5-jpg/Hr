@@ -2154,7 +2154,10 @@ function categoriaDe(desc) {
 function interpretarLancamento(bruto) {
   const original = String(bruto || '').trim();
   if (!original) return null;
-  if (/\b(falou que|disse que|diz que|vai fazer|vai pagar|vai transferir|vai mandar|iria|faria|pagaria|prometeu|ficou de|combinou|combinamos|cobr[ae]|cobrar)\b/i.test(normaliza(original))) return null; // v258: "Renata falou que hoje faria um pagamento de 500" é promessa de cliente, não gasto
+  if (/\b(falou que|disse que|diz que|vai fazer|vai pagar|vai transferir|vai mandar|iria|faria|pagaria|prometeu|ficou de|combinou|combinamos|cobr[ae]|cobrar)\b/i.test(normaliza(original))) return null; // v258: "Renata falou que hoje faria um pagamento de 500"
+  // v321: pedido sobre um serviço que já existe não é lançamento novo ("ele só deu 2 mil de entrada, prepare o PDF do restante" virava entrada de hoje)
+  if (/\b(prepar[ae]r?|pdf|restante|saldo|falta(m|ndo)?|orcamento|ger[ae]r?|busc[ae]r?|procur[ae]r?|confer[ei]r?)\b/i.test(normaliza(original))) return null;
+  if (/^(ele|ela|eles|elas|o cliente|a cliente)\b/i.test(normaliza(original)) && /\b(so|somente|apenas)\b/.test(normaliza(original))) return null; // (v258: é promessa de cliente, não gasto)
   const ent = original.match(RE_ENTRADA);
   const sai = original.match(RE_SAIDA);
   if (!ent && !sai) return null;
@@ -20240,7 +20243,7 @@ async function consultarHistoricoCliente(env, a) {
   const soma = r.orcamentos.reduce((t, o) => t + (Number(o.valor) || 0), 0);
   linhas.push(`${r.total} orçamento(s) no histórico completo (inclusive arquivados), do mais recente ao mais antigo; soma dos valores: R$ ${reais(soma)}.`);
   for (const o of r.orcamentos.slice(0, 25)) {
-    linhas.push(`- ${o.data ? dataBR(o.data) : 's/ data'}${o.orcNum ? ' | ' + o.orcNum : ''} | ${o.projeto || 'serviço'}${o.material ? ' (' + o.material + ')' : ''} | à vista R$ ${reais(Number(o.valor) || 0)}${Number(o.prazo) > 0 ? ' | a prazo R$ ' + reais(Number(o.prazo)) : ''}${o.entrada ? ' | entrada R$ ' + reais(Number(o.entrada)) : ''} | ${o.status || '?'}${o.arquivado ? ' | arquivado' : ''}`);
+    linhas.push(`- ${o.data ? dataBR(o.data) : 's/ data'}${o.orcNum ? ' | ' + o.orcNum : ''} | ${o.projeto || 'serviço'}${o.material ? ' (' + o.material + ')' : ''} | à vista R$ ${reais(Number(o.valor) || 0)}${Number(o.prazo) > 0 ? ' | a prazo R$ ' + reais(Number(o.prazo)) : ''}${o.entrada ? ' | entrada prevista no orçamento R$ ' + reais(Number(o.entrada)) + ' (o que foi pago de verdade está em consultar_entregas_pagamentos)' : ''} | ${o.status || '?'}${o.arquivado ? ' | arquivado' : ''}`);
   }
   if (r.total > 25) linhas.push(`… e mais ${r.total - 25} orçamento(s) mais antigos não listados.`);
   return { texto: linhas.join('\n').slice(0, 6000) };
