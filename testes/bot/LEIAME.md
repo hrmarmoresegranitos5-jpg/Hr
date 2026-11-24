@@ -8,3 +8,4 @@ Roda o `worker/hr-bot.js` de verdade com WhatsApp, IA e banco falsos, e mostra o
     node testes/bot/t4.mjs   # mensagem repetida não dá ponto 2 vezes; entrega sem entregador cadastrado
 
 Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). `4460` = dono.
+    node testes/bot/t5.mjs   # vários itens: corte por item, "terminei tudo", instalação em dupla, pagou só uma parte

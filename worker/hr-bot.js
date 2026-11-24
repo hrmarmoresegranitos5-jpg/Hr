@@ -8190,7 +8190,7 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
     ...(ped.trocoPara > 0 && !ped.pago && Number(ped.valor) > 0 ? [`Troco: cliente paga com R$ ${reais(ped.trocoPara)}; levar R$ ${reais(ped.trocoPara - Number(ped.valor))} de troco`] : []),
     ...(prev ? [`Entrega prevista: ${prev}`] : []), ...(ped.horaEntrega ? [`Horário: ${ped.horaEntrega}`] : []),
     ...(e.endereco ? [`Endereço: ${e.endereco}`] : []), ...(ped.endereco && ped.endereco !== e.endereco ? [`Endereço informado: ${ped.endereco}`] : []), `Referência: ${ped.referencia || '---'}`, '',
-    nPecasEnt === 0 ? `Itens: ${ped.projetoApp || INTERESSES[ped.interesse] || 'serviço'} (conferir as peças na fábrica)` : `Itens: ${itens.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), nm = String(it.ambiente || 'peça').toLowerCase(); return `${n} ${n === 1 ? nm : (nm === 'peitoril' ? 'peitoris' : /s$/.test(nm) ? nm : nm + 's')}`; }).join(' + ')}`].join('\n');
+    nPecasEnt === 0 ? `Itens: ${ped.projetoApp || INTERESSES[ped.interesse] || 'serviço'} (conferir as peças na fábrica)` : itens.some(it => !/soleira|peitoril|pe[cç]a/i.test(String(it.ambiente || ''))) ? `Itens: ${itens.map(it => it.ambiente || 'Peças').join(' + ')} (${nPecasEnt} peça${nPecasEnt > 1 ? 's' : ''})` : `Itens: ${itens.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), nm = String(it.ambiente || 'peça').toLowerCase(); return `${n} ${n === 1 ? nm : (nm === 'peitoril' ? 'peitoris' : /s$/.test(nm) ? nm : nm + 's')}`; }).join(' + ')}`].join('\n');
 
   const falhas = [];
   const tentar = async (rotulo, numero, fn, textoManual) => {
@@ -8306,7 +8306,7 @@ async function funcPerguntas(env, f, from, texto, nome, msg) {
     await enviar(env, from, [`📊 *${nome}, sua semana:* ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos (${pn.pct}%)`, `Hoje: ${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}`, pn.prox ? `Faltam ${vPt(pn.prox.faltam)} para o ${pn.prox.nome || 'próximo nível'}.` : '', pn.ptsMes != null ? `Mês: ${vPt(pn.ptsMes)} pontos.` : ''].filter(Boolean).join('\n'));
     return true;
   }
-  const semServ = /\b(to|estou|tou|fiquei|ficamos|tamo|estamos) sem (servico|nada|trabalho)|\bsem servico\b|\bacabou (o )?(meu )?servico|\bterminei tudo\b|\bnao tem (mais )?(nada|servico)/.test(msg);
+  const semServ = /\b(to|estou|tou|fiquei|ficamos|tamo|estamos) sem (servico|nada|trabalho)|\bsem servico\b|\bacabou (o )?(meu )?servico|\bterminei tudo\s*$|\bnao tem (mais )?(nada|servico)/.test(msg);
   if (semServ || /\b(o que (eu )?(tenho|faco|vou fazer|e pra fazer|e pra mim)|minha lista|minhas tarefas|meus servicos|tenho (o )?que fazer|qual (e )?(o )?(meu )?(proximo )?servico|proxim[ao] (entrega|instalacao|servico|tarefa)|que que eu faco|o que falta pra mim)\b/.test(msg)) {
     const t = await minhasTarefas(env, f);
     if (t.length) { await enviar(env, from, [`📋 *${nome}, com você agora:*`, '', ...t.slice(0, 12), '', 'Quando terminar cada um, me diga (ex.: _terminei o da Maria_).'].join('\n')); if (!semServ) return true; if (t.length) return true; }
@@ -8553,7 +8553,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   if (papel === 'fabrica' && /\b(entreguei|entregamos|instalei|instalamos|ja entreguei)\b/.test(msg) && !/\b(terminei|cortei|poli|acabei)\b/.test(msg)) { await enviar(env, from, `${nome}, a entrega/instalação é marcada por quem instala. Se você terminou uma parte na fábrica, diga por exemplo: _terminei os frontões do Jailton_, _terminei 2 lavatórios da Maria_ ou _terminei o acabamento do Douglas_.`); return true; } // v182
   if (papel !== 'fabrica' && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei|instalamos|instalad[oa]s?|terminamos a instalacao|terminei a instalacao|finalizamos a instalacao|finalizei a instalacao|montamos|assentamos|assentei)\b/.test(msg)) { // v214: "cozinha instalada", "terminamos a instalação"
     const l = await pedidosProducao(env, naEntrega), ach = acharPorNome(l, texto);
-    if (!ach.length) { await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei entrega pendente com esse nome. Avise o Sr. Hangel.`); return true; }
+    if (!ach.length) { const st0 = await prodStatusTxt(env, texto, nome, 'entregou'); if (st0) { await enviar(env, from, st0.func); await pontoAvisarDono(env, st0.dono).catch(() => {}); return true; } await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei entrega pendente com esse nome. Avise o Sr. Hangel.`); return true; }
     if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, qual você entregou?`, ach.slice(0, 3).map(p => ({ id: 'fen|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
     return prodMarcarEntregue(env, ach[0], from, nome, texto);
   }
@@ -8654,7 +8654,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
     if (f0) { const fs = (await funcoesEquipe(env)).map[f0.id] || []; if (!fs.some(x => ENT_F.includes(x)) && String(ped.entResp || '') !== String(f0.id)) { await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)).catch(() => {}); await enviar(env, from, `${nome}, a entrega/instalação de *${ped.nome}* é marcada por quem instala${ped.entResp ? ' (' + (await respNome(env, ped.entResp)) + ')' : ''}. Se você terminou uma parte na fábrica, diga por exemplo: _terminei os frontões do ${String(ped.nome).split(' ')[0]}_ ou _terminei o acabamento do ${String(ped.nome).split(' ')[0]}_.`); return true; } } }
   if (ped.entregueEm && !receb) { await enviar(env, from, `${nome}, o de ${ped.nome} já estava como entregue.`); return true; }
   if (!ped.entregueEm && !fotoOk && !ped.fotoEntregaEm && String(env.FOTO_ENTREGA ?? '1') !== '0' && String(ped.entrega || '') !== 'retirada' && env.HR_DB) return prodPedirFoto(env, ped, from, nome, texto, receb); // v146
-  { const cfg0 = await pontoCfg(env), f0 = pontoFuncPorFone(cfg0, from); if (f0 && !ped.entFeitoPor) ped.entFeitoPor = String(f0.id); } // v146
+  { const cfg0 = await pontoCfg(env), f0 = pontoFuncPorFone(cfg0, from); if (f0 && !ped.entFeitoPor) ped.entFeitoPor = String(f0.id); if (f0) await eqAjudantesTexto(env, ped, f0, texto).catch(() => {}); } // v146 · v310
   const jaEntregue = !!ped.entregueEm;
   ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await appMarcarEntregue(env, ped); await salvarPedido(env, ped);
   if (!jaEntregue && ped.numero) await garDoPedido(env, ped).catch(e => console.log('[GAR] entrega:', e.message)); // v144
@@ -8665,9 +8665,10 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   const cobrar = cobrarNaEntrega(ped);
   const tn = normaliza(texto || '');
   if (!receb && !cobrar && !ped.pago && !ped.recebidoEntrega && /\b(recebi|recebeu|pagou|peguei)\b/.test(tn) && !/\b(nao (recebi|pagou)|vai pagar|depois|fiado)\b/.test(tn)) { const v0 = extrairValor(texto); if (v0 && v0.n > 0) { receb = { valor: v0.n, forma: /cart/.test(tn) ? 'cartao' : /pix/.test(tn) ? 'pix' : 'dinheiro', semValor: true }; } } // v308
-  if (!receb && cobrar && /\b(recebi|recebeu|pagou|pago)\b/.test(tn) && !/\b(nao (recebi|pagou)|vai pagar|depois|fiado)\b/.test(tn)) { const v = extrairValor(texto); receb = { valor: v && v.n > 0 ? v.n : cobrar, forma: /cart/.test(tn) ? 'cartao' : /pix/.test(tn) ? 'pix' : 'dinheiro' }; }
+  const pagouValor = /\b(recebi|recebeu|pagou|peguei|deu)\b\D{0,25}\d/.test(tn) && !/\bnao (recebi|pagou)\b/.test(tn); // v310: "pagou 3000 no dinheiro e o resto no pix amanhã" = recebeu 3000 agora
+  if (!receb && cobrar && /\b(recebi|recebeu|pagou|pago)\b/.test(tn) && (pagouValor || !/\b(nao (recebi|pagou)|vai pagar|depois|fiado)\b/.test(tn))) { const v = extrairValor(texto), tp = tn.split(/\b(e o resto|o resto|e o restante|o restante|restante)\b/)[0]; receb = { valor: v && v.n > 0 ? v.n : cobrar, forma: /cart/.test(tp) ? 'cartao' : /pix/.test(tp) ? 'pix' : 'dinheiro', ...(tp !== tn ? { resto: tn.slice(tp.length).slice(0, 80) } : {}) }; } // v310: a forma é a do valor recebido agora (o resto pode ser outra)
   const ret = String(ped.entrega || '') === 'retirada', quem = ret ? nomeFabrica(env) : (nome || nomeEntregador(env)); // v308: quem entregou de verdade (antes saía sempre o nome padrão)
-  if (receb && cobrar && Math.abs(Number(receb.valor || cobrar) - cobrar) > 0.009) await pontoAvisarDono(env, `⚠️ *${nome}* recebeu *R$ ${reais(receb.valor)}* de *${ped.nome}*, mas o combinado era *R$ ${reais(cobrar)}* (${Number(receb.valor) < cobrar ? 'faltam R$ ' + reais(cobrar - receb.valor) : 'veio R$ ' + reais(receb.valor - cobrar) + ' a mais'}). Confira com ele.`).catch(() => {}); // v308
+  if (receb && cobrar && Math.abs(Number(receb.valor || cobrar) - cobrar) > 0.009) await pontoAvisarDono(env, `⚠️ *${nome}* recebeu *R$ ${reais(receb.valor)}* de *${ped.nome}*, mas o combinado era *R$ ${reais(cobrar)}* (${Number(receb.valor) < cobrar ? 'faltam R$ ' + reais(cobrar - receb.valor) : 'veio R$ ' + reais(receb.valor - cobrar) + ' a mais'}). ${receb.resto ? ` Ele disse sobre o resto: "${receb.resto}".` : ''} Confira com ele.`).catch(() => {}); // v308
   if (receb && receb.semValor) { await pontoAvisarDono(env, `⚠️ *${nome}* disse que recebeu *R$ ${reais(receb.valor)}* de *${ped.nome}*, mas o valor desse serviço não está no sistema. Confira se está certo.`).catch(() => {}); }
   if (receb && (cobrar || receb.semValor)) {
     const rr = await fechReceber(env, ped, receb.valor || cobrar, receb.forma, quem, { func: nome });
@@ -9137,7 +9138,8 @@ async function fechReceber(env, ped, valor, forma, quem, opc = {}) {
   if (fm !== 'dinheiro' && !opc.confirmado) return fechPagPendente(env, ped, valor, fm, opc.func || quem); // v197: Pix/cartão caem na conta do dono — funcionário não confirma recebimento
   const rec = await registrarLancamento(env, { type: 'in', value: valor, desc: `Recebido de ${ped.nome} (entrega)`.slice(0, 80), date: dataBahia(), forma: fm }).catch(e => { console.log('[AG] fin:', e.message); return null; });
   await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, pagamento: { valor, forma: fm, ref: 'ent' + ped.id, origem: 'bot' } }, 'recebido na entrega');
-  ped.recebidoEntrega = { valor, forma: fm, em: Date.now(), quem }; ped.pago = true; if (ped.sinal) ped.restantePago = true; await salvarPedido(env, ped);
+  const devia = cobrarNaEntrega(ped), parcial = devia > 0 && valor + 0.009 < devia; // v310: pagou menos que o combinado não vira "pago"
+  ped.recebidoEntrega = { valor, forma: fm, em: Date.now(), quem, ...(parcial ? { falta: Math.round((devia - valor) * 100) / 100 } : {}) }; ped.pago = !parcial; if (ped.sinal && !parcial) ped.restantePago = true; await salvarPedido(env, ped);
   if (fm === 'dinheiro' && opc.func) { ped.recebidoEntrega.comFunc = opc.func; await salvarPedido(env, ped); } // v197: dinheiro em mãos com o funcionário até ele repassar
   if (ped.acordo) await acdInstalacaoPaga(env, ped, valor).catch(e => console.log('[ACD]', e.message)); // v152
   const comF = fm === 'dinheiro' && opc.func && !opc.confirmado;
@@ -12116,13 +12118,20 @@ async function prodCorteParcial(env, f, from, texto, nome, msg) {
   await metaChecar(env, String(f.id));
   return true;
 }
+// v310: "o Jefferson está comigo", "eu e o Jefferson", "com o Lucas" → quem foi junto também ganha a parte de ajudante
+async function eqAjudantesTexto(env, ped, f, texto) {
+  const cfg = await pontoCfg(env), n = normaliza(texto || ''); if (!/\b(comigo|com o|com a|junto|e o|eu e|ajudou|ajudando|fomos|nos dois|a gente)\b/.test(n)) return [];
+  const ids = cfg.funcs.filter(x => x && String(x.id) !== String(f.id) && x.ativo !== false).filter(x => { const pn = normaliza(String(x.nome || '').split(' ')[0]), ap = normaliza(apelidoFunc(cfg, x) || ''); return (pn.length >= 3 && new RegExp('\\b' + pn + '\\b').test(n)) || (ap.length >= 3 && new RegExp('\\b' + ap + '\\b').test(n)); }).map(x => String(x.id));
+  if (ids.length) { ped.entAjud = [...new Set([...(ped.entAjud || []), ...ids])]; await salvarPedido(env, ped); }
+  return ids;
+}
 async function prodInicioInstalacao(env, f, from, texto, nome) {
   const l0 = await pedidosProducao(env, p => naEntrega(p) && !p.instIniEm), mine = l0.filter(p => p.entResp === String(f.id)), l = mine.length ? mine : l0;
   const falaInst = /instala|montagem|montar/.test(normaliza(texto));
   let ach = acharPorNome(l, texto); if (!ach.length && falaInst && mine.length === 1) ach = mine;
-  if (!ach.length) { if (!falaInst) return false; await enviar(env, from, l.length ? `${nome}, vai começar qual? ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei instalação pendente. Avise o Sr. Hangel.`); return true; }
+  if (!ach.length) { if (!falaInst) return false; const st0 = await prodStatusTxt(env, texto, nome, 'vai começar a instalação de'); if (st0) { await enviar(env, from, st0.func); await pontoAvisarDono(env, st0.dono).catch(() => {}); return true; } await enviar(env, from, l.length ? `${nome}, vai começar qual? ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei instalação pendente. Avise o Sr. Hangel.`); return true; }
   if (ach.length > 1) { await enviar(env, from, `${nome}, qual delas? ${ach.map(p => p.nome).join(', ')}.`); return true; }
-  const ped = ach[0]; ped.instIniEm = Date.now(); ped.instIniPor = String(f.id); ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : []; ped.prodLog.push({ e: 'inicio_inst', por: [String(f.id)], ts: Date.now() }); await salvarPedido(env, ped);
+  const ped = ach[0]; await eqAjudantesTexto(env, ped, f, texto).catch(() => {}); ped.instIniEm = Date.now(); ped.instIniPor = String(f.id); ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : []; ped.prodLog.push({ e: 'inicio_inst', por: [String(f.id)], ts: Date.now() }); await salvarPedido(env, ped);
   const fotoJa = await env.HR_KV.get('prod:fotoja:' + ultimos8(from));
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, tipo: 'inicio', em: Date.now() }), { expirationTtl: 3 * 3600 });
   let fpI = null; if (!fotoJa) { try { fpI = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {} } // v170: usa a foto que ele já tinha mandado
@@ -12903,6 +12912,17 @@ async function mig185Garantias(env) {
 const ITEM_NOUN = /\b(retenc(?:ao|oes)|pedras? de retencao|rebaixos?|cubas?|cooktops?|cook|furos?|tampos?|saias? (?:em |de )?45|lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
 const capT = t => String(t || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 function ptsItemPed(p, it) { return { __item: true, interesse: it.ambiente || p.interesse || '', projetoApp: it.ambiente || '', resumoApp: { pedra: (p.resumoApp || {}).pedra, itens: [it] }, pecas: (it.pecas || []).map(pc => ({ tipo: it.ambiente || 'peça', ...pc })) }; }
+// v310: o serviço que ele citou existe mas ainda não está pronto na produção → explica em que etapa está (e o dono confere)
+async function prodStatusTxt(env, texto, nome, acao) {
+  const tk = tokensPedra(texto || ''); if (!tk.length) return null;
+  const p = (await pedidosProducao(env, x => !x.entregueEm && x.status !== 'recusado' && nomeNota(x.nome, tk) > 0).catch(() => []))[0]; if (!p) return null;
+  const etapa = !p.corteEm ? 'corte' : pedComplexo(p) && !p.fabProntoEm ? 'fabricacao' : !p.acabEm && !p.fabProntoEm && !p.prontoEm ? 'acabamento' : '';
+  if (!etapa) return null;
+  const resp = await respNome(env, etapa === 'corte' ? p.fabResp : etapa === 'fabricacao' ? (p.fab2Resp || p.fabResp) : p.acabResp).catch(() => '');
+  const U = unidadesPed(p, etapa), feitos = new Set(((p.prog || {})[etapa]) || []), falta = U.length > 1 ? U.filter(u => !feitos.has(u.i)).map(u => u.nome) : [];
+  const onde = `ainda está ${/fabrica|instala|entrega/.test(etapa) ? 'na' : 'no'} ${ETAPA_NOME2[etapa] || etapa}${resp ? ' com o ' + resp : ''}${falta.length ? ' (falta: ' + falta.join(', ') + ')' : ''}`;
+  return { func: `${nome}, no sistema *${p.nome}* ${onde}. Já avisei o Sr. Hangel para conferir; se já está tudo pronto, ele acerta e eu registro o seu serviço.`, dono: `❓ *${nome}* ${acao} *${p.nome}*, mas no sistema ele ${onde}. Se já está pronto, marque a etapa (ex.: _o Hugo terminou o Cássio_) que eu registro a parte do ${nome}.` };
+}
 function unidadesPed(p, et) {
   { const E = et ? unidadesEtapa(p, et) : null; if (E) return E; } // v188: bancada/cozinha: partes reais de cada etapa
   const r = p.resumoApp || {}, its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: p.interesse || '', pecas: p.pecas || [] }];
@@ -12939,7 +12959,8 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   const msg = normaliza(texto || '');
   if (!/\b(terminei|terminamos|terminad[oa]s?|finalizei|finalizad[oa]s?|acabei|acabad[oa]s?|prontos?|prontas?|cortei|cortad[oa]s?|poli|polid[oa]s?|lustrei|lustrad[oa]s?|feitos|feitas|colei|colad[oa]s?|recortei|recortad[oa]s?|abri|fiz|feito|feita)\b/.test(msg)) return false;
   const nm = msg.match(ITEM_NOUN), qn = msg.match(/\b(\d{1,2}|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)\b/), esse = /\b(esse|esses|essa|essas|este|estes|esta|estas)\b/.test(msg);
-  if (!nm && !qn && !esse) return false;
+  const todosM = /\b(tudo|todos|todas|o resto|os outros|as outras|os que faltavam|o que faltava)\b/.test(msg); // v310: "terminei tudo do Cássio"
+  if (!nm && !qn && !esse && !todosM) return false;
   const id = String(f.id), l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && p.status !== 'recusado');
   let ach = l.filter(p => nomeParecido(p, texto)); if (!ach.length) ach = await prodPorApelido(env, l, texto).catch(() => []);
   if (!ach.length) { let fu = null; try { fu = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {} if (fu && Date.now() - fu.em < 30 * 60000) ach = l.filter(p => String(p.id) === String(fu.pid)); }
@@ -12956,7 +12977,7 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   const prog = ped.prog || {}, feitos = new Set(prog[et] || []), pend = U.filter(u => !feitos.has(u.i));
   if (!pend.length) { await enviar(env, from, `${nome}, ${ETAPA_NOME[et] || et} de *${ped.nome}* já estava completo em todos os itens.`); return true; }
   const noun = nm ? nm[1] : '', cand = noun ? pend.filter(u => casaNoun(u, noun)) : pend;
-  const q = qn ? (/^\d+$/.test(qn[1]) ? +qn[1] : NUM_TXT[qn[1]] || 0) : 0, todos = /\b(todos|todas|tudo)\b/.test(msg);
+  const q = qn ? (/^\d+$/.test(qn[1]) ? +qn[1] : NUM_TXT[qn[1]] || 0) : 0, todos = todosM;
   let sel = [];
   if (q && q <= cand.length && q < 30) sel = cand.slice(0, q);
   else if (todos && cand.length) sel = cand;
