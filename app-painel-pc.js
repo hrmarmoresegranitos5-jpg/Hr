@@ -5,7 +5,8 @@
 (function () {
   'use strict';
   var LARGO = 1000, PG = 77;
-  function largo() { try { if (localStorage.getItem('hr_balcao') === '1' || /[?&]balcao=1/.test(location.search)) return false; } catch (e) {} return window.innerWidth >= LARGO && window.innerHeight >= 480 && window.innerWidth > window.innerHeight; }
+  function balcao() { try { return localStorage.getItem('hr_balcao') === '1'; } catch (e) { return false; } }
+  function largo() { return window.innerWidth >= LARGO && window.innerHeight >= 480 && window.innerWidth > window.innerHeight; }
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function R(v) { v = +v || 0; return 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   function Rk(v) { v = +v || 0; return Math.abs(v) >= 10000 ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil' : R(v); }
@@ -92,7 +93,7 @@
     if (typeof window.go !== 'function' || window.go._pc) return;
     var o = window.go; window.go = function (n) { var r = o.apply(this, arguments); if (+n === PG) { try { desenhar(); carregarBot(); } catch (e) { console.warn('[painel]', e); } } return r; }; window.go._pc = true;
   }
-  function abrir() { if (typeof go === 'function') go(PG); }
+  function abrir() { if (typeof go === 'function') go(balcao() ? 0 : PG); } // no tablet do balcão abre no Orçamento
   window.abrirPainelPC = abrir;
 
   // ── dados do app ────────────────────────────────────────
@@ -227,7 +228,7 @@
   function tick() {
     instalarSetLayout(); instalarGo(); montarNav(); ajustarLayout();
     var sp = document.getElementById('sSplash');
-    if (largo() && !abriuPainel && sp && (sp.classList.contains('on') || getComputedStyle(sp).display !== 'none') && !(document.getElementById('sApp') || {}).classList.contains('on') && typeof openApp === 'function' && !document.querySelector('.ov.on')) { abriuPainel = true; try { openApp(PG); } catch (e) {} return; } // no computador abre direto na Central
+    if (largo() && !abriuPainel && sp && (sp.classList.contains('on') || getComputedStyle(sp).display !== 'none') && !(document.getElementById('sApp') || {}).classList.contains('on') && typeof openApp === 'function' && !document.querySelector('.ov.on')) { abriuPainel = true; try { openApp(balcao() ? 0 : PG); } catch (e) {} return; } // no computador abre direto na Central (no balcão: Orçamento)
     if (largo() && !abriuPainel && document.getElementById('sApp') && document.getElementById('sApp').classList.contains('on')) { abriuPainel = true; try { var on = document.querySelector('#nav .ni.on'); if (!on || on.getAttribute('data-pg') === '12') abrir(); } catch (e) {} }
     document.body.classList.toggle('pc-painel', visivel());
     if (visivel()) { var h = document.getElementById('ppHora'); if (h) h.textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); carregarBot(); }

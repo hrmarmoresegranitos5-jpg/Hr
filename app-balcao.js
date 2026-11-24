@@ -65,6 +65,7 @@
     var nav = document.getElementById('nav');
     if (!nav) { if (tent++ < 40) setTimeout(iniciar, 250); return; }
     if (!nav.querySelector('.bl-ni')) { nav.appendChild(item('📺', 'TV', abrirTv)); nav.appendChild(item('🔒', 'Sair', sair)); }
-    setTimeout(function () { try { if (typeof go === 'function') go(0); } catch (e) {} }, 800); // abre direto no orçamento
+    // abre direto no orçamento (se o app ainda estiver na tela de abertura, entra por ela)
+    setTimeout(function () { try { var a = document.getElementById('sApp'); if (a && !a.classList.contains('on') && typeof openApp === 'function') openApp(0); else if (typeof go === 'function') go(0); } catch (e) {} }, 1200);
   })();
 })();
