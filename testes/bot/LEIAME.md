@@ -14,3 +14,4 @@ Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). 
     node testes/bot/t9.mjs   # pontos em dobro: dono repete o que o funcionário já registrou
     node testes/bot/t10.mjs  # PDF do saldo/extrato do cliente feito pelo bot (salva em /tmp/extrato.pdf)
 - t11: peça/pedra × pedido, nome de cliente inválido, pontos por pergunta. t12: correção do Cássio (v323).
+- t13: corrigir pagamento já no app (v324).

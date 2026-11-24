@@ -388,6 +388,9 @@ function _botAplicarCorrecoes(cors, base) {
     var ok = false, motivo = '';
     var t = DB.t.find(function(x){ return x.waId === c.waId; });
     if (c.campo === 'desc') { if (!t) motivo = 'não achei esse lançamento no aplicativo (talvez tenha sido apagado)'; else { if (t.desc !== c.novo) { t.desc = String(c.novo || '').slice(0, 120); alterou++; } ok = true; } } // v: descrição (A identificar → o que foi)
+    else if (c.campo === 'valor') { var v = Math.round(parseFloat(c.novo) * 100) / 100; if (!t) motivo = 'não achei esse lançamento no aplicativo (talvez tenha sido apagado)'; else if (!(v > 0)) motivo = 'valor inválido'; else { if (+t.value !== v) { t.value = v; alterou++; } ok = true; } } // v324
+    else if (c.campo === 'data') { if (!t) motivo = 'não achei esse lançamento no aplicativo (talvez tenha sido apagado)'; else if (!/^\d{4}-\d{2}-\d{2}$/.test(String(c.novo))) motivo = 'data inválida'; else { if (t.date !== c.novo) { t.date = c.novo; alterou++; } ok = true; } } // v324
+    else if (c.campo === 'apagar') { var ix = DB.t.findIndex(function(x){ return x.waId === c.waId; }); if (ix >= 0) { DB.t.splice(ix, 1); alterou++; } ok = true; } // v324: já apagado também é ok
     else if (c.campo !== 'cat') motivo = 'tipo de correção desconhecido';
     else if (!t) motivo = 'não achei esse lançamento no aplicativo (talvez tenha sido apagado)';
     else if (t.type !== 'out') motivo = 'só gastos têm categoria';

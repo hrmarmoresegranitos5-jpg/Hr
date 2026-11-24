@@ -14832,6 +14832,20 @@ const FERRAMENTAS = [
     },
   },
   {
+    name: 'corrigir_pagamento_cliente',
+    description: 'Corrige (ou apaga) um PAGAMENTO/ENTRADA já lançado de um cliente, mesmo que não seja o último e mesmo que já esteja no aplicativo: acerta o lançamento em Finanças (o app aplica sozinho) e o pagamento no livro de entregas. Use quando o Sr. Hangel disser "ele pagou 150" (e estava 153,20), "o pagamento do Clériston foi 150", "apaga aquele pagamento de 2 mil do Jailton". NUNCA mande ele corrigir no app: use esta ferramenta.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        cliente: { type: 'string', description: 'nome do cliente' },
+        valor_errado: { type: 'number', description: 'valor que está lançado hoje (se souber; ajuda a achar o lançamento certo)' },
+        valor_certo: { type: 'number', description: 'valor correto' },
+        apagar: { type: 'boolean', description: 'true para apagar o lançamento (pagamento que não existiu / duplicado)' },
+      },
+      required: ['cliente'],
+    },
+  },
+  {
     name: 'corrigir_ultimo_lancamento',
     description: 'Corrige o ÚLTIMO lançamento feito pelo WhatsApp: valor, descrição, categoria, data ou tipo (entrada/saída). Use quando o Sr. Hangel disser que errou ou quiser ajustar ("era 600", "muda para pró-labore", "foi ontem"). Para apagar de vez, use desfazer_ultimo_lancamento.',
     input_schema: {
@@ -15331,6 +15345,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     return { texto: 'Pagamento anotado e a confirmação com botões já foi enviada ao Sr. Hangel.' + (extra ? extra + ' Em UMA frase, avise-o disso.' : ' Responda apenas OK.'), nota: `pagamento (${tipo}) R$ ${reais(valor)} a ${f.nome}` };
   }
 
+  if (nome === 'corrigir_pagamento_cliente') return corrigirPagamentoCliente(env, a); // v324
   if (nome === 'corrigir_ultimo_lancamento') {
     const k = await env.HR_KV.get('ultimo:fin');
     let rec = null;
@@ -15341,7 +15356,12 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
         await pedirCorrecaoCat(env, k, rec, a.categoria);
         return { texto: `Esse lançamento já está no aplicativo. Pedi a troca da categoria para ${CATS[a.categoria]}; o app aplica em até 1 minuto. Valor e descrição só podem ser mudados no aplicativo, em Finanças. Diga isso em uma frase.`, nota: 'pediu troca de categoria do último lançamento' };
       }
-      return { erro: true, texto: 'Esse lançamento já foi sincronizado com o aplicativo; só a categoria pode ser trocada por aqui. Valor e descrição se corrigem em Finanças. Diga isso em uma frase.' };
+      const feitos = []; // v324: valor, descrição e data também — o app aplica sozinho
+      if (rec.waId && Number(a.valor) > 0 && Math.abs(Number(a.valor) - Number(rec.value)) > 0.004) { await pedirCorrecao(env, k, rec, 'valor', Math.round(Number(a.valor) * 100) / 100); feitos.push('valor para R$ ' + reais(a.valor)); }
+      if (rec.waId && a.descricao && String(a.descricao).trim() !== rec.desc) { await pedirCorrecao(env, k, rec, 'desc', String(a.descricao).trim().slice(0, 80)); feitos.push('descrição'); }
+      if (rec.waId && /^\d{4}-\d{2}-\d{2}$/.test(String(a.data || '')) && a.data !== rec.date) { await pedirCorrecao(env, k, rec, 'data', a.data); feitos.push('data para ' + dataBR(a.data)); }
+      if (feitos.length) return { texto: `Esse lançamento já está no aplicativo. Pedi a correção (${feitos.join(', ')}); o app aplica sozinho quando estiver aberto (em até 1 minuto) e eu aviso. Diga isso em uma frase.`, nota: 'pediu correção ao app' };
+      return { erro: true, texto: 'Nada para mudar nesse lançamento. Pergunte o que ele quer corrigir.' };
     }
     const antes = `R$ ${reais(rec.value)} (${rec.desc})`;
     const v = Math.round(Number(a.valor) * 100) / 100;
@@ -15825,7 +15845,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- RESUMO DO MÊS: para \"como está o mês\" o sistema já responde sozinho com os números do app. Para perguntas mais específicas (\"quanto gastei de material?\", \"o lucro caiu?\", \"compare com o mês passado\"), use o bloco resumoFinanceiro dos DADOS DO APP (mesAtual e mesAnterior), cite valores em R$ e diga a variação. Nunca invente números.`,
       `- PRÓ-LABORE (\"quanto posso retirar?\", \"posso tirar 2 mil?\", \"quanto já retirei?\"): responda com o bloco proLabore dos DADOS DO APP: sugeridoMes, jaRetiradoMes, restanteSugerido, tetoSegurancaCaixa, dividaMesesAnteriores e lucroLivreAposReserva, valores em R$. Se ele perguntar por um valor específico, compare com restanteSugerido e com o teto de segurança e diga claramente se cabe, sem decidir por ele. Se proLabore não existir nos dados, diga que o aplicativo precisa sincronizar. Nunca invente números.`,
       `- PAGAMENTO A FUNCIONÁRIO (pagar_funcionario): \"paguei 150 pro diarista\", \"adiantamento de 200 pro João\", \"dei um vale de 100 ao Pedro\", \"paguei o decêndio do Carlos\". Use a lista de funcionarios dos DADOS DO APP. Se não estiver claro se é adiantamento, vale ou pagamento do decêndio, faça UMA pergunta curta antes. NÃO use lancar_financeiro para isso: o RH precisa do registro para o saldo do funcionário ficar certo. Se ele falar de retirada ou gasto pessoal dele e o funcionário marcado como socio existir, registre pagar_funcionario no sócio, tipo adiantamento (com obs do motivo, ex.: Aluguel da casa).`,
-      `- BUSQUE ANTES DE RESPONDER: você conhece o app do Sr. Hangel inteiro pelas ferramentas (histórico de orçamentos, livro de entregas e pagamentos, produção e pontos, finanças, agenda, conversas). Pedido vago ("o do Jailton", "aquele da cozinha", "o PDF do restante") = procure com as ferramentas de consulta primeiro e só pergunte o que não achar. NUNCA mande o Sr. Hangel fazer no app algo que uma ferramenta sua faz (PDF do saldo: pdf_saldo_cliente).`,
+      `- BUSQUE ANTES DE RESPONDER: você conhece o app do Sr. Hangel inteiro pelas ferramentas (histórico de orçamentos, livro de entregas e pagamentos, produção e pontos, finanças, agenda, conversas). Pedido vago ("o do Jailton", "aquele da cozinha", "o PDF do restante") = procure com as ferramentas de consulta primeiro e só pergunte o que não achar. NUNCA mande o Sr. Hangel fazer no app algo que uma ferramenta sua faz (PDF do saldo: pdf_saldo_cliente; pagamento com valor errado ou que precisa apagar, mesmo já no app: corrigir_pagamento_cliente; o último lançamento: corrigir_ultimo_lancamento — os dois corrigem também o que já está no app).`,
       `- VOZ: você FALA por áudio (a sua resposta vira áudio com a sua voz quando ele manda áudio ou pede para ouvir a sua voz). NUNCA diga que não consegue falar em áudio ou que só escreve.`,
       `- LANÇAMENTOS (lancar_financeiro): qualquer relato de pagamento, compra, gasto ou recebimento (\"paguei\", \"gastei\", \"comprei\", \"abasteci\", \"saiu\", \"o João pagou\", \"entrou\", \"recebi\") JÁ É pedido para anotar: execute, sem perguntar se deve anotar. Descrição curta e limpa, só o que foi (\"Aluguel da casa\", nunca a frase inteira nem instruções como \"descontar...\"). Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join('; ')}. GASTO PESSOAL do Sr. Hangel (aluguel da casa dele, conta pessoal) ou frase com \"descontar/abater do meu pró-labore\" ou \"retirada\" = categoria prolabore, NUNCA custo fixo da empresa. Mais de um gasto na mesma mensagem = uma chamada por item. Se ele citar quantidade e preço (\"2 sacos de cimento por 150\"), o valor é o TOTAL pago, não a quantidade. Se ele corrigir o que acabou de ser lançado (\"era 600\", \"muda para pró-labore\", \"foi ontem\", \"era entrada\") use corrigir_ultimo_lancamento; para apagar use desfazer_ultimo_lancamento. Só pergunte se faltar o valor ou se for realmente impossível saber se é entrada ou saída. Perguntas sobre finanças, boletos, agenda, orçamentos já existentes e leads você responde com os dados.`,
       `- LIVRO DE ENTREGAS E PAGAMENTOS: quando o Sr. Hangel disser que ENTREGOU um serviço, que um cliente PAGOU (valor, forma e data) ou informar o TELEFONE de um cliente, CHAME registrar_entrega_pagamento para ficar salvo de forma permanente (se for dinheiro novo que entrou, chame também lancar_financeiro). Para perguntas sobre datas de entrega, formas de pagamento, quem ainda deve ou saldo, use o LIVRO acima ou consultar_entregas_pagamentos. Nunca diga que não tem onde guardar essas informações. O telefone salvo no livro é usado automaticamente na cobrança; se faltar telefone, peça UMA vez e grave com registrar_entrega_pagamento.`,
@@ -16960,6 +16980,42 @@ async function gastosDigitadosMPX(env, de, ate) {
 //   O app manda em POST /bot/financas-app também  conferencia: { qtd, entradas, saidas, fora }  (o bot recalcula e compara).
 // ═════════════════════════════════════════════════════════════════════
 const COR_TTL = 3 * 86400, COR_EXPIRA_MS = 24 * 3600 * 1000;
+// v324: correção de lançamento que já está no app: valor, descrição, data ou apagar (o app aplica pelo waId)
+// v324: "ele pagou 150" (estava 153,20) → acha o lançamento do cliente (Finanças do bot/app) e o pagamento no livro, e corrige os dois
+async function corrigirPagamentoCliente(env, a) {
+  const q = tokensPedra(String(a.cliente || '')); if (!q.length) return { erro: true, texto: 'Falta o nome do cliente.' };
+  const errado = Number(a.valor_errado) > 0 ? Math.round(Number(a.valor_errado) * 100) / 100 : 0, certo = Number(a.valor_certo) > 0 ? Math.round(Number(a.valor_certo) * 100) / 100 : 0, apagar = !!a.apagar;
+  if (!apagar && !certo) return { erro: true, texto: 'Falta o valor certo. Pergunte ao Sr. Hangel em uma frase.' };
+  const casa = d => { const t = tokensPedra(d || ''); return q.some(w => w.length >= 3 && t.some(x => x === w || tkCasa(x, w) > 0)); };
+  // lançamentos dos últimos 60 dias
+  const t0 = Date.now() - 60 * 86400000, prefs = [...new Set([String(t0).slice(0, 4), String(Date.now()).slice(0, 4)])], recs = [];
+  for (const pr of prefs) { let cur; do { const r = await env.HR_KV.list({ prefix: 'fin:' + pr, cursor: cur }); for (const k of r.keys) { const ts = +k.name.slice(4, 17); if (!(ts >= t0)) continue; let rec = null; try { rec = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (rec && rec.type === 'in' && casa(rec.desc)) recs.push({ ...rec, k: k.name, ts }); } cur = r.list_complete ? null : r.cursor; } while (cur); }
+  let alvo = recs.filter(r => !errado || Math.abs(+r.value - errado) < 0.01).sort((x, y) => y.ts - x.ts);
+  if (!errado && alvo.length > 1 && certo) { const prox = alvo.filter(r => Math.abs(+r.value - certo) / certo < 0.1 && Math.abs(+r.value - certo) > 0.004); if (prox.length) alvo = prox; } // "pagou 150" → o de 153,20
+  const out = []; let fin = alvo[0] || null;
+  if (alvo.length > 1 && !errado && !(certo && Math.abs(+alvo[0].value - certo) / certo < 0.1)) return { erro: true, texto: `Achei ${alvo.length} entradas de ${a.cliente}: ${alvo.slice(0, 5).map(r => `${dataBR(r.date)} R$ ${reais(r.value)} (${r.desc})`).join('; ')}. Pergunte qual (pelo valor).` };
+  if (fin) {
+    const rec = JSON.parse((await env.HR_KV.get(fin.k)) || 'null') || fin, antes = +rec.value;
+    if (!rec.importado) { if (apagar) await env.HR_KV.delete(fin.k); else { rec.value = certo; await env.HR_KV.put(fin.k, JSON.stringify(rec), { expirationTtl: FIN_TTL }); } await env.HR_KV.put('cfg:flag:fin', String(Date.now()), { expirationTtl: 86400 }).catch(() => {}); out.push(`Finanças: ${apagar ? 'apaguei' : 'corrigi'} a entrada de R$ ${reais(antes)}${apagar ? '' : ' para R$ ' + reais(certo)} (ainda não tinha ido para o app)`); }
+    else if (rec.waId) { await pedirCorrecao(env, fin.k, rec, apagar ? 'apagar' : 'valor', apagar ? '' : certo); out.push(`Finanças: a entrada de R$ ${reais(antes)} já estava no app; pedi ${apagar ? 'para apagar' : 'a troca para R$ ' + reais(certo)} e o app aplica sozinho quando estiver aberto (eu aviso quando aplicar)`); }
+  }
+  // livro de entregas
+  const livs = livAchar(await livTodos(env), a.cliente);
+  for (const r of livs) { const pg = (r.pagamentos || []).map((x, i) => ({ x, i })).filter(o => errado ? Math.abs(o.x.valor - errado) < 0.01 : fin ? Math.abs(o.x.valor - +fin.value) < 0.01 : certo && Math.abs(o.x.valor - certo) / certo < 0.1 && Math.abs(o.x.valor - certo) > 0.004).pop();
+    if (!pg) continue; const antes = pg.x.valor;
+    if (apagar) r.pagamentos.splice(pg.i, 1); else r.pagamentos[pg.i] = { ...pg.x, valor: certo, obs: String(pg.x.obs || '').slice(0, 40) };
+    await livSalvar(env, r); out.push(`Livro de ${r.cliente}: pagamento de R$ ${reais(antes)} ${apagar ? 'apagado' : 'agora é R$ ' + reais(certo)}${livSaldo(r) !== null ? ` (saldo: R$ ${reais(Math.max(0, livSaldo(r)))})` : ''}`); break; }
+  if (!out.length) return { erro: true, texto: `Não achei pagamento de ${a.cliente}${errado ? ' de R$ ' + reais(errado) : ''} nas finanças do bot nem no livro (pode ter sido lançado direto no app). Diga isso e pergunte o valor que está lançado.` };
+  return { texto: out.join('\n') + '\nResponda ao Sr. Hangel em 1 ou 2 frases com isso.', nota: `corrigiu pagamento de ${a.cliente}` };
+}
+async function pedirCorrecao(env, k, rec, campo, novo) {
+  const id = 'cor:' + rec.waId + ':' + campo;
+  const c = { id, k, waId: String(rec.waId), campo, novo, antes: campo === 'valor' ? rec.value : campo === 'data' ? rec.date : campo === 'desc' ? rec.desc : '', desc: rec.desc, value: rec.value, status: 'pendente', ts: Date.now() };
+  await env.HR_KV.put(id, JSON.stringify(c), { expirationTtl: COR_TTL });
+  await env.HR_KV.put('cfg:flag:cor', String(c.ts), { expirationTtl: 86400 }).catch(() => {});
+  return c;
+}
+const COR_TXT = c => c.campo === 'cat' ? `a categoria de "${c.desc}" agora é ${rotuloCat(c.novo)}` : c.campo === 'valor' ? `o valor de "${c.desc}" agora é R$ ${reais(c.novo)}` : c.campo === 'data' ? `a data de "${c.desc}" agora é ${dataBR(c.novo)}` : c.campo === 'desc' ? `a descrição agora é "${c.novo}"` : c.campo === 'apagar' ? `o lançamento "${c.desc}" (R$ ${reais(c.value)}) foi apagado` : 'a correção foi aplicada';
 async function pedirCorrecaoCat(env, k, rec, cat) {
   const id = 'cor:' + rec.waId + ':cat'; // um pedido por lançamento: pedir de novo substitui o anterior
   const c = { id, k, waId: String(rec.waId), campo: 'cat', novo: cat, antes: rec.cat || '', desc: rec.desc, value: rec.value, status: 'pendente', ts: Date.now() };
@@ -16981,7 +17037,7 @@ async function correcoesPendentes(env) {
     if (Date.now() - c.ts > COR_EXPIRA_MS) {
       c.status = 'expirada';
       await env.HR_KV.put(k.name, JSON.stringify(c), { expirationTtl: COR_TTL });
-      await avisarDono(env, `Sr. Hangel, a troca de categoria de "${c.desc}" não foi aplicada: o aplicativo não foi aberto em 24 horas. Se ainda quiser, peça de novo.`).catch(e => falhou(env, 'correcoesPendentes: avisarDono', e));
+      await avisarDono(env, `Sr. Hangel, a correção de "${c.desc}" não foi aplicada: o aplicativo não foi aberto em 24 horas. Abra o app que eu aplico, ou peça de novo.`).catch(e => falhou(env, 'correcoesPendentes: avisarDono', e));
       continue;
     }
     out.push({ id: c.id, waId: c.waId, campo: c.campo, novo: c.novo, antes: c.antes, desc: c.desc, valor: c.value });
@@ -26741,7 +26797,7 @@ async function rotaBotInterna(req, env, url) {
   if (p === '/bot/correcoes/resultado' && req.method === 'POST') {
     let body = {}; try { body = await req.json(); } catch (_) { return jsonR({ error: 'JSON inválido.' }, 400); }
     const id = String(body.id || '');
-    if (!/^cor:[\w-]{1,60}:cat$/.test(id)) return jsonR({ error: 'Correção inválida.' }, 400);
+    if (!/^cor:[\w-]{1,60}:(cat|valor|data|desc|apagar)$/.test(id)) return jsonR({ error: 'Correção inválida.' }, 400);
     let c = null; try { c = JSON.parse((await env.HR_KV.get(id)) || 'null'); } catch (_) {}
     if (!c) return jsonR({ error: 'Correção não encontrada.' }, 404);
     if (c.status !== 'pendente') return jsonR({ ok: true, ja: c.status });
@@ -26749,10 +26805,10 @@ async function rotaBotInterna(req, env, url) {
     await env.HR_KV.put(id, JSON.stringify(c), { expirationTtl: COR_TTL });
     if (body.ok) {
       let rec = null; try { rec = JSON.parse((await env.HR_KV.get(c.k)) || 'null'); } catch (_) {}
-      if (rec) { rec.cat = c.novo; await env.HR_KV.put(c.k, JSON.stringify(rec), { expirationTtl: 30 * 24 * 60 * 60 }); }
-      await avisarDono(env, `Pronto, Sr. Hangel. No aplicativo, a categoria de "${c.desc}" agora é ${rotuloCat(c.novo)}.`);
+      if (rec) { if (c.campo === 'apagar') await env.HR_KV.delete(c.k); else { if (c.campo === 'cat') rec.cat = c.novo; if (c.campo === 'valor') rec.value = +c.novo; if (c.campo === 'data') rec.date = c.novo; if (c.campo === 'desc') rec.desc = c.novo; await env.HR_KV.put(c.k, JSON.stringify(rec), { expirationTtl: 30 * 24 * 60 * 60 }); } }
+      await avisarDono(env, `Pronto, Sr. Hangel. No aplicativo, ${COR_TXT(c)}.`);
     } else {
-      await avisarDono(env, `Sr. Hangel, o aplicativo não conseguiu trocar a categoria de "${c.desc}": ${c.motivo || 'sem detalhes'}.`);
+      await avisarDono(env, `Sr. Hangel, o aplicativo não conseguiu aplicar a correção de "${c.desc}": ${c.motivo || 'sem detalhes'}.`);
     }
     return jsonR({ ok: true });
   }
