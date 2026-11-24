@@ -11,3 +11,5 @@ Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). 
     node testes/bot/t5.mjs   # vários itens: corte por item, "terminei tudo", instalação em dupla, pagou só uma parte
     node testes/bot/t7.mjs   # totem do balcão: página, conversa, pedido de orçamento, atendente, link do dono
     node testes/bot/t8.mjs   # parear o tablet do balcão (código no tablet, "parear X" no WhatsApp)
+    node testes/bot/t9.mjs   # pontos em dobro: dono repete o que o funcionário já registrou
+    node testes/bot/t10.mjs  # PDF do saldo/extrato do cliente feito pelo bot (salva em /tmp/extrato.pdf)

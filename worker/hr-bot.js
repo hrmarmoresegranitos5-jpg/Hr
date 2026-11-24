@@ -10821,6 +10821,14 @@ async function prodDesignar(env, ped, ids, _, a, naoAchou, novo) {
   return { texto: `Designado: ${nm}${ajud.length ? ' (com ' + ajud.join(' e ') + ')' : ''} vai fazer ${oque} de ${ped.nome}${novo ? ' (serviço aberto agora no controle de produção)' : ''}. ${avisou ? 'Ele já foi avisado no WhatsApp' : 'Não consegui avisar no WhatsApp (sem número no RH)'}; quando ele disser que terminou, os pontos vão para ele.${naoAchou.length ? ` Não achei: ${naoAchou.join(', ')}.` : ''} Confirme em UMA frase curta.` };
 }
 // owner: atualiza a etapa de um serviço (com 1 ou mais participantes)
+// v322: quanto de uma etapa já está registrado (some frações; o que foi anulado depois não conta)
+function prodEtapaFeita(ped, et) {
+  const L = Array.isArray(ped.prodLog) ? ped.prodLog : []; let anul = 0;
+  for (const x of L) if (x.e === 'anulado' && x.alvo === et) anul = Math.max(anul, x.ts || 0);
+  const entradas = L.filter(x => x.e === et && (x.ts || 0) > anul);
+  const soma = Math.min(1, entradas.reduce((t, x) => t + (x.frac != null ? +x.frac : 1), 0));
+  return { entradas, soma, quem: [...new Set(entradas.flatMap(x => x.por || []).map(String))] };
+}
 async function producaoStatusTool(env, a) {
   const etapa = String(a.etapa || '').toLowerCase(); if (!ETAPA_TXT[etapa]) return { erro: true, texto: 'Etapa inválida.' };
   const cfg = await pontoCfg(env), ids = [], naoAchou = [];
@@ -10850,6 +10858,22 @@ async function producaoStatusTool(env, a) {
   const ts = isoOk(a.data) ? quandoTs(a.data, '17:00') : Date.now();
   ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
   if (a.vai_fazer) return prodDesignar(env, ped, ids, nomesDe => nomesDe, a, naoAchou, cands.length === 0);
+  { // v322: nunca dá ponto em dobro — o funcionário já registrou (ou o corte já está completo por partes)
+    const et2 = etapa === 'finalizado' ? 'fabricacao' : etapa, st = prodEtapaFeita(ped, et2);
+    const EN = { corte: 'o corte', acabamento: 'o acabamento', fabricacao: 'a fabricação', instalacao: 'a instalação', entrega: 'a entrega', retirada: 'a retirada', polimento: 'o polimento' }[et2] || et2;
+    const quemN = []; for (const p of st.quem) quemN.push(await respNome(env, p) || p);
+    const recente = st.entradas.find(x => Math.abs(ts - x.ts) < 4 * 3600000 && (x.por || []).some(p => ids.includes(String(p))));
+    if (ids.length && recente && !a.forcar) { const nm = []; for (const p of recente.por || []) nm.push(await respNome(env, p)); return { texto: `JÁ ESTAVA REGISTRADO: ${EN} de ${ped.nome} por ${nm.join(' e ')} às ${horaTs(recente.ts)}${recente.frac != null && recente.frac < 1 ? ' (parte das peças)' : ''}, registrado ${recente.dono ? 'pelo senhor' : 'pelo próprio funcionário'}. Não registrei de novo para não dar ponto em dobro. Diga isso ao Sr. Hangel em 1 frase. Só registre outra vez (forcar=true) se ele confirmar que é OUTRA peça/serviço.` }; }
+    if (ids.length && st.soma >= 0.999 && !a.forcar && etapa !== 'inicio') return { texto: `JÁ ESTAVA COMPLETO: ${EN} de ${ped.nome} já foi registrado por inteiro (${quemN.join(', ') || 'equipe'}). Não registrei de novo. Diga isso ao Sr. Hangel em 1 frase; se for outra peça/serviço, ele confirma e você registra com forcar=true.` };
+    if (ids.length && st.soma > 0.001 && st.soma < 0.999 && etapa !== 'inicio' && !a.forcar) { // já foi feito por partes: só a parte que ele disse
+      const n = Math.max(1, nPecasPed(ped)), resto = Math.round((1 - st.soma) * 1000) / 1000;
+      if (!(+a.pecas > 0)) return { texto: `${EN} de ${ped.nome} já está ${Math.round(st.soma * 100)}% registrado (${quemN.join(', ')}). Pergunte ao Sr. Hangel QUANTAS peças foram feitas agora (faltam cerca de ${Math.round(resto * n)} de ${n}) e chame de novo com pecas.` };
+      ped.prodLog.push({ e: et2, por: ids, ts, dono: 1, frac: Math.min(resto, Math.round(+a.pecas / n * 1000) / 1000) });
+      await salvarPedido(env, ped); for (const id of ids) await metaChecar(env, id);
+      const nomes = []; for (const id of ids) nomes.push(await respNome(env, id));
+      return { texto: `Registrado: ${EN} de ${Math.round(+a.pecas)} peça(s) de ${ped.nome} por ${nomes.join(' e ')} (agora ${Math.round(Math.min(1, st.soma + +a.pecas / n) * 100)}% feito).` };
+    }
+  }
   if (etapa !== 'finalizado') ped.prodLog.push({ e: etapa, por: ids, ts, dono: 1 });
   if (etapa === 'inicio') ped.iniciadoEm = ped.iniciadoEm || ts;
   if (etapa === 'corte') { ped.corteEm = ts; ped.corteFeitoPor = ids[0]; }
@@ -11348,7 +11372,25 @@ async function retroBonificacao(env, opc = {}) {
   if (!opc.semAviso) await notificarDono(env, Date.now(), txt).catch(() => {});
   return txt;
 }
+// v322: tira o registro do dono que repetiu o que o próprio funcionário já tinha registrado (pontos em dobro), nos últimos 3 dias
+async function prodDuplicadosDono(env) {
+  const desde = Date.now() - 3 * 86400000, L = [];
+  for (const ped of await pedidosProducao(env, p => Array.isArray(p.prodLog) && p.prodLog.some(x => x.dono && (x.ts || 0) > desde))) {
+    const fora = [];
+    for (const x of ped.prodLog) {
+      if (!x.dono || (x.ts || 0) < desde || !['corte', 'acabamento', 'fabricacao', 'instalacao', 'entrega'].includes(x.e)) continue;
+      const antes = ped.prodLog.find(y => y !== x && !y.dono && y.e === x.e && (y.ts || 0) <= (x.ts || 0) + 600000 && (x.ts || 0) - (y.ts || 0) < 4 * 3600000 && (y.por || []).some(p => (x.por || []).map(String).includes(String(p))));
+      if (antes) fora.push(x);
+    }
+    if (!fora.length) continue;
+    ped.prodLog = ped.prodLog.filter(x => !fora.includes(x)); await salvarPedido(env, ped);
+    for (const x of fora) { const nm = []; for (const p of x.por || []) { nm.push(await respNome(env, p)); await metaChecar(env, p).catch(() => {}); } L.push(`• ${ped.nome}: ${({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', instalacao: 'instalação', entrega: 'entrega' })[x.e]} de ${nm.join(' e ')} (${dataBR(new Date(x.ts - 3 * 3600000).toISOString().slice(0, 10)).slice(0, 5)} ${horaTs(x.ts)})`); }
+  }
+  if (L.length) await notificarDono(env, Date.now(), `*Pontos em dobro corrigidos*\nO senhor registrou etapas que o próprio funcionário já tinha registrado, e os pontos tinham contado duas vezes. Tirei a repetição:\n${L.join('\n')}\n\nDaqui em diante, quando isso acontecer, eu aviso que já estava registrado em vez de contar de novo.`);
+  return L;
+}
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v322dup')) && await travaEnvio(env, 'fix:v322dup')) { await env.HR_KV.put('fix:v322dup', '1', { expirationTtl: 60 * 86400 }); await prodDuplicadosDono(env).catch(e => console.log('[DUP]', e.message)); } // v322: uma vez
   if (!(await env.HR_KV.get('fix:v311retro')) && await travaEnvio(env, 'fix:v311retro')) { await env.HR_KV.put('fix:v311retro', '1', { expirationTtl: 60 * 86400 }); await retroBonificacao(env).catch(e => console.log('[RETRO]', e.message)); } // v311: uma vez
   { const dk = 'proj:passe:' + dataBahia(); if (!(await env.HR_KV.get(dk)) && await travaEnvio(env, dk)) { await env.HR_KV.put(dk, '1', { expirationTtl: 3 * 86400 }); await projetoNosPedidos(env, { avisar: true, faltas: !(await env.HR_KV.get('proj:faltas1')) }).catch(e => console.log('[PROJ]', e.message)); await env.HR_KV.put('proj:faltas1', '1', { expirationTtl: 7 * 86400 }); } } // v286
   if (!(await env.HR_KV.get('fix:v285nicho'))) { await env.HR_KV.put('fix:v285nicho', '1', { expirationTtl: 30 * 86400 }); // v285: o álbum "nichos de banheiro" entrou como banheiro
@@ -14830,7 +14872,7 @@ const FERRAMENTAS = [
   {
     name: 'producao_status',
     description: 'ATUALIZA A PRODUÇÃO pelo que o Sr. Hangel conta: quem fez qual etapa de qual serviço (soma pontos na meta). Uma chamada por etapa; vários funcionários na mesma etapa dividem os pontos. Ex.: "hoje Fabrício e Lucas começaram a fabricação da Maria" (etapa inicio), "Fabrício terminou a fabricação da Maria" (fabricacao), "Hugo finalizou o serviço da Maria" (finalizado), "Gibson e Jefferson instalaram a bancada da Maria" (instalacao), "Fabrício cortou e Lucas fez os acabamentos dos peitoris da Maria" (duas chamadas: corte com Fabrício; acabamento com Lucas). ATENÇÃO AO TEMPO DO VERBO: só marque como feito o que ele disse no PASSADO ("instalaram", "terminou"). Futuro ou presente ("vão instalar", "hoje instalam", "estão instalando", "amanhã entrega") é vai_fazer=true — marcar antes da hora emite a garantia e dá pontos sem o serviço existir. Para algo que a pessoa VAI fazer use vai_fazer=true: "hoje Gibson vai acabar a cozinha da Maria, que Fabrício terminou de cortar ontem" = duas chamadas: corte com Fabrício e data de ontem; depois etapa fabricacao, funcionarios [Gibson], vai_fazer true, tarefa "acabamento". Etapas: inicio, corte, acabamento, fabricacao, finalizado, instalacao, entrega, retirada.',
-    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'polimento', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'polimento', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, forcar: { type: 'boolean', description: 'true só se o Sr. Hangel confirmar que é OUTRA peça/serviço depois de o bot avisar que já estava registrado' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
     name: 'acordo_alterar',
@@ -15183,6 +15225,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'consultar_historico_cliente') return await consultarHistoricoCliente(env, a);
   if (nome === 'registrar_entrega_pagamento') return await livFerramentaRegistrar(env, a);
   if (nome === 'consultar_entregas_pagamentos') return await livFerramentaConsultar(env, a);
+  if (nome === 'pdf_saldo_cliente') return await pdfSaldoCliente(env, from, a); // v322
 
   if (nome === 'lancar_financeiro') {
     const valor = Math.round(Number(a.valor) * 100) / 100;
@@ -15721,6 +15764,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- RESUMO DO MÊS: para \"como está o mês\" o sistema já responde sozinho com os números do app. Para perguntas mais específicas (\"quanto gastei de material?\", \"o lucro caiu?\", \"compare com o mês passado\"), use o bloco resumoFinanceiro dos DADOS DO APP (mesAtual e mesAnterior), cite valores em R$ e diga a variação. Nunca invente números.`,
       `- PRÓ-LABORE (\"quanto posso retirar?\", \"posso tirar 2 mil?\", \"quanto já retirei?\"): responda com o bloco proLabore dos DADOS DO APP: sugeridoMes, jaRetiradoMes, restanteSugerido, tetoSegurancaCaixa, dividaMesesAnteriores e lucroLivreAposReserva, valores em R$. Se ele perguntar por um valor específico, compare com restanteSugerido e com o teto de segurança e diga claramente se cabe, sem decidir por ele. Se proLabore não existir nos dados, diga que o aplicativo precisa sincronizar. Nunca invente números.`,
       `- PAGAMENTO A FUNCIONÁRIO (pagar_funcionario): \"paguei 150 pro diarista\", \"adiantamento de 200 pro João\", \"dei um vale de 100 ao Pedro\", \"paguei o decêndio do Carlos\". Use a lista de funcionarios dos DADOS DO APP. Se não estiver claro se é adiantamento, vale ou pagamento do decêndio, faça UMA pergunta curta antes. NÃO use lancar_financeiro para isso: o RH precisa do registro para o saldo do funcionário ficar certo. Se ele falar de retirada ou gasto pessoal dele e o funcionário marcado como socio existir, registre pagar_funcionario no sócio, tipo adiantamento (com obs do motivo, ex.: Aluguel da casa).`,
+      `- BUSQUE ANTES DE RESPONDER: você conhece o app do Sr. Hangel inteiro pelas ferramentas (histórico de orçamentos, livro de entregas e pagamentos, produção e pontos, finanças, agenda, conversas). Pedido vago ("o do Jailton", "aquele da cozinha", "o PDF do restante") = procure com as ferramentas de consulta primeiro e só pergunte o que não achar. NUNCA mande o Sr. Hangel fazer no app algo que uma ferramenta sua faz (PDF do saldo: pdf_saldo_cliente).`,
       `- VOZ: você FALA por áudio (a sua resposta vira áudio com a sua voz quando ele manda áudio ou pede para ouvir a sua voz). NUNCA diga que não consegue falar em áudio ou que só escreve.`,
       `- LANÇAMENTOS (lancar_financeiro): qualquer relato de pagamento, compra, gasto ou recebimento (\"paguei\", \"gastei\", \"comprei\", \"abasteci\", \"saiu\", \"o João pagou\", \"entrou\", \"recebi\") JÁ É pedido para anotar: execute, sem perguntar se deve anotar. Descrição curta e limpa, só o que foi (\"Aluguel da casa\", nunca a frase inteira nem instruções como \"descontar...\"). Categorias: ${Object.entries(CATS).map(([k, v]) => `${k} = ${v}`).join('; ')}. GASTO PESSOAL do Sr. Hangel (aluguel da casa dele, conta pessoal) ou frase com \"descontar/abater do meu pró-labore\" ou \"retirada\" = categoria prolabore, NUNCA custo fixo da empresa. Mais de um gasto na mesma mensagem = uma chamada por item. Se ele citar quantidade e preço (\"2 sacos de cimento por 150\"), o valor é o TOTAL pago, não a quantidade. Se ele corrigir o que acabou de ser lançado (\"era 600\", \"muda para pró-labore\", \"foi ontem\", \"era entrada\") use corrigir_ultimo_lancamento; para apagar use desfazer_ultimo_lancamento. Só pergunte se faltar o valor ou se for realmente impossível saber se é entrada ou saída. Perguntas sobre finanças, boletos, agenda, orçamentos já existentes e leads você responde com os dados.`,
       `- LIVRO DE ENTREGAS E PAGAMENTOS: quando o Sr. Hangel disser que ENTREGOU um serviço, que um cliente PAGOU (valor, forma e data) ou informar o TELEFONE de um cliente, CHAME registrar_entrega_pagamento para ficar salvo de forma permanente (se for dinheiro novo que entrou, chame também lancar_financeiro). Para perguntas sobre datas de entrega, formas de pagamento, quem ainda deve ou saldo, use o LIVRO acima ou consultar_entregas_pagamentos. Nunca diga que não tem onde guardar essas informações. O telefone salvo no livro é usado automaticamente na cobrança; se faltar telefone, peça UMA vez e grave com registrar_entrega_pagamento.`,
@@ -20139,6 +20183,51 @@ async function livFerramentaRegistrar(env, a) {
   partes.push('Isto NÃO lança nas finanças. Se foi dinheiro novo que entrou e ainda não foi lançado, use lancar_financeiro.');
   return { texto: partes.join('\n'), nota: `livro: ${r.cliente}${entrega ? ', entrega ' + dataBR(r.entregaEm) : ''}${pv > 0 ? ', pagamento R$ ' + reais(pv) + ' ' + livForma(a.pagamento_forma) : ''}` };
 }
+// v322: PDF do saldo/extrato do cliente feito pelo próprio bot (antes só o app fazia e a Helena mandava o dono abrir o app)
+async function pdfSaldoCliente(env, from, a) {
+  const nome = String(a.cliente || '').trim(); if (!nome) return { erro: true, texto: 'Falta o nome do cliente.' };
+  const liv = livAchar(await livTodos(env), nome);
+  const h = await buscarOrcamentosPorCliente(env, nome).catch(() => ({ ok: false }));
+  const orcs = h && h.ok ? h.orcamentos.filter(o => /aceit|fechad|aprov|entreg|conclu|produ/i.test(o.status || '') && !/perd|recus/i.test(o.status || '')) : [];
+  let cliNome = (liv[0] && liv[0].cliente) || (orcs[0] && orcs[0].cliente) || nome;
+  const servs = []; // { desc, data, total, pagos: [{data, valor, forma, obs}] }
+  for (const r of liv) servs.push({ desc: r.desc || 'Serviço', data: r.entregaEm || '', total: +r.valor || 0, pagos: (r.pagamentos || []).map(p => ({ data: p.data, valor: +p.valor || 0, forma: p.forma || '', obs: p.obs || '' })) });
+  if (!servs.length) for (const o of orcs.slice(0, 3)) servs.push({ desc: [o.projeto, o.material].filter(Boolean).join(' — ') || 'Serviço', data: o.data || '', total: +o.valor || 0, pagos: [] });
+  if (!servs.length) return { texto: `Não achei serviço fechado de "${nome}" no livro de pagamentos nem no histórico do app. Pergunte ao Sr. Hangel o valor total e quanto já foi pago, e chame de novo com total e ja_pago.` };
+  if (+a.total > 0 && servs.length === 1) servs[0].total = +a.total;
+  const pagoLivro = servs.reduce((t, s) => t + s.pagos.reduce((u, p) => u + p.valor, 0), 0);
+  if (+a.ja_pago > 0 && Math.abs(+a.ja_pago - pagoLivro) > 0.5) { // o que ele disse vale mais que o livro vazio/desatualizado
+    const s0 = servs[0]; s0.pagos = [{ data: /^\d{4}-\d{2}-\d{2}$/.test(String(a.data_pago || '')) ? a.data_pago : '', valor: +a.ja_pago - (pagoLivro - s0.pagos.reduce((u, p) => u + p.valor, 0)), forma: '', obs: 'informado pelo Sr. Hangel' }, ...s0.pagos.filter(() => false)];
+  }
+  const tot = servs.reduce((t, s) => t + s.total, 0), pago = servs.reduce((t, s) => t + s.pagos.reduce((u, p) => u + p.valor, 0), 0), falta = Math.max(0, Math.round((tot - pago) * 100) / 100);
+  if (!(tot > 0)) return { texto: `Achei ${cliNome}, mas sem o valor total do serviço. Pergunte ao Sr. Hangel o valor total e chame de novo com total.` };
+  const G = [0.62, 0.48, 0.16], emp = env.EMPRESA || 'HR Mármores e Granitos', hoje = dataBahia(), n = 'EXT-' + String(Date.now()).slice(-5);
+  const L = [
+    { t: emp.toUpperCase(), s: 16, b: 1, a: 'c', c: G, g: 0 },
+    { t: `${ENDERECO_MARMORARIA} · Pilão Arcado – BA`, s: 8, a: 'c', c: [0.4, 0.4, 0.4], g: 8 },
+    { t: '---', g: 16 },
+    { t: 'EXTRATO FINANCEIRO', s: 14, b: 1, a: 'c', g: 0 },
+    { t: `${n} · emissão ${dataBR(hoje)}`, s: 9, a: 'c', c: [0.4, 0.4, 0.4], g: 14 },
+    { t: `Cliente: ${cliNome}`, s: 12, b: 1, g: 10 },
+    { t: `Total contratado: R$ ${reais(tot)}`, s: 11, g: 2 },
+    { t: `Total pago: R$ ${reais(pago)}`, s: 11, c: [0.15, 0.5, 0.25], g: 2 },
+    { t: `SALDO EM ABERTO: R$ ${reais(falta)}`, s: 13, b: 1, c: [0.7, 0.15, 0.12], g: 12 },
+    { t: 'SERVIÇOS CONTRATADOS', s: 10, b: 1, c: G, g: 4 },
+  ];
+  servs.forEach((s, i) => { const pg = s.pagos.reduce((u, p) => u + p.valor, 0);
+    L.push({ t: `${i + 1}. ${s.desc}${s.data ? ' · ' + dataBR(s.data) : ''}`, b: 1, g: 1 }, { t: `Valor R$ ${reais(s.total)} · pago R$ ${reais(pg)} · saldo R$ ${reais(Math.max(0, s.total - pg))}`, i: 12, s: 9, g: 6 }); });
+  const pags = servs.flatMap(s => s.pagos).filter(p => p.valor > 0);
+  L.push({ t: 'HISTÓRICO DE PAGAMENTOS', s: 10, b: 1, c: G, g: 4 });
+  if (pags.length) for (const p of pags) L.push({ t: `${p.data ? dataBR(p.data) : '—'} · ${[p.forma, p.obs].filter(Boolean).join(' · ') || 'pagamento'} · + R$ ${reais(p.valor)}`, i: 12, s: 9, g: 2 });
+  else L.push({ t: 'Nenhum pagamento registrado.', i: 12, s: 9, g: 2 });
+  L.push({ t: '', g: 10 }, { t: `Saldo total em aberto de R$ ${reais(falta)} considerando todos os serviços acima.`, s: 10, g: 4 });
+  const bytes = pdfDocumento(L), arq = `Extrato ${cliNome}.pdf`, up = await subirPdfMeta(env, bytes, arq);
+  let destino = 'o Sr. Hangel';
+  const tel = ((liv[0] && liv[0].tel) || (h.ok && h.clientes[0] && h.clientes[0].tel) || '').replace(/\D/g, '');
+  if (a.para_cliente && tel && await janela24h(env, normalizarBR(tel.length <= 11 ? '55' + tel : tel)).catch(() => false)) { await postarMsg(env, normalizarBR(tel.length <= 11 ? '55' + tel : tel), { type: 'document', document: { id: up.id, filename: arq, caption: `Extrato: saldo em aberto R$ ${reais(falta)}` } }); destino = cliNome; }
+  await postarMsg(env, numeroDono(env), { type: 'document', document: { id: up.id, filename: arq, caption: `Extrato de ${cliNome}: total R$ ${reais(tot)} · pago R$ ${reais(pago)} · falta R$ ${reais(falta)}${destino !== 'o Sr. Hangel' ? ' (enviado ao cliente)' : ''}` } });
+  return { texto: `PDF do extrato de ${cliNome} JÁ ENVIADO ${destino === 'o Sr. Hangel' ? 'ao Sr. Hangel' : 'a ' + destino + ' e ao Sr. Hangel'} (total R$ ${reais(tot)}, pago R$ ${reais(pago)}, falta R$ ${reais(falta)})${!pags.length ? '. Atenção: não achei pagamentos registrados; se ele já recebeu algo, pergunte quanto e gere de novo com ja_pago' : ''}${a.para_cliente && destino === 'o Sr. Hangel' ? '. Não deu para mandar ao cliente (conversa fechada ou sem telefone): diga que ele pode encaminhar' : ''}. Confirme em UMA frase.` };
+}
 async function livFerramentaConsultar(env, a) {
   const todos = await livTodos(env);
   if (!todos.length) return { texto: 'O livro de entregas e pagamentos está vazio. Diga ao Sr. Hangel que ainda não consta nada e ofereça registrar (entrega, forma e data de pagamento).' };
@@ -20152,6 +20241,11 @@ async function livFerramentaConsultar(env, a) {
   return { texto: `${lista.length} registro(s) do livro (entrega, pagamentos e saldo):\n${lista.slice(0, 15).map(livLinha).join('\n')}${lista.length > 15 ? `\n… e mais ${lista.length - 15}.` : ''}\nSaldo em aberto somado: R$ ${reais(aberto)}.` };
 }
 const FERRAMENTAS_LIVRO = [
+  {
+    name: 'pdf_saldo_cliente',
+    description: 'GERA E MANDA o PDF do SALDO / EXTRATO de um cliente (total do serviço, quanto já pagou, quanto falta, serviços e pagamentos), igual ao "PDF do saldo para o cliente" do app. Use quando o Sr. Hangel pedir "PDF do restante", "PDF do saldo", "extrato do cliente", "quanto falta em PDF". Os valores vêm do livro de pagamentos e do histórico do app; se ele disse nesta conversa quanto o cliente pagou (ex.: "só deu 2 mil de entrada dia 6/10"), passe ja_pago e data_pago. Por padrão manda para o Sr. Hangel (ele encaminha); para_cliente=true manda direto ao cliente se a conversa dele estiver aberta. NUNCA diga que não consegue gerar o PDF: use esta ferramenta.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, ja_pago: { type: 'number', description: 'total já pago, se ele disse' }, data_pago: { type: 'string', description: 'AAAA-MM-DD do pagamento que ele citou' }, total: { type: 'number', description: 'valor total, só se ele disser' }, para_cliente: { type: 'boolean' } }, required: ['cliente'] },
+  },
   {
     name: 'registrar_entrega_pagamento',
     description: 'GRAVA no LIVRO DE ENTREGAS E PAGAMENTOS (memória fixa que o Sr. Hangel e o bot consultam depois): a DATA DA ENTREGA de um serviço, cada PAGAMENTO recebido (valor, forma e data), o valor total do serviço e/ou o TELEFONE do cliente. Use SEMPRE que ele disser que entregou algo ("entreguei o RL planejados hoje", "entregamos dia 04/11"), que um cliente pagou ("o RL pagou 500 no pix", "recebi o restante em dinheiro ontem") ou passar o telefone de um cliente. Pode juntar entrega e pagamento na mesma chamada. Não lança nas finanças (para dinheiro novo, chame também lancar_financeiro). Nunca invente forma de pagamento: se faltar, pergunte.',
