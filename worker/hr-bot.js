@@ -11309,6 +11309,29 @@ async function quitAntesRotina(env) { // v258
   if (!(await env.HR_KV.get('fix:v285nicho'))) { await env.HR_KV.put('fix:v285nicho', '1', { expirationTtl: 30 * 86400 }); // v285: o álbum "nichos de banheiro" entrou como banheiro
     const l = await inspLer(env); let n = 0; for (const x of l) if (x.album && x.album.includes('biC6zY4Ucdhsr9qS6') && x.cat !== 'nicho') { x.cat = 'nicho'; n++; }
     if (n) await env.HR_KV.put('insp:lista', JSON.stringify(l)); }
+  if (await env.HR_KV.get('fix:v305cassio') && !(await env.HR_KV.get('fix:v306cassio')) && await travaEnvio(env, 'fix:v306cassio')) { await env.HR_KV.put('fix:v306cassio', '1', { expirationTtl: 60 * 86400 }); // v306: o "Todos" do Fabrício marcou o Cássio inteiro como cortado/pronto; só 2 lavatórios + gourmet foram cortados. E os peitoris do Jacó
+    try {
+      const cfg = await pontoCfg(env), fab = (cfg.funcs || []).find(x => /^fabr/.test(normaliza(x.nome || ''))), fid = fab ? String(fab.id) : '';
+      const ped = (await pedidosProducao(env, p => p.status !== 'recusado' && nomeNota(p.nome, tokensPedra('Cássio')) >= 2).catch(() => [])).sort((a, b) => (+b.criado || 0) - (+a.criado || 0))[0];
+      if (ped && fid && !ped.entregueEm) {
+        const U = unidadesPed(ped, 'corte'), lavs = U.filter(u => /lavat/.test(u.tipo + ' ' + normaliza(u.nome))).slice(0, 2), gs = U.filter(u => /gourmet/.test(u.tipo + ' ' + normaliza(u.nome))).slice(0, 1), sel = [...lavs, ...gs];
+        if (sel.length && U.length > sel.length) {
+          const antes = (ped.prodLog || []).filter(x => x.e === 'corte'), ts0 = Math.min(...antes.map(x => +x.ts || Date.now()), Date.now());
+          ped.prodLog = (ped.prodLog || []).filter(x => x.e !== 'corte' && !(x.e === 'fabricacao' && !x.dono && x.ts > Date.now() - 6 * 3600000));
+          const frac = Math.round(sel.reduce((t, u) => t + u.frac, 0) * 1000) / 1000;
+          ped.prog = { ...(ped.prog || {}), corte: sel.map(u => u.i) }; ped.prodLog.push({ e: 'corte', por: [fid], ts: ts0, frac, itens: sel.map(u => u.i), rec: 1 }); ped.cortadas = sel.length;
+          ped.corteEm = null; ped.corteFeitoPor = null; ped.fabProntoEm = null; ped.prontoEm = null; ped.fabFeitoPor = null; const tinhaEnt = !!ped.entregaEnviadaEm; ped.entregaEnviadaEm = null;
+          await salvarPedido(env, ped);
+          await notificarDono(env, Date.now(), `*${ped.nome}* voltou para a produção: o Fabrício respondeu "todos" na lista antiga (6 peças erradas). Ficou anotado o corte de ${sel.map(u => u.nome).join(', ')}; faltam ${U.filter(u => !ped.prog.corte.includes(u.i)).map(u => u.nome).join(' e ')}.${tinhaEnt ? ' A entrega que tinha ido para o instalador foi cancelada.' : ''}`).catch(() => {});
+          if (tinhaEnt) { const tEnt = await numEquipe(env, 'entrega', ped).catch(() => ''); if (tEnt) await eqTexto(env, tEnt, `A entrega de *${ped.nome}* foi cancelada: o serviço ainda está na produção. Eu aviso quando ficar pronto.`).catch(() => {}); }
+          if (fab.tel) await eqTexto(env, normalizarBR(String(fab.tel).replace(/\D/g, '').replace(/^(?!55)/, '55')), `${apelidoFunc(cfg, fab) || 'Fabrício'}, acertei o *${ped.nome}*: a lista de 6 peças estava errada. O projeto é 4 lavatórios e 1 área gourmet, e ficou anotado o seu corte de 2 lavatórios e a área gourmet. Quando cortar os outros 2 lavatórios, me diga: _cortei os 2 lavatórios do Cássio_.`).catch(() => {});
+          await metaChecar(env, fid).catch(() => {});
+        }
+      }
+      if (fab) { const naProd = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && nomeNota(p.nome, tokensPedra('Jacó')) >= 2).catch(() => []);
+        if (!naProd.length && fab.tel) await prodPedirDono(env, fab, normalizarBR(String(fab.tel).replace(/\D/g, '').replace(/^(?!55)/, '55')), { cliente: 'Jacó', etapa: 'corte', item: 'peitoris', pedra: 'Preto São Gabriel' }, 'Os peitoris de Jacó no Preto São Gabriel já cortados (foto de hoje 10:01)', apelidoFunc(cfg, fab) || 'Fabrício').catch(() => {}); }
+    } catch (e) { console.log('[FIX306]', e.message); }
+  }
   if (!(await env.HR_KV.get('fix:v305cassio')) && await travaEnvio(env, 'fix:v305cassio')) { await env.HR_KV.put('fix:v305cassio', '1', { expirationTtl: 60 * 86400 }); // v305: o projeto do Cássio é 4 lavatórios + 1 área gourmet; o Fabrício cortou 2 lavatórios e a área gourmet
     try {
       const cfg = await pontoCfg(env), fab = (cfg.funcs || []).find(x => /^fabr/.test(normaliza(x.nome || ''))), fid = fab ? String(fab.id) : '';
@@ -12889,7 +12912,8 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   if (!ach.length) { let fu = null; try { fu = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {} if (fu && Date.now() - fu.em < 30 * 60000) ach = l.filter(p => String(p.id) === String(fu.pid)); }
   if (!ach.length) { const mine = l.filter(p => [p.fabResp, p.fab2Resp, p.acabResp, p.poliResp].map(String).includes(id) && unidadesPed(p).length > 1);
     const outroNome = (msg.match(/\b(?:de|do|da|dos|das)\s+([a-z]{3,})/g) || []).map(x => x.split(/\s+/).pop()).filter(w => !/^(preto|branco|verde|cinza|marrom|sao|gabriel|absoluto|granito|marmore|quartzo|pedra|cozinha|banheiro|lavatorio|lavatorios|peitoril|peitoris|soleira|soleiras|bancada|corte|acabamento|hoje|ontem|manha|tarde|novo|nova|servico|item|itens|pecas|peca|area|gourmet|frontao|saia|sainha)$/.test(w));
-    if (mine.length === 1 && !(outroNome.length && !outroNome.some(w => nomeParecido(mine[0], w)))) ach = mine; } // v305: "peitoril de Jacó cortado" não vira pergunta sobre o Cássio
+    const nounM = nm ? nm[1] : '', casaItem = !nounM || /^(pecas?|itens|item)$/.test(normaliza(nounM)) || unidadesPed(mine[0] || {}).some(u => casaNoun(u, nounM));
+    if (mine.length === 1 && casaItem && !(outroNome.length && !outroNome.some(w => nomeParecido(mine[0], w)))) ach = mine; } // v306: "peitoril cortado" não cai num serviço que não tem peitoril // v305: "peitoril de Jacó cortado" não vira pergunta sobre o Cássio
   if (ach.length !== 1) return false;
   const ped = ach[0];
   const papel = (await funcoesEquipe(env)).map[id] || [];
