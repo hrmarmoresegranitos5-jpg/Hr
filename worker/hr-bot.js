@@ -1617,7 +1617,7 @@ async function postarMsg(env, para, extra) {
 async function enviarComBotoes(env, para, texto, botoes) {
   texto = comNomeDono(env, organizarTexto(texto));
   const soVoz = respondeSoPorVoz(env, para);
-  if (soVoz) { env._ctx.suprimiu = true; registrarFala(env, texto, para); texto = 'Toque em uma das opções:'; }
+  if (soVoz) { env._ctx.suprimiu = true; registrarFala(env, texto, para); if (String(texto).length > 160) texto = 'Toque em uma das opções:'; } // v308: pergunta curta continua escrita junto dos botões
   let longo = false;
   // corpo de botão aceita no máximo 1024 caracteres: texto maior vai inteiro, os botões vêm numa mensagem curta
   if (String(texto).length > 1024) {
@@ -2688,7 +2688,7 @@ async function ouvirAudio(env, from, m, dono = true) {
     fd.append('file', new Blob([buf], { type: 'audio/ogg' }), 'audio.ogg');
     fd.append('model', env.STT_MODEL || 'gpt-4o-transcribe'); // v284: o modelo completo erra bem menos nomes
     fd.append('language', 'pt');
-    fd.append('prompt', 'Conversa de WhatsApp com uma marmoraria da Bahia. Valores em reais, medidas em centímetros e metros, soleira, peitoril, bancada, balcão, cozinha, lavatório, túmulo, orçamento, granito, mármore, Sr. Hangel. Nomes: ' + (await vocabVoz(env).catch(() => '')));
+    fd.append('prompt', 'Conversa de WhatsApp com uma marmoraria da Bahia. Valores em reais, medidas em centímetros e metros, soleira, peitoril, peitoris, bancada, balcão, cozinha, lavatório, nicho, túmulo, orçamento, granito, mármore, Preto São Gabriel, pontos, meus pontos, corte, cortei, acabamento, polimento, fabricação, instalação, instalei, frontão, sainha, rebaixo, cuba, Sr. Hangel. Nomes: ' + (await vocabVoz(env).catch(() => '')));
     const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST', headers: { Authorization: `Bearer ${chave}` }, body: fd,
     });
@@ -8158,6 +8158,14 @@ async function despacharPedido(env, ped, opc = {}) {
   }
   return despacharPedidoDireto(env, ped, opc);
 }
+// v308: pagamento e telefone da entrega pelo Livro do app (Histórico → Entrega e aceite): total, pagos e falta
+async function entregaLivro(env, ped) {
+  const cands = livAchar(await livTodos(env), ped.nome || ''); if (!cands.length) return null;
+  const abertos = cands.filter(r => !r.entregaEm), r = (abertos.length ? abertos : cands)[0]; if (!r) return null;
+  const tot = Number(r.valor) || 0, pago = livPago(r), falta = tot > 0 ? livR2(tot - pago) : null;
+  const txt = tot > 0 ? (falta <= 0.009 ? `JÁ PAGO (R$ ${reais(tot)} no Livro do app). NÃO cobrar do cliente` : `COBRAR NA ENTREGA: R$ ${reais(falta)}${pago > 0 ? ` (total R$ ${reais(tot)}, já pagou R$ ${reais(pago)})` : ''} (dinheiro, cartão ou Pix)`) : '';
+  return { txt, tel: r.tel || '', falta, tot, pago };
+}
 async function despacharPedidoDireto(env, ped, opc = {}) {
   const r = ped.resumoApp || {};
   const itens = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[ped.interesse] || 'Peças', acabamento: ped.acabamento || '', pecas: ped.pecas || [] }];
@@ -8166,8 +8174,8 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
   const AVISO_TESTE = !emTesteEquipe(env) ? [] : ['*TESTE: IGNORE ESTA MENSAGEM.*', 'Estamos testando um novo sistema na HR Mármores e Granitos. Em breve teremos uma assistente com IA. Não é preciso fazer nada.', ''];
   const ficha = ['*FICHA DE CORTE*', `Cliente: ${ped.nome || '---'}`, `Pedra: ${r.pedra || ped.cor || 'a confirmar'}`, '', blocos].join('\n');
 
-  const sn = ped.sinal && ped.sinal.valor ? ped.sinal : null;
-  const pagto = sn
+  const sn = ped.sinal && ped.sinal.valor ? ped.sinal : null, lv = (opc.so !== 'fabrica') ? await entregaLivro(env, ped).catch(() => null) : null; // v308: o que o Livro do app sabe (valor, pagos, telefone)
+  const pagto = lv && lv.txt && !sn && !ped.pago && !(Number(ped.valor) > 0) && !ped.forma_pagto ? lv.txt : !sn && !ped.pago && !(Number(ped.valor) > 0) && !ped.forma_pagto && !ped.fechDono ? 'CONFIRMAR COM O SR. HANGEL antes de cobrar (o valor não está no sistema)' : sn
     ? (ped.pago ? `SINAL de ${sn.pct}% PAGO via Pix (Mercado Pago): R$ ${reais(sn.valor)}. COBRAR NA ENTREGA o restante: R$ ${reais(sn.resto)} (dinheiro ou cartão)`
       : `Sinal de ${sn.pct}% no Pix (R$ ${reais(sn.valor)}) a confirmar com o Sr. Hangel. COBRAR NA ENTREGA o restante: R$ ${reais(sn.resto)}`)
     : ped.pago
@@ -8177,11 +8185,12 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
       : `COBRAR NA ENTREGA${ped.valor ? `: R$ ${reais(ped.valor)}` : ''} (dinheiro ou cartão)`;
   const e = ped.entrega || {};
   const prev = /^\d{4}-\d{2}-\d{2}$/.test(String(ped.entrega_prevista || '')) ? dataBR(ped.entrega_prevista) : '';
-  const entrega = ['*ENTREGA*', `Cliente: ${ped.nome || '---'}`, `Contato: wa.me/${ped.numero}`, `Pagamento: ${pagto}`,
+  const telCli = ped.numero || (lv && lv.tel) || '', nPecasEnt = itens.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0);
+  const entrega = ['*ENTREGA*', `Cliente: ${ped.nome || '---'}`, telCli ? `Contato: wa.me/${normalizarBR(String(telCli).replace(/\D/g, '').replace(/^(?!55)/, '55'))}` : 'Contato: sem número no sistema (peça ao Sr. Hangel)', `Pagamento: ${pagto}`,
     ...(ped.trocoPara > 0 && !ped.pago && Number(ped.valor) > 0 ? [`Troco: cliente paga com R$ ${reais(ped.trocoPara)}; levar R$ ${reais(ped.trocoPara - Number(ped.valor))} de troco`] : []),
     ...(prev ? [`Entrega prevista: ${prev}`] : []), ...(ped.horaEntrega ? [`Horário: ${ped.horaEntrega}`] : []),
     ...(e.endereco ? [`Endereço: ${e.endereco}`] : []), ...(ped.endereco && ped.endereco !== e.endereco ? [`Endereço informado: ${ped.endereco}`] : []), `Referência: ${ped.referencia || '---'}`, '',
-    `Itens: ${itens.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), nm = String(it.ambiente || 'peça').toLowerCase(); return `${n} ${n === 1 ? nm : (nm === 'peitoril' ? 'peitoris' : /s$/.test(nm) ? nm : nm + 's')}`; }).join(' + ')}`].join('\n');
+    nPecasEnt === 0 ? `Itens: ${ped.projetoApp || INTERESSES[ped.interesse] || 'serviço'} (conferir as peças na fábrica)` : `Itens: ${itens.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), nm = String(it.ambiente || 'peça').toLowerCase(); return `${n} ${n === 1 ? nm : (nm === 'peitoril' ? 'peitoris' : /s$/.test(nm) ? nm : nm + 's')}`; }).join(' + ')}`].join('\n');
 
   const falhas = [];
   const tentar = async (rotulo, numero, fn, textoManual) => {
@@ -8199,6 +8208,7 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
   const comAviso = (texto, n) => (AVISO_TESTE.length && ultimos8(n) !== ultimos8(doDono)) ? [...AVISO_TESTE, texto].join('\n') : texto;
   if (opc.so !== 'entrega' && ped.fab2Resp && ped.fab2Resp !== ped.fabResp && !ped.fab2Avisado) { const t2 = await respTel(env, ped.fab2Resp); if (t2) { ped.fab2Avisado = Date.now(); await salvarPedido(env, ped); await enviar(env, t2, `${avisoTeste(env)}📋 Vem aí: *${ped.nome}* (${resumoPecas(ped)}). Depois do corte, a fabricação (45°/cuba/acabamento) é sua. Te aviso quando as peças estiverem cortadas.`).catch(() => {}); } } // v146
   const okFab = opc.so === 'entrega' ? true : await tentar('Fábrica', numFab, async n => {
+    if (ultimos8(n) !== ultimos8(doDono) && !(await janela24h(env, n))) { const r0 = await eqEnviar(env, n, comAviso(ficha, n), `Tem ficha nova: ${ped.nome || 'cliente'}. Me responda aqui para receber.`); if (r0 === 'falha') throw new Error('ele está fora das 24 h e o aviso não foi aceito pela Meta'); return; } // v308
     if (ped.fichaMediaId) { // ficha profissional do app (imagem)
       if (AVISO_TESTE.length && ultimos8(n) !== ultimos8(doDono)) await enviar(env, n, AVISO_TESTE.join('\n'));
       await postarMsg(env, n, { type: 'image', image: { id: ped.fichaMediaId, caption: `Ficha de corte: ${ped.nome || 'cliente'}` } });
@@ -8225,6 +8235,7 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
   const retirada = ped.entrega === 'retirada';
   const entregaNoDono = ultimos8(numEnt) === ultimos8(doDono); // o dono já vê o endereço no resumo: não repete
   const okEnt = (retirada || entregaNoDono || opc.so === 'fabrica') ? true : await tentar('Entrega', numEnt, async n => {
+    if (!(await janela24h(env, n))) { const r0 = await eqEnviar(env, n, comAviso(entrega, n), `Tem entrega nova: ${ped.nome || 'cliente'}. Me responda aqui para ver os dados.`); if (r0 === 'falha') throw new Error('ele está fora das 24 h e o aviso não foi aceito pela Meta'); env._entFila = 1; return; } // v308
     await enviar(env, n, comAviso(entrega, n)); // o texto (com o aviso de teste) vai antes do pino do mapa
     if (e.lat != null) await postarMsg(env, n, { type: 'location', location: { latitude: e.lat, longitude: e.lng, name: ped.nome || 'Entrega', address: e.endereco || '' } });
   }, entrega + (e.lat != null ? `\nLocalização: https://maps.google.com/?q=${e.lat},${e.lng}` : ''));
@@ -8615,7 +8626,7 @@ async function prodMarcarPronto(env, ped, from, nome) {
     entTxt = (await fechAgendar(env, ped).catch(() => false)) ? ' Já mandei ao cliente o horário da entrega para confirmar.' : (ped.etapa !== 'concluido' ? ' A entrega é combinada assim que o cliente mandar a localização.' : '');
   } else if (!retirada && !ped.entregaEnviadaEm) { const ok = await despacharPedidoDireto(env, ped, { so: 'entrega' }).catch(() => false); if (ok) { ped.entregaEnviadaEm = Date.now(); await salvarPedido(env, ped); entTxt = ` Mandei os dados da entrega para ${nomeEntregador(env)}.`; } }
   else if (!retirada && ped.entregaEnviadaEm) { const g = await numEquipe(env, 'entrega', ped); if (g) { await enviar(env, g, `${avisoTeste(env)}✅ O pedido de *${ped.nome}* (${resumoPecas(ped)}) ficou pronto. Já pode levar${ped.entrega && ped.entrega.endereco ? ': ' + ped.entrega.endereco : ''}. Quando entregar, me diga: _entreguei o pedido de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {}); entTxt = ` Avisei o ${nomeEntregador(env)} que pode levar.`; } }
-  await enviar(env, from, `Show, ${nome}! Anotei que o de *${ped.nome}* ficou pronto. Avisei o Sr. Hangel.${entTxt && !ped.fechDono ? ' O ' + ((ped.entResp && await respNome(env, ped.entResp)) || nomeEntregador(env)) + ' já recebeu a entrega.' : ''}`); // v214: nome de quem recebeu de verdade
+  await enviar(env, from, `Show, ${nome}! Anotei que o de *${ped.nome}* ficou pronto. Avisei o Sr. Hangel.${entTxt && !ped.fechDono ? ' ' + (env._entFila ? 'Mandei a entrega para o ' + ((ped.entResp && await respNome(env, ped.entResp)) || nomeEntregador(env)) + '; ele vê assim que abrir o WhatsApp.' : 'O ' + ((ped.entResp && await respNome(env, ped.entResp)) || nomeEntregador(env)) + ' já recebeu a entrega.') : ''}`); // v214: nome de quem recebeu de verdade
   await prodPedirFotoPronto(env, ped, from, nome).catch(() => {}); // v151
   if (ped.fechDono && retirada && ped.numero) { // v137: retirada combinada pelo bot → avisa o cliente sozinho
     ped.prontoEm = Date.now(); await salvarPedido(env, ped);
@@ -10587,7 +10598,7 @@ async function metaChecar(env, funcId) {
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
       if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
         const cruzou = FAIXAS.some(x => pctQ(pn) >= x.pct && !ja.includes('|' + x.pct));
-        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅' : ''}\n📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}${pn.ptsMes != null ? `\n🗓️ Mês: *${vPt(pn.ptsMes)} de ${pn.metaMes}*` : ''}`).catch(() => {}); } // v207/v209: simples — hoje, semana e mês
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome}${t.dia && t.dia !== dataBahia() ? ', conta para ' + dataBR(t.dia).slice(0, 5) : ''})` : ''}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅' : ''}\n📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}${pn.ptsMes != null ? `\n🗓️ Mês: *${vPt(pn.ptsMes)} de ${pn.metaMes}*` : ''}`).catch(() => {}); } // v207/v209: simples — hoje, semana e mês
     }
     // v158: cada faixa alcançada é comemorada (e a equipe fica sabendo do Ouro e do Diamante)
     const pctR = pctQ(pn), nova = [...FAIXAS].reverse().find(x => x.pct === 100 && pctR >= x.pct && !ja.includes('|' + x.pct)); // v207: só comemora a meta batida (simples)
@@ -12823,8 +12834,21 @@ async function auditoriaTexto(env, dia) {
       (fl.length ? alertas : linhas).push(fl.length ? `${t}\n   ${[...new Set(fl)].join(' · ')}` : t);
     }
   }
-  if (!linhas.length && !alertas.length) return '';
-  return [`🛡️ *Auditoria dos pontos · ${dataBR(dia).slice(0, 5)}*`, '', ...(alertas.length ? ['*Conferir:*', ...alertas, ''] : ['✅ Nada estranho hoje.', '']), ...(linhas.length ? ['*Tudo certo:*', ...linhas] : []), '', '_Para tirar pontos: "anula o corte da Maria do Fabrício (motivo)". Repetidos já não contam._'].join('\n');
+  // v308: projetos e cobranças que podem dar ponto errado ou cobrança errada
+  const proj = [];
+  let livs = null; try { livs = await livTodos(env); } catch (_) { livs = []; }
+  for (const p of peds) {
+    if (p.entregueEm || p.status === 'recusado' || p.status === 'cancelado') continue;
+    const log = Array.isArray(p.prodLog) ? p.prodLog : [], feito = log.some(x => ['corte', 'acabamento', 'fabricacao', 'polimento'].includes(x.e));
+    if (feito && (!nPecasPed(p) || p.estimado)) proj.push(`📐 *${p.nome}*: ${p.estimado ? 'peças estimadas pelo m²' : 'sem as peças do projeto'} — os pontos podem estar errados. Gere o PDF do orçamento no app que eu refaço a conta.`);
+    if (naEntrega(p)) {
+      const lv = livAchar(livs, p.nome || '').filter(r => !r.entregaEm)[0];
+      if (!p.numero && !(lv && lv.tel)) proj.push(`📞 *${p.nome}*: entrega sem o telefone do cliente.`);
+      if (!p.pago && !(Number(p.valor) > 0) && !p.forma_pagto && !p.sinal && !(lv && Number(lv.valor) > 0)) proj.push(`💰 *${p.nome}*: entrega sem valor no sistema — o entregador não sabe quanto cobrar.`);
+    }
+  }
+  if (!linhas.length && !alertas.length && !proj.length) return '';
+  return [`🛡️ *Auditoria dos pontos · ${dataBR(dia).slice(0, 5)}*`, '', ...(alertas.length ? ['*Conferir:*', ...alertas, ''] : linhas.length ? ['✅ Nada estranho hoje.', ''] : []), ...(proj.length ? ['*Projetos e cobranças:*', ...proj.slice(0, 12), ''] : []), ...(linhas.length ? ['*Tudo certo:*', ...linhas] : []), '', '_Para tirar pontos: "anula o corte da Maria do Fabrício (motivo)". Repetidos já não contam._'].join('\n');
 }
 async function auditoriaRotina(env) {
   const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 17 * 60 + 40 || ag.min > 19 * 60 || String(env.AUDITORIA ?? '1') === '0') return;
