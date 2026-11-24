@@ -980,10 +980,52 @@ async function orcPdfGuardar(env, d, bytes) {
   else { try { const ant = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (ant && ant.temBytes) r.temBytes = 1; } catch (_) {} }
   if (!r.resumo) { try { const ant = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (ant && ant.resumo) r.resumo = ant.resumo; } catch (_) {} }
   await env.HR_KV.put(k, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+  if (r.resumo) await orcPdfIndexar(env, k, r).catch(() => {}); // v286
   if (r.qId && orcNum) await env.HR_KV.put('orcpdf:qid:' + r.qId, orcNum, { expirationTtl: 120 * 86400 });
   if (r.resumo && orcNum) await fechFichaDoPdf(env, orcNum, r.resumo).catch(e => console.log('[FECH] pdf:', e.message)); // v134
   if (bytes) await onbPdfPronto(env, r).catch(e => console.log('[ONB] pdf:', e.message)); // v143
+  if (r.resumo && r.cliente) await projetoNosPedidos(env, { soCliente: r.cliente, avisar: true }).catch(e => console.log('[PROJ]', e.message)); // v286
   return r;
+}
+// v286: O SISTEMA ESTUDA CADA PROJETO. Serviço na produção sem as peças (registrado pelo WhatsApp, ou com peças estimadas)
+// procura o orçamento do app desse cliente (o PDF guarda as peças, a pedra e os serviços: sainha, frontão, rebaixo, cuba, pé…)
+// e usa o projeto de verdade. Os pontos de corte, acabamento, fabricação e instalação são recalculados por essas peças
+// (a régua é calculada na hora, então vale também para o que já foi feito).
+async function orcPdfIndexar(env, k, r) {
+  let l = []; try { l = JSON.parse((await env.HR_KV.get('orcpdf:idx')) || '[]'); } catch (_) {}
+  l = l.filter(x => x.k !== k); l.unshift({ k, cliente: r.cliente, em: r.em || Date.now(), n: (r.resumo.itens || []).reduce((t, it) => t + it.pecas.length, 0) });
+  await env.HR_KV.put('orcpdf:idx', JSON.stringify(l.slice(0, 600)));
+}
+async function orcPdfIndiceMontar(env) { // uma vez: monta o índice com os PDFs que já estão guardados
+  if (await env.HR_KV.get('orcpdf:idxok')) return;
+  const keys = []; let cur; for (let i = 0; i < 5; i++) { const l = await env.HR_KV.list({ prefix: 'orcpdf:', limit: 1000, ...(cur ? { cursor: cur } : {}) }).catch(() => ({ keys: [], list_complete: true })); keys.push(...(l.keys || []).map(x => x.name).filter(n => !/:b$|^orcpdf:qid:|^orcpdf:idx/.test(n))); if (l.list_complete || !l.cursor) break; cur = l.cursor; }
+  const idx = [];
+  for (let i = 0; i < keys.length; i += 25) { const rs = await Promise.all(keys.slice(i, i + 25).map(k => env.HR_KV.get(k).then(v => [k, v]).catch(() => [k, null]))); for (const [k, v] of rs) { try { const r = JSON.parse(v || 'null'); if (r && r.resumo && r.cliente) idx.push({ k, cliente: r.cliente, em: r.em || 0, n: (r.resumo.itens || []).reduce((t, it) => t + it.pecas.length, 0) }); } catch (_) {} } }
+  idx.sort((a, b) => b.em - a.em); await env.HR_KV.put('orcpdf:idx', JSON.stringify(idx.slice(0, 600))); await env.HR_KV.put('orcpdf:idxok', '1');
+}
+async function projetoDoCliente(env, nome, depoisDe) {
+  await orcPdfIndiceMontar(env).catch(() => {});
+  let idx = []; try { idx = JSON.parse((await env.HR_KV.get('orcpdf:idx')) || '[]'); } catch (_) {}
+  const tk = tokensPedra(nome); const cands = idx.filter(x => x.n > 0 && nomeNota(x.cliente, tk) >= 0.8 && nomeNota(nome, tokensPedra(x.cliente)) >= 0.8);
+  if (!cands.length) return null; cands.sort((a, b) => b.em - a.em);
+  try { const r = JSON.parse((await env.HR_KV.get(cands[0].k)) || 'null'); return r && r.resumo ? r : null; } catch (_) { return null; }
+}
+const pedSemProjeto = p => !itensPecas(p).length || !!p.estimado;
+async function projetoNosPedidos(env, opc = {}) {
+  const tkS = opc.soCliente ? tokensPedra(opc.soCliente) : null;
+  const peds = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && pedSemProjeto(p) && (!tkS || nomeNota(p.nome, tkS) >= 0.8)).catch(() => []);
+  const L = [], faltam = [];
+  for (const ped of peds) {
+    const antes = { corte: ptsEtapa(ped, 'corte'), acab: ptsEtapa(ped, pedComplexo(ped) ? 'fabricacao' : 'acabamento') };
+    const r = await projetoDoCliente(env, ped.nome).catch(() => null);
+    if (!r) { faltam.push(ped.nome); continue; }
+    ped.resumoApp = { ...(ped.resumoApp || {}), ...r.resumo }; ped.pecas = pecasDoResumo(r.resumo); delete ped.estimado; ped.projetoDe = r.orcNum || r.qId || 'orçamento do app'; await salvarPedido(env, ped);
+    const pcs = (r.resumo.itens || []).map(it => `${it.ambiente}: ` + it.pecas.map(x => `${x.qtd > 1 ? x.qtd + '× ' : ''}${vPt(x.comp_cm)}×${vPt(x.larg_cm)}`).join(', ') + (it.sv && it.sv.length ? ` (${it.sv.join(', ')})` : '')).join('\n');
+    const feitos = (ped.prodLog || []).filter(l => ['corte', 'acabamento', 'polimento', 'fabricacao'].includes(l.e)).map(l => l.e);
+    L.push(`*${ped.nome}* — projeto do ${ped.projetoDe}\n${pcs}\nCorte: ${vPt(antes.corte)} → *${vPt(ptsEtapa(ped, 'corte'))} pts* · ${pedComplexo(ped) ? 'Fabricação' : 'Acabamento'}: ${vPt(antes.acab)} → *${vPt(ptsEtapa(ped, pedComplexo(ped) ? 'fabricacao' : 'acabamento'))} pts*${feitos.length ? `\n_Já feito: ${[...new Set(feitos)].join(', ')} — os pontos de quem fez já mudaram._` : ''}`);
+  }
+  if (opc.avisar && (L.length || (opc.faltas && faltam.length))) await notificarDono(env, Date.now(), ['📐 *Estudei o projeto pelo orçamento do app*', ...L, ...(opc.faltas && faltam.length ? [`Sem orçamento com as peças: ${faltam.join(', ')}. Abra o orçamento no app e gere o PDF que eu recalculo sozinho.`] : [])].join('\n\n')).catch(() => {});
+  return { feitos: L.length, faltam };
 }
 // id de mídia da Meta válido (vence em ~30 dias): reaproveita ou sobe de novo a partir do PDF guardado
 async function orcPdfMedia(env, r) {
@@ -10839,6 +10881,7 @@ async function quitTool(env, from, x) {
   return { texto: `Mostrei a prévia da cobrança de saldo (${antes.length ? antes.map(p => 'R$ ' + reais(p.valor) + ' ' + diaFalado(p.data)).join(', ') + ' e depois ' : ''}R$ ${reais(saldo - somaAntes)} até ${dataBR(prazo)}). Diga em UMA frase para conferir e tocar em Confirmar e enviar; nada foi enviado ainda.` };
 }
 async function quitAntesRotina(env) { // v258
+  { const dk = 'proj:passe:' + dataBahia(); if (!(await env.HR_KV.get(dk)) && await travaEnvio(env, dk)) { await env.HR_KV.put(dk, '1', { expirationTtl: 3 * 86400 }); await projetoNosPedidos(env, { avisar: true, faltas: !(await env.HR_KV.get('proj:faltas1')) }).catch(e => console.log('[PROJ]', e.message)); await env.HR_KV.put('proj:faltas1', '1', { expirationTtl: 7 * 86400 }); } } // v286
   if (!(await env.HR_KV.get('fix:v285nicho'))) { await env.HR_KV.put('fix:v285nicho', '1', { expirationTtl: 30 * 86400 }); // v285: o álbum "nichos de banheiro" entrou como banheiro
     const l = await inspLer(env); let n = 0; for (const x of l) if (x.album && x.album.includes('biC6zY4Ucdhsr9qS6') && x.cat !== 'nicho') { x.cat = 'nicho'; n++; }
     if (n) await env.HR_KV.put('insp:lista', JSON.stringify(l)); }
