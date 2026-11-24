@@ -9,3 +9,4 @@ Roda o `worker/hr-bot.js` de verdade com WhatsApp, IA e banco falsos, e mostra o
 
 Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). `4460` = dono.
     node testes/bot/t5.mjs   # vários itens: corte por item, "terminei tudo", instalação em dupla, pagou só uma parte
+    node testes/bot/t7.mjs   # totem do balcão: página, conversa, pedido de orçamento, atendente, link do dono

@@ -1,6 +1,6 @@
 import fs from 'fs'; import vm from 'vm';
 let src=fs.readFileSync(new URL('../../worker/hr-bot.js', import.meta.url),'utf8').replace(/^export default/m,'globalThis.__W=');
-src+=`\n;globalThis.__T={chamarIA,tratarMensagem,salvarPedido,pedidosProducao,ptsEtapa,metaPainel,auditoriaTexto,despacharPedidoDireto,horasDetalhe,explicarPontos};`;
+src+=`\n;globalThis.__T={chamarIA,tratarMensagem,salvarPedido,pedidosProducao,ptsEtapa,metaPainel,totemToken,auditoriaTexto,despacharPedidoDireto,horasDetalhe,explicarPontos};`;
 const KV=new Map(); const sent=[]; const ai=[];
 const kv={async get(k){return KV.has(k)?KV.get(k):null}, async put(k,v){KV.set(k,String(v))}, async delete(k){KV.delete(k)}, async list({prefix='',limit=1000}={}){return {keys:[...KV.keys()].filter(k=>k.startsWith(prefix)).slice(0,limit).map(name=>({name})),list_complete:true}}};
 const stmt={bind(){return stmt},async run(){return {meta:{changes:1}}},async all(){return {results:[]}},async first(){return null}};
@@ -8,6 +8,7 @@ const db={prepare(){return stmt},batch:async()=>[]};
 function aiResp(sys,user){
   if(/Descubra de qual serviço ele fala/.test(sys)){ const m=['Jacó','Cássio','Osmailton'].find(n=>user.toLowerCase().includes(n.toLowerCase().slice(0,4))); return JSON.stringify({cliente:m||'',item:/peitor/i.test(user)?'peitoril':'',etapa:'corte',feito:/cortad|cortei/i.test(user)&&!/quero saber/i.test(user)}); }
   if(/secretária de RH/.test(sys)) return JSON.stringify({resposta:'[IA-RH] resposta com dados: '+(sys.match(/PONTOS DELE:[^\n]*/)||['sem pontos'])[0],escalar:false,assunto:'outro',acao:''});
+  if(/pelo totem \(tablet\)/.test(sys)) return JSON.stringify({fala:'O m² do Preto São Gabriel tá R$ 450,00, mas o valor final depende das medidas.',abrir:'pedras:pretas'});
   if(/Reescreva|transforma uma resposta ESCRITA/.test(sys)) return JSON.stringify({fala:user,direcao:'',emocao:''});
   return '{}';
 }
@@ -17,8 +18,8 @@ const fetchStub=async(url,opt={})=>{ url=String(url);
   if(url.includes('graph.facebook.com')&&/\/m\w+$/.test(url.split('?')[0])&&!url.includes('/messages')) return new Response(JSON.stringify({url:'https://lookaside.fbsbx.com/x',mime_type:'image/jpeg'}),{status:200});
   if(url.includes('lookaside')) return new Response(new Uint8Array([255,216,255,224,0,16]),{status:200,headers:{'content-type':'image/jpeg'}});
   return new Response('{}',{status:200}); };
-const c={console:{log:()=>{},error:()=>{}},URL,Response,Request,Headers,fetch:fetchStub,crypto,TextEncoder,TextDecoder,setTimeout:(f,ms)=>{const t=setTimeout(f,ms>=6000?ms:Math.min(ms||0,5)); if(ms>=6000&&t.unref)t.unref(); return t;},clearTimeout,setInterval:()=>0,clearInterval:()=>{},atob,btoa,FormData,Blob,AbortController,AbortSignal,structuredClone,queueMicrotask};c.globalThis=c;vm.createContext(c);vm.runInContext(src,c);
+const c={caches:{default:{match:async()=>null,put:async()=>{}}},console:{log:()=>{},error:()=>{}},URL,Response,Request,Headers,fetch:fetchStub,crypto,TextEncoder,TextDecoder,setTimeout:(f,ms)=>{const t=setTimeout(f,ms>=6000?ms:Math.min(ms||0,5)); if(ms>=6000&&t.unref)t.unref(); return t;},clearTimeout,setInterval:()=>0,clearInterval:()=>{},atob,btoa,FormData,Blob,AbortController,AbortSignal,structuredClone,queueMicrotask};c.globalThis=c;vm.createContext(c);vm.runInContext(src,c);
 const T=c.__T;
 export const env={HR_KV:kv,HR_DB:db,AI_PROVIDER:'anthropic',AI_KEY:'x',WHATSAPP_TOKEN:'t',PHONE_NUMBER_ID:'p',DONO_NUMERO:'74991484460',ATENDER_CLIENTES:'1',ESPERA_CLIENTE:'0',RITMO_HUMANO:'0',PARTIR_MSG:'0',VOZ_FUNC:'0'};
-export {T,KV,sent,ai};
+export {T,KV,sent,ai}; export const W=c.__W;
 export async function msg(from,body,extra={}){ sent.length=0; const m={from,id:'m'+Math.random(),timestamp:String(Date.now()/1000|0),type:'text',text:{body},...extra}; try{await T.tratarMensagem(env,m);}catch(e){sent.push({to:'ERRO',txt:e.stack.split('\n').slice(0,3).join(' | ')});} return sent.map(s=>`→${String(s.to).slice(-4)}: ${s.txt}`).join('\n'); }

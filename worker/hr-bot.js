@@ -11960,6 +11960,7 @@ async function dividaLimparPedidosFalsos(env) {
 
 async function acdComandoDono(env, from, msg) {
   if (await telaComandoDono(env, from, msg)) return true; // v282: galeria na TV
+  if (await totemComandoDono(env, from, msg)) return true; // v312: link do totem
   if (await quitPagamentoParcial(env, from, msg)) return true; // v251
   if (await cartaoComandoDono(env, from, msg)) return true; // v271
   if (/^(fechamento|resumo|caixa)( financeiro)? (da|de|desta|dessa) semana$|^fechamento semanal$|^dinheiro a liberar$|^a liberar$/.test(msg)) { await enviar(env, from, await fechSemanaTexto(env)); return true; } // v271
@@ -26136,6 +26137,7 @@ async function rotaBotInterna(req, env, url) {
     if (b.estado) { const px = await telaPixLer(env); return jsonR({ ok: true, status: px ? px.status : '', valor: px ? px.valor : 0 }); }
     try { const px = await telaPixCriar(env, b); return jsonR({ ok: true, valor: px.valor, copia: px.copia }); } catch (e) { return jsonR({ error: e.message }, 400); }
   }
+  if (p === '/bot/totem/link' && req.method === 'GET') return jsonR({ url: await totemLink(env, url.searchParams.get('novo') === '1'), status: await totemStatusTxt(env) }); // v312
   if (p === '/bot/tela/link' && req.method === 'GET') return jsonR({ url: (await urlPublica(env)) + '/tela?k=' + await telaToken(env) }); // v277
   if (p === '/bot/tela/publicar' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await telaTab(env); await env.HR_DB.prepare('UPDATE tela_cli SET dados = ?, ts = ?').bind((() => { let j = JSON.stringify(b.dados || null); if (j.length > 300000 && b.dados && Array.isArray(b.dados.ambs)) { b.dados.ambs.forEach(a => { if (a) a.foto = ''; }); j = JSON.stringify(b.dados); } return j.length > 300000 ? 'null' : j; })(), Date.now()).run(); return jsonR({ ok: true }); } // v277
   if (p === '/bot/conversas/arquivo' && req.method === 'GET') { // v54: conversas dos últimos dias (padrão 14, máx. 30) para revisar o atendimento
@@ -34743,7 +34745,7 @@ async function siteImagem(env, ctx, url, p) {
   return resp;
 }
 const SITE_AMB = { cozinha: 'Cozinha', banheiro: 'Banheiro', lavabo: 'Lavabo', area_servico: 'Área de serviço', varanda: 'Churrasqueira / varanda', escada: 'Escada', soleira: 'Soleira / peitoril', piso: 'Piso / revestimento', outro: 'Outro' };
-async function sitePedido(req, env, ctx) {
+async function sitePedido(req, env, ctx, opc = {}) { // v312: opc.totem = veio do totem da loja
   const cab = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json; charset=utf-8' };
   const resp = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: cab });
   if (req.method !== 'POST') return resp({ ok: false, erro: 'Método não permitido' }, 405);
@@ -34761,7 +34763,7 @@ async function sitePedido(req, env, ctx) {
   tel = normalizarBR(tel);
   // limite: 6 envios por hora por endereço e 3 por telefone (evita abuso)
   const ip = req.headers.get('cf-connecting-ip') || 'x', hora = Math.floor(Date.now() / 3600000);
-  for (const k of [`site:lim:ip:${ip}:${hora}`, `site:lim:tel:${tel}:${hora}`]) {
+  for (const k of (opc.totem ? [`site:lim:tel:${tel}:${hora}`] : [`site:lim:ip:${ip}:${hora}`, `site:lim:tel:${tel}:${hora}`])) {
     const q = +(await env.HR_KV.get(k)) || 0;
     if (q >= (k.includes(':ip:') ? 6 : 3)) return resp({ ok: false, erro: 'Recebemos vários envios seguidos. Fale com a gente pelo WhatsApp.' }, 429);
     await env.HR_KV.put(k, String(q + 1), { expirationTtl: 3700 });
@@ -34775,7 +34777,7 @@ async function sitePedido(req, env, ctx) {
   const cuba = b.cuba && b.cuba.id ? acha(b.cuba.g === 'lav' ? 'lav' : 'coz', b.cuba.id) : null;
   const acess = (Array.isArray(b.acessorios) ? b.acessorios : []).slice(0, 20).map(id => acha('acess', id)).filter(Boolean);
   const cubaOp = t(b.cubaOp, 30);
-  const protocolo = 'SITE-' + Date.now().toString(36).slice(-5).toUpperCase();
+  const protocolo = (opc.totem ? 'LOJA-' : 'SITE-') + Date.now().toString(36).slice(-5).toUpperCase();
   const lead = { protocolo, em: Date.now(), status: 'novo', nome, tel, cidade, ambiente: amb, medidas, obs, pedraId: pedra && pedra.id ? String(pedra.id) : '', cubaId: cuba ? String(cuba.id) : '', cubaG: b.cuba && b.cuba.g === 'lav' ? 'lav' : 'coz', acessIds: acess.map(x => String(x.id)),
     pedra: pedra ? { nm: String(pedra.nm).trim(), cat: pedra.cat || '', pr: n(pedra.pr) } : null,
     cuba: cuba ? { nm: String(cuba.nm).trim(), dim: cuba.dim || '', pr: n(cuba.pr) } : null, cubaOp,
@@ -34805,19 +34807,23 @@ async function sitePedido(req, env, ctx) {
       else if (/ja tenho/i.test(normaliza(cubaOp))) { bc.cuba = 'sim'; bc.cuba_modelo = 'cuba do próprio cliente'; }
       if (lead.acessorios.length) { bc.acessorios = 'sim'; bc.acessorios_quais = lead.acessorios.map(x => x.nm).join(', ').slice(0, 160); }
     }
-    if (medidas) d.detalhe = [d.detalhe, 'Medidas informadas no site: ' + medidas].filter(Boolean).join(' | ').slice(0, 500);
-    c.site = protocolo; c.origem = c.origem || 'site';
-    c.hist = (c.hist || []).concat([{ role: 'assistant', content: `[Anotação: o cliente montou o projeto no site da HR — protocolo ${protocolo}. Escolhas dele (não pergunte de novo; confirme e siga para o que falta, como medidas e visita):]\n${linhas.join('\n')}` }]).slice(-CLIENTE_HIST_MAX);
+    if (medidas) d.detalhe = [d.detalhe, (opc.totem ? 'Medidas informadas no totem da loja: ' : 'Medidas informadas no site: ') + medidas].filter(Boolean).join(' | ').slice(0, 500);
+    c.site = protocolo; c.origem = c.origem || (opc.totem ? 'totem' : 'site');
+    c.hist = (c.hist || []).concat([{ role: 'assistant', content: `[Anotação: o cliente montou o projeto ${opc.totem ? 'no totem de atendimento da loja (está ou esteve no balcão da HR agora)' : 'no site da HR'} — protocolo ${protocolo}. Escolhas dele (não pergunte de novo; confirme e siga para o que falta, como medidas e visita):]\n${linhas.join('\n')}` }]).slice(-CLIENTE_HIST_MAX);
     c.ultimaEm = Date.now();
     await env.HR_KV.put('ca:' + tel, JSON.stringify(c), { expirationTtl: CLIENTE_TTL });
   } catch (e) { console.log('[SITE] conversa do cliente:', e.message); }
   // aviso ao dono
   const totAcess = lead.acessorios.reduce((s2, x) => s2 + x.pr, 0) + (lead.cuba ? lead.cuba.pr : 0);
   try {
-    await notificarDono(env, Date.now(), `*Novo projeto pelo site* — ${protocolo}\n*${nome}*${cidade ? ' (' + cidade + ')' : ''}\n${linhas.filter(l => !/^Cidade:/.test(l)).join('\n')}${totAcess ? `\nCuba + acessórios: R$ ${reais(totAcess)}` : ''}\n\nJá está no app, em *Orçamento → Projetos do site*: é só tocar em "Montar orçamento".\nwa.me/${tel}`);
+    await notificarDono(env, Date.now(), `${opc.totem ? '🖥️ *Atendimento no totem da loja*' : '*Novo projeto pelo site*'} — ${protocolo}\n*${nome}*${cidade ? ' (' + cidade + ')' : ''}\n${linhas.filter(l => !/^Cidade:/.test(l)).join('\n')}${totAcess ? `\nCuba + acessórios: R$ ${reais(totAcess)}` : ''}\n\nJá está no app, em *Orçamento → Projetos do site*: é só tocar em "Montar orçamento".\nwa.me/${tel}`);
   } catch (e) { console.log('[SITE] aviso ao dono:', e.message); }
   // veio pelo link do WhatsApp: o bot confirma na própria conversa (a janela de 24 h está aberta)
   let avisado = false;
+  if (opc.totem) { // v312: o cliente deixou o WhatsApp no balcão e marcou que aceita: a Helena já chama ele
+    try { avisado = await totemChamarCliente(env, tel, nome, lead.pedra ? lead.pedra.nm : SITE_AMB[amb]); } catch (e) { console.log('[TOTEM] chamar cliente:', e.message); }
+    return resp({ ok: true, protocolo, avisado });
+  }
   if (doLink) {
     try { await enviar(env, tel, `${nomeDeTratamento(nome) || 'Olá'}, recebi o seu projeto (${lead.pedra ? lead.pedra.nm : SITE_AMB[amb]}). O responsável vai montar o orçamento completo e eu te envio aqui mesmo. Se tiver as medidas ou fotos do local, pode mandar por aqui.`); avisado = true; } catch (e) { console.log('[SITE] confirmação ao cliente:', e.message); }
   }
@@ -34826,6 +34832,753 @@ async function sitePedido(req, env, ctx) {
   return resp({ ok: true, protocolo, avisado, wa: bot ? (avisado ? `https://wa.me/${bot}` : `https://wa.me/${bot}?text=${encodeURIComponent(msg)}`) : '' });
 }
 
+// <<TOTEM-INI>>
+// ══════════════════════════════════════════════════════════════════════
+// v312 · TOTEM DE ATENDIMENTO — o tablet do balcão vira um atendente (/totem?k=TOKEN)
+// Tela de descanso com fotos dos trabalhos e das pedras; o cliente toca e escolhe: fazer orçamento (ambiente → pedra →
+// cuba → medidas → nome e WhatsApp), ver pedras, ver modelos, falar com a Helena (voz e texto) ou chamar alguém da equipe.
+// O orçamento vira um "projeto do site" (protocolo LOJA-…): o dono é avisado e a Helena já chama o cliente no WhatsApp.
+// Link: comando do dono "link do totem" ou o app (Configurações → Totem da loja).
+// ══════════════════════════════════════════════════════════════════════
+const TOTEM_VER = 'v312.1';
+async function totemToken(env, novo) {
+  let t = novo ? '' : await env.HR_KV.get('totem:tok');
+  if (!t) { t = Array.from(crypto.getRandomValues(new Uint8Array(12))).map(x => x.toString(36).padStart(2, '0')).join('').slice(0, 18); await env.HR_KV.put('totem:tok', t); }
+  return t;
+}
+async function totemLink(env, novo) { return (await urlPublica(env)) + '/totem?k=' + await totemToken(env, novo); }
+async function totemStatusTxt(env) {
+  let p = null; try { p = JSON.parse((await env.HR_KV.get('totem:ping')) || 'null'); } catch (_) {}
+  if (!p) return 'O totem ainda não foi aberto no tablet.';
+  const min = Math.round((Date.now() - p.em) / 60000);
+  return min <= 6 ? 'O totem está ligado agora.' : `O totem foi visto ligado pela última vez há ${min < 120 ? min + ' min' : Math.round(min / 60) + ' h'}.`;
+}
+async function totemComandoDono(env, from, msg) {
+  const n = normaliza(msg);
+  if (!/\btotem\b/.test(n) || n.length > 80) return false;
+  if (/\b(novo|trocar|troca|outro) link\b/.test(n)) { await enviar(env, from, `Link novo do totem (o antigo parou de funcionar):\n${await totemLink(env, true)}\n\nAbra no tablet, no Chrome, e toque em "Adicionar à tela inicial".`); return true; }
+  if (/\b(link|abrir|abre|endereco|status|ligado|como esta)\b/.test(n)) {
+    await enviar(env, from, `🖥️ *Totem da loja*\n${await totemLink(env)}\n\n${await totemStatusTxt(env)}\n\nNo tablet: abra o link no Chrome → menu ⋮ → "Adicionar à tela inicial" e abra pelo ícone (fica em tela cheia). Para trocar o link: "novo link do totem".`);
+    return true;
+  }
+  return false;
+}
+// mensagem do cliente que fez o pedido no balcão: dentro das 24 h vai direto; fora, pelo modelo aprovado
+async function totemChamarCliente(env, tel, nome, oque) {
+  const pn = nomeDeTratamento(nome) || '';
+  const txt = `${pn ? 'Oi, ' + pn + '! ' : 'Oi! '}Aqui é a Helena, da ${env.EMPRESA || 'HR Mármores e Granitos'}. Recebi o seu pedido de orçamento feito aqui na loja (${oque}). Vou continuar o seu atendimento por aqui, tudo bem?`;
+  env._ctx = env._ctx || {}; env._recebidoEm = Date.now() - 60000; const pend = []; env._waitUntil = x => pend.push(x);
+  if (await janela24h(env, tel).catch(() => false)) await enviar(env, tel, txt);
+  else await postarMsg(env, tel, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(txt).slice(0, 200) }] }] } });
+  await Promise.allSettled(pend);
+  await semearConversaProativa(env, tel, txt).catch(() => {});
+  return true;
+}
+let _totemCtx = null, _totemCtxEm = 0;
+async function totemContexto(env) {
+  if (_totemCtx && Date.now() - _totemCtxEm < 10 * 60000) return _totemCtx;
+  const cat = await siteLerCatalogo(env), preco = String(env.PORTFOLIO_PRECO ?? '1') !== '0';
+  const pedras = [];
+  if (cat) for (const x of cat.pedras || []) { if (x && x.nm && !x.oculto) pedras.push([String(x.nm).trim(), x.cat || '', preco && Number(x.pr) > 0 ? Number(x.pr) : 0]); }
+  else for (const i of await lerPortfolio(env)) if (i && i.tipo === 'pedra' && i.nome && !pedras.some(p => normaliza(p[0]) === normaliza(i.nome))) pedras.push([i.nome, i.tp || '', preco && Number(i.preco) > 0 ? Number(i.preco) : 0]);
+  const e = (cat && cat.emp) || {};
+  _totemCtx = {
+    loja: [e.end && 'Endereço: ' + e.end, e.cidade && 'Cidade: ' + e.cidade, e.horario && 'Horário: ' + e.horario, e.ig && 'Instagram: ' + e.ig].filter(Boolean).join('\n'),
+    pedras: pedras.slice(0, 120).map(p => `${p[0]}${p[1] ? ' · ' + p[1] : ''}${p[2] ? ' · R$ ' + reais(p[2]) + '/m²' : ''}`).join('\n'),
+    cubas: cat ? ((cat.cubas_coz || []).length + (cat.cubas_lav || []).length) : 0,
+  };
+  _totemCtxEm = Date.now(); return _totemCtx;
+}
+async function totemConversa(env, b) {
+  const dia = 'totem:ia:' + dataBahia(), q = +(await env.HR_KV.get(dia)) || 0;
+  if (q >= (+env.TOTEM_IA_DIA || 500)) return { fala: 'Agora eu não consigo conversar por aqui. Toque em "Chamar atendente" que alguém da equipe já vem te atender.', abrir: 'atendente' };
+  await env.HR_KV.put(dia, String(q + 1), { expirationTtl: 3 * 86400 });
+  const texto = String(b.texto || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  if (!texto) return { fala: 'Não entendi. Pode repetir?' };
+  const c = await totemContexto(env), emp = env.EMPRESA || 'HR Mármores e Granitos';
+  const sis = `Você é a Helena, atendente virtual da ${emp} (marmoraria). Agora você está falando com um cliente PESSOALMENTE, pelo totem (tablet) no balcão da loja. Sua resposta é FALADA em voz alta e aparece escrita na tela.
+COMO FALAR:
+- 1 a 3 frases curtas, português falado da Bahia, simpática e natural ("tá", "pra", "a gente", "olha"), sem emoji, sem listas, sem markdown, sem asteriscos.
+- Pergunta termina com "?". Não se apresente de novo se já se apresentou.
+O QUE VOCÊ FAZ:
+- Tira dúvidas sobre pedras (granito, mármore, quartzo, quartzito, ultracompacto), acabamentos (reto, boleado, meia-esquadria 45°, rebaixo), cubas, nichos, soleiras, peitoris, bancadas, escadas, túmulos, cuidados e limpeza.
+- Preço: pode dizer o valor do m² das pedras da lista abaixo como referência ("o m² do X tá R$ Y"), deixando claro que o valor final depende das medidas, recortes, acabamento e instalação. NUNCA invente preço, prazo, desconto ou pedra que não está na lista. Prazo e forma de pagamento: a equipe confirma no orçamento.
+- Para orçamento: convide a tocar em "Fazer orçamento" (abrir="orcamento"): lá a pessoa escolhe o ambiente e a pedra e deixa o WhatsApp, e você continua o atendimento pelo WhatsApp com o orçamento completo.
+- Para ver pedras: abrir="pedras" ou com cor: "pedras:pretas", "pedras:brancas", "pedras:cinzas", "pedras:bege", "pedras:verdes", "pedras:azuis".
+- Para ver fotos de trabalhos: "modelos:cozinha" (também banheiro, lavabo, escada, soleira, nicho, gourmet, servico, mesa, tumulo, varanda, piso).
+- Quer falar com uma pessoa, pagar, retirar ou buscar pedido, reclamar, ou é algo que você não resolve: abrir="atendente" e diga que já chamou alguém da equipe pra atender no balcão.
+- Situação de pedido ou pagamento: por privacidade você não consulta aqui no totem; chame o atendente.
+- Nunca peça CPF, documento, senha ou cartão. Assunto fora da marmoraria: responda curto e gentil e volte ao atendimento.
+Responda SOMENTE com JSON: {"fala":"...","abrir":null}
+${c.loja ? '\nDADOS DA LOJA:\n' + c.loja : ''}
+\nPEDRAS DISPONÍVEIS (nome · tipo · valor do m²):\n${c.pedras || '(lista indisponível agora: não cite valores)'}
+${c.cubas ? '\nTemos ' + c.cubas + ' modelos de cuba para escolher no orçamento.' : ''}
+Hoje: ${dataBahia()}.`;
+  const hist = [];
+  for (const h of (Array.isArray(b.hist) ? b.hist : []).slice(-10)) {
+    const role = h && h.r === 'h' ? 'assistant' : 'user', content = String((h && h.t) || '').slice(0, 600);
+    if (!content || (!hist.length && role === 'assistant')) continue;
+    if (hist.length && hist[hist.length - 1].role === role) hist[hist.length - 1].content += '\n' + content; else hist.push({ role, content });
+  }
+  if (hist.length && hist[hist.length - 1].role === 'user') hist.pop();
+  let out = '';
+  try { out = await chamarIA(env, sis, hist, texto, { maxTokens: 350, timeoutMs: 20000, cat: 'totem' }); }
+  catch (e) { console.log('[TOTEM] IA:', e.message); return { fala: 'Deu uma falha aqui na minha conexão. Pode perguntar de novo?' }; }
+  let j = null; try { j = lerJsonIA(out); } catch (_) {}
+  let fala = String((j && j.fala) || out || '').replace(/[*_#`]/g, '').replace(/^\s*\{[\s\S]*$/, '').trim().slice(0, 600);
+  if (!fala) fala = 'Pode repetir, por favor?';
+  const abrir = j && typeof j.abrir === 'string' && /^(orcamento|pedras(:[a-z]+)?|modelos:[a-z_]+|atendente)$/.test(j.abrir) ? j.abrir : null;
+  if (abrir === 'atendente') await totemAtendente(env, { motivo: texto }).catch(() => {});
+  return { fala, abrir };
+}
+async function totemAtendente(env, b) {
+  if (await env.HR_KV.get('totem:atend')) return { ok: true, ja: true };
+  await env.HR_KV.put('totem:atend', '1', { expirationTtl: 90 });
+  const motivo = String((b && b.motivo) || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  await notificarDono(env, Date.now(), `🖥️ *Cliente no balcão* pediu atendimento pelo totem.${motivo ? '\nDisse: “' + motivo + '”' : ''}`);
+  return { ok: true };
+}
+async function totemOuvir(env, req) {
+  const chave = chaveVoz(env); if (!chave) return { erro: 'sem voz' };
+  const tipo = String(req.headers.get('content-type') || 'audio/webm').split(';')[0];
+  const buf = await req.arrayBuffer();
+  if (!buf.byteLength || buf.byteLength > 3 * 1024 * 1024) return { erro: 'áudio inválido' };
+  const ext = /mp4|m4a|aac/.test(tipo) ? 'm4a' : /ogg/.test(tipo) ? 'ogg' : /wav/.test(tipo) ? 'wav' : 'webm';
+  const fd = new FormData();
+  fd.append('file', new Blob([buf], { type: tipo }), 'fala.' + ext);
+  fd.append('model', env.STT_MODEL || 'gpt-4o-transcribe'); fd.append('language', 'pt');
+  fd.append('prompt', 'Cliente falando no balcão de uma marmoraria da Bahia: granito, mármore, quartzo, soleira, peitoril, bancada, cozinha, banheiro, cuba, nicho, metro quadrado, orçamento.');
+  const r = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${chave}` }, body: fd });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) return { erro: (j && j.error && j.error.message) || 'falha' };
+  const texto = String((j && j.text) || '').trim();
+  return { texto: /[Ѐ-ӿ֐-ۿ぀-ヿ一-鿿]/.test(texto) ? '' : texto };
+}
+async function rotaTotem(req, env, ctx, url) {
+  const p = url.pathname.replace(/\/+$/, '');
+  if (p !== '/totem' && !p.startsWith('/totem/')) return null;
+  const json = (o, st) => new Response(JSON.stringify(o), { status: st || 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  const k = String(url.searchParams.get('k') || '');
+  if (!k || k !== await totemToken(env)) return p === '/totem' ? new Response('Link do totem inválido. Peça o link novo no WhatsApp da Helena: "link do totem".', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }) : json({ erro: 'link inválido' }, 403);
+  if (p === '/totem') return new Response(TOTEM_HTML.split('__EMP__').join(String(env.EMPRESA || 'HR Mármores e Granitos')).split('__VER__').join(TOTEM_VER), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (p === '/totem/manifest.json') return new Response(JSON.stringify({ name: 'Atendimento ' + (env.EMPRESA || 'HR'), short_name: 'Totem HR', start_url: '/totem?k=' + k, display: 'fullscreen', orientation: 'landscape', background_color: '#0b0b0e', theme_color: '#0b0b0e', icons: [] }), { headers: { 'Content-Type': 'application/manifest+json' } });
+  if (p === '/totem/galeria') { const g = await telaGalMontar(env, String(url.searchParams.get('cat') || 'trabalhos')); return json({ titulo: g.titulo, itens: (g.itens || []).slice(0, 60) }); }
+  if (req.method !== 'POST') return json({ erro: 'método' }, 405);
+  if (p === '/totem/ping') { let b = {}; try { b = await req.json(); } catch (_) {} await env.HR_KV.put('totem:ping', JSON.stringify({ em: Date.now(), tela: String(b.tela || '').slice(0, 20) }), { expirationTtl: 30 * 86400 }); return json({ ok: true, ver: TOTEM_VER }); }
+  if (p === '/totem/pedido') return sitePedido(req, env, ctx, { totem: true });
+  if (p === '/totem/conversa') { let b = {}; try { b = await req.json(); } catch (_) {} return json(await totemConversa(env, b)); }
+  if (p === '/totem/atendente') { let b = {}; try { b = await req.json(); } catch (_) {} return json(await totemAtendente(env, b)); }
+  if (p === '/totem/ouvir') return json(await totemOuvir(env, req));
+  if (p === '/totem/voz') {
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    const texto = String(b.texto || '').trim().slice(0, 700); if (!texto) return json({ erro: 'sem texto' }, 400);
+    try {
+      const cfg = { ...(await vozCfg(env)) };
+      const fala = await vozPrepararFala(env, texto, cfg, true);
+      const r = await vozSpeech(env, fala, cfg, 'mp3');
+      ctx.waitUntil(vozUso(env, r.via, fala.length).catch(() => {}));
+      return new Response(r.audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' } });
+    } catch (e) { console.log('[TOTEM] voz:', e.message); return json({ erro: 'voz indisponível' }, 502); }
+  }
+  return json({ erro: 'não encontrado' }, 404);
+}
+const TOTEM_HTML = String.raw`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0b0b0e"><meta name="mobile-web-app-capable" content="yes">
+<title>Atendimento · __EMP__</title>
+<link rel="manifest" id="mani">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ouro:#c9a84c;--ouro2:#ecd27c;--fundo:#0b0b0e;--cx:#15151b;--txt:#f3ecdb;--sub:#a99c80;--linha:rgba(201,168,76,.25)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{margin:0;height:100%;background:var(--fundo);color:var(--txt);font-family:Outfit,system-ui,sans-serif;overflow:hidden;touch-action:manipulation}
+input{user-select:text;-webkit-user-select:text}
+button{font-family:inherit;cursor:pointer;border:none;color:inherit}
+.tela{position:fixed;inset:0;display:none;flex-direction:column}
+.tela.on{display:flex}
+h1,h2,.serif{font-family:"Cormorant Garamond",Georgia,serif;font-weight:600}
+/* descanso */
+#descanso{background:#000;cursor:pointer}
+#descanso .sl{position:absolute;inset:0;background-size:cover;background-position:center;opacity:0;transition:opacity 1.6s ease;transform:scale(1.04)}
+#descanso .sl.on{opacity:1;animation:kb 9s ease-out forwards}
+@keyframes kb{from{transform:scale(1.04)}to{transform:scale(1.13)}}
+#descanso .veu{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,.1) 35%,rgba(0,0,0,.25) 60%,rgba(0,0,0,.85) 100%)}
+#descanso .topo{position:absolute;top:3.5vh;left:4vw;right:4vw;display:flex;justify-content:space-between;align-items:flex-start}
+#descanso .marca{font-family:"Cormorant Garamond",serif;font-size:clamp(28px,4.4vw,64px);color:#fff;line-height:1;text-shadow:0 4px 30px rgba(0,0,0,.6)}
+#descanso .marca small{display:block;font-family:Outfit;font-size:clamp(11px,1.2vw,16px);letter-spacing:.42em;text-transform:uppercase;color:var(--ouro2);margin-top:10px}
+#descanso .hora{font-size:clamp(22px,3vw,42px);font-weight:300;color:#fff;text-align:right}
+#descanso .hora small{display:block;font-size:clamp(11px,1.1vw,15px);color:#e8dfc8;letter-spacing:.08em}
+#descanso .baixo{position:absolute;left:4vw;right:4vw;bottom:5vh;display:flex;justify-content:space-between;align-items:flex-end;gap:3vw}
+#descanso .leg{color:#eee;font-size:clamp(13px,1.4vw,19px);max-width:50vw;text-shadow:0 2px 12px #000}
+#descanso .leg b{display:block;color:var(--ouro2);font-weight:500;font-size:.8em;letter-spacing:.2em;text-transform:uppercase;margin-bottom:4px}
+.toque{display:flex;align-items:center;gap:18px;background:rgba(10,10,12,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(236,210,124,.45);border-radius:999px;padding:16px 30px 16px 18px;color:#fff;font-size:clamp(17px,2vw,28px);font-weight:500;white-space:nowrap}
+.toque .dedo{width:clamp(44px,4.6vw,64px);height:clamp(44px,4.6vw,64px);border-radius:50%;background:linear-gradient(135deg,var(--ouro2),var(--ouro));display:grid;place-items:center;color:#1a1408;font-size:1.2em;animation:pulso 2s infinite}
+@keyframes pulso{0%{box-shadow:0 0 0 0 rgba(236,210,124,.7)}70%{box-shadow:0 0 0 22px rgba(236,210,124,0)}100%{box-shadow:0 0 0 0 rgba(236,210,124,0)}}
+#offline{position:absolute;top:0;left:0;right:0;background:#8a2a1a;color:#fff;text-align:center;padding:6px;font-size:14px;display:none;z-index:5}
+/* cabeçalho das telas */
+.cab{display:flex;align-items:center;gap:16px;padding:18px 3vw 12px;border-bottom:1px solid rgba(255,255,255,.06);flex:0 0 auto}
+.cab .voltar{width:58px;height:58px;border-radius:16px;background:rgba(255,255,255,.06);font-size:26px;display:grid;place-items:center;flex:0 0 auto}
+.cab h2{margin:0;font-size:clamp(26px,3vw,40px);color:var(--ouro2);flex:1}
+.cab .sub{color:var(--sub);font-size:15px}
+.cab .ini{padding:0 20px;height:58px;border-radius:16px;background:rgba(255,255,255,.06);font-size:17px}
+.corpo{flex:1;overflow-y:auto;padding:2.4vh 3vw 3vh;-webkit-overflow-scrolling:touch}
+/* início */
+#inicio{background:radial-gradient(ellipse at 20% 0%,rgba(201,168,76,.13),transparent 55%),var(--fundo)}
+#inicio .ola{display:flex;align-items:center;gap:22px;padding:4.5vh 4vw 2vh}
+.avatar{width:clamp(70px,8vw,110px);height:clamp(70px,8vw,110px);border-radius:50%;background:radial-gradient(circle at 35% 30%,#f6e3a1,#c9a84c 55%,#7d6424);display:grid;place-items:center;font-family:"Cormorant Garamond",serif;font-size:clamp(34px,4vw,56px);color:#1a1408;position:relative;flex:0 0 auto;box-shadow:0 10px 40px rgba(201,168,76,.25)}
+.avatar.fala::after,.avatar.ouve::after{content:"";position:absolute;inset:-10px;border-radius:50%;border:3px solid var(--ouro2);animation:onda 1.1s infinite}
+.avatar.ouve::after{border-color:#5fd38a}
+@keyframes onda{0%{transform:scale(.92);opacity:1}100%{transform:scale(1.25);opacity:0}}
+#inicio h1{margin:0;font-size:clamp(30px,4vw,54px);line-height:1.05}
+#inicio .ola p{margin:6px 0 0;color:var(--sub);font-size:clamp(15px,1.6vw,21px)}
+.grade{display:grid;grid-template-columns:repeat(3,1fr);gap:2vw;padding:1vh 4vw 3vh;flex:1}
+.bloco{position:relative;border-radius:24px;overflow:hidden;background:var(--cx);border:1px solid rgba(255,255,255,.07);text-align:left;padding:2.6vh 1.8vw;display:flex;flex-direction:column;justify-content:flex-end;min-height:24vh;transition:transform .12s}
+.bloco:active{transform:scale(.97)}
+.bloco .fot{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.55}
+.bloco .fot::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 20%,rgba(0,0,0,.85))}
+.bloco *{position:relative}
+.bloco .ic{font-size:clamp(30px,3.4vw,48px);margin-bottom:auto}
+.bloco b{font-size:clamp(19px,2.1vw,30px);font-weight:600;display:block}
+.bloco small{color:#d8ccb0;font-size:clamp(12px,1.25vw,17px);display:block;margin-top:4px}
+.bloco.dest{grid-row:span 2;background:linear-gradient(150deg,#2a2213,#15151b 60%);border-color:var(--linha)}
+.bloco.dest b{font-size:clamp(26px,3vw,44px);color:var(--ouro2)}
+.bloco.helena{background:linear-gradient(150deg,#1a2a20,#15151b 70%);border-color:rgba(95,211,138,.3)}
+/* chips e cartões */
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:2vh}
+.chip{padding:14px 22px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:17px}
+.chip.on{background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408;font-weight:600;border-color:transparent}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
+.card{border-radius:18px;overflow:hidden;background:var(--cx);border:2px solid transparent;text-align:left;padding:0;display:flex;flex-direction:column}
+.card.on{border-color:var(--ouro2);box-shadow:0 0 0 4px rgba(236,210,124,.18)}
+.card .im{aspect-ratio:4/3;background:#222 center/cover no-repeat;display:grid;place-items:center;color:#555;font-size:34px}
+.card .tx{padding:12px 14px 14px}
+.card .tx b{display:block;font-size:18px;font-weight:600}
+.card .tx small{color:var(--sub);font-size:14px}
+.card .pr{color:var(--ouro2);font-size:15px;margin-top:4px;display:block}
+.top{position:absolute;margin:10px;background:var(--ouro2);color:#1a1408;font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px}
+.amb{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}
+.amb button{background:var(--cx);border:2px solid rgba(255,255,255,.07);border-radius:20px;padding:26px 18px;font-size:21px;font-weight:500;display:flex;flex-direction:column;align-items:center;gap:10px}
+.amb button span{font-size:44px}
+.amb button.on{border-color:var(--ouro2);background:#221d12}
+/* rodapé do passo a passo */
+.rod{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:14px 3vw 18px;border-top:1px solid rgba(255,255,255,.06);background:rgba(0,0,0,.25)}
+.rod .pass{flex:1;display:flex;gap:8px}
+.rod .pass i{height:6px;flex:1;max-width:70px;border-radius:9px;background:rgba(255,255,255,.12)}
+.rod .pass i.on{background:var(--ouro2)}
+.bt{padding:0 34px;height:66px;border-radius:18px;font-size:20px;font-weight:600}
+.bt.ouro{background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408}
+.bt.cin{background:rgba(255,255,255,.08)}
+.bt:disabled{opacity:.35}
+/* medidas */
+.pecas .pc{display:flex;align-items:center;gap:12px;background:var(--cx);border-radius:16px;padding:12px 16px;margin-bottom:10px;font-size:19px}
+.pecas .pc b{flex:1;font-weight:500}
+.pecas .pc button{background:rgba(255,80,60,.15);color:#ff9a8a;width:48px;height:48px;border-radius:12px;font-size:22px}
+.camp{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
+.campo{flex:1;min-width:160px;background:var(--cx);border:2px solid rgba(255,255,255,.08);border-radius:16px;padding:12px 16px;text-align:left}
+.campo.on{border-color:var(--ouro2)}
+.campo small{display:block;color:var(--sub);font-size:14px}
+.campo span{display:block;font-size:30px;font-weight:500;min-height:38px}
+.teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:420px}
+.teclado button{height:70px;border-radius:16px;background:rgba(255,255,255,.07);font-size:30px;font-weight:500}
+.teclado button:active{background:rgba(236,210,124,.3)}
+.lado{display:flex;gap:3vw;align-items:flex-start;flex-wrap:wrap}
+.lado>div{flex:1;min-width:300px}
+.txt{width:100%;background:var(--cx);border:2px solid rgba(255,255,255,.1);border-radius:16px;padding:18px;font:500 24px Outfit,sans-serif;color:var(--txt);outline:none}
+.txt:focus{border-color:var(--ouro2)}
+.rot{display:block;color:var(--sub);font-size:15px;margin:16px 0 8px}
+.aceite{display:flex;gap:14px;align-items:center;font-size:18px;margin-top:18px;background:rgba(255,255,255,.04);border-radius:16px;padding:16px;text-align:left;width:100%}
+.aceite i{width:38px;height:38px;border-radius:10px;border:2px solid var(--ouro2);display:grid;place-items:center;font-style:normal;font-size:24px;flex:0 0 auto}
+.aceite.on i{background:var(--ouro2);color:#1a1408}
+.resumo{background:var(--cx);border-radius:18px;padding:16px 20px;font-size:18px;line-height:1.6;border:1px solid var(--linha)}
+.resumo b{color:var(--ouro2);font-weight:500}
+/* pronto */
+#pronto{align-items:center;justify-content:center;text-align:center;padding:4vw;background:radial-gradient(circle at 50% 30%,rgba(95,211,138,.14),transparent 60%),var(--fundo)}
+#pronto .ok{width:130px;height:130px;border-radius:50%;background:#2f9e5b;display:grid;place-items:center;font-size:70px;margin:0 auto 24px;animation:pop .5s}
+@keyframes pop{0%{transform:scale(.3)}80%{transform:scale(1.1)}100%{transform:scale(1)}}
+#pronto h1{font-size:clamp(34px,4.4vw,60px);margin:0 0 10px}
+#pronto p{font-size:clamp(18px,2vw,26px);color:#e8dfc8;max-width:820px;margin:8px auto}
+/* galeria e detalhe */
+.foto-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.foto-g button{aspect-ratio:4/3;border-radius:16px;background:#222 center/cover no-repeat;padding:0}
+#luz{position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column}
+#luz.on{display:flex}
+#luz img{max-width:92vw;max-height:78vh;border-radius:12px;object-fit:contain}
+#luz .lg{color:#e8dfc8;font-size:20px;margin:16px 4vw 0;text-align:center;max-width:900px}
+#luz .nav{position:absolute;top:50%;transform:translateY(-50%);width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.1);font-size:34px}
+#luz .x{position:absolute;top:20px;right:24px;width:66px;height:66px;border-radius:50%;background:rgba(255,255,255,.12);font-size:28px}
+#luz .acoes{margin-top:18px;display:flex;gap:12px}
+/* Helena */
+#helena .area{flex:1;display:flex;gap:3vw;padding:2vh 3vw;min-height:0}
+#helena .esq{width:30%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;text-align:center}
+#helena .esq .avatar{width:clamp(120px,14vw,190px);height:clamp(120px,14vw,190px);font-size:clamp(60px,7vw,96px)}
+#helena .estado{color:var(--sub);font-size:19px;min-height:26px}
+.mic{width:clamp(110px,11vw,150px);height:clamp(110px,11vw,150px);border-radius:50%;background:linear-gradient(135deg,#5fd38a,#2f9e5b);font-size:clamp(46px,5vw,64px);box-shadow:0 10px 40px rgba(95,211,138,.3)}
+.mic.gravando{background:linear-gradient(135deg,#ff7a6a,#d6402e);animation:pulso2 1.2s infinite}
+@keyframes pulso2{0%{box-shadow:0 0 0 0 rgba(255,122,106,.6)}70%{box-shadow:0 0 0 26px rgba(255,122,106,0)}100%{box-shadow:0 0 0 0 rgba(255,122,106,0)}}
+#helena .dir{flex:1;display:flex;flex-direction:column;min-width:0}
+#msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-bottom:10px}
+.msg{max-width:85%;padding:16px 20px;border-radius:22px;font-size:clamp(18px,1.8vw,23px);line-height:1.45}
+.msg.h{background:var(--cx);border:1px solid var(--linha);border-bottom-left-radius:6px;align-self:flex-start}
+.msg.c{background:#26304a;align-self:flex-end;border-bottom-right-radius:6px}
+.msg .ac{display:block;margin-top:12px;background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408;border-radius:14px;padding:14px 18px;font-size:18px;font-weight:600}
+.sug{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
+.sug button{padding:12px 18px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:16px}
+.escr{display:flex;gap:10px}
+.escr input{flex:1;background:var(--cx);border:2px solid rgba(255,255,255,.1);border-radius:16px;padding:0 18px;height:62px;font:400 20px Outfit;color:var(--txt);outline:none}
+.escr button{width:90px;height:62px;border-radius:16px;background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408;font-size:18px;font-weight:700}
+/* avisos */
+#aindaAi{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:80;display:none;align-items:center;justify-content:center}
+#aindaAi.on{display:flex}
+#aindaAi div{background:var(--cx);border:1px solid var(--linha);border-radius:26px;padding:40px 54px;text-align:center}
+#aindaAi h2{font-size:42px;margin:0 0 6px;color:var(--ouro2)}
+#aindaAi p{font-size:20px;color:var(--sub);margin:0 0 24px}
+#toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#222;border:1px solid var(--linha);padding:16px 26px;border-radius:16px;font-size:19px;z-index:90;display:none;max-width:80vw;text-align:center}
+#adm{position:fixed;top:0;left:0;width:90px;height:90px;z-index:95}
+#admMenu{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:96;display:none;align-items:center;justify-content:center}
+#admMenu.on{display:flex}
+#admMenu div{background:var(--cx);border-radius:20px;padding:26px;display:flex;flex-direction:column;gap:10px;min-width:320px}
+.vazio{color:var(--sub);font-size:19px;padding:30px 0;text-align:center}
+.carreg{display:inline-block;width:26px;height:26px;border:3px solid rgba(255,255,255,.2);border-top-color:var(--ouro2);border-radius:50%;animation:gira .8s linear infinite;vertical-align:middle}
+@keyframes gira{to{transform:rotate(360deg)}}
+@media (orientation:portrait){.grade{grid-template-columns:1fr 1fr}.bloco.dest{grid-column:span 2;grid-row:auto}#helena .area{flex-direction:column}#helena .esq{width:100%;flex-direction:row}}
+</style></head><body>
+
+<section id="descanso" class="tela on">
+  <div id="offline">Sem internet no tablet — confira o Wi-Fi.</div>
+  <div class="sl" id="sl0"></div><div class="sl" id="sl1"></div><div class="veu"></div>
+  <div class="topo"><div class="marca" id="marca">__EMP__<small>Atendimento</small></div><div class="hora" id="hora"></div></div>
+  <div class="baixo"><div class="leg" id="leg"></div><div class="toque"><span class="dedo">👆</span>Toque para ser atendido</div></div>
+</section>
+
+<section id="inicio" class="tela">
+  <div class="ola"><div class="avatar" id="avIni">H</div><div><h1 id="olaTit">Oi! Eu sou a Helena.</h1><p>Como posso te ajudar hoje? Toque numa opção ou fale comigo.</p></div>
+    <button class="ini bt cin" style="margin-left:auto" onclick="irDescanso()">✕ Sair</button></div>
+  <div class="grade">
+    <button class="bloco dest" onclick="iniciarOrc()"><span class="fot" id="fotOrc"></span><span class="ic">📐</span><b>Fazer meu orçamento</b><small>Escolha o ambiente e a pedra e receba o orçamento no seu WhatsApp</small></button>
+    <button class="bloco helena" onclick="abrirHelena(true)"><span class="ic">🎙️</span><b>Falar com a Helena</b><small>Tire dúvidas por voz ou escrevendo</small></button>
+    <button class="bloco" onclick="abrirPedras()"><span class="fot" id="fotPed"></span><span class="ic">💎</span><b>Ver as pedras</b><small>Granitos, mármores e quartzos com fotos e valor do m²</small></button>
+    <button class="bloco" onclick="abrirModelos()"><span class="fot" id="fotMod"></span><span class="ic">🏠</span><b>Ver modelos e trabalhos</b><small>Cozinhas, banheiros, escadas e mais</small></button>
+    <button class="bloco" onclick="chamarAtendente()"><span class="ic">🙋</span><b>Chamar um atendente</b><small>Pagamento, retirada ou falar com a equipe</small></button>
+  </div>
+</section>
+
+<section id="orc" class="tela">
+  <div class="cab"><button class="voltar" onclick="orcVoltar()">‹</button><div style="flex:1"><h2 id="orcTit"></h2><div class="sub" id="orcSub"></div></div><button class="ini" onclick="irInicio()">Início</button></div>
+  <div class="corpo" id="orcCorpo"></div>
+  <div class="rod"><div class="pass" id="orcPass"></div><button class="bt cin" id="orcPular" onclick="orcPular()">Pular</button><button class="bt ouro" id="orcProx" onclick="orcProx()">Continuar ›</button></div>
+</section>
+
+<section id="pronto" class="tela"><div><div class="ok">✓</div><h1 id="prTit">Pronto!</h1><p id="prTxt"></p><p style="color:var(--sub);font-size:18px;margin-top:22px" id="prProt"></p>
+  <button class="bt ouro" style="margin-top:30px" onclick="irDescanso()">Concluir</button></div></section>
+
+<section id="pedras" class="tela">
+  <div class="cab"><button class="voltar" onclick="irInicio()">‹</button><h2>Nossas pedras</h2><button class="ini" onclick="iniciarOrc()">📐 Fazer orçamento</button></div>
+  <div class="corpo"><div class="chips" id="pedChips"></div><div class="cards" id="pedLista"></div></div>
+</section>
+
+<section id="modelos" class="tela">
+  <div class="cab"><button class="voltar" onclick="irInicio()">‹</button><h2 id="modTit">Modelos e trabalhos</h2><button class="ini" onclick="iniciarOrc()">📐 Fazer orçamento</button></div>
+  <div class="corpo"><div class="chips" id="modChips"></div><div class="foto-g" id="modLista"></div></div>
+</section>
+
+<section id="helena" class="tela">
+  <div class="cab"><button class="voltar" onclick="irInicio()">‹</button><h2>Helena</h2><button class="ini" onclick="iniciarOrc()">📐 Fazer orçamento</button></div>
+  <div class="area">
+    <div class="esq"><div class="avatar" id="avHel">H</div><div class="estado" id="estado">Toque no microfone e fale</div><button class="mic" id="mic" onclick="micToque()">🎤</button></div>
+    <div class="dir"><div id="msgs"></div>
+      <div class="sug" id="sug"></div>
+      <form class="escr" onsubmit="event.preventDefault();enviarTexto()"><input id="entrada" placeholder="Ou escreva aqui a sua pergunta..." autocomplete="off"><button>Enviar</button></form></div>
+  </div>
+</section>
+
+<div id="luz"><button class="x" onclick="fecharLuz()">✕</button><button class="nav" style="left:20px" onclick="luzPasso(-1)">‹</button><img id="luzImg" alt=""><button class="nav" style="right:20px" onclick="luzPasso(1)">›</button><div class="lg" id="luzLeg"></div><div class="acoes" id="luzAc"></div></div>
+<div id="aindaAi"><div><h2>Ainda está aí?</h2><p>Voltando ao início em <b id="contag">10</b> segundos</p><button class="bt ouro" onclick="continuar()">Sim, continuar</button></div></div>
+<div id="toast"></div>
+<div id="adm"></div>
+<div id="admMenu"><div><b style="font-size:20px;color:var(--ouro2)">Totem · __VER__</b>
+  <button class="bt cin" onclick="location.reload()">Recarregar</button>
+  <button class="bt cin" onclick="telaCheia()">Tela cheia</button>
+  <button class="bt cin" onclick="document.exitFullscreen&&document.exitFullscreen()">Sair da tela cheia</button>
+  <button class="bt cin" onclick="falar('Teste de som. Aqui é a Helena.')">Testar som</button>
+  <button class="bt ouro" onclick="document.getElementById('admMenu').classList.remove('on')">Fechar</button></div></div>
+
+<script>
+'use strict';
+var K = new URLSearchParams(location.search).get('k') || '';
+var VER = '__VER__';
+function api(c) { return c + (c.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(K); }
+function $(id) { return document.getElementById(id); }
+function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function reais(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function toast(t, ms) { var e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { e.style.display = 'none'; }, ms || 3500); }
+function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+$('mani').href = api('/totem/manifest.json');
+
+var CAT = null, TELA = 'descanso';
+function carregar() {
+  return fetch('/portfolio/catalogo').then(function (r) { return r.json(); }).then(function (j) {
+    CAT = j; $('offline').style.display = 'none'; montarDescanso(); fotosInicio();
+  }).catch(function () { $('offline').style.display = 'block'; setTimeout(carregar, 30000); });
+}
+function fotoPedra(p) { return p && p.foto ? '/portfolio/img/pedra/' + encodeURIComponent(p.id) : ''; }
+
+// ── tela de descanso ──
+var SLIDES = [], sIdx = 0, sLado = 0, sTimer = null;
+function montarDescanso() {
+  var l = [];
+  (CAT.obras || []).forEach(function (o) { l.push({ u: '/portfolio/img/obra/' + o.id, t: 'Trabalho da HR', s: o.legenda || '' }); });
+  (CAT.pedras || []).filter(function (p) { return p.foto; }).slice(0, 30).forEach(function (p) { l.push({ u: fotoPedra(p), t: p.cat || 'Pedra', s: p.nm }); });
+  for (var i = l.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var x = l[i]; l[i] = l[j]; l[j] = x; }
+  SLIDES = l; if (!sTimer) { proxSlide(); sTimer = setInterval(proxSlide, 7000); }
+}
+function proxSlide() {
+  if (TELA !== 'descanso' || !SLIDES.length) return;
+  var s = SLIDES[sIdx++ % SLIDES.length], im = new Image();
+  im.onload = function () {
+    var a = $('sl' + sLado), b = $('sl' + (1 - sLado));
+    a.style.backgroundImage = 'url("' + s.u + '")'; a.classList.remove('on'); void a.offsetWidth; a.classList.add('on'); b.classList.remove('on');
+    sLado = 1 - sLado; $('leg').innerHTML = '<b>' + esc(s.t) + '</b>' + esc(s.s);
+  };
+  im.src = s.u;
+}
+function relogio() {
+  var d = new Date(), dias = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+  $('hora').innerHTML = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + '<small>' + dias[d.getDay()] + ', ' + d.getDate() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '</small>';
+}
+setInterval(relogio, 10000); relogio();
+function fotosInicio() {
+  var ps = (CAT.pedras || []).filter(function (p) { return p.foto; });
+  if (ps[0]) $('fotPed').style.backgroundImage = 'url("' + fotoPedra(ps[0]) + '")';
+  var ob = CAT.obras || [];
+  if (ob[0]) $('fotOrc').style.backgroundImage = 'url("/portfolio/img/obra/' + ob[0].id + '")';
+  if (ob[1]) $('fotMod').style.backgroundImage = 'url("/portfolio/img/obra/' + ob[1].id + '")';
+}
+
+// ── navegação ──
+function mostrar(id) {
+  document.querySelectorAll('.tela').forEach(function (t) { t.classList.toggle('on', t.id === id); });
+  TELA = id; mexeu(); ping();
+}
+function irDescanso() { pararTudo(); ORC = null; HIST = []; $('msgs').innerHTML = ''; fecharLuz(); $('aindaAi').classList.remove('on'); mostrar('descanso'); proxSlide(); }
+function irInicio() { pararAudio(); pararGravacao(true); fecharLuz(); mostrar('inicio'); }
+$('descanso').addEventListener('click', function () {
+  telaCheia(); mostrar('inicio');
+  var h = new Date().getHours(); $('olaTit').textContent = (h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite') + '! Eu sou a Helena.';
+  falarSaudacao();
+});
+function telaCheia() { try { var d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen().catch(function () {}); } catch (e) {} pedirWake(); }
+var wake = null;
+function pedirWake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }).catch(function () {}); } catch (e) {} }
+document.addEventListener('visibilitychange', function () { if (!document.hidden) pedirWake(); });
+document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+// ── inatividade ──
+var ultimo = Date.now(), contagem = null;
+function mexeu() { ultimo = Date.now(); }
+['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, mexeu, { passive: true }); });
+setInterval(function () {
+  if (TELA === 'descanso' || contagem) return;
+  if (falando || gravando) { mexeu(); return; }
+  var lim = TELA === 'pronto' ? 30000 : 90000;
+  if (Date.now() - ultimo > lim) {
+    if (TELA === 'pronto') { irDescanso(); return; }
+    var n = 10; $('contag').textContent = n; $('aindaAi').classList.add('on');
+    contagem = setInterval(function () { n--; $('contag').textContent = n; if (n <= 0) { clearInterval(contagem); contagem = null; irDescanso(); } }, 1000);
+  }
+}, 2000);
+function continuar() { clearInterval(contagem); contagem = null; $('aindaAi').classList.remove('on'); mexeu(); }
+
+// ── admin: 5 toques no canto em 3 s ──
+var admT = [];
+$('adm').addEventListener('pointerdown', function (e) { e.stopPropagation(); var a = Date.now(); admT = admT.filter(function (t) { return a - t < 3000; }); admT.push(a); if (admT.length >= 5) { admT = []; $('admMenu').classList.add('on'); } });
+
+// ── voz ──
+var audio = null, falando = false, cacheSaud = {};
+function avatares(cl) { ['avIni', 'avHel'].forEach(function (i) { var e = $(i); e.classList.remove('fala', 'ouve'); if (cl) e.classList.add(cl); }); }
+function pararAudio() { if (audio) { try { audio.pause(); } catch (e) {} audio = null; } falando = false; avatares(gravando ? 'ouve' : ''); }
+function tocarBlob(url) {
+  pararAudio(); audio = new Audio(url); falando = true; avatares('fala'); if (TELA === 'helena') $('estado').textContent = 'Helena está falando...';
+  var fim = function () { falando = false; avatares(''); if (TELA === 'helena') $('estado').textContent = 'Toque no microfone e fale'; };
+  audio.onended = fim; audio.onerror = fim; audio.play().catch(fim);
+}
+function vozBlob(texto) {
+  return fetch(api('/totem/voz'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: texto }) })
+    .then(function (r) { if (!r.ok) throw new Error('voz'); return r.blob(); }).then(function (b) { return URL.createObjectURL(b); });
+}
+function falar(texto) { return vozBlob(texto).then(tocarBlob).catch(function () {}); }
+function falarSaudacao() {
+  var h = new Date().getHours(), per = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+  var t = per + '! Eu sou a Helena, da HR. Você quer fazer um orçamento, ver as pedras ou tirar uma dúvida comigo?';
+  if (cacheSaud[per]) { tocarBlob(cacheSaud[per]); return; }
+  vozBlob(t).then(function (u) { cacheSaud[per] = u; if (TELA === 'inicio') tocarBlob(u); }).catch(function () {});
+}
+function pararTudo() { pararAudio(); pararGravacao(true); }
+
+// ── Helena: conversa ──
+var HIST = [];
+var SUG = ['Qual a diferença entre granito e quartzo?', 'Quanto custa o m² do granito preto?', 'Qual pedra é boa pra cozinha?', 'Vocês fazem a instalação?', 'Como limpo o mármore?'];
+function abrirHelena(saudar) {
+  pararAudio(); mostrar('helena');
+  $('sug').innerHTML = SUG.map(function (s) { return '<button type="button">' + esc(s) + '</button>'; }).join('');
+  $('sug').querySelectorAll('button').forEach(function (b) { b.onclick = function () { perguntar(b.textContent); }; });
+  if (!HIST.length && saudar) { var t = 'Oi! Pode me perguntar o que quiser sobre pedras, acabamentos ou o seu projeto. É só tocar no microfone e falar.'; addMsg('h', t); HIST.push({ r: 'h', t: t }); falar(t); }
+}
+function addMsg(quem, texto, abrir) {
+  var d = document.createElement('div'); d.className = 'msg ' + quem; d.textContent = texto;
+  if (abrir) { var b = document.createElement('button'); b.className = 'ac'; b.textContent = rotAcao(abrir); b.onclick = function () { executar(abrir); }; d.appendChild(b); }
+  $('msgs').appendChild(d); $('msgs').scrollTop = 1e6; return d;
+}
+var CORES = { pretas: 'Pretas', brancas: 'Brancas', cinzas: 'Cinzas', bege: 'Bege e marrons', verdes: 'Verdes', azuis: 'Azuis' };
+var CATS = [['cozinha', 'Cozinhas'], ['banheiro', 'Banheiros'], ['lavabo', 'Lavabos'], ['gourmet', 'Áreas gourmet'], ['escada', 'Escadas'], ['soleira', 'Soleiras e peitoris'], ['nicho', 'Nichos'], ['servico', 'Áreas de serviço'], ['mesa', 'Mesas'], ['tumulo', 'Túmulos'], ['piso', 'Pisos']];
+function rotAcao(a) {
+  if (a === 'orcamento') return '📐 Fazer meu orçamento';
+  if (a === 'atendente') return '🙋 Já chamei a equipe';
+  if (a.indexOf('pedras') === 0) { var c = a.split(':')[1]; return '💎 Ver pedras' + (c && CORES[c] ? ' ' + CORES[c].toLowerCase() : ''); }
+  if (a.indexOf('modelos:') === 0) { var m = CATS.filter(function (x) { return x[0] === a.split(':')[1]; })[0]; return '🏠 Ver ' + (m ? m[1].toLowerCase() : 'modelos'); }
+  return 'Abrir';
+}
+function executar(a) {
+  if (a === 'orcamento') iniciarOrc();
+  else if (a === 'atendente') toast('A equipe já foi avisada e vem te atender.');
+  else if (a.indexOf('pedras') === 0) abrirPedras(a.split(':')[1]);
+  else if (a.indexOf('modelos:') === 0) abrirModelos(a.split(':')[1]);
+}
+var pensando = false;
+function perguntar(texto) {
+  texto = String(texto || '').trim(); if (!texto || pensando) return;
+  pararAudio(); addMsg('c', texto); $('entrada').value = '';
+  var esp = addMsg('h', ''); esp.innerHTML = '<span class="carreg"></span>'; pensando = true; $('estado').textContent = 'Helena está pensando...';
+  fetch(api('/totem/conversa'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: texto, hist: HIST.slice(-10) }) })
+    .then(function (r) { return r.json(); }).then(function (j) {
+      esp.remove(); var f = j.fala || 'Pode repetir?'; addMsg('h', f, j.abrir);
+      HIST.push({ r: 'c', t: texto }, { r: 'h', t: f }); if (HIST.length > 20) HIST = HIST.slice(-20);
+      falar(f);
+      if (j.abrir === 'atendente') toast('Chamei alguém da equipe pra te atender aqui no balcão.', 5000);
+    }).catch(function () { esp.remove(); addMsg('h', 'Deu uma falha na internet. Pode tentar de novo?'); })
+    .then(function () { pensando = false; if (!falando) $('estado').textContent = 'Toque no microfone e fale'; mexeu(); });
+}
+function enviarTexto() { perguntar($('entrada').value); }
+
+// ── microfone com detecção de silêncio ──
+var gravando = false, rec = null, partes = [], stream = null, actx = null, vadT = null;
+function micToque() { if (gravando) pararGravacao(false); else gravar(); }
+function gravar() {
+  pararAudio();
+  if (!navigator.mediaDevices || !window.MediaRecorder) { toast('Este aparelho não grava áudio. Escreva a pergunta.'); return; }
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (s) {
+    stream = s; partes = [];
+    var tipo = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].filter(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); })[0] || '';
+    rec = new MediaRecorder(s, tipo ? { mimeType: tipo } : undefined);
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) partes.push(e.data); };
+    rec.onstop = function () { enviarAudio(rec.mimeType || tipo || 'audio/webm'); };
+    rec.start(250); gravando = true; $('mic').classList.add('gravando'); $('mic').textContent = '■'; avatares('ouve'); $('estado').textContent = 'Estou ouvindo... pode falar';
+    // silêncio: depois que a pessoa falou, 1,5 s calada encerra; no máximo 20 s
+    try {
+      actx = new (window.AudioContext || window.webkitAudioContext)(); var an = actx.createAnalyser(); an.fftSize = 1024; actx.createMediaStreamSource(s).connect(an);
+      var buf = new Uint8Array(an.fftSize), falou = false, calado = 0, ini = Date.now(), base = 0, nb = 0;
+      vadT = setInterval(function () {
+        an.getByteTimeDomainData(buf); var soma = 0; for (var i = 0; i < buf.length; i++) { var v = (buf[i] - 128) / 128; soma += v * v; } var rms = Math.sqrt(soma / buf.length);
+        if (Date.now() - ini < 400) { base += rms; nb++; return; }
+        var lim = Math.max(0.025, (nb ? base / nb : 0.01) * 2.5);
+        if (rms > lim) { falou = true; calado = 0; } else if (falou) calado += 100;
+        if ((falou && calado >= 1500) || Date.now() - ini > 20000 || (!falou && Date.now() - ini > 8000)) pararGravacao(!falou);
+      }, 100);
+    } catch (e) {}
+  }).catch(function () { toast('Permita o uso do microfone para falar com a Helena.'); });
+}
+function pararGravacao(descartar) {
+  clearInterval(vadT); vadT = null; try { actx && actx.close(); } catch (e) {} actx = null;
+  if (!gravando) return; gravando = false; $('mic').classList.remove('gravando'); $('mic').textContent = '🎤'; avatares('');
+  if (descartar && rec) rec.onstop = function () {};
+  try { rec && rec.state !== 'inactive' && rec.stop(); } catch (e) {}
+  try { stream && stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+  if (descartar && TELA === 'helena') $('estado').textContent = 'Toque no microfone e fale';
+}
+function enviarAudio(tipo) {
+  var b = new Blob(partes, { type: tipo }); partes = [];
+  if (b.size < 2500) { $('estado').textContent = 'Não ouvi nada. Toque e fale de novo.'; return; }
+  $('estado').textContent = 'Entendendo...';
+  fetch(api('/totem/ouvir'), { method: 'POST', headers: { 'Content-Type': tipo.split(';')[0] }, body: b }).then(function (r) { return r.json(); }).then(function (j) {
+    if (j.texto) perguntar(j.texto); else $('estado').textContent = 'Não entendi. Toque e fale de novo.';
+  }).catch(function () { $('estado').textContent = 'Falha na internet. Tente de novo.'; });
+}
+
+// ── pedras ──
+var COR_RX = { pretas: /pret|negr|black|absolut|sao gabriel|via lactea|nero/, brancas: /branc|white|bianc|itaunas|dallas|siena|carrara|polar|marfim/, cinzas: /cinz|grafit|gray|grey|corumba|andorinha|ocre itabira/, bege: /beg|marr|caf|bronze|ouro|dourad|amarel|gold|cream|crema|travertino|bege|rosa|castanh|giallo/, verdes: /verde|green|ubatuba/, azuis: /azul|blue/ };
+var pedFiltro = '', ESCOLHENDO = false;
+function abrirPedras(cor) { ESCOLHENDO = false; mostrar('pedras'); pedFiltro = CORES[cor] ? cor : ''; listaPedras('pedLista', 'pedChips'); }
+function pedrasFiltradas() {
+  var l = (CAT && CAT.pedras) || [];
+  if (pedFiltro && COR_RX[pedFiltro]) l = l.filter(function (p) { return COR_RX[pedFiltro].test(norm(p.nm + ' ' + p.cat + ' ' + p.desc)); });
+  return l;
+}
+function listaPedras(alvo, chipsId) {
+  var ch = $(chipsId);
+  ch.innerHTML = '<button class="chip' + (pedFiltro ? '' : ' on') + '" data-c="">Todas</button>' + Object.keys(CORES).map(function (c) { return '<button class="chip' + (pedFiltro === c ? ' on' : '') + '" data-c="' + c + '">' + CORES[c] + '</button>'; }).join('');
+  ch.querySelectorAll('.chip').forEach(function (b) { b.onclick = function () { pedFiltro = b.dataset.c; listaPedras(alvo, chipsId); }; });
+  var l = pedrasFiltradas();
+  if (!CAT) { $(alvo).innerHTML = '<div class="vazio"><span class="carreg"></span></div>'; return; }
+  $(alvo).innerHTML = l.length ? l.map(function (p, i) {
+    var sel = ORC && ORC.pedra && ORC.pedra.id === p.id;
+    return '<button class="card' + (sel ? ' on' : '') + '" data-i="' + i + '" style="position:relative">' + (p.top ? '<span class="top">★ Mais pedida</span>' : '') +
+      '<span class="im" style="' + (p.foto ? 'background-image:url(&quot;' + fotoPedra(p) + '&quot;)' : '') + '">' + (p.foto ? '' : '💎') + '</span>' +
+      '<span class="tx"><b>' + esc(p.nm) + '</b><small>' + esc([p.cat, p.fin].filter(Boolean).join(' · ')) + '</small>' + (p.pr ? '<span class="pr">R$ ' + reais(p.pr) + ' o m²</span>' : '') + '</span></button>';
+  }).join('') : '<div class="vazio">Nenhuma pedra nessa cor. Toque em "Todas".</div>';
+  $(alvo).querySelectorAll('.card').forEach(function (b) { b.onclick = function () { var p = l[+b.dataset.i]; if (ESCOLHENDO) { ORC.pedra = p; b.classList.add('on'); setTimeout(function () { if (ORC && orcPasso() === 'pedra') orcProx(); }, 350); } else verPedra(p); }; });
+}
+function verPedra(p) {
+  abrirLuz([{ u: fotoPedra(p), leg: '<b style="color:var(--ouro2);font-size:26px">' + esc(p.nm) + '</b><br>' + esc([p.cat, p.fin].filter(Boolean).join(' · ')) + (p.pr ? ' · R$ ' + reais(p.pr) + ' o m²' : '') + (p.desc ? '<br><span style="font-size:17px;color:#bbb">' + esc(p.desc.slice(0, 260)) + '</span>' : '') }], 0,
+    [['📐 Quero orçamento com essa pedra', function () { fecharLuz(); iniciarOrc(); ORC.pedra = p; }]]);
+}
+
+// ── modelos ──
+var modCat = '';
+function abrirModelos(cat) { mostrar('modelos'); modCat = cat || modCat || 'cozinha'; listaModelos(); }
+function listaModelos() {
+  $('modChips').innerHTML = CATS.map(function (c) { return '<button class="chip' + (c[0] === modCat ? ' on' : '') + '" data-c="' + c[0] + '">' + c[1] + '</button>'; }).join('');
+  $('modChips').querySelectorAll('.chip').forEach(function (b) { b.onclick = function () { modCat = b.dataset.c; listaModelos(); }; });
+  $('modLista').innerHTML = '<div class="vazio"><span class="carreg"></span></div>';
+  var nome = (CATS.filter(function (c) { return c[0] === modCat; })[0] || [0, 'trabalhos'])[1];
+  fetch(api('/totem/galeria?cat=' + encodeURIComponent(nome))).then(function (r) { return r.json(); }).then(function (g) {
+    var it = g.itens || []; $('modTit').textContent = g.titulo || nome;
+    $('modLista').innerHTML = it.length ? it.map(function (x, i) { return '<button data-i="' + i + '" style="background-image:url(&quot;' + esc(x.u) + '&quot;)"></button>'; }).join('') : '<div class="vazio">Ainda não temos fotos dessa categoria aqui. Pergunte à Helena!</div>';
+    $('modLista').querySelectorAll('button').forEach(function (b) { b.onclick = function () { abrirLuz(it.map(function (x) { return { u: x.u, leg: esc([x.leg, x.sub].filter(Boolean).join(' · ')) }; }), +b.dataset.i, [['📐 Quero um orçamento assim', function () { fecharLuz(); iniciarOrc(modCat); }]]); }; });
+  }).catch(function () { $('modLista').innerHTML = '<div class="vazio">Sem internet agora.</div>'; });
+}
+var LUZ = [], luzI = 0;
+function abrirLuz(l, i, acoes) {
+  LUZ = l; luzI = i || 0; luzMostra(); $('luz').classList.add('on');
+  $('luzAc').innerHTML = ''; (acoes || []).forEach(function (a) { var b = document.createElement('button'); b.className = 'bt ouro'; b.textContent = a[0]; b.onclick = a[1]; $('luzAc').appendChild(b); });
+  document.querySelectorAll('#luz .nav').forEach(function (n) { n.style.display = l.length > 1 ? '' : 'none'; });
+}
+function luzMostra() { var x = LUZ[luzI]; if (!x) return; $('luzImg').src = x.u; $('luzImg').style.display = x.u ? '' : 'none'; $('luzLeg').innerHTML = x.leg || ''; }
+function luzPasso(d) { luzI = (luzI + d + LUZ.length) % LUZ.length; luzMostra(); }
+function fecharLuz() { $('luz').classList.remove('on'); }
+
+// ── atendente ──
+function chamarAtendente() {
+  fetch(api('/totem/atendente'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(function () {});
+  toast('Pronto! Avisei a equipe. Já vem alguém te atender.', 5000); falar('Pronto! Já avisei a equipe, só um instantinho que alguém já vem te atender.');
+}
+
+// ── orçamento passo a passo ──
+var AMBS = [['cozinha', 'Cozinha', '🍳'], ['banheiro', 'Banheiro', '🚿'], ['lavabo', 'Lavabo', '🪞'], ['area_servico', 'Área de serviço', '🧺'], ['varanda', 'Churrasqueira / varanda', '🔥'], ['escada', 'Escada', '🪜'], ['soleira', 'Soleira / peitoril', '🚪'], ['piso', 'Piso / revestimento', '🧱'], ['outro', 'Outro (túmulo, mesa, nicho...)', '✨']];
+var TIPOS_PECA = { cozinha: ['Bancada', 'Ilha', 'Frontão', 'Saia', 'Outra'], banheiro: ['Bancada', 'Frontão', 'Saia', 'Nicho', 'Outra'], lavabo: ['Bancada', 'Frontão', 'Outra'], area_servico: ['Bancada', 'Frontão', 'Outra'], varanda: ['Bancada', 'Churrasqueira', 'Frontão', 'Outra'], escada: ['Degrau', 'Espelho', 'Patamar', 'Outra'], soleira: ['Soleira', 'Peitoril', 'Outra'], piso: ['Piso', 'Rodapé', 'Outra'], outro: ['Peça', 'Tampo', 'Nicho', 'Outra'] };
+var ORC = null, PASSOS = ['amb', 'pedra', 'cuba', 'med', 'dados', 'conf'];
+function iniciarOrc(amb) {
+  pararAudio(); ORC = { passo: 0, amb: '', pedra: null, cubaOp: '', cuba: null, pecas: [], semMed: false, nome: '', tel: '', cidade: '', aceite: false, tipoP: '', campo: 'c', c: '', l: '', q: '1' };
+  if (amb) { var m = { gourmet: 'varanda', servico: 'area_servico', tumulo: 'outro', nicho: 'outro', mesa: 'outro' }; ORC.amb = m[amb] || amb; ORC.passo = 1; }
+  mostrar('orc'); orcRender();
+}
+function passos() { return PASSOS.filter(function (p) { return p !== 'cuba' || /cozinha|banheiro|lavabo|area_servico|varanda/.test(ORC.amb); }); }
+function orcPasso() { return passos()[ORC.passo]; }
+function orcRender() {
+  var p = orcPasso(), c = $('orcCorpo'), tit = '', sub = '', ok = true, pular = false; ESCOLHENDO = false;
+  $('orcPass').innerHTML = passos().map(function (x, i) { return '<i class="' + (i <= ORC.passo ? 'on' : '') + '"></i>'; }).join('');
+  if (p === 'amb') {
+    tit = 'Qual é o ambiente?'; sub = 'Toque numa opção';
+    c.innerHTML = '<div class="amb">' + AMBS.map(function (a) { return '<button data-a="' + a[0] + '" class="' + (ORC.amb === a[0] ? 'on' : '') + '"><span>' + a[2] + '</span>' + a[1] + '</button>'; }).join('') + '</div>';
+    c.querySelectorAll('.amb button').forEach(function (b) { b.onclick = function () { ORC.amb = b.dataset.a; ORC.passo++; orcRender(); }; });
+    ok = !!ORC.amb;
+  } else if (p === 'pedra') {
+    tit = 'Escolha a pedra'; sub = ORC.pedra ? 'Escolhida: ' + ORC.pedra.nm : 'Pode pular se ainda não sabe: a Helena te ajuda no WhatsApp';
+    c.innerHTML = '<div class="chips" id="oChips"></div><div class="cards" id="oLista"></div>'; ESCOLHENDO = true; listaPedras('oLista', 'oChips'); pular = true; ok = !!ORC.pedra;
+  } else if (p === 'cuba') {
+    tit = 'E a cuba?'; sub = 'A cuba da pia';
+    var op = [['Quero escolher uma', '🛁'], ['Já tenho a cuba', '✅'], ['Não quero cuba', '🚫'], ['Ainda não sei', '🤔']];
+    var lista = ORC.amb === 'cozinha' || ORC.amb === 'area_servico' || ORC.amb === 'varanda' ? (CAT.cubas_coz || []) : (CAT.cubas_lav || []);
+    c.innerHTML = '<div class="amb">' + op.map(function (o) { return '<button data-o="' + o[0] + '" class="' + (ORC.cubaOp === o[0] ? 'on' : '') + '"><span>' + o[1] + '</span>' + o[0] + '</button>'; }).join('') + '</div>' +
+      (ORC.cubaOp === 'Quero escolher uma' ? '<div class="cards" style="margin-top:20px">' + (lista.length ? lista.map(function (x, i) { return '<button class="card' + (ORC.cuba && ORC.cuba.id === x.id ? ' on' : '') + '" data-i="' + i + '"><span class="im" style="' + (x.foto ? 'background-image:url(&quot;/portfolio/img/' + (lista === CAT.cubas_coz ? 'coz' : 'lav') + '/' + encodeURIComponent(x.id) + '&quot;)' : '') + '">' + (x.foto ? '' : '🛁') + '</span><span class="tx"><b>' + esc(x.nm) + '</b><small>' + esc([x.brand, x.dim].filter(Boolean).join(' · ')) + '</small>' + (x.pr ? '<span class="pr">R$ ' + reais(x.pr) + '</span>' : '') + '</span></button>'; }).join('') : '<div class="vazio">A Helena te mostra os modelos no WhatsApp.</div>') + '</div>' : '');
+    c.querySelectorAll('.amb button').forEach(function (b) { b.onclick = function () { ORC.cubaOp = b.dataset.o; if (ORC.cubaOp !== 'Quero escolher uma') { ORC.cuba = null; ORC.passo++; } orcRender(); }; });
+    c.querySelectorAll('.card').forEach(function (b) { b.onclick = function () { ORC.cuba = lista[+b.dataset.i]; ORC.cuba.g = lista === CAT.cubas_coz ? 'coz' : 'lav'; orcRender(); }; });
+    ok = !!ORC.cubaOp; pular = true;
+  } else if (p === 'med') {
+    tit = 'Você tem as medidas?'; sub = 'Em centímetros. Se não tiver, a gente vai até você medir.';
+    var tipos = TIPOS_PECA[ORC.amb] || TIPOS_PECA.outro; if (!ORC.tipoP) ORC.tipoP = tipos[0];
+    c.innerHTML = '<div class="lado"><div>' +
+      '<div class="chips">' + tipos.map(function (t) { return '<button class="chip' + (ORC.tipoP === t ? ' on' : '') + '" data-t="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
+      '<div class="camp">' + [['c', 'Comprimento (cm)'], ['l', 'Largura (cm)'], ['q', 'Quantidade']].map(function (f) { return '<button class="campo' + (ORC.campo === f[0] ? ' on' : '') + '" data-f="' + f[0] + '"><small>' + f[1] + '</small><span>' + esc(ORC[f[0]]) + '</span></button>'; }).join('') + '</div>' +
+      '<button class="bt ouro" id="addPc" style="width:100%"' + (+ORC.c > 0 && +ORC.l > 0 ? '' : ' disabled') + '>＋ Adicionar peça</button>' +
+      '<div class="pecas" style="margin-top:16px">' + ORC.pecas.map(function (x, i) { return '<div class="pc"><b>' + esc(x.t) + ' · ' + x.c + ' × ' + x.l + ' cm' + (x.q > 1 ? ' · ' + x.q + ' un.' : '') + '</b><button data-i="' + i + '">✕</button></div>'; }).join('') + '</div>' +
+      '<button class="aceite' + (ORC.semMed ? ' on' : '') + '" id="semMed"><i>' + (ORC.semMed ? '✓' : '') + '</i>Não tenho as medidas: quero que alguém vá medir</button>' +
+      '</div><div><div class="teclado">' + ['1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '0', '⌫'].map(function (k) { return '<button data-k="' + k + '">' + k + '</button>'; }).join('') + '</div></div></div>';
+    c.querySelectorAll('.chips .chip').forEach(function (b) { b.onclick = function () { ORC.tipoP = b.dataset.t; orcRender(); }; });
+    c.querySelectorAll('.campo').forEach(function (b) { b.onclick = function () { ORC.campo = b.dataset.f; if (ORC.campo === 'q' && ORC.q === '1') ORC.q = ''; orcRender(); }; });
+    c.querySelectorAll('.teclado button').forEach(function (b) { b.onclick = function () { var f = ORC.campo, v = String(ORC[f]); if (b.dataset.k === '⌫') v = v.slice(0, -1); else if (b.dataset.k === ',') { if (f !== 'q' && v.indexOf(',') < 0) v = (v || '0') + ','; } else if (v.replace(',', '').length < 5) v += b.dataset.k; ORC[f] = v; orcRender(); }; });
+    $('addPc').onclick = function () { ORC.pecas.push({ t: ORC.tipoP, c: ORC.c, l: ORC.l, q: Math.max(1, parseInt(ORC.q, 10) || 1) }); ORC.c = ''; ORC.l = ''; ORC.q = '1'; ORC.campo = 'c'; ORC.semMed = false; orcRender(); };
+    c.querySelectorAll('.pc button').forEach(function (b) { b.onclick = function () { ORC.pecas.splice(+b.dataset.i, 1); orcRender(); }; });
+    $('semMed').onclick = function () { ORC.semMed = !ORC.semMed; orcRender(); };
+    ok = ORC.pecas.length > 0 || ORC.semMed || (+ORC.c > 0 && +ORC.l > 0); pular = true;
+  } else if (p === 'dados') {
+    tit = 'Para onde mando o orçamento?'; sub = 'A Helena te chama no WhatsApp com o orçamento completo';
+    c.innerHTML = '<div class="lado"><div>' +
+      '<label class="rot">Seu nome</label><input class="txt" id="dNome" maxlength="60" value="' + esc(ORC.nome) + '" placeholder="Toque para escrever">' +
+      '<label class="rot">Cidade</label><input class="txt" id="dCid" maxlength="50" value="' + esc(ORC.cidade) + '" placeholder="Ex.: Pilão Arcado">' +
+      '<label class="rot">WhatsApp com DDD</label><button class="campo on" style="width:100%"><span id="dTel">' + (fmtTel(ORC.tel) || '&nbsp;') + '</span></button>' +
+      '<button class="aceite' + (ORC.aceite ? ' on' : '') + '" id="dAce"><i>' + (ORC.aceite ? '✓' : '') + '</i>Aceito receber o orçamento e o atendimento da Helena no meu WhatsApp</button>' +
+      '</div><div><label class="rot">Digite o WhatsApp</label><div class="teclado">' + ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Limpar', '0', '⌫'].map(function (k) { return '<button data-k="' + k + '"' + (k === 'Limpar' ? ' style="font-size:18px"' : '') + '>' + k + '</button>'; }).join('') + '</div></div></div>';
+    $('dNome').oninput = function () { ORC.nome = this.value; atualizaOk(); };
+    $('dCid').oninput = function () { ORC.cidade = this.value; };
+    c.querySelectorAll('.teclado button').forEach(function (b) { b.onclick = function () { var k = b.dataset.k; if (k === '⌫') ORC.tel = ORC.tel.slice(0, -1); else if (k === 'Limpar') ORC.tel = ''; else if (ORC.tel.length < 11) ORC.tel += k; $('dTel').innerHTML = fmtTel(ORC.tel) || '&nbsp;'; atualizaOk(); }; });
+    $('dAce').onclick = function () { ORC.aceite = !ORC.aceite; this.classList.toggle('on', ORC.aceite); this.querySelector('i').textContent = ORC.aceite ? '✓' : ''; atualizaOk(); };
+    ok = dadosOk();
+  } else if (p === 'conf') {
+    tit = 'Confira e envie'; sub = 'Está tudo certo?';
+    c.innerHTML = '<div class="resumo">' + resumoLinhas().map(function (l) { return '<div><b>' + esc(l[0]) + ':</b> ' + esc(l[1]) + '</div>'; }).join('') + '</div>';
+  }
+  $('orcTit').textContent = tit; $('orcSub').textContent = sub;
+  $('orcPular').style.display = pular && !ok ? '' : 'none';
+  $('orcProx').textContent = p === 'conf' ? 'Enviar pedido ✓' : 'Continuar ›'; $('orcProx').disabled = !ok;
+}
+function fmtTel(t) { t = String(t || ''); if (!t) return ''; if (t.length <= 2) return '(' + t; var r = '(' + t.slice(0, 2) + ') ' + t.slice(2, t.length > 10 ? 7 : 6); var f = t.slice(t.length > 10 ? 7 : 6); return f ? r + '-' + f : r; }
+function dadosOk() { return ORC.nome.trim().length >= 2 && (ORC.tel.length === 10 || ORC.tel.length === 11) && ORC.aceite; }
+function atualizaOk() { $('orcProx').disabled = !dadosOk(); }
+function medTexto() {
+  var l = ORC.pecas.slice(); if (+ORC.c > 0 && +ORC.l > 0) l.push({ t: ORC.tipoP, c: ORC.c, l: ORC.l, q: Math.max(1, parseInt(ORC.q, 10) || 1) });
+  return l.map(function (x) { return x.t + ' ' + x.c + ' x ' + x.l + ' cm' + (x.q > 1 ? ' (' + x.q + ' unidades)' : ''); }).join('; ');
+}
+function resumoLinhas() {
+  var a = AMBS.filter(function (x) { return x[0] === ORC.amb; })[0], m = medTexto();
+  return [['Ambiente', a ? a[1] : ''], ['Pedra', ORC.pedra ? ORC.pedra.nm : 'quero ajuda para escolher'], ORC.cubaOp ? ['Cuba', ORC.cuba ? ORC.cuba.nm : ORC.cubaOp.toLowerCase()] : null,
+    ['Medidas', m || (ORC.semMed ? 'quero que alguém vá medir' : 'não informei')], ['Nome', ORC.nome.trim()], ['WhatsApp', fmtTel(ORC.tel)], ORC.cidade.trim() ? ['Cidade', ORC.cidade.trim()] : null].filter(Boolean);
+}
+function orcProx() {
+  if (orcPasso() === 'conf') return orcEnviar();
+  ORC.passo = Math.min(passos().length - 1, ORC.passo + 1); orcRender(); $('orcCorpo').scrollTop = 0;
+}
+function orcPular() { if (orcPasso() === 'pedra') ORC.pedra = null; if (orcPasso() === 'cuba') { ORC.cubaOp = 'Ainda não sei'; ORC.cuba = null; } if (orcPasso() === 'med') ORC.semMed = true; orcProx(); }
+function orcVoltar() { if (ORC.passo === 0) irInicio(); else { ORC.passo--; orcRender(); } }
+var enviando = false;
+function orcEnviar() {
+  if (enviando) return; enviando = true; $('orcProx').disabled = true; $('orcProx').innerHTML = '<span class="carreg"></span> Enviando...';
+  var cubaOp = ORC.cubaOp === 'Já tenho a cuba' ? 'Já tenho' : ORC.cubaOp === 'Não quero cuba' ? 'Não quero' : ORC.cubaOp === 'Ainda não sei' ? 'Ainda não sei' : '';
+  var corpo = { nome: ORC.nome.trim(), tel: ORC.tel, cidade: ORC.cidade.trim(), ambiente: ORC.amb, pedra: ORC.pedra ? { id: ORC.pedra.id } : null,
+    cuba: ORC.cuba ? { id: ORC.cuba.id, g: ORC.cuba.g } : null, cubaOp: cubaOp, acessorios: [], medidas: medTexto() || (ORC.semMed ? 'Não tem as medidas: quer visita para medir' : '') };
+  fetch(api('/totem/pedido'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j.ok) throw new Error(j.erro || 'Não consegui enviar.');
+    var pn = corpo.nome.split(' ')[0];
+    $('prTit').textContent = 'Pronto, ' + pn + '!';
+    $('prTxt').textContent = j.avisado ? 'A Helena já te mandou uma mensagem no WhatsApp ' + fmtTel(ORC.tel) + '. Responda por lá que ela continua o seu orçamento.' : 'Recebemos o seu pedido. A equipe vai te chamar no WhatsApp ' + fmtTel(ORC.tel) + ' com o orçamento.';
+    $('prProt').textContent = 'Protocolo ' + (j.protocolo || '');
+    ORC = null; mostrar('pronto'); falar('Pronto, ' + pn + '! Já te mandei uma mensagem no WhatsApp. É só responder por lá que eu continuo o seu orçamento. Obrigada!');
+  }).catch(function (e) { toast(e.message || 'Falha na internet. Tente de novo.', 5000); $('orcProx').disabled = false; $('orcProx').textContent = 'Enviar pedido ✓'; })
+    .then(function () { enviando = false; });
+}
+
+// ── sinal de vida e atualização ──
+function ping() {
+  fetch(api('/totem/ping'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tela: TELA }) }).then(function (r) { return r.json(); }).then(function (j) {
+    $('offline').style.display = 'none'; if (j.ver && j.ver !== VER && TELA === 'descanso') location.reload();
+  }).catch(function () { $('offline').style.display = 'block'; });
+}
+setInterval(function () { if (TELA === 'descanso') ping(); }, 5 * 60000);
+setInterval(function () { if (TELA === 'descanso') carregar(); }, 30 * 60000);
+window.addEventListener('online', function () { $('offline').style.display = 'none'; });
+window.addEventListener('offline', function () { $('offline').style.display = 'block'; });
+carregar(); ping();
+</script></body></html>
+`;
+// <<TOTEM-FIM>>
 async function rotaPortfolio(req, env, ctx, url) {
   const cab = { 'Access-Control-Allow-Origin': '*' };
   const p = url.pathname.replace(/\/+$/, '');
@@ -34985,6 +35738,7 @@ export default {
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
+    if (url.pathname === '/totem' || url.pathname.startsWith('/totem/')) { const r = await rotaTotem(req, env, ctx, url); if (r) return r; } // v312: totem do balcão
     if (url.pathname === '/tela' || url.pathname === '/tela/dados' || url.pathname.startsWith('/tela/img/') || url.pathname.startsWith('/tela/insp/')) { const r = await rotaTela(req, env, url); if (r) return r; } // v277
     if (url.pathname === '/painel' || url.pathname.startsWith('/painel/')) { const r = await rotaPainelVendas(req, comKV(env), url, ctx); if (r) return r; } // v103
     if (url.pathname.startsWith('/marmoraria-')) { const r = await rotaCidade(req, comKV(env), url); if (r) return r; } // v92
