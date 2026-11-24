@@ -23019,6 +23019,7 @@ async function rotaTela(req, env, url) {
     if (!value) return new Response('Sem foto', { status: 404 });
     return new Response(value, { headers: { 'Content-Type': (metadata && metadata.mime) || 'image/jpeg', 'Cache-Control': 'public, max-age=604800' } });
   }
+  if (url.pathname.startsWith('/tela/arq/')) return telaArqServir(req, env, url); // v313: fotos e vídeos enviados pelo tablet
   if (url.pathname.startsWith('/tela/img/')) { // v282: fotos mandadas ao bot com a legenda "tv"
     const { value, metadata } = await env.HR_KV.getWithMetadata('tela:img:' + url.pathname.slice(10).replace(/[^a-z0-9]/gi, ''), 'arrayBuffer');
     if (!value) return new Response('Sem foto', { status: 404 });
@@ -23029,8 +23030,9 @@ async function rotaTela(req, env, url) {
   if (!r) return new Response('Link inválido. Abra pelo app: Orçamento → 📺 Tela do cliente.', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   if (url.pathname === '/tela') return new Response(TELA_HTML.split('__EMP__').join(String(env.EMPRESA || 'HR Mármores e Granitos')).split('__WHATS__').join(String((await igWhatsFormatado(env).catch(() => '')) || '')).split('__VER__').join(telaVer()), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
   let gal = null; try { const g = await telaGalLer(env); if (g) gal = { id: g.id, titulo: g.titulo, itens: g.itens, ini: g.ini || 0 }; } catch (_) {}
+  let show = null; try { show = await telaShowLer(env); } catch (_) {} // v313: o que o tablet mandou
   let pix = null; try { const px = await telaPixEstado(env); if (px) pix = { valor: px.valor, cli: px.cli, tipo: px.tipo, png: px.png, copia: px.copia, venceEm: px.venceEm, status: px.status, id: px.id }; } catch (_) {}
-  return new Response(JSON.stringify({ v: telaVer(), ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null, pix, gal }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  return new Response(JSON.stringify({ v: telaVer(), ts: r.ts || 0, dados: r.dados ? JSON.parse(r.dados) : null, pix, gal, show }), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 const TELA_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seu orçamento · __EMP__</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -23092,6 +23094,24 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:1.45fr 1fr;gap:1.6re
 .nota{margin-top:.7rem;font-size:.8rem;color:#f0c27a;background:rgba(240,160,60,.08);border:1px solid rgba(240,160,60,.3);border-radius:.5rem;padding:.35rem .7rem}
 .passos{display:flex;gap:.9rem;margin-top:1.6rem;flex-wrap:wrap;justify-content:center}.passos div{width:9.5rem;padding:.9rem .7rem;border-radius:.9rem;background:rgba(255,255,255,.04);border:1px solid rgba(201,168,76,.25);font-size:.85rem;color:#d9cfb6}.passos div b{display:block;font-family:'Cormorant Garamond',serif;font-size:1.6rem;color:#ecd27c}
 #rodMsg{transition:opacity .5s}
+.shw{position:fixed;inset:0;z-index:9;background:#050504;overflow:hidden;animation:shIn .5s ease}
+@keyframes shIn{from{opacity:0}to{opacity:1}}
+.shw .bg{position:absolute;inset:-5%;background-size:cover;background-position:center;filter:blur(40px) brightness(.4);transform:scale(1.1)}
+.shw .im{position:absolute;inset:0 0 13vh;background-size:contain;background-repeat:no-repeat;background-position:center;animation:shIn .6s ease}
+.shw video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.shw .cap{position:absolute;left:0;right:0;bottom:0;padding:5vh 4vw 3.4vh;background:linear-gradient(transparent,rgba(0,0,0,.88));display:flex;justify-content:space-between;align-items:flex-end;gap:3vw}
+.shw .cap h2{font-family:'Cormorant Garamond',serif;font-size:4.6vh;color:#f3d982;font-weight:700;line-height:1.05}.shw .cap p{font-size:2.3vh;color:#efe6d0;margin-top:.6vh}
+.shw .ct{font-size:2vh;color:#c8bb9c;white-space:nowrap}
+.shw .mk{position:absolute;top:3vh;left:4vw;font-family:'Cormorant Garamond',serif;font-weight:700;font-size:3vh;color:#ecd27c;text-shadow:0 .3vh 2vh rgba(0,0,0,.8);z-index:2}
+.shx{position:fixed;inset:0;z-index:9;background:radial-gradient(ellipse at 15% 0%,rgba(201,168,76,.16),transparent 60%),#0b0b0e;display:grid;grid-template-columns:1.2fr 1fr;gap:4vw;padding:7vh 5vw 6vh;align-items:center;animation:shIn .5s ease}
+.shx .fig{background:rgba(255,255,255,.03);border:1px solid rgba(201,168,76,.18);border-radius:3vh;padding:3vh;display:flex;align-items:center;justify-content:center;height:78vh}
+.shx .fig svg{width:100%;height:100%}
+.shx small{font-size:1.9vh;letter-spacing:.4em;text-transform:uppercase;color:#c9a84c;font-weight:600}
+.shx h1{font-family:'Cormorant Garamond',serif;font-size:7.4vh;line-height:1;color:#f3d982;margin:1.4vh 0 1.2vh;font-weight:700}
+.shx .sb{font-size:2.6vh;color:#d8ccb0;line-height:1.35;margin-bottom:3.4vh}
+.shx ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2vh}
+.shx li{font-size:2.55vh;line-height:1.35;color:#efe9dc;padding-left:4.2vh;position:relative}
+.shx li:before{content:'';position:absolute;left:0;top:.7vh;width:2.2vh;height:2.2vh;border-radius:50%;background:linear-gradient(135deg,#ecd27c,#c9a84c)}
 .gal{position:fixed;inset:0;z-index:8;background:#050504;overflow:hidden}
 .gal .sl{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease}.gal .sl.on{opacity:1}
 .gal .bg{position:absolute;inset:-5%;background-size:cover;background-position:center;filter:blur(2.5rem) brightness(.45);transform:scale(1.1)}
@@ -23157,9 +23177,20 @@ function galSlide(){var g=GAL;if(!g||!g.itens.length)return;var el=document.getE
  for(var k=1;k<=2;k++){var pre=g.itens[(gi+k)%g.itens.length];if(pre)(new Image()).src=pre.u}}
 function galInicia(){galPara();var el=document.createElement('div');el.id='gal';el.className='gal';el.innerHTML='<div class="mk">'+e(EMP)+'<small>Feito sob medida</small></div><div class="wa">'+e(WHATS)+'</div><div class="cap"></div>';document.body.appendChild(el);galId=GAL.id;gi=GAL.ini||0;galSlide();if(GAL.itens.length>1)galT=setInterval(function(){gi++;galSlide()},8000)}
 function galAtualiza(){if(!GAL||(PIX&&PIX.status)){galPara();return}if(GAL.id!==galId)galInicia()}
+var SHOW=null,showId='',MUDO=new URLSearchParams(location.search).get('mudo')==='1';
+function showPara(){var s=document.getElementById('shw');if(s)s.remove();showId=''}
+function showAtualiza(){var S=SHOW;if(!S||(PIX&&PIX.status)){showPara();return}var key=S.id+':'+(S.i||0);if(key===showId)return;showPara();showId=key;
+ var el=document.createElement('div');el.id='shw';
+ if(S.tipo==='expl'){el.className='shx';el.innerHTML='<div class="fig">'+(S.svg||'')+'</div><div><small>'+e(EMP)+'</small><h1>'+e(S.tit)+'</h1>'+(S.sub?'<div class="sb">'+e(S.sub)+'</div>':'')+'<ul>'+(S.pontos||[]).map(function(p){return '<li>'+e(p)+'</li>'}).join('')+'</ul></div>'}
+ else{var it=S.itens[S.i||0]||S.itens[0];el.className='shw';var u=JSON.stringify(it.u).slice(1,-1);var n=S.itens.length;
+  var cap=(it.tit||it.leg||n>1)?'<div class="cap"><div>'+(it.tit?'<h2>'+e(it.tit)+'</h2>':'')+(it.leg?'<p>'+e(it.leg)+'</p>':'')+'</div>'+(n>1?'<div class="ct">'+((S.i||0)+1)+' de '+n+'</div>':'')+'</div>':'';
+  if(it.v){el.innerHTML='<video playsinline loop></video>'+cap;var v=el.querySelector('video');v.src=it.u;v.muted=MUDO;v.play().catch(function(){v.muted=true;v.play().catch(function(){})})}
+  else el.innerHTML='<div class="bg" style="background-image:url('+u+')"></div><div class="mk">'+e(EMP)+'</div><div class="im" style="background-image:url('+u+')"></div>'+cap;
+  for(var k=1;k<=2;k++){var pr=S.itens[((S.i||0)+k)%n];if(pr&&!pr.v)(new Image()).src=pr.u}}
+ document.body.appendChild(el)}
 function carregar(){fetch('/tela/dados?k='+encodeURIComponent(K),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
  if(j&&j.v&&VER.indexOf('__')<0&&j.v!==VER){location.reload();return}
- PIX=j&&j.pix||null;GAL=j&&j.gal||null;galAtualiza();var d=j&&j.dados;var ativo=d&&j.ts&&Date.now()-j.ts<=30*60000&&!d.off;
+ PIX=j&&j.pix||null;GAL=j&&j.gal||null;galAtualiza();SHOW=j&&j.show||null;showAtualiza();var d=j&&j.dados;var ativo=d&&j.ts&&Date.now()-j.ts<=30*60000&&!d.off;
  if(!ativo&&PIX){d=ultD||{cli:PIX.cli,data:new Date().toLocaleDateString('pt-BR'),ambs:[]};ativo=true}
  if(!ativo){if(ult!=='esp'){ult='esp';ultTot='';document.documentElement.style.fontSize='';espera()}return}
  ultD=d;var s=JSON.stringify([d,PIX&&PIX.status,PIX&&PIX.id]);if(s!==ult){ult=s;desenha(d)}}).catch(function(){})}
@@ -34834,13 +34865,16 @@ async function sitePedido(req, env, ctx, opc = {}) { // v312: opc.totem = veio d
 
 // <<TOTEM-INI>>
 // ══════════════════════════════════════════════════════════════════════
-// v312 · TOTEM DE ATENDIMENTO — o tablet do balcão vira um atendente (/totem?k=TOKEN)
+// v312 · CONTROLE DA TV (tablet do balcão) — /totem?k=TOKEN
+// v313: virou o controle da TV para o Sr. Hangel explicar ao cliente: explicações ilustradas (rebaixo americano, cubas,
+// acabamentos...), fotos e modelos, pedras, fotos e vídeos do próprio tablet e o Pix com QR code na TV. O tablet mostra o espelho da TV.
+// (Abaixo ficam também as rotas do atendimento sozinho da v312, que a página nova não usa.)
 // Tela de descanso com fotos dos trabalhos e das pedras; o cliente toca e escolhe: fazer orçamento (ambiente → pedra →
 // cuba → medidas → nome e WhatsApp), ver pedras, ver modelos, falar com a Helena (voz e texto) ou chamar alguém da equipe.
 // O orçamento vira um "projeto do site" (protocolo LOJA-…): o dono é avisado e a Helena já chama o cliente no WhatsApp.
 // Link: comando do dono "link do totem" ou o app (Configurações → Totem da loja).
 // ══════════════════════════════════════════════════════════════════════
-const TOTEM_VER = 'v312.2';
+const TOTEM_VER = 'v313.1';
 const TOTEM_IC = { 192: 'iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAAINklEQVR42u2dW2wUVRyHZ2fZ7b1LC71wK70LpdxsqYSrXCI3ISAKRkATecBEgfigPigPBo0mEiMJUYkxUUAUE0WQEEKoRLxws6CkpYReoFDa2ha2QLtt2e6ODxAWjZqZdnc658z3vfbsduecb3//Mztzzjji4hIVgN6i0gWAQIBAgECAQAAIBAgECAQIBIBAgECAQIBAAAgECAQIBAgEgEDQZwbQBXf54dMZRl8ye+0x+s1hw3uie+EKVtldoIhKY2eZJBeoX7yxlUlyCmQRb+xgklQCWdYbiU2SRCCB1JFMI7EFEtQbmUwSVSBp1BFdI/EEklIdcTVSsYdjtEUC2UEdEaNIAIFsqI5AGqnYQw9IKxD2WL8fLFrCUEeUcqZiD1EklUDYI1b/WKiEoY6I5UzFHqJIeIGwR9x+U+kFHBJYIOwRvQ9V7MEhIQXCHjn6U8UeHBJMIOyRqW9V7MEhNlcAe5yFET/y9bOKPTgkgEDYI6tDzIHA8gIRPxKHkIo9OGRdgbBHeoeYA4FVBSJ+7BBCJBBYUiDixyYhpGIPDlHCQKISRvzYKoRIILCSQMSP3UKIBAIEAjkEon7ZsIpF5Hlh5VXeTVvLIvHOY/KS3tpY9K9/WvbSkQh1995tc808xr99v1WHa4DqdqkJca7EeHdqcvSQ1NjMYfH5mZ5kT5Qi0wPniJ9IEAxq3XcC3XcCtzv8Dc2+C7WhPw1NjZ00NmXmpPSs4Qm9G6+wbBDDEwtFpaHZt6+0bl9pXd7IxBULsosLBzOJht5QVXfr7Y9/37S1rLHFJ6pA1K9+p7zK+/I7J38922zyqIVnizudH+W1LacvXr6p8z03bywqzEvq4wf7bG/VvtI6nY1XLsx+emF2H/9jX44xGNTaff52X099U0dlTdtvFa31TR3GhtOhrFs5at604YpZ++QxB7IQqupIjHcnxruHpsaWjEt5dmleWUXrzv3VVxradb6Dpinb91zwJLgnj08VpoRRvyKEw6EUFw5+75WS2ZOH6n+Vpinbdp2/3tZtztgxibY6bpe6fnXBlIlp+l/S0dmza381Z2EQYsOagrTBMfrb/3i6qcXbJYBA1C9ziHI7n5yXZaSQaUdPNJowgiSQMMwqGRIbY+Ck58z5VkoYhHA6HQU5A/W3r716W9M0BIIQo7MNCOTvCTbf6LK0QEyATGZgottQ+/YOf6THkQQSiYQ4l6H2/p4gJQweOLeKsHAIJDm39ZWk+3gS3AgEIbw3u/U3jo91xcWQQPAAlTVt+htPGJXscCgIBKEZcWWtAYGKTLlHUeUcXhRKjzd0dgV0Nk5Jjp76cJoJo0kCiUFnV+Dbw5f1t1+9JNc1QOVSBty7xeeDHeX6r67PKE6fXpSuiLWsByJE153AR7srT51r0dl+/KjkDWvGmDB9trpAJizbs37wnC5v2bWv+qq+O6MdDmXhzBHPLc1zOh2KopBAig2XEXZ09rT7/FebOiqr206Xt1z7U+9KnWFpcWuX508sGKQIujIV+itlH8ryLJ078pFxqQ6HIvDSZjCTxHhXXqZnUuHg4sKUQQOjZFgbDyYQE+2cOjFtwYwR2SMSLPKRrCuQ+QsLFRF+DTpyvKH0RGNBzsDFszNKxqb0S9kigUQ/O9Mqqr0V1d4xuUnrVxtbrYFAUnE3ZTVN6eoO3LjZXXPl1rGypjMVrTpvZa6o9r665dTr6ybkZ3kUtrhTbLwCNSbaOSwtdsak9DdemLB5Q1FivN77eG61+9/88Kz+tc8IJD9j8pI2byyKjdZbHHydPe9+cq6rO4BAcI+MIXEvrhqtv31ji+/z76oQCEJMmZhm6H6Mw79cq+uPQoZA1uX55fkx0U5F92WQfgmh3gsUli0a4X9I9kQtnZOpv/3Z89crqrwmjyYJZGmWzMkwtLJih1m7uiCQGES7nU/NN7Apx8VLN0/80YxAEGLetGGpgwz81vzF9zXBoIZAcI8BTnXlAgMhVN/UcfRkIwJBiEdLhgxPj9Pf/quDtX5/EIEgtHvrqsdz9Ldv9XYdPHZVAIE4kzeNyRNSczMM7Oj9zeHLvs4eE8aRBBKG1UtyFSPbMOw9UkcJA+XB9Tpj8w3cYXfg6JW2W3cQCB4IocW5hhaUfX2o1uoCMQ0yk/wsT8nYFMXIFdam1s6IjiAJJBirFuc4dN8IHQhouw/UUMIgRMbQ+OnFBm7z+Lms6VL9bUsLRBUzmWcW5ehfvKxpys7/vsLa97GLyPPCeOhuhI7xPtv3XDj0U73Sh2u0X74/KywCUcKEZMX8LLdLlee58VQxk0nyRC2aOcIKo0YCicoTj2UaevYKZ2Gg/GMX32VzR/b7xwjPJJptN4UjXLMOEggsIxBTabvFDwkECAQyCUQVs1X9IoHAegIRQvaJHxIILCkQIWST+IlgAuGQHeyhhIGFBSKEpI8fEgisLRAhJHf8mJFAOCSxPSaVMByS1R7mQCCIQISQlPFjagLhkHz2mF3CcEi+fmYOBEIJRAhJ1sOq9EeIPRKWMBySpldVWx0t9kg1icYhCXpSte2RY48kp/E4JHTvqfQC9sjwQyIOCdpj4dzeRWGPGPt92VR6B3tkuxaGQwL1jOVKGOVMrC+VSq9hj8y3c+CQxXvA0iXM5uVMiC+PMALZSiOBclelZzlGGyWQ3FEk4tdDVIEk00jcZBVbINFNkqAiSyKQcBpJM5mTSiDrmyTfSYCcAlnNJIlPHiUXqH9NssOPDnYRyDSZ7HbtxY4ChcsqrtMhEChsrgAIBAgECASAQIBAgECAQAAIBAgECAQIBIBAgECAQIBAAAgE4eAv0FPbN/MHQmYAAAAASUVORK5CYII=', 512: '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' };
 const TOTEM_SW = "self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request).catch(()=>new Response('<html><body style=\"background:#0b0b0e;color:#ecd27c;font:24px sans-serif;display:grid;place-items:center;height:100vh;margin:0\">Sem internet no tablet. Confira o Wi-Fi.</body></html>',{headers:{'Content-Type':'text/html; charset=utf-8'}})));});";
 async function totemToken(env, novo) {
@@ -34851,16 +34885,16 @@ async function totemToken(env, novo) {
 async function totemLink(env, novo) { return (await urlPublica(env)) + '/totem?k=' + await totemToken(env, novo); }
 async function totemStatusTxt(env) {
   let p = null; try { p = JSON.parse((await env.HR_KV.get('totem:ping')) || 'null'); } catch (_) {}
-  if (!p) return 'O totem ainda não foi aberto no tablet.';
+  if (!p) return 'O controle da TV ainda não foi aberto no tablet.';
   const min = Math.round((Date.now() - p.em) / 60000);
-  return min <= 6 ? 'O totem está ligado agora.' : `O totem foi visto ligado pela última vez há ${min < 120 ? min + ' min' : Math.round(min / 60) + ' h'}.`;
+  return min <= 6 ? 'O controle da TV está aberto no tablet agora.' : `O controle da TV foi visto ligado pela última vez há ${min < 120 ? min + ' min' : Math.round(min / 60) + ' h'}.`;
 }
 async function totemComandoDono(env, from, msg) {
   const n = normaliza(msg);
-  if (!/\btotem\b/.test(n) || n.length > 80) return false;
-  if (/\b(novo|trocar|troca|outro) link\b/.test(n)) { await enviar(env, from, `Link novo do totem (o antigo parou de funcionar):\n${await totemLink(env, true)}\n\nAbra no tablet, no Chrome, e toque em "Adicionar à tela inicial".`); return true; }
+  if (!(/\btotem\b/.test(n) || /\bcontrole d[ae] (tv|televisao)\b/.test(n)) || n.length > 80) return false;
+  if (/\b(novo|trocar|troca|outro) link\b/.test(n)) { await enviar(env, from, `Link novo do controle da TV (o antigo parou de funcionar):\n${await totemLink(env, true)}\n\nAbra no tablet, no Chrome, e toque em ⋮ → "Adicionar à tela inicial" → Instalar.`); return true; }
   if (/\b(link|abrir|abre|endereco|status|ligado|como esta)\b/.test(n)) {
-    await enviar(env, from, `🖥️ *Totem da loja*\n${await totemLink(env)}\n\n${await totemStatusTxt(env)}\n\nNo tablet: abra o link no Chrome → menu ⋮ → "Adicionar à tela inicial" e abra pelo ícone (fica em tela cheia). Para trocar o link: "novo link do totem".`);
+    await enviar(env, from, `📺 *Controle da TV (tablet)*\n${await totemLink(env)}\n\n${await totemStatusTxt(env)}\n\nNo tablet: abra o link no Chrome → ⋮ → "Adicionar à tela inicial" → Instalar, e abra pelo ícone. Para trocar o link: "novo link do totem".`);
     return true;
   }
   return false;
@@ -34956,6 +34990,86 @@ async function totemOuvir(env, req) {
   const texto = String((j && j.text) || '').trim();
   return { texto: /[Ѐ-ӿ֐-ۿ぀-ヿ一-鿿]/.test(texto) ? '' : texto };
 }
+// ── v313: o que o tablet coloca na TV (fica acima da galeria; o Pix fica acima de tudo) ──
+async function telaShowLer(env) { try { const s = JSON.parse((await env.HR_KV.get('tela:show')) || 'null'); return s && Date.now() < (s.exp || 0) ? s : null; } catch (_) { return null; } }
+function telaShowLimpo(b) {
+  const t = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, n);
+  const tipo = ['expl', 'foto', 'video'].includes(b && b.tipo) ? b.tipo : '';
+  if (!tipo) return null;
+  const s = { tipo, tit: t(b.tit, 90), sub: t(b.sub, 160) };
+  if (tipo === 'expl') {
+    s.pontos = (Array.isArray(b.pontos) ? b.pontos : []).slice(0, 7).map(x => t(x, 220)).filter(Boolean);
+    const svg = String(b.svg || '');
+    if (svg.length > 80000 || !/^<svg[\s>]/.test(svg) || /<script|<foreignobject|\bon[a-z]+\s*=|javascript:|<iframe|<image[^>]+href\s*=\s*"(?!\/)/i.test(svg)) return null;
+    s.svg = svg;
+  } else {
+    const ok = u => /^\/(portfolio|tela)\/[\w\-.:%/]+$/.test(String(u || ''));
+    s.itens = (Array.isArray(b.itens) ? b.itens : []).slice(0, 150).filter(x => x && ok(x.u)).map(x => ({ u: String(x.u), tit: t(x.tit, 90), leg: t(x.leg, 200), v: tipo === 'video' || !!x.v }));
+    if (!s.itens.length) return null;
+    s.i = Math.max(0, Math.min(s.itens.length - 1, Math.floor(+b.i || 0)));
+  }
+  return s;
+}
+async function telaArqLista(env) { try { return JSON.parse((await env.HR_KV.get('tela:arqs')) || '[]') || []; } catch (_) { return []; } }
+async function totemEstado(env) {
+  const show = await telaShowLer(env), gal = await telaGalLer(env).catch(() => null);
+  let pix = null; try { const px = await telaPixEstado(env); if (px) pix = { valor: px.valor, cli: px.cli, tipo: px.tipo, png: px.png, copia: px.copia, venceEm: px.venceEm, status: px.status }; } catch (_) {}
+  return { ver: TOTEM_VER, show: show ? { id: show.id, tipo: show.tipo, tit: show.tit || (show.itens && show.itens[show.i || 0] ? show.itens[show.i || 0].tit : ''), i: show.i || 0, n: show.itens ? show.itens.length : 0, pontos: show.pontos || [] } : null,
+    gal: gal ? { titulo: gal.titulo, n: (gal.itens || []).length } : null, pix, mp: mpAtivo(env), tela: (await urlPublica(env)) + '/tela?k=' + await telaToken(env) + '&mudo=1' };
+}
+async function totemTv(env, p, b, req) {
+  if (p === '/totem/mostrar') {
+    if (!b || b.limpar) { await env.HR_KV.delete('tela:show'); await env.HR_KV.delete('tela:gal'); return { ok: true }; }
+    const s = telaShowLimpo(b); if (!s) return { ok: false, erro: 'Conteúdo inválido.' };
+    s.id = Date.now().toString(36); s.exp = Date.now() + 3 * 3600000;
+    await env.HR_KV.put('tela:show', JSON.stringify(s), { expirationTtl: 86400 }); await env.HR_KV.delete('tela:gal');
+    return { ok: true };
+  }
+  if (p === '/totem/passo') {
+    const s = await telaShowLer(env); if (!s || !s.itens) return { ok: false };
+    s.i = ((Math.floor(+b.i || 0) % s.itens.length) + s.itens.length) % s.itens.length; s.exp = Date.now() + 3 * 3600000;
+    await env.HR_KV.put('tela:show', JSON.stringify(s), { expirationTtl: 86400 }); return { ok: true, i: s.i };
+  }
+  if (p === '/totem/galeria-tv') {
+    const gal = await telaGalMontar(env, String(b.q || 'trabalhos')); if (!gal.itens.length) return { ok: false, erro: 'Sem fotos dessa categoria.' };
+    await env.HR_KV.delete('tela:show'); await telaGalMostrar(env, gal, 60); return { ok: true, n: gal.itens.length, titulo: gal.titulo };
+  }
+  if (p === '/totem/pix') {
+    if (b.cancelar) { await env.HR_KV.delete('tela:pix'); return { ok: true }; }
+    try { const px = await telaPixCriar(env, { valor: b.valor, cli: b.cli, tipo: b.tipo }); return { ok: true, valor: px.valor }; } catch (e) { return { ok: false, erro: e.message }; }
+  }
+  if (p === '/totem/apagar') {
+    const id = String(b.id || '').replace(/[^a-z0-9]/gi, ''); const l = (await telaArqLista(env)).filter(x => x.id !== id);
+    await env.HR_KV.put('tela:arqs', JSON.stringify(l)); await env.HR_KV.delete('tela:arq:' + id); return { ok: true, arqs: l };
+  }
+  return null;
+}
+async function totemArquivo(env, req) {
+  const mime = String(req.headers.get('content-type') || '').split(';')[0];
+  if (!/^(image\/(jpeg|png|webp|gif)|video\/(mp4|webm|quicktime|3gpp))$/.test(mime)) return { ok: false, erro: 'Só fotos e vídeos (JPG, PNG, MP4, WEBM).' };
+  const buf = await req.arrayBuffer();
+  if (!buf.byteLength) return { ok: false, erro: 'Arquivo vazio.' };
+  if (buf.byteLength > 24 * 1024 * 1024) return { ok: false, erro: 'Arquivo passa de 24 MB. Grave um vídeo mais curto.' };
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  await env.HR_KV.put('tela:arq:' + id, buf, { metadata: { mime } });
+  const nome = decodeURIComponent(String(req.headers.get('x-nome') || '')).replace(/[\u0000-\u001f]+/g, ' ').slice(0, 60);
+  const l = await telaArqLista(env); l.unshift({ id, mime, nome, em: Date.now(), tam: buf.byteLength, v: mime.startsWith('video/') });
+  await env.HR_KV.put('tela:arqs', JSON.stringify(l.slice(0, 300)));
+  return { ok: true, arqs: l.slice(0, 300) };
+}
+async function telaArqServir(req, env, url) {
+  const id = url.pathname.slice('/tela/arq/'.length).replace(/[^a-z0-9]/gi, '');
+  const { value, metadata } = await env.HR_KV.getWithMetadata('tela:arq:' + id, 'arrayBuffer');
+  if (!value) return new Response('Sem arquivo', { status: 404 });
+  const mime = (metadata && metadata.mime) || 'application/octet-stream', tot = value.byteLength;
+  const rg = String(req.headers.get('range') || '').match(/bytes=(\d*)-(\d*)/);
+  if (rg && (rg[1] || rg[2])) {
+    let a = rg[1] ? +rg[1] : tot - +rg[2], z = rg[1] && rg[2] ? Math.min(+rg[2], tot - 1) : tot - 1; if (!rg[1]) z = tot - 1;
+    if (a >= tot || a < 0) return new Response('', { status: 416, headers: { 'Content-Range': 'bytes */' + tot } });
+    return new Response(value.slice(a, z + 1), { status: 206, headers: { 'Content-Type': mime, 'Content-Range': `bytes ${a}-${z}/${tot}`, 'Accept-Ranges': 'bytes', 'Content-Length': String(z - a + 1), 'Cache-Control': 'public, max-age=604800' } });
+  }
+  return new Response(value, { headers: { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Content-Length': String(tot), 'Cache-Control': 'public, max-age=604800' } });
+}
 async function rotaTotem(req, env, ctx, url) {
   const p = url.pathname.replace(/\/+$/, '');
   if (p !== '/totem' && !p.startsWith('/totem/')) return null;
@@ -34963,13 +35077,17 @@ async function rotaTotem(req, env, ctx, url) {
   const ic = p.match(/^\/totem\/icone-(192|512)\.png$/); // v312.2: ícones do app instalável (sem token)
   if (ic) return new Response(Uint8Array.from(atob(TOTEM_IC[ic[1]]), c => c.charCodeAt(0)), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' } });
   const k = String(url.searchParams.get('k') || '');
-  if (!k || k !== await totemToken(env)) return p === '/totem' ? new Response('Link do totem inválido. Peça o link novo no WhatsApp da Helena: "link do totem".', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }) : json({ erro: 'link inválido' }, 403);
+  if (!k || k !== await totemToken(env)) return p === '/totem' ? new Response('Link inválido. Peça o link novo no WhatsApp da Helena: "link do totem".', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }) : json({ erro: 'link inválido' }, 403);
   if (p === '/totem') return new Response(TOTEM_HTML.split('__EMP__').join(String(env.EMPRESA || 'HR Mármores e Granitos')).split('__VER__').join(TOTEM_VER).split('__K__').join(encodeURIComponent(k)), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
-  if (p === '/totem/manifest.json') return new Response(JSON.stringify({ id: '/totem', name: 'Atendimento ' + (env.EMPRESA || 'HR Mármores e Granitos'), short_name: 'Totem HR', start_url: '/totem?k=' + k, scope: '/totem', display: 'fullscreen', orientation: 'landscape', background_color: '#0b0b0e', theme_color: '#0b0b0e',
+  if (p === '/totem/manifest.json') return new Response(JSON.stringify({ id: '/totem', name: 'Controle da TV · ' + (env.EMPRESA || 'HR Mármores e Granitos'), short_name: 'TV HR', start_url: '/totem?k=' + k, scope: '/totem', display: 'fullscreen', orientation: 'landscape', background_color: '#0b0b0e', theme_color: '#0b0b0e',
     icons: [{ src: '/totem/icone-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: '/totem/icone-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }, { src: '/totem/icone-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }] }), { headers: { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'no-store' } });
   if (p === '/totem/sw.js') return new Response(TOTEM_SW, { headers: { 'Content-Type': 'text/javascript; charset=utf-8', 'Service-Worker-Allowed': '/totem', 'Cache-Control': 'no-store' } });
   if (p === '/totem/galeria') { const g = await telaGalMontar(env, String(url.searchParams.get('cat') || 'trabalhos')); return json({ titulo: g.titulo, itens: (g.itens || []).slice(0, 60) }); }
+  if (p === '/totem/estado') return json(await totemEstado(env));
+  if (p === '/totem/arquivos') return json({ arqs: await telaArqLista(env) });
   if (req.method !== 'POST') return json({ erro: 'método' }, 405);
+  if (p === '/totem/arquivo') return json(await totemArquivo(env, req));
+  if (['/totem/mostrar', '/totem/passo', '/totem/galeria-tv', '/totem/pix', '/totem/apagar'].includes(p)) { let b = {}; try { b = await req.json(); } catch (_) {} return json(await totemTv(env, p, b, req)); }
   if (p === '/totem/ping') { let b = {}; try { b = await req.json(); } catch (_) {} await env.HR_KV.put('totem:ping', JSON.stringify({ em: Date.now(), tela: String(b.tela || '').slice(0, 20) }), { expirationTtl: 30 * 86400 }); return json({ ok: true, ver: TOTEM_VER }); }
   if (p === '/totem/pedido') return sitePedido(req, env, ctx, { totem: true });
   if (p === '/totem/conversa') { let b = {}; try { b = await req.json(); } catch (_) {} return json(await totemConversa(env, b)); }
@@ -34991,223 +35109,101 @@ async function rotaTotem(req, env, ctx, url) {
 const TOTEM_HTML = String.raw`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#0b0b0e"><meta name="mobile-web-app-capable" content="yes">
-<title>Atendimento · __EMP__</title>
-<link rel="manifest" id="mani" href="/totem/manifest.json?k=__K__"><link rel="icon" href="/totem/icone-192.png"><link rel="apple-touch-icon" href="/totem/icone-192.png">
+<title>Controle da TV · __EMP__</title>
+<link rel="manifest" href="/totem/manifest.json?k=__K__"><link rel="icon" href="/totem/icone-192.png"><link rel="apple-touch-icon" href="/totem/icone-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--ouro:#c9a84c;--ouro2:#ecd27c;--fundo:#0b0b0e;--cx:#15151b;--txt:#f3ecdb;--sub:#a99c80;--linha:rgba(201,168,76,.25)}
+:root{--ouro:#c9a84c;--ouro2:#ecd27c;--fundo:#0b0b0e;--cx:#15151b;--txt:#f3ecdb;--sub:#a99c80;--linha:rgba(201,168,76,.25);--verde:#5fd38a}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
 html,body{margin:0;height:100%;background:var(--fundo);color:var(--txt);font-family:Outfit,system-ui,sans-serif;overflow:hidden;touch-action:manipulation}
-input{user-select:text;-webkit-user-select:text}
-button{font-family:inherit;cursor:pointer;border:none;color:inherit}
-.tela{position:fixed;inset:0;display:none;flex-direction:column}
-.tela.on{display:flex}
-h1,h2,.serif{font-family:"Cormorant Garamond",Georgia,serif;font-weight:600}
-/* descanso */
-#descanso{background:#000;cursor:pointer}
-#descanso .sl{position:absolute;inset:0;background-size:cover;background-position:center;opacity:0;transition:opacity 1.6s ease;transform:scale(1.04)}
-#descanso .sl.on{opacity:1;animation:kb 9s ease-out forwards}
-@keyframes kb{from{transform:scale(1.04)}to{transform:scale(1.13)}}
-#descanso .veu{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,.1) 35%,rgba(0,0,0,.25) 60%,rgba(0,0,0,.85) 100%)}
-#descanso .topo{position:absolute;top:3.5vh;left:4vw;right:4vw;display:flex;justify-content:space-between;align-items:flex-start}
-#descanso .marca{font-family:"Cormorant Garamond",serif;font-size:clamp(28px,4.4vw,64px);color:#fff;line-height:1;text-shadow:0 4px 30px rgba(0,0,0,.6)}
-#descanso .marca small{display:block;font-family:Outfit;font-size:clamp(11px,1.2vw,16px);letter-spacing:.42em;text-transform:uppercase;color:var(--ouro2);margin-top:10px}
-#descanso .hora{font-size:clamp(22px,3vw,42px);font-weight:300;color:#fff;text-align:right}
-#descanso .hora small{display:block;font-size:clamp(11px,1.1vw,15px);color:#e8dfc8;letter-spacing:.08em}
-#descanso .baixo{position:absolute;left:4vw;right:4vw;bottom:5vh;display:flex;justify-content:space-between;align-items:flex-end;gap:3vw}
-#descanso .leg{color:#eee;font-size:clamp(13px,1.4vw,19px);max-width:50vw;text-shadow:0 2px 12px #000}
-#descanso .leg b{display:block;color:var(--ouro2);font-weight:500;font-size:.8em;letter-spacing:.2em;text-transform:uppercase;margin-bottom:4px}
-.toque{display:flex;align-items:center;gap:18px;background:rgba(10,10,12,.55);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(236,210,124,.45);border-radius:999px;padding:16px 30px 16px 18px;color:#fff;font-size:clamp(17px,2vw,28px);font-weight:500;white-space:nowrap}
-.toque .dedo{width:clamp(44px,4.6vw,64px);height:clamp(44px,4.6vw,64px);border-radius:50%;background:linear-gradient(135deg,var(--ouro2),var(--ouro));display:grid;place-items:center;color:#1a1408;font-size:1.2em;animation:pulso 2s infinite}
-@keyframes pulso{0%{box-shadow:0 0 0 0 rgba(236,210,124,.7)}70%{box-shadow:0 0 0 22px rgba(236,210,124,0)}100%{box-shadow:0 0 0 0 rgba(236,210,124,0)}}
-#offline{position:absolute;top:0;left:0;right:0;background:#8a2a1a;color:#fff;text-align:center;padding:6px;font-size:14px;display:none;z-index:5}
-/* cabeçalho das telas */
-.cab{display:flex;align-items:center;gap:16px;padding:18px 3vw 12px;border-bottom:1px solid rgba(255,255,255,.06);flex:0 0 auto}
-.cab .voltar{width:58px;height:58px;border-radius:16px;background:rgba(255,255,255,.06);font-size:26px;display:grid;place-items:center;flex:0 0 auto}
-.cab h2{margin:0;font-size:clamp(26px,3vw,40px);color:var(--ouro2);flex:1}
-.cab .sub{color:var(--sub);font-size:15px}
-.cab .ini{padding:0 20px;height:58px;border-radius:16px;background:rgba(255,255,255,.06);font-size:17px}
-.corpo{flex:1;overflow-y:auto;padding:2.4vh 3vw 3vh;-webkit-overflow-scrolling:touch}
-/* início */
-#inicio{background:radial-gradient(ellipse at 20% 0%,rgba(201,168,76,.13),transparent 55%),var(--fundo)}
-#inicio .ola{display:flex;align-items:center;gap:22px;padding:4.5vh 4vw 2vh}
-.avatar{width:clamp(70px,8vw,110px);height:clamp(70px,8vw,110px);border-radius:50%;background:radial-gradient(circle at 35% 30%,#f6e3a1,#c9a84c 55%,#7d6424);display:grid;place-items:center;font-family:"Cormorant Garamond",serif;font-size:clamp(34px,4vw,56px);color:#1a1408;position:relative;flex:0 0 auto;box-shadow:0 10px 40px rgba(201,168,76,.25)}
-.avatar.fala::after,.avatar.ouve::after{content:"";position:absolute;inset:-10px;border-radius:50%;border:3px solid var(--ouro2);animation:onda 1.1s infinite}
-.avatar.ouve::after{border-color:#5fd38a}
-@keyframes onda{0%{transform:scale(.92);opacity:1}100%{transform:scale(1.25);opacity:0}}
-#inicio h1{margin:0;font-size:clamp(30px,4vw,54px);line-height:1.05}
-#inicio .ola p{margin:6px 0 0;color:var(--sub);font-size:clamp(15px,1.6vw,21px)}
-.grade{display:grid;grid-template-columns:repeat(3,1fr);gap:2vw;padding:1vh 4vw 3vh;flex:1}
-.bloco{position:relative;border-radius:24px;overflow:hidden;background:var(--cx);border:1px solid rgba(255,255,255,.07);text-align:left;padding:2.6vh 1.8vw;display:flex;flex-direction:column;justify-content:flex-end;min-height:24vh;transition:transform .12s}
-.bloco:active{transform:scale(.97)}
-.bloco .fot{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.55}
-.bloco .fot::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 20%,rgba(0,0,0,.85))}
-.bloco *{position:relative}
-.bloco .ic{font-size:clamp(30px,3.4vw,48px);margin-bottom:auto}
-.bloco b{font-size:clamp(19px,2.1vw,30px);font-weight:600;display:block}
-.bloco small{color:#d8ccb0;font-size:clamp(12px,1.25vw,17px);display:block;margin-top:4px}
-.bloco.dest{grid-row:span 2;background:linear-gradient(150deg,#2a2213,#15151b 60%);border-color:var(--linha)}
-.bloco.dest b{font-size:clamp(26px,3vw,44px);color:var(--ouro2)}
-.bloco.helena{background:linear-gradient(150deg,#1a2a20,#15151b 70%);border-color:rgba(95,211,138,.3)}
-/* chips e cartões */
-.chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:2vh}
-.chip{padding:14px 22px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:17px}
+input{user-select:text;-webkit-user-select:text;font-family:inherit}
+button{font-family:inherit;cursor:pointer;border:none;color:inherit;background:none}
+#app{display:grid;grid-template-columns:88px 1fr 34%;height:100%}
+nav{background:#08080a;border-right:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:6px}
+nav .lg{font-family:"Cormorant Garamond",serif;font-weight:700;color:var(--ouro2);font-size:26px;margin:4px 0 12px}
+nav button{width:76px;padding:10px 0;border-radius:16px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11.5px;color:var(--sub);line-height:1.1}
+nav button span{font-size:27px}
+nav button.on{background:rgba(201,168,76,.14);color:var(--ouro2)}
+main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.cab{display:flex;align-items:center;gap:12px;padding:14px 20px 10px;flex:0 0 auto}
+.cab h2{margin:0;font-family:"Cormorant Garamond",serif;font-size:32px;color:var(--ouro2);font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.corpo{flex:1;overflow-y:auto;padding:4px 20px 24px;-webkit-overflow-scrolling:touch}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{padding:11px 18px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:15px}
 .chip.on{background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408;font-weight:600;border-color:transparent}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
-.card{border-radius:18px;overflow:hidden;background:var(--cx);border:2px solid transparent;text-align:left;padding:0;display:flex;flex-direction:column}
-.card.on{border-color:var(--ouro2);box-shadow:0 0 0 4px rgba(236,210,124,.18)}
-.card .im{aspect-ratio:4/3;background:#222 center/cover no-repeat;display:grid;place-items:center;color:#555;font-size:34px}
-.card .tx{padding:12px 14px 14px}
-.card .tx b{display:block;font-size:18px;font-weight:600}
-.card .tx small{color:var(--sub);font-size:14px}
-.card .pr{color:var(--ouro2);font-size:15px;margin-top:4px;display:block}
-.top{position:absolute;margin:10px;background:var(--ouro2);color:#1a1408;font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px}
-.amb{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}
-.amb button{background:var(--cx);border:2px solid rgba(255,255,255,.07);border-radius:20px;padding:26px 18px;font-size:21px;font-weight:500;display:flex;flex-direction:column;align-items:center;gap:10px}
-.amb button span{font-size:44px}
-.amb button.on{border-color:var(--ouro2);background:#221d12}
-/* rodapé do passo a passo */
-.rod{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:14px 3vw 18px;border-top:1px solid rgba(255,255,255,.06);background:rgba(0,0,0,.25)}
-.rod .pass{flex:1;display:flex;gap:8px}
-.rod .pass i{height:6px;flex:1;max-width:70px;border-radius:9px;background:rgba(255,255,255,.12)}
-.rod .pass i.on{background:var(--ouro2)}
-.bt{padding:0 34px;height:66px;border-radius:18px;font-size:20px;font-weight:600}
+.grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.card{position:relative;border-radius:16px;overflow:hidden;background:var(--cx);border:2px solid transparent;text-align:left;display:flex;flex-direction:column;padding:0}
+.card.on{border-color:var(--verde);box-shadow:0 0 0 4px rgba(95,211,138,.2)}
+.card .im{aspect-ratio:4/3;background:#1d1d24 center/cover no-repeat;display:flex;align-items:center;justify-content:center;font-size:30px;color:#555;overflow:hidden}
+.card .im svg{width:100%;height:100%;background:#101014}
+.card .im video{width:100%;height:100%;object-fit:cover}
+.card .tx{padding:9px 12px 11px}
+.card .tx b{display:block;font-size:15.5px;font-weight:600;line-height:1.2}
+.card .tx small{color:var(--sub);font-size:12.5px;display:block;margin-top:2px}
+.card .tv{position:absolute;top:8px;right:8px;background:var(--verde);color:#062;font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;display:none}
+.card.on .tv{display:block}
+.card .x{position:absolute;top:6px;left:6px;width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.6);font-size:16px;display:flex;align-items:center;justify-content:center}
+.card .vid{position:absolute;top:44px;left:8px;background:rgba(0,0,0,.7);border-radius:8px;padding:2px 8px;font-size:12px}
+.bt{height:52px;padding:0 20px;border-radius:14px;font-size:16px;font-weight:600;background:rgba(255,255,255,.08);white-space:nowrap}
 .bt.ouro{background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408}
-.bt.cin{background:rgba(255,255,255,.08)}
+.bt.verm{background:rgba(255,90,70,.16);color:#ff9e90}
 .bt:disabled{opacity:.35}
-/* medidas */
-.pecas .pc{display:flex;align-items:center;gap:12px;background:var(--cx);border-radius:16px;padding:12px 16px;margin-bottom:10px;font-size:19px}
-.pecas .pc b{flex:1;font-weight:500}
-.pecas .pc button{background:rgba(255,80,60,.15);color:#ff9a8a;width:48px;height:48px;border-radius:12px;font-size:22px}
-.camp{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0}
-.campo{flex:1;min-width:160px;background:var(--cx);border:2px solid rgba(255,255,255,.08);border-radius:16px;padding:12px 16px;text-align:left}
-.campo.on{border-color:var(--ouro2)}
-.campo small{display:block;color:var(--sub);font-size:14px}
-.campo span{display:block;font-size:30px;font-weight:500;min-height:38px}
-.teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:420px}
-.teclado button{height:70px;border-radius:16px;background:rgba(255,255,255,.07);font-size:30px;font-weight:500}
+.vazio{color:var(--sub);font-size:16px;padding:30px 4px;text-align:center;grid-column:1/-1}
+aside{background:#08080a;border-left:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;padding:14px;gap:10px;min-height:0}
+aside .tt{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.25em;text-transform:uppercase;color:var(--sub)}
+aside .tt i{width:9px;height:9px;border-radius:50%;background:#666}
+aside .tt i.on{background:var(--verde);box-shadow:0 0 8px var(--verde)}
+#espelho{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000;border:1px solid var(--linha);flex:0 0 auto}
+#espelho iframe{position:absolute;top:0;left:0;width:1920px;height:1080px;border:0;transform-origin:0 0;pointer-events:none}
+#agora{font-size:15px;color:var(--txt);min-height:20px}
+#agora b{color:var(--ouro2);font-weight:500}
+.nav2{display:flex;gap:8px}
+.nav2 .bt{flex:1;font-size:24px}
+#pontos{flex:1;overflow-y:auto;background:rgba(255,255,255,.03);border-radius:12px;padding:12px 14px;font-size:14.5px;line-height:1.45;color:#ddd3bb;display:none}
+#pontos b{display:block;color:var(--ouro2);font-weight:500;font-size:12px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:6px}
+#pontos li{margin:0 0 8px}
+#pontos ul{padding-left:18px;margin:0}
+aside .fim{margin-top:auto;display:flex;gap:8px}
+aside .fim .bt{flex:1}
+.pix{display:grid;grid-template-columns:1fr 330px;gap:22px}
+.campo{width:100%;background:var(--cx);border:2px solid rgba(255,255,255,.1);border-radius:14px;padding:14px;font:500 20px Outfit,sans-serif;color:var(--txt);outline:none}
+.campo:focus{border-color:var(--ouro2)}
+.rot{display:block;color:var(--sub);font-size:14px;margin:14px 0 6px}
+.valor{font-size:44px;font-weight:600;color:var(--ouro2);background:var(--cx);border-radius:14px;padding:10px 16px;min-height:72px}
+.teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.teclado button{height:60px;border-radius:14px;background:rgba(255,255,255,.07);font-size:26px;font-weight:500}
 .teclado button:active{background:rgba(236,210,124,.3)}
-.lado{display:flex;gap:3vw;align-items:flex-start;flex-wrap:wrap}
-.lado>div{flex:1;min-width:300px}
-.txt{width:100%;background:var(--cx);border:2px solid rgba(255,255,255,.1);border-radius:16px;padding:18px;font:500 24px Outfit,sans-serif;color:var(--txt);outline:none}
-.txt:focus{border-color:var(--ouro2)}
-.rot{display:block;color:var(--sub);font-size:15px;margin:16px 0 8px}
-.aceite{display:flex;gap:14px;align-items:center;font-size:18px;margin-top:18px;background:rgba(255,255,255,.04);border-radius:16px;padding:16px;text-align:left;width:100%}
-.aceite i{width:38px;height:38px;border-radius:10px;border:2px solid var(--ouro2);display:grid;place-items:center;font-style:normal;font-size:24px;flex:0 0 auto}
-.aceite.on i{background:var(--ouro2);color:#1a1408}
-.resumo{background:var(--cx);border-radius:18px;padding:16px 20px;font-size:18px;line-height:1.6;border:1px solid var(--linha)}
-.resumo b{color:var(--ouro2);font-weight:500}
-/* pronto */
-#pronto{align-items:center;justify-content:center;text-align:center;padding:4vw;background:radial-gradient(circle at 50% 30%,rgba(95,211,138,.14),transparent 60%),var(--fundo)}
-#pronto .ok{width:130px;height:130px;border-radius:50%;background:#2f9e5b;display:grid;place-items:center;font-size:70px;margin:0 auto 24px;animation:pop .5s}
-@keyframes pop{0%{transform:scale(.3)}80%{transform:scale(1.1)}100%{transform:scale(1)}}
-#pronto h1{font-size:clamp(34px,4.4vw,60px);margin:0 0 10px}
-#pronto p{font-size:clamp(18px,2vw,26px);color:#e8dfc8;max-width:820px;margin:8px auto}
-/* galeria e detalhe */
-.foto-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
-.foto-g button{aspect-ratio:4/3;border-radius:16px;background:#222 center/cover no-repeat;padding:0}
-#luz{position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:50;display:none;align-items:center;justify-content:center;flex-direction:column}
-#luz.on{display:flex}
-#luz img{max-width:92vw;max-height:78vh;border-radius:12px;object-fit:contain}
-#luz .lg{color:#e8dfc8;font-size:20px;margin:16px 4vw 0;text-align:center;max-width:900px}
-#luz .nav{position:absolute;top:50%;transform:translateY(-50%);width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.1);font-size:34px}
-#luz .x{position:absolute;top:20px;right:24px;width:66px;height:66px;border-radius:50%;background:rgba(255,255,255,.12);font-size:28px}
-#luz .acoes{margin-top:18px;display:flex;gap:12px}
-/* Helena */
-#helena .area{flex:1;display:flex;gap:3vw;padding:2vh 3vw;min-height:0}
-#helena .esq{width:30%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;text-align:center}
-#helena .esq .avatar{width:clamp(120px,14vw,190px);height:clamp(120px,14vw,190px);font-size:clamp(60px,7vw,96px)}
-#helena .estado{color:var(--sub);font-size:19px;min-height:26px}
-.mic{width:clamp(110px,11vw,150px);height:clamp(110px,11vw,150px);border-radius:50%;background:linear-gradient(135deg,#5fd38a,#2f9e5b);font-size:clamp(46px,5vw,64px);box-shadow:0 10px 40px rgba(95,211,138,.3)}
-.mic.gravando{background:linear-gradient(135deg,#ff7a6a,#d6402e);animation:pulso2 1.2s infinite}
-@keyframes pulso2{0%{box-shadow:0 0 0 0 rgba(255,122,106,.6)}70%{box-shadow:0 0 0 26px rgba(255,122,106,0)}100%{box-shadow:0 0 0 0 rgba(255,122,106,0)}}
-#helena .dir{flex:1;display:flex;flex-direction:column;min-width:0}
-#msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-bottom:10px}
-.msg{max-width:85%;padding:16px 20px;border-radius:22px;font-size:clamp(18px,1.8vw,23px);line-height:1.45}
-.msg.h{background:var(--cx);border:1px solid var(--linha);border-bottom-left-radius:6px;align-self:flex-start}
-.msg.c{background:#26304a;align-self:flex-end;border-bottom-right-radius:6px}
-.msg .ac{display:block;margin-top:12px;background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408;border-radius:14px;padding:14px 18px;font-size:18px;font-weight:600}
-.sug{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
-.sug button{padding:12px 18px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:16px}
-.escr{display:flex;gap:10px}
-.escr input{flex:1;background:var(--cx);border:2px solid rgba(255,255,255,.1);border-radius:16px;padding:0 18px;height:62px;font:400 20px Outfit;color:var(--txt);outline:none}
-.escr button{width:90px;height:62px;border-radius:16px;background:linear-gradient(135deg,var(--ouro2),var(--ouro));color:#1a1408;font-size:18px;font-weight:700}
-/* avisos */
-#aindaAi{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:80;display:none;align-items:center;justify-content:center}
-#aindaAi.on{display:flex}
-#aindaAi div{background:var(--cx);border:1px solid var(--linha);border-radius:26px;padding:40px 54px;text-align:center}
-#aindaAi h2{font-size:42px;margin:0 0 6px;color:var(--ouro2)}
-#aindaAi p{font-size:20px;color:var(--sub);margin:0 0 24px}
-#toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#222;border:1px solid var(--linha);padding:16px 26px;border-radius:16px;font-size:19px;z-index:90;display:none;max-width:80vw;text-align:center}
-#adm{position:fixed;top:0;left:0;width:90px;height:90px;z-index:95}
-#admMenu{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:96;display:none;align-items:center;justify-content:center}
-#admMenu.on{display:flex}
-#admMenu div{background:var(--cx);border-radius:20px;padding:26px;display:flex;flex-direction:column;gap:10px;min-width:320px}
-.vazio{color:var(--sub);font-size:19px;padding:30px 0;text-align:center}
-.carreg{display:inline-block;width:26px;height:26px;border:3px solid rgba(255,255,255,.2);border-top-color:var(--ouro2);border-radius:50%;animation:gira .8s linear infinite;vertical-align:middle}
+.qr{background:#fff;border-radius:16px;padding:12px;width:240px;height:240px;margin:0 auto}
+.qr img{width:100%;height:100%;image-rendering:pixelated}
+.pxst{text-align:center;font-size:17px;margin-top:12px}
+.pago{color:var(--verde);font-size:26px;font-weight:600}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#222;border:1px solid var(--linha);padding:14px 24px;border-radius:14px;font-size:17px;z-index:90;display:none;max-width:80vw;text-align:center}
+#prog{height:6px;border-radius:9px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:10px;display:none}
+#prog i{display:block;height:100%;width:0;background:var(--ouro2);transition:width .2s}
+.carreg{display:inline-block;width:22px;height:22px;border:3px solid rgba(255,255,255,.2);border-top-color:var(--ouro2);border-radius:50%;animation:gira .8s linear infinite;vertical-align:middle}
 @keyframes gira{to{transform:rotate(360deg)}}
-@media (orientation:portrait){.grade{grid-template-columns:1fr 1fr}.bloco.dest{grid-column:span 2;grid-row:auto}#helena .area{flex-direction:column}#helena .esq{width:100%;flex-direction:row}}
+@media (orientation:portrait){#app{grid-template-columns:76px 1fr;grid-template-rows:1fr 42%}aside{grid-column:1/-1;border-left:0;border-top:1px solid rgba(255,255,255,.06)}.pix{grid-template-columns:1fr}}
 </style></head><body>
-
-<section id="descanso" class="tela on">
-  <div id="offline">Sem internet no tablet — confira o Wi-Fi.</div>
-  <div class="sl" id="sl0"></div><div class="sl" id="sl1"></div><div class="veu"></div>
-  <div class="topo"><div class="marca" id="marca">__EMP__<small>Atendimento</small></div><div class="hora" id="hora"></div></div>
-  <div class="baixo"><div class="leg" id="leg"></div><div class="toque"><span class="dedo">👆</span>Toque para ser atendido</div></div>
-</section>
-
-<section id="inicio" class="tela">
-  <div class="ola"><div class="avatar" id="avIni">H</div><div><h1 id="olaTit">Oi! Eu sou a Helena.</h1><p>Como posso te ajudar hoje? Toque numa opção ou fale comigo.</p></div>
-    <button class="ini bt cin" style="margin-left:auto" onclick="irDescanso()">✕ Sair</button></div>
-  <div class="grade">
-    <button class="bloco dest" onclick="iniciarOrc()"><span class="fot" id="fotOrc"></span><span class="ic">📐</span><b>Fazer meu orçamento</b><small>Escolha o ambiente e a pedra e receba o orçamento no seu WhatsApp</small></button>
-    <button class="bloco helena" onclick="abrirHelena(true)"><span class="ic">🎙️</span><b>Falar com a Helena</b><small>Tire dúvidas por voz ou escrevendo</small></button>
-    <button class="bloco" onclick="abrirPedras()"><span class="fot" id="fotPed"></span><span class="ic">💎</span><b>Ver as pedras</b><small>Granitos, mármores e quartzos com fotos e valor do m²</small></button>
-    <button class="bloco" onclick="abrirModelos()"><span class="fot" id="fotMod"></span><span class="ic">🏠</span><b>Ver modelos e trabalhos</b><small>Cozinhas, banheiros, escadas e mais</small></button>
-    <button class="bloco" onclick="chamarAtendente()"><span class="ic">🙋</span><b>Chamar um atendente</b><small>Pagamento, retirada ou falar com a equipe</small></button>
-  </div>
-</section>
-
-<section id="orc" class="tela">
-  <div class="cab"><button class="voltar" onclick="orcVoltar()">‹</button><div style="flex:1"><h2 id="orcTit"></h2><div class="sub" id="orcSub"></div></div><button class="ini" onclick="irInicio()">Início</button></div>
-  <div class="corpo" id="orcCorpo"></div>
-  <div class="rod"><div class="pass" id="orcPass"></div><button class="bt cin" id="orcPular" onclick="orcPular()">Pular</button><button class="bt ouro" id="orcProx" onclick="orcProx()">Continuar ›</button></div>
-</section>
-
-<section id="pronto" class="tela"><div><div class="ok">✓</div><h1 id="prTit">Pronto!</h1><p id="prTxt"></p><p style="color:var(--sub);font-size:18px;margin-top:22px" id="prProt"></p>
-  <button class="bt ouro" style="margin-top:30px" onclick="irDescanso()">Concluir</button></div></section>
-
-<section id="pedras" class="tela">
-  <div class="cab"><button class="voltar" onclick="irInicio()">‹</button><h2>Nossas pedras</h2><button class="ini" onclick="iniciarOrc()">📐 Fazer orçamento</button></div>
-  <div class="corpo"><div class="chips" id="pedChips"></div><div class="cards" id="pedLista"></div></div>
-</section>
-
-<section id="modelos" class="tela">
-  <div class="cab"><button class="voltar" onclick="irInicio()">‹</button><h2 id="modTit">Modelos e trabalhos</h2><button class="ini" onclick="iniciarOrc()">📐 Fazer orçamento</button></div>
-  <div class="corpo"><div class="chips" id="modChips"></div><div class="foto-g" id="modLista"></div></div>
-</section>
-
-<section id="helena" class="tela">
-  <div class="cab"><button class="voltar" onclick="irInicio()">‹</button><h2>Helena</h2><button class="ini" onclick="iniciarOrc()">📐 Fazer orçamento</button></div>
-  <div class="area">
-    <div class="esq"><div class="avatar" id="avHel">H</div><div class="estado" id="estado">Toque no microfone e fale</div><button class="mic" id="mic" onclick="micToque()">🎤</button></div>
-    <div class="dir"><div id="msgs"></div>
-      <div class="sug" id="sug"></div>
-      <form class="escr" onsubmit="event.preventDefault();enviarTexto()"><input id="entrada" placeholder="Ou escreva aqui a sua pergunta..." autocomplete="off"><button>Enviar</button></form></div>
-  </div>
-</section>
-
-<div id="luz"><button class="x" onclick="fecharLuz()">✕</button><button class="nav" style="left:20px" onclick="luzPasso(-1)">‹</button><img id="luzImg" alt=""><button class="nav" style="right:20px" onclick="luzPasso(1)">›</button><div class="lg" id="luzLeg"></div><div class="acoes" id="luzAc"></div></div>
-<div id="aindaAi"><div><h2>Ainda está aí?</h2><p>Voltando ao início em <b id="contag">10</b> segundos</p><button class="bt ouro" onclick="continuar()">Sim, continuar</button></div></div>
+<div id="app">
+  <nav><div class="lg">HR</div>
+    <button data-t="expl" class="on"><span>📘</span>Explicar</button>
+    <button data-t="fotos"><span>🖼️</span>Modelos</button>
+    <button data-t="pedras"><span>💎</span>Pedras</button>
+    <button data-t="arqs"><span>📁</span>Meus arquivos</button>
+    <button data-t="pix"><span>💳</span>Pix</button>
+  </nav>
+  <main><div class="cab"><h2 id="tit"></h2><div id="cabAc"></div></div><div class="corpo" id="corpo"></div></main>
+  <aside>
+    <div class="tt"><i id="luz"></i>Na TV agora</div>
+    <div id="espelho"><iframe id="ifr" title="TV"></iframe></div>
+    <div id="agora">Carregando…</div>
+    <div class="nav2" id="nav2" style="display:none"><button class="bt" onclick="passo(-1)">‹</button><button class="bt" onclick="passo(1)">›</button></div>
+    <div id="pontos"></div>
+    <div class="fim"><button class="bt verm" onclick="limparTv()">⏹ Tirar da TV</button><button class="bt" style="flex:0 0 60px" onclick="telaCheia()">⛶</button></div>
+  </aside>
+</div>
+<input type="file" id="arqIn" accept="image/*,video/*" multiple style="display:none">
 <div id="toast"></div>
-<div id="adm"></div>
-<div id="admMenu"><div><b style="font-size:20px;color:var(--ouro2)">Totem · __VER__</b>
-  <button class="bt cin" onclick="location.reload()">Recarregar</button>
-  <button class="bt cin" onclick="telaCheia()">Tela cheia</button>
-  <button class="bt cin" onclick="document.exitFullscreen&&document.exitFullscreen()">Sair da tela cheia</button>
-  <button class="bt cin" onclick="falar('Teste de som. Aqui é a Helena.')">Testar som</button>
-  <button class="bt ouro" onclick="document.getElementById('admMenu').classList.remove('on')">Fechar</button></div></div>
-
 <script>
 'use strict';
 var K = new URLSearchParams(location.search).get('k') || '';
@@ -35216,372 +35212,301 @@ function api(c) { return c + (c.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeUR
 function $(id) { return document.getElementById(id); }
 function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function reais(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function toast(t, ms) { var e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { e.style.display = 'none'; }, ms || 3500); }
+function toast(t, ms) { var e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { e.style.display = 'none'; }, ms || 3000); }
 function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+function post(c, b) { return fetch(api(c), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b || {}) }).then(function (r) { return r.json(); }); }
 try { if ('serviceWorker' in navigator) navigator.serviceWorker.register(api('/totem/sw.js'), { scope: '/totem' }).catch(function () {}); } catch (e) {}
 
-var CAT = null, TELA = 'descanso';
-function carregar() {
-  return fetch('/portfolio/catalogo').then(function (r) { return r.json(); }).then(function (j) {
-    CAT = j; $('offline').style.display = 'none'; montarDescanso(); fotosInicio();
-  }).catch(function () { $('offline').style.display = 'block'; setTimeout(carregar, 30000); });
+// ═══ desenhos das explicações ═══
+var DEFS = '<defs><linearGradient id="pd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bdb7ac"/><stop offset="1" stop-color="#7d786f"/></linearGradient>' +
+  '<linearGradient id="pe" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4a52"/><stop offset="1" stop-color="#26262c"/></linearGradient>' +
+  '<linearGradient id="cb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#eef2f5"/><stop offset="1" stop-color="#9eabb6"/></linearGradient>' +
+  '<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#ecd27c"/></marker>' +
+  '<marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#6fb7ff"/></marker></defs>';
+function SV(b, vb) { return '<svg viewBox="' + (vb || '0 0 800 500') + '" xmlns="http://www.w3.org/2000/svg" font-family="Outfit,Arial,sans-serif">' + DEFS + b + '</svg>'; }
+function T(x, y, t, o) { o = o || {}; return '<text x="' + x + '" y="' + y + '" fill="' + (o.c || '#ecd27c') + '" font-size="' + (o.s || 22) + '" text-anchor="' + (o.a || 'start') + '" font-weight="' + (o.w || 500) + '">' + t + '</text>'; }
+function L(x1, y1, x2, y2, o) { o = o || {}; var m = 'url(#' + (o.m || 'ar') + ')'; return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + (o.c || '#ecd27c') + '" stroke-width="' + (o.w || 2) + '"' + (o.d ? ' stroke-dasharray="' + o.d + '"' : '') + (o.n ? '' : ' marker-end="' + m + '"') + (o.dupla ? ' marker-start="' + m + '"' : '') + '/>'; }
+function P(d, f, s, w) { return '<path d="' + d + '" fill="' + (f || 'url(#pd)') + '" stroke="' + (s || '#2e2b27') + '" stroke-width="' + (w || 2) + '" stroke-linejoin="round"/>'; }
+function RC(x, y, w, h, f, r) { return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + (r || 0) + '" fill="' + (f || 'url(#pd)') + '" stroke="#2e2b27" stroke-width="2"/>'; }
+function GOTA(x, y, s) { s = s || 1; return '<path d="M' + x + ' ' + y + 'c' + (-7 * s) + ' ' + (10 * s) + ' ' + (-9 * s) + ' ' + (14 * s) + ' ' + (-9 * s) + ' ' + (18 * s) + 'a' + (9 * s) + ' ' + (9 * s) + ' 0 0 0 ' + (18 * s) + ' 0c0 ' + (-4 * s) + ' ' + (-2 * s) + ' ' + (-8 * s) + ' ' + (-9 * s) + ' ' + (-18 * s) + 'z" fill="#6fb7ff"/>'; }
+function PAREDE(x, y, w, h) { return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="url(#pe)"/>'; }
+function cubaMini(ox, oy, tipo, nome) {
+  var s = '', top = oy + 70, esp = 22, a = ox + 120, b = ox + 260, fundo = oy + 170;
+  var bacia = function (y0) { return P('M' + (a + 6) + ' ' + y0 + ' V' + (fundo - 30) + ' Q' + (a + 6) + ' ' + fundo + ' ' + (a + 50) + ' ' + fundo + ' H' + (b - 50) + ' Q' + (b - 6) + ' ' + fundo + ' ' + (b - 6) + ' ' + (fundo - 30) + ' V' + y0, 'url(#cb)', '#5b6670'); };
+  if (tipo === 'sobrepor') s += RC(ox + 20, top, a - ox - 14, esp) + RC(b + 6, top, ox + 360 - b - 6, esp) + bacia(top + esp) + RC(a - 18, top - 12, b - a + 36, 12, 'url(#cb)', 4);
+  else if (tipo === 'embutir') s += bacia(top + esp + 10) + RC(a - 16, top + esp, b - a + 32, 10, 'url(#cb)', 3) + RC(ox + 20, top, a - ox - 20, esp) + RC(b, top, ox + 360 - b, esp);
+  else if (tipo === 'flush') s += bacia(top + 10) + P('M' + (ox + 20) + ' ' + top + ' H' + (a - 14) + ' V' + (top + 10) + ' H' + a + ' V' + (top + esp) + ' H' + (ox + 20) + ' Z') + P('M' + (ox + 360) + ' ' + top + ' H' + (b + 14) + ' V' + (top + 10) + ' H' + b + ' V' + (top + esp) + ' H' + (ox + 360) + ' Z') + RC(a - 12, top, b - a + 24, 10, 'url(#cb)', 2);
+  else s += P('M' + (ox + 20) + ' ' + top + ' H' + a + ' L' + (a + 12) + ' ' + (fundo - 20) + ' Q' + (ox + 190) + ' ' + (fundo - 6) + ' ' + (b - 12) + ' ' + (fundo - 34) + ' L' + b + ' ' + top + ' H' + (ox + 360) + ' V' + (top + esp) + ' H' + (b + 14) + ' L' + (b + 2) + ' ' + (fundo - 14) + ' Q' + (ox + 190) + ' ' + (fundo + 18) + ' ' + (a - 2) + ' ' + (fundo + 4) + ' L' + (a - 14) + ' ' + (top + esp) + ' H' + (ox + 20) + ' Z');
+  return s + T(ox + 190, oy + 220, nome, { a: 'middle', s: 24, w: 600, c: '#f3ecdb' });
 }
-function fotoPedra(p) { return p && p.foto ? '/portfolio/img/pedra/' + encodeURIComponent(p.id) : ''; }
+function borda(ox, oy, tipo, nome) {
+  var x = ox + 30, y = oy + 50, w = 250, h = 40, d = '';
+  if (tipo === 'reto') d = 'M' + x + ' ' + y + ' H' + (x + w - 3) + ' L' + (x + w) + ' ' + (y + 3) + ' V' + (y + h - 3) + ' L' + (x + w - 3) + ' ' + (y + h) + ' H' + x + ' Z';
+  else if (tipo === 'boleado') d = 'M' + x + ' ' + y + ' H' + (x + w - 20) + ' A20 20 0 0 1 ' + (x + w - 20) + ' ' + (y + h) + ' H' + x + ' Z';
+  else if (tipo === 'chanfro') d = 'M' + x + ' ' + y + ' H' + (x + w - 12) + ' L' + (x + w) + ' ' + (y + 12) + ' V' + (y + h - 12) + ' L' + (x + w - 12) + ' ' + (y + h) + ' H' + x + ' Z';
+  else d = 'M' + x + ' ' + y + ' H' + (x + w) + ' V' + (y + h + 60) + ' H' + (x + w - h) + ' V' + (y + h) + ' H' + x + ' Z';
+  return P(d) + (tipo === 's45' ? L(x + w - h, y + h, x + w, y, { n: 1, c: '#2e2b27', w: 2.5 }) : '') + T(ox + 155, oy + (tipo === 's45' ? 200 : 140), nome, { a: 'middle', s: 23, w: 600, c: '#f3ecdb' });
+}
+var EXPL = [
+  { id: 'rebaixo', tit: 'Rebaixo americano', sub: 'A área da cuba fica mais baixa que o resto da bancada',
+    pontos: ['Em volta da cuba a pedra fica de 2 a 4 cm mais baixa, como uma bandeja de pedra', 'Respingos e água ficam presos ali e escorrem direto para a cuba: o resto da bancada fica seco', 'Feito com recorte, polimento das bordas e um tampo de pedra colado por baixo', 'Acabamento sofisticado, sem rejunte na borda da cuba e fácil de limpar'],
+    svg: function () { return SV(PAREDE(0, 60, 800, 26) +
+      P('M40 190 H300 V222 H40 Z') + P('M500 190 H760 V222 H500 Z') + P('M268 222 H346 V252 H268 Z') + P('M454 222 H532 V252 H454 Z') +
+      P('M352 252 V330 Q352 385 400 385 Q448 385 448 330 V252', 'url(#cb)', '#5b6670') + RC(340, 252, 120, 8, 'url(#cb)', 3) +
+      GOTA(312, 160, .9) + GOTA(486, 150, .9) + L(318, 200, 344, 236, { c: '#6fb7ff', m: 'aa' }) + L(482, 200, 456, 236, { c: '#6fb7ff', m: 'aa' }) +
+      L(290, 190, 290, 222, { dupla: 1 }) + T(60, 170, 'Bancada', { c: '#f3ecdb' }) +
+      T(560, 150, 'Rebaixo de 2 a 4 cm') + L(556, 156, 470, 214) + T(560, 300, 'Tampo colado por baixo') + L(556, 294, 520, 248) +
+      T(90, 300, 'A água escorre') + T(90, 326, 'para a cuba') + L(250, 300, 330, 240, { c: '#6fb7ff', m: 'aa' }) + T(480, 380, 'Cuba') + L(476, 372, 448, 352)); } },
+  { id: 'cubas', tit: 'Tipos de cuba', sub: 'Como a cuba fica presa na pedra',
+    pontos: ['Sobrepor: a borda da cuba fica por cima da pedra. É a mais simples e econômica', 'Embutir: a cuba fica por baixo da pedra e só aparece a bacia. Mais bonita e fácil de limpar', 'Flush: a borda da cuba fica no mesmo nível da pedra, num rebaixo feito na bancada', 'Esculpida: a própria pedra vira a cuba, sem emenda aparente. A mais nobre'],
+    svg: function () { return SV(cubaMini(10, 0, 'sobrepor', 'Sobrepor') + cubaMini(410, 0, 'embutir', 'Embutir') + cubaMini(10, 250, 'flush', 'Flush (no nível)') + cubaMini(410, 250, 'esculpida', 'Esculpida na pedra')); } },
+  { id: 'esculpida', tit: 'Cuba esculpida', sub: 'A cuba é feita na própria pedra da bancada',
+    pontos: ['Peças da mesma pedra coladas e polidas formam a bacia: tudo combina', 'Fundo inclinado leva a água para um ralo escondido, coberto por uma tampa de pedra', 'Não tem borda de louça nem metal: limpeza fácil e visual de luxo', 'Muito usada em banheiros e lavabos'],
+    svg: function () { return SV(PAREDE(0, 40, 800, 26) +
+      P('M60 160 H230 L250 330 L560 300 L560 160 H740 V194 H596 V330 L570 352 L240 372 L208 194 H60 Z') +
+      '<path d="M250 330 L560 300" stroke="#6fb7ff" stroke-width="3"/>' + RC(520, 296, 44, 10, '#3a3a40', 2) +
+      L(270, 338, 500, 316, { c: '#6fb7ff', m: 'aa' }) + T(280, 420, 'Fundo inclinado para o ralo', { c: '#f3ecdb' }) +
+      T(600, 250, 'Ralo escondido') + L(640, 258, 548, 296) + T(70, 140, 'Tudo na mesma pedra', { c: '#f3ecdb' }) +
+      '<path d="M542 352 V470" stroke="#5b6670" stroke-width="12"/>' + T(560, 466, 'Esgoto', { c: '#a99c80', s: 18 })); } },
+  { id: 'bordas', tit: 'Acabamento da borda', sub: 'O formato da quina da pedra',
+    pontos: ['Reto: quina levemente quebrada. Moderno e o mais pedido', 'Boleado: borda arredondada. Mais seguro para crianças', 'Chanfrado: quinas cortadas em ângulo. Discreto e elegante', 'Saia em 45°: a borda parece uma pedra bem grossa'],
+    svg: function () { return SV(borda(60, 10, 'reto', 'Reto') + borda(430, 10, 'boleado', 'Boleado') + borda(60, 220, 'chanfro', 'Chanfrado') + borda(430, 190, 's45', 'Saia em 45°')); } },
+  { id: 'saia', tit: 'Saia em 45° (meia-esquadria)', sub: 'A bancada parece uma pedra maciça e grossa',
+    pontos: ['Uma faixa da mesma pedra é colada na frente, com as duas peças cortadas a 45°', 'A emenda fica na quina e quase não aparece', 'Altura comum: de 4 a 10 cm, à sua escolha', 'Valoriza muito cozinhas, ilhas e bancadas de banheiro'],
+    svg: function () { return SV(P('M80 170 H640 V330 H608 V202 H80 Z') + L(608, 202, 640, 170, { n: 1, c: '#2e2b27', w: 3 }) +
+      L(690, 170, 690, 330, { dupla: 1 }) + T(704, 256, 'Saia', { s: 22 }) + T(704, 282, '4 a 10 cm', { s: 20, c: '#f3ecdb' }) +
+      T(400, 120, 'Emenda a 45° na quina') + L(560, 128, 622, 182) + T(90, 150, 'Bancada (2 cm)', { c: '#f3ecdb' }) +
+      T(400, 420, 'De frente, parece uma pedra grossa e maciça', { a: 'middle', c: '#a99c80', s: 21 })); } },
+  { id: 'frontao', tit: 'Frontão', sub: 'A faixa de pedra encostada na parede',
+    pontos: ['Protege a parede de água, gordura e respingos', 'Altura comum de 7 a 15 cm, ou até o armário (espelho inteiro)', 'Feito da mesma pedra da bancada, com acabamento na parte de cima', 'Deixa a limpeza mais fácil atrás da torneira e do fogão'],
+    svg: function () { return SV(PAREDE(60, 40, 48, 420) + RC(108, 210, 32, 120) + RC(108, 330, 600, 34) +
+      GOTA(220, 260) + GOTA(262, 228, .8) + L(210, 250, 150, 238, { c: '#6fb7ff', m: 'aa' }) +
+      T(170, 190, 'Frontão (7 a 15 cm)') + L(166, 196, 142, 230) + T(420, 410, 'Bancada', { c: '#f3ecdb' }) + T(56, 30, 'Parede', { c: '#a99c80', s: 20 })); } },
+  { id: 'pedras', tit: 'Granito, mármore ou quartzo?', sub: 'Cada pedra tem o seu ponto forte',
+    pontos: ['Granito: natural, muito resistente e com o melhor custo. Cada chapa é única', 'Mármore: veios elegantes, mas risca e mancha com ácidos (limão, vinagre)', 'Quartzo: industrializado, cor uniforme e quase não mancha. Evite panela quente direto', 'Quartzito: natural, com cara de mármore e resistência de granito'],
+    svg: function () {
+      var lin = [['Resiste a risco', 4, 2, 4, 4], ['Resiste a mancha', 3, 1, 5, 3], ['Resiste ao calor', 5, 3, 2, 5], ['Preço', 1, 3, 3, 4]], cols = ['Granito', 'Mármore', 'Quartzo', 'Quartzito'], s = '';
+      cols.forEach(function (c, i) { s += T(250 + i * 145, 70, c, { a: 'middle', s: 22, w: 600, c: '#f3ecdb' }); });
+      lin.forEach(function (l, j) { var y = 140 + j * 85; s += T(10, y + 7, l[0], { s: 19 });
+        for (var i = 0; i < 4; i++) for (var k = 0; k < 5; k++) s += '<circle cx="' + (198 + i * 145 + k * 26) + '" cy="' + y + '" r="9" fill="' + (k < l[i + 1] ? (j === 3 ? '#e0a050' : '#5fd38a') : 'rgba(255,255,255,.12)') + '"/>'; });
+      return SV(s + T(400, 480, 'Mais bolinhas = mais resistente (no preço: mais caro)', { a: 'middle', s: 17, c: '#a99c80' }));
+    } },
+  { id: 'superficie', tit: 'Polido, levigado ou flameado?', sub: 'O acabamento da superfície',
+    pontos: ['Polido: brilhante, realça a cor. O mais usado em bancadas', 'Levigado (escovado): fosco e aveludado, disfarça marcas de dedo', 'Flameado ou apicoado: áspero e antiderrapante, para área externa, escada e piscina'],
+    svg: function () {
+      var dots = ''; for (var i = 0; i < 160; i++) dots += '<circle cx="' + (570 + (i * 37 % 180)) + '" cy="' + (125 + (i * 53 % 220)) + '" r="' + (1 + i % 3) + '" fill="rgba(40,36,30,.45)"/>';
+      return SV(RC(40, 110, 200, 240, 'url(#pd)', 14) + '<path d="M60 130 L120 130 L60 220 Z" fill="rgba(255,255,255,.55)"/><path d="M90 300 L220 140" stroke="rgba(255,255,255,.35)" stroke-width="10"/>' +
+        RC(300, 110, 200, 240, '#9d988e', 14) + RC(560, 110, 200, 240, '#8f8a80', 14) + dots +
+        T(140, 400, 'Polido', { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }) + T(400, 400, 'Levigado', { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }) + T(660, 400, 'Flameado', { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }) +
+        T(140, 430, 'brilho', { a: 'middle', s: 18, c: '#a99c80' }) + T(400, 430, 'fosco', { a: 'middle', s: 18, c: '#a99c80' }) + T(660, 430, 'antiderrapante', { a: 'middle', s: 18, c: '#a99c80' }));
+    } },
+  { id: 'nicho', tit: 'Nicho embutido', sub: 'Prateleira dentro da parede do box',
+    pontos: ['Fica embutido na parede: não ocupa espaço no banho', 'Base com leve caimento para a água não empoçar', 'Moldura em 45° na frente, com acabamento de pedra maciça', 'Medidas por dentro do jeito que você precisar (ex.: 60 x 30 cm)'],
+    svg: function () { return SV('<rect x="0" y="0" width="800" height="500" fill="#2a2a30"/>' + RC(190, 70, 420, 300, 'url(#pd)', 4) + RC(222, 102, 356, 236, '#16161a', 2) +
+      '<path d="M190 70 L222 102 M610 70 L578 102 M190 370 L222 338 M610 370 L578 338" stroke="#2e2b27" stroke-width="2"/>' +
+      P('M222 320 L578 310 V338 H222 Z') + L(240, 140, 560, 140, { dupla: 1 }) + T(400, 130, 'Largura por dentro', { a: 'middle', s: 20 }) +
+      L(250, 155, 250, 305, { dupla: 1 }) + T(262, 240, 'Altura', { s: 20 }) + T(400, 300, 'base com caimento', { a: 'middle', s: 18, c: '#a99c80' }) + T(400, 440, 'Moldura em 45°', { a: 'middle' }) + L(400, 418, 400, 372)); } },
+  { id: 'peitoril', tit: 'Peitoril e soleira com pingadeira', sub: 'Proteção contra água e infiltração',
+    pontos: ['Peitoril: com caimento para fora, a chuva não volta para a parede', 'Pingadeira: um friso por baixo da pedra que faz a gota cair longe da parede', 'Sem pingadeira a água escorre na parede e deixa mancha e mofo', 'Soleira: faz a divisa entre ambientes e segura a água do box e da área'],
+    svg: function () { return SV(PAREDE(80, 40, 140, 420) + RC(150, 60, 40, 150, '#6fa6c9') + T(80, 30, 'Janela', { c: '#a99c80', s: 18 }) +
+      P('M150 210 H620 L620 236 H560 V244 H548 V236 H150 Z') + GOTA(600, 150) + L(560, 196, 612, 212, { c: '#6fb7ff', m: 'aa' }) +
+      GOTA(578, 290, .8) + L(554, 250, 576, 284, { c: '#6fb7ff', m: 'aa', d: '4 4' }) +
+      T(300, 170, 'Caimento para fora') + T(250, 330, 'Pingadeira: a gota cai aqui,') + T(250, 356, 'longe da parede') + L(470, 312, 552, 250)); } },
+  { id: 'cooktop', tit: 'Recorte do cooktop e da cuba', sub: 'Feitos sob medida para o seu aparelho',
+    pontos: ['O recorte é feito pela medida do manual ou do próprio aparelho', 'Cantos arredondados por dentro evitam trincas na pedra', 'Deixamos a distância certa da borda e da parede', 'Furos de torneira e de misturador já saem prontos'],
+    svg: function () { return SV(RC(40, 90, 720, 300, 'url(#pd)', 6) + RC(110, 160, 220, 150, '#1b1b20', 16) + '<circle cx="170" cy="210" r="26" fill="none" stroke="#555" stroke-width="5"/><circle cx="270" cy="260" r="30" fill="none" stroke="#555" stroke-width="5"/>' +
+      RC(470, 160, 200, 150, 'url(#cb)', 26) + '<circle cx="570" cy="235" r="10" fill="#5b6670"/><circle cx="570" cy="130" r="9" fill="#2e2b27"/>' +
+      T(220, 350, 'Cooktop', { a: 'middle', c: '#f3ecdb' }) + T(570, 350, 'Cuba', { a: 'middle', c: '#f3ecdb' }) + T(590, 124, 'Furo da torneira', { s: 18 }) +
+      T(400, 450, 'Cantos arredondados por dentro: a pedra não trinca', { a: 'middle', s: 20, c: '#a99c80' })); } },
+  { id: 'processo', tit: 'Como fazemos o seu projeto', sub: 'Do orçamento à instalação',
+    pontos: ['Medição no local: medimos tudo no seu imóvel, sem chute', 'Projeto e aprovação: você vê o desenho e confirma pedra e acabamentos', 'Corte e acabamento na nossa oficina', 'Instalação pela nossa equipe, com limpeza no final', 'O prazo começa a contar depois da medição e do sinal'],
+    svg: function () { var n = ['Medição', 'Projeto', 'Oficina', 'Instalação'], ic = ['📏', '📐', '⚙️', '🏠'], s = '';
+      n.forEach(function (t, i) { var x = 110 + i * 193; s += '<circle cx="' + x + '" cy="210" r="70" fill="rgba(201,168,76,.13)" stroke="#ecd27c" stroke-width="3"/>' + T(x, 232, ic[i], { a: 'middle', s: 56 }) + T(x, 325, (i + 1) + '. ' + t, { a: 'middle', s: 24, w: 600, c: '#f3ecdb' }); if (i < 3) s += L(x + 78, 210, x + 113, 210); });
+      return SV(s); } },
+  { id: 'cuidados', tit: 'Cuidados com a pedra', sub: 'Para durar a vida toda',
+    pontos: ['Limpe com pano úmido e detergente neutro', 'Evite limão, vinagre, água sanitária e produtos com ácido, principalmente no mármore', 'Use tábua para cortar e descanso para panela quente', 'Refaça a impermeabilização a cada 1 ou 2 anos'],
+    svg: function () { var it = [['🧽', 'Detergente neutro', 1], ['🍋', 'Limão e vinagre', 0], ['🍳', 'Panela quente direto', 0], ['💧', 'Impermeabilizar', 1]], s = '';
+      it.forEach(function (x, i) { var cx = 170 + (i % 2) * 380, cy = 140 + Math.floor(i / 2) * 210; s += '<circle cx="' + (cx - 60) + '" cy="' + cy + '" r="58" fill="' + (x[2] ? 'rgba(95,211,138,.16)' : 'rgba(255,100,80,.14)') + '"/>' + T(cx - 60, cy + 20, x[0], { a: 'middle', s: 54 }) +
+        T(cx + 15, cy - 4, x[1], { s: 23, w: 600, c: '#f3ecdb' }) + T(cx + 15, cy + 28, x[2] ? 'Pode usar' : 'Evite', { s: 20, c: x[2] ? '#5fd38a' : '#ff9e90' }); });
+      return SV(s); } },
+  { id: 'imperm', tit: 'Impermeabilização', sub: 'Uma proteção invisível contra manchas',
+    pontos: ['O produto entra nos poros da pedra e fecha a passagem de líquidos', 'Com proteção, a gota fica em cima e é só passar um pano', 'Sem proteção, óleo, café e vinho entram na pedra e mancham', 'Recomendamos refazer a cada 1 ou 2 anos'],
+    svg: function () { return SV(RC(40, 260, 330, 70) + RC(430, 260, 330, 70) + '<ellipse cx="205" cy="236" rx="46" ry="26" fill="#6fb7ff"/><ellipse cx="190" cy="228" rx="12" ry="6" fill="rgba(255,255,255,.6)"/>' +
+      '<ellipse cx="595" cy="262" rx="80" ry="9" fill="#5a85a8"/><path d="M535 268 Q595 320 655 268" fill="rgba(70,90,110,.65)"/>' +
+      T(205, 380, 'Com impermeabilizante', { a: 'middle', s: 22, w: 600, c: '#5fd38a' }) + T(205, 408, 'a gota fica em cima', { a: 'middle', s: 19, c: '#a99c80' }) +
+      T(595, 380, 'Sem proteção', { a: 'middle', s: 22, w: 600, c: '#ff9e90' }) + T(595, 408, 'a pedra absorve e mancha', { a: 'middle', s: 19, c: '#a99c80' })); } }
+];
 
-// ── tela de descanso ──
-var SLIDES = [], sIdx = 0, sLado = 0, sTimer = null;
-function montarDescanso() {
-  var l = [];
-  (CAT.obras || []).forEach(function (o) { l.push({ u: '/portfolio/img/obra/' + o.id, t: 'Trabalho da HR', s: o.legenda || '' }); });
-  (CAT.pedras || []).filter(function (p) { return p.foto; }).slice(0, 30).forEach(function (p) { l.push({ u: fotoPedra(p), t: p.cat || 'Pedra', s: p.nm }); });
-  for (var i = l.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var x = l[i]; l[i] = l[j]; l[j] = x; }
-  SLIDES = l; if (!sTimer) { proxSlide(); sTimer = setInterval(proxSlide, 7000); }
+// ═══ estado e navegação ═══
+var ABA = 'expl', CAT = null, EST = null, ARQS = [], LISTA = null, MOD = [], PED = [];
+document.querySelectorAll('nav button').forEach(function (b) { b.onclick = function () { abrir(b.dataset.t); }; });
+function abrir(t) { ABA = t; document.querySelectorAll('nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === t); }); $('cabAc').innerHTML = ''; $('corpo').scrollTop = 0; ({ expl: abaExpl, fotos: abaFotos, pedras: abaPedras, arqs: abaArqs, pix: abaPix })[t](); }
+// LISTA: as chaves (data-k) dos cartões na ordem dos itens que foram para a TV, para marcar o que está passando
+function mostrar(show, chaves) {
+  LISTA = chaves || null;
+  return post('/totem/mostrar', show).then(function (j) { if (!j.ok) throw new Error(j.erro || 'Não foi'); return estado(); }).catch(function (e) { toast('Não consegui mandar para a TV: ' + e.message); });
 }
-function proxSlide() {
-  if (TELA !== 'descanso' || !SLIDES.length) return;
-  var s = SLIDES[sIdx++ % SLIDES.length], im = new Image();
-  im.onload = function () {
-    var a = $('sl' + sLado), b = $('sl' + (1 - sLado));
-    a.style.backgroundImage = 'url("' + s.u + '")'; a.classList.remove('on'); void a.offsetWidth; a.classList.add('on'); b.classList.remove('on');
-    sLado = 1 - sLado; $('leg').innerHTML = '<b>' + esc(s.t) + '</b>' + esc(s.s);
+function limparTv() { post('/totem/mostrar', { limpar: 1 }).then(function () { LISTA = null; estado(); toast('A TV voltou para o orçamento.'); }); }
+function passo(d) { if (!EST || !EST.show || !EST.show.n) return; var i = (EST.show.i + d + EST.show.n) % EST.show.n; EST.show.i = i; painel(); marcarAtivo(); post('/totem/passo', { i: i }); }
+
+function abaExpl() {
+  $('tit').textContent = 'Explicar ao cliente';
+  $('corpo').innerHTML = '<div class="grade">' + EXPL.map(function (x, i) { return '<button class="card" data-k="expl:' + x.id + '" data-i="' + i + '"><span class="tv">NA TV</span><span class="im">' + x.svg() + '</span><span class="tx"><b>' + esc(x.tit) + '</b><small>' + esc(x.sub) + '</small></span></button>'; }).join('') + '</div>';
+  $('corpo').querySelectorAll('.card').forEach(function (b) { b.onclick = function () { var x = EXPL[+b.dataset.i]; mostrar({ tipo: 'expl', tit: x.tit, sub: x.sub, pontos: x.pontos, svg: x.svg() }, ['expl:' + x.id]); }; });
+  marcarAtivo();
+}
+var CATS = [['cozinha', 'Cozinhas'], ['banheiro', 'Banheiros'], ['lavabo', 'Lavabos'], ['gourmet', 'Áreas gourmet'], ['escada', 'Escadas'], ['soleira', 'Soleiras e peitoris'], ['nicho', 'Nichos'], ['servico', 'Áreas de serviço'], ['mesa', 'Mesas'], ['tumulo', 'Túmulos'], ['piso', 'Pisos']], modCat = 'cozinha';
+function abaFotos() {
+  $('tit').textContent = 'Modelos e trabalhos';
+  $('cabAc').innerHTML = '<button class="bt ouro" id="passarTodas">▶ Passar todas</button>';
+  var nome = CATS.filter(function (c) { return c[0] === modCat; })[0][1];
+  $('passarTodas').onclick = function () { post('/totem/galeria-tv', { q: nome }).then(function (j) { if (j.ok) { LISTA = null; toast(j.n + ' fotos passando sozinhas na TV'); estado(); } else toast(j.erro || 'Sem fotos'); }); };
+  $('corpo').innerHTML = '<div class="chips" id="mc"></div><div class="grade" id="ml"></div>';
+  $('mc').innerHTML = CATS.map(function (c) { return '<button class="chip' + (c[0] === modCat ? ' on' : '') + '" data-c="' + c[0] + '">' + c[1] + '</button>'; }).join('');
+  $('mc').querySelectorAll('.chip').forEach(function (b) { b.onclick = function () { modCat = b.dataset.c; abaFotos(); }; });
+  $('ml').innerHTML = '<div class="vazio"><span class="carreg"></span></div>';
+  fetch(api('/totem/galeria?cat=' + encodeURIComponent(nome))).then(function (r) { return r.json(); }).then(function (g) {
+    MOD = (g.itens || []).map(function (x) { return { u: x.u, tit: g.titulo || nome, leg: [x.leg, x.sub].filter(Boolean).join(' · ') }; });
+    $('ml').innerHTML = MOD.length ? MOD.map(function (x, i) { return '<button class="card" data-k="mod:' + esc(x.u) + '" data-i="' + i + '"><span class="tv">NA TV</span><span class="im" style="background-image:url(&quot;' + esc(x.u) + '&quot;)"></span></button>'; }).join('') : '<div class="vazio">Sem fotos dessa categoria ainda. Mande fotos para a Helena com a legenda “tv” ou use “Meus arquivos”.</div>';
+    $('ml').querySelectorAll('.card').forEach(function (b) { b.onclick = function () { mostrar({ tipo: 'foto', itens: MOD, i: +b.dataset.i }, MOD.map(function (x) { return 'mod:' + x.u; })); }; });
+    marcarAtivo();
+  }).catch(function () { $('ml').innerHTML = '<div class="vazio">Sem internet.</div>'; });
+}
+var COR = { '': 'Todas', pretas: 'Pretas', brancas: 'Brancas', cinzas: 'Cinzas', bege: 'Bege e marrons', verdes: 'Verdes', azuis: 'Azuis' };
+var COR_RX = { pretas: /pret|negr|black|absolut|sao gabriel|via lactea|nero/, brancas: /branc|white|bianc|itaunas|dallas|siena|carrara|polar|marfim/, cinzas: /cinz|grafit|gray|grey|corumba|andorinha/, bege: /beg|marr|caf|bronze|ouro|dourad|amarel|gold|crema|travertino|rosa|castanh|giallo/, verdes: /verde|green|ubatuba/, azuis: /azul|blue/ };
+var pedCor = '', comPreco = true;
+function abaPedras() {
+  $('tit').textContent = 'Pedras';
+  $('cabAc').innerHTML = '<button class="chip' + (comPreco ? ' on' : '') + '" id="tgPr">R$ do m² na TV</button>';
+  $('tgPr').onclick = function () { comPreco = !comPreco; this.classList.toggle('on', comPreco); };
+  PED = ((CAT && CAT.pedras) || []).filter(function (p) { return !pedCor || COR_RX[pedCor].test(norm(p.nm + ' ' + p.cat + ' ' + p.desc)); });
+  $('corpo').innerHTML = '<div class="chips">' + Object.keys(COR).map(function (c) { return '<button class="chip' + (pedCor === c ? ' on' : '') + '" data-c="' + c + '">' + COR[c] + '</button>'; }).join('') + '</div>' +
+    '<div class="grade">' + (CAT ? (PED.length ? PED.map(function (p, i) { return '<button class="card" data-k="ped:' + esc(p.id) + '" data-i="' + i + '"><span class="tv">NA TV</span><span class="im" style="' + (p.foto ? 'background-image:url(&quot;/portfolio/img/pedra/' + encodeURIComponent(p.id) + '&quot;)' : '') + '">' + (p.foto ? '' : '💎') + '</span><span class="tx"><b>' + esc(p.nm) + '</b><small>' + esc([p.cat, p.pr ? 'R$ ' + reais(p.pr) + '/m²' : ''].filter(Boolean).join(' · ')) + '</small></span></button>'; }).join('') : '<div class="vazio">Nenhuma pedra nessa cor.</div>') : '<div class="vazio"><span class="carreg"></span></div>') + '</div>';
+  $('corpo').querySelectorAll('.chips .chip').forEach(function (b) { b.onclick = function () { pedCor = b.dataset.c; abaPedras(); }; });
+  $('corpo').querySelectorAll('.card').forEach(function (b) { b.onclick = function () {
+    var p = PED[+b.dataset.i], fot = PED.filter(function (x) { return x.foto; });
+    if (!p.foto) { toast('Essa pedra ainda não tem foto.'); return; }
+    mostrar({ tipo: 'foto', i: fot.indexOf(p), itens: fot.map(function (x) { return { u: '/portfolio/img/pedra/' + encodeURIComponent(x.id), tit: x.nm, leg: [x.cat, x.fin, comPreco && x.pr ? 'R$ ' + reais(x.pr) + ' o m²' : ''].filter(Boolean).join(' · ') }; }) },
+      fot.map(function (x) { return 'ped:' + x.id; }));
+  }; });
+  marcarAtivo();
+}
+function abaArqs() {
+  $('tit').textContent = 'Meus arquivos';
+  $('cabAc').innerHTML = '<button class="bt ouro" id="addArq">＋ Foto ou vídeo</button>';
+  $('addArq').onclick = function () { $('arqIn').click(); };
+  $('corpo').innerHTML = '<div id="prog"><i></i></div><div class="grade" id="al" style="margin-top:10px"></div>';
+  desenhaArqs();
+  fetch(api('/totem/arquivos')).then(function (r) { return r.json(); }).then(function (j) { ARQS = j.arqs || []; desenhaArqs(); });
+}
+function desenhaArqs() {
+  if (!$('al')) return;
+  $('al').innerHTML = ARQS.length ? ARQS.map(function (a, i) { var u = '/tela/arq/' + a.id; return '<button class="card" data-k="arq:' + a.id + '" data-i="' + i + '"><span class="tv">NA TV</span><span class="im" style="' + (a.v ? '' : 'background-image:url(&quot;' + u + '&quot;)') + '">' + (a.v ? '<video src="' + u + '#t=0.5" muted preload="metadata"></video>' : '') + '</span>' + (a.v ? '<span class="vid">▶ vídeo</span>' : '') + '<span class="x" data-x="' + a.id + '">✕</span><span class="tx"><small>' + esc(a.nome || (a.v ? 'Vídeo' : 'Foto')) + '</small></span></button>'; }).join('') : '<div class="vazio">Toque em “＋ Foto ou vídeo” e escolha da galeria do tablet. Eles ficam guardados aqui para mostrar na TV quando quiser.</div>';
+  $('al').querySelectorAll('.card').forEach(function (b) { b.onclick = function (ev) {
+    var x = ev.target.getAttribute('data-x'); if (x) { ev.stopPropagation(); if (confirm('Apagar este arquivo?')) post('/totem/apagar', { id: x }).then(function (j) { ARQS = j.arqs || []; desenhaArqs(); }); return; }
+    var a = ARQS[+b.dataset.i];
+    if (a.v) mostrar({ tipo: 'video', itens: [{ u: '/tela/arq/' + a.id, v: true }], i: 0 }, ['arq:' + a.id]);
+    else { var fot = ARQS.filter(function (z) { return !z.v; }); mostrar({ tipo: 'foto', itens: fot.map(function (z) { return { u: '/tela/arq/' + z.id }; }), i: fot.indexOf(a) }, fot.map(function (z) { return 'arq:' + z.id; })); }
+  }; });
+  marcarAtivo();
+}
+$('arqIn').onchange = function () { var fs = [].slice.call(this.files || []); this.value = ''; enviarArqs(fs); };
+function reduzir(f) {
+  return new Promise(function (ok) {
+    if (!/^image\/(jpeg|png|webp)/.test(f.type)) return ok(f);
+    var im = new Image(), u = URL.createObjectURL(f);
+    im.onload = function () { var r = Math.min(1, 2400 / Math.max(im.width, im.height)); var c = document.createElement('canvas'); c.width = Math.round(im.width * r); c.height = Math.round(im.height * r); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(u); c.toBlob(function (b) { ok(b || f); }, 'image/jpeg', 0.86); };
+    im.onerror = function () { ok(f); }; im.src = u;
+  });
+}
+function enviarArqs(fs) {
+  if (!fs.length) return;
+  var f = fs.shift(), pg = $('prog');
+  if (pg) { pg.style.display = 'block'; pg.firstChild.style.width = '5%'; }
+  reduzir(f).then(function (b) {
+    if (b.size > 24 * 1024 * 1024) { toast('“' + f.name + '” passa de 24 MB. Grave um vídeo mais curto.', 5000); if (pg) pg.style.display = 'none'; return enviarArqs(fs); }
+    var x = new XMLHttpRequest(); x.open('POST', api('/totem/arquivo'));
+    x.setRequestHeader('Content-Type', b.type || f.type); x.setRequestHeader('X-Nome', encodeURIComponent(f.name || ''));
+    x.upload.onprogress = function (e) { if (pg && e.lengthComputable) pg.firstChild.style.width = Math.round(e.loaded / e.total * 100) + '%'; };
+    x.onload = function () { var j = {}; try { j = JSON.parse(x.responseText); } catch (e) {} if (j.ok) { ARQS = j.arqs; desenhaArqs(); } else toast(j.erro || 'Não consegui enviar.', 5000); if (fs.length) enviarArqs(fs); else if ($('prog')) $('prog').style.display = 'none'; };
+    x.onerror = function () { toast('Falha na internet ao enviar.'); if ($('prog')) $('prog').style.display = 'none'; };
+    x.send(b);
+  });
+}
+var PX = { cli: '', v: '', tipo: 'Sinal' };
+function fmtV(c) { c = String(c).padStart(3, '0'); return Number(c.slice(0, -2)).toLocaleString('pt-BR') + ',' + c.slice(-2); }
+function abaPix() {
+  $('tit').textContent = 'Pagamento por Pix';
+  var p = EST && EST.pix;
+  if (p && p.status) {
+    var falta = Math.max(0, Math.floor(((p.venceEm || 0) - Date.now()) / 1000));
+    $('corpo').innerHTML = '<div style="text-align:center;padding-top:6px"><div style="font-size:20px">' + esc(p.tipo || 'Pagamento') + ' · ' + esc(p.cli || '') + '</div><div class="valor" style="display:inline-block;margin:6px 0 12px;background:none">R$ ' + reais(p.valor) + '</div>' +
+      (p.status === 'pago' ? '<div class="pago">✅ Pagamento confirmado!</div><div class="pxst">O aviso já foi para o seu WhatsApp.</div>' :
+        '<div class="qr">' + (p.png ? '<img src="data:image/png;base64,' + p.png + '">' : '') + '</div><div class="pxst"><span class="carreg"></span> Aguardando pagamento · vence em <b id="pxT">' + Math.floor(falta / 60) + ':' + ('0' + falta % 60).slice(-2) + '</b></div>') +
+      '<div style="display:flex;gap:10px;justify-content:center;margin-top:16px">' + (p.status !== 'pago' && p.copia ? '<button class="bt" id="pxCop">Copiar código Pix</button>' : '') + '<button class="bt verm" id="pxCan">' + (p.status === 'pago' ? 'Fechar' : 'Cancelar Pix') + '</button></div></div>';
+    if ($('pxCop')) $('pxCop').onclick = function () { (navigator.clipboard ? navigator.clipboard.writeText(p.copia) : Promise.reject()).then(function () { toast('Código copiado'); }).catch(function () { toast('Não consegui copiar'); }); };
+    $('pxCan').onclick = function () { post('/totem/pix', { cancelar: 1 }).then(function () { EST.pix = null; abaPix(); estado(); }); };
+    return;
+  }
+  var tipos = ['Sinal', 'Pagamento total', 'Saldo', 'Outro'];
+  $('corpo').innerHTML = '<div class="pix"><div>' + (EST && EST.mp === false ? '<div class="vazio" style="color:#ff9e90;padding:10px">O Mercado Pago não está ligado no bot: o Pix não pode ser gerado.</div>' : '') +
+    '<label class="rot">Nome do cliente</label><input class="campo" id="pxCli" maxlength="60" placeholder="Toque para escrever" value="' + esc(PX.cli) + '">' +
+    '<label class="rot">Referente a</label><div class="chips">' + tipos.map(function (t) { return '<button class="chip' + (PX.tipo === t ? ' on' : '') + '" data-t="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
+    '<label class="rot">Valor</label><div class="valor" id="pxV">R$ ' + (PX.v ? fmtV(PX.v) : '0,00') + '</div>' +
+    '<button class="bt ouro" id="pxGo" style="width:100%;margin-top:16px;height:62px;font-size:19px">Mostrar QR code na TV</button></div>' +
+    '<div><div class="teclado">' + ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Limpar', '0', '⌫'].map(function (k) { return '<button data-k="' + k + '"' + (k === 'Limpar' ? ' style="font-size:17px"' : '') + '>' + k + '</button>'; }).join('') + '</div></div></div>';
+  $('pxCli').oninput = function () { PX.cli = this.value; };
+  $('corpo').querySelectorAll('.chips .chip').forEach(function (b) { b.onclick = function () { PX.tipo = b.dataset.t; abaPix(); }; });
+  $('corpo').querySelectorAll('.teclado button').forEach(function (b) { b.onclick = function () { var k = b.dataset.k; if (k === '⌫') PX.v = PX.v.slice(0, -1); else if (k === 'Limpar') PX.v = ''; else if (PX.v.length < 9) PX.v = (PX.v + k).replace(/^0+/, ''); $('pxV').textContent = 'R$ ' + (PX.v ? fmtV(PX.v) : '0,00'); }; });
+  $('pxGo').onclick = function () {
+    var v = (+PX.v || 0) / 100; if (v < 1) { toast('Digite o valor.'); return; }
+    var bt = this; bt.disabled = true; bt.innerHTML = '<span class="carreg"></span> Gerando…';
+    post('/totem/pix', { valor: v, cli: PX.cli.trim() || 'Cliente', tipo: PX.tipo }).then(function (j) { if (!j.ok) throw new Error(j.erro || 'Não foi'); PX.v = ''; return estado(); }).then(function () { abaPix(); })
+      .catch(function (e) { toast(e.message, 5000); bt.disabled = false; bt.textContent = 'Mostrar QR code na TV'; });
   };
-  im.src = s.u;
 }
-function relogio() {
-  var d = new Date(), dias = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
-  $('hora').innerHTML = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + '<small>' + dias[d.getDay()] + ', ' + d.getDate() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '</small>';
-}
-setInterval(relogio, 10000); relogio();
-function fotosInicio() {
-  var ps = (CAT.pedras || []).filter(function (p) { return p.foto; });
-  if (ps[0]) $('fotPed').style.backgroundImage = 'url("' + fotoPedra(ps[0]) + '")';
-  var ob = CAT.obras || [];
-  if (ob[0]) $('fotOrc').style.backgroundImage = 'url("/portfolio/img/obra/' + ob[0].id + '")';
-  if (ob[1]) $('fotMod').style.backgroundImage = 'url("/portfolio/img/obra/' + ob[1].id + '")';
-}
+setInterval(function () { var t = $('pxT'), p = EST && EST.pix; if (t && p) { var f = Math.max(0, Math.floor(((p.venceEm || 0) - Date.now()) / 1000)); t.textContent = Math.floor(f / 60) + ':' + ('0' + f % 60).slice(-2); } }, 1000);
 
-// ── navegação ──
-function mostrar(id) {
-  document.querySelectorAll('.tela').forEach(function (t) { t.classList.toggle('on', t.id === id); });
-  TELA = id; mexeu(); ping();
+// ═══ painel: espelho da TV ═══
+function painel() {
+  var s = EST && EST.show, g = EST && EST.gal, p = EST && EST.pix, px = p && p.status, t = '';
+  if (px) t = p.status === 'pago' ? '✅ <b>Pix pago</b> · R$ ' + reais(p.valor) : '💳 <b>QR code do Pix</b> · R$ ' + reais(p.valor);
+  else if (s) t = (s.tipo === 'expl' ? '📘 ' : s.tipo === 'video' ? '🎬 ' : '🖼️ ') + '<b>' + esc(s.tit || (s.tipo === 'video' ? 'Vídeo' : 'Foto')) + '</b>' + (s.n > 1 ? ' · ' + (s.i + 1) + ' de ' + s.n : '');
+  else if (g) t = '▶ <b>' + esc(g.titulo) + '</b> · ' + g.n + ' fotos passando';
+  else t = 'Orçamento / tela de espera';
+  $('agora').innerHTML = t;
+  $('nav2').style.display = s && s.n > 1 && !px ? 'flex' : 'none';
+  var pt = s && s.tipo === 'expl' && s.pontos && s.pontos.length && !px;
+  $('pontos').style.display = pt ? 'block' : 'none';
+  if (pt) $('pontos').innerHTML = '<b>Pontos para falar</b><ul>' + s.pontos.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
 }
-function irDescanso() { pararTudo(); ORC = null; HIST = []; $('msgs').innerHTML = ''; fecharLuz(); $('aindaAi').classList.remove('on'); mostrar('descanso'); proxSlide(); }
-function irInicio() { pararAudio(); pararGravacao(true); fecharLuz(); mostrar('inicio'); }
-$('descanso').addEventListener('click', function () {
-  telaCheia(); mostrar('inicio');
-  var h = new Date().getHours(); $('olaTit').textContent = (h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite') + '! Eu sou a Helena.';
-  falarSaudacao();
-});
-function telaCheia() { try { var d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen().catch(function () {}); } catch (e) {} pedirWake(); }
+function marcarAtivo() {
+  var s = EST && EST.show, alvo = '';
+  if (s && s.tipo === 'expl') { var x = EXPL.filter(function (e) { return e.tit === s.tit; })[0]; if (x) alvo = 'expl:' + x.id; }
+  else if (s && LISTA) alvo = LISTA[s.i] || '';
+  document.querySelectorAll('.card').forEach(function (c) { c.classList.toggle('on', !!alvo && c.getAttribute('data-k') === alvo); });
+}
+var telaUrl = '';
+function estado() {
+  return fetch(api('/totem/estado'), { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (j) {
+    var antes = EST && EST.pix ? EST.pix.status : '';
+    EST = j; $('luz').classList.add('on');
+    if (j.tela && j.tela !== telaUrl) { telaUrl = j.tela; $('ifr').src = j.tela; }
+    if (j.ver && j.ver !== VER) location.reload();
+    if (!j.show) LISTA = null;
+    painel(); marcarAtivo();
+    if (ABA === 'pix' && antes !== (j.pix ? j.pix.status : '')) abaPix();
+  }).catch(function () { $('luz').classList.remove('on'); $('agora').textContent = 'Sem internet no tablet'; });
+}
+function escala() { $('ifr').style.transform = 'scale(' + ($('espelho').clientWidth / 1920) + ')'; }
+addEventListener('resize', escala);
+function telaCheia() { try { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {}); else document.exitFullscreen(); } catch (e) {} }
 var wake = null;
 function pedirWake() { try { if (navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (w) { wake = w; w.addEventListener('release', function () { wake = null; }); }).catch(function () {}); } catch (e) {} }
-document.addEventListener('visibilitychange', function () { if (!document.hidden) pedirWake(); });
-document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-
-// ── inatividade ──
-var ultimo = Date.now(), contagem = null;
-function mexeu() { ultimo = Date.now(); }
-['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, mexeu, { passive: true }); });
-setInterval(function () {
-  if (TELA === 'descanso' || contagem) return;
-  if (falando || gravando) { mexeu(); return; }
-  var lim = TELA === 'pronto' ? 30000 : 90000;
-  if (Date.now() - ultimo > lim) {
-    if (TELA === 'pronto') { irDescanso(); return; }
-    var n = 10; $('contag').textContent = n; $('aindaAi').classList.add('on');
-    contagem = setInterval(function () { n--; $('contag').textContent = n; if (n <= 0) { clearInterval(contagem); contagem = null; irDescanso(); } }, 1000);
-  }
-}, 2000);
-function continuar() { clearInterval(contagem); contagem = null; $('aindaAi').classList.remove('on'); mexeu(); }
-
-// ── admin: 5 toques no canto em 3 s ──
-var admT = [];
-$('adm').addEventListener('pointerdown', function (e) { e.stopPropagation(); var a = Date.now(); admT = admT.filter(function (t) { return a - t < 3000; }); admT.push(a); if (admT.length >= 5) { admT = []; $('admMenu').classList.add('on'); } });
-
-// ── voz ──
-var audio = null, falando = false, cacheSaud = {};
-function avatares(cl) { ['avIni', 'avHel'].forEach(function (i) { var e = $(i); e.classList.remove('fala', 'ouve'); if (cl) e.classList.add(cl); }); }
-function pararAudio() { if (audio) { try { audio.pause(); } catch (e) {} audio = null; } falando = false; avatares(gravando ? 'ouve' : ''); }
-function tocarBlob(url) {
-  pararAudio(); audio = new Audio(url); falando = true; avatares('fala'); if (TELA === 'helena') $('estado').textContent = 'Helena está falando...';
-  var fim = function () { falando = false; avatares(''); if (TELA === 'helena') $('estado').textContent = 'Toque no microfone e fale'; };
-  audio.onended = fim; audio.onerror = fim; audio.play().catch(fim);
-}
-function vozBlob(texto) {
-  return fetch(api('/totem/voz'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: texto }) })
-    .then(function (r) { if (!r.ok) throw new Error('voz'); return r.blob(); }).then(function (b) { return URL.createObjectURL(b); });
-}
-function falar(texto) { return vozBlob(texto).then(tocarBlob).catch(function () {}); }
-function falarSaudacao() {
-  var h = new Date().getHours(), per = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
-  var t = per + '! Eu sou a Helena, da HR. Você quer fazer um orçamento, ver as pedras ou tirar uma dúvida comigo?';
-  if (cacheSaud[per]) { tocarBlob(cacheSaud[per]); return; }
-  vozBlob(t).then(function (u) { cacheSaud[per] = u; if (TELA === 'inicio') tocarBlob(u); }).catch(function () {});
-}
-function pararTudo() { pararAudio(); pararGravacao(true); }
-
-// ── Helena: conversa ──
-var HIST = [];
-var SUG = ['Qual a diferença entre granito e quartzo?', 'Quanto custa o m² do granito preto?', 'Qual pedra é boa pra cozinha?', 'Vocês fazem a instalação?', 'Como limpo o mármore?'];
-function abrirHelena(saudar) {
-  pararAudio(); mostrar('helena');
-  $('sug').innerHTML = SUG.map(function (s) { return '<button type="button">' + esc(s) + '</button>'; }).join('');
-  $('sug').querySelectorAll('button').forEach(function (b) { b.onclick = function () { perguntar(b.textContent); }; });
-  if (!HIST.length && saudar) { var t = 'Oi! Pode me perguntar o que quiser sobre pedras, acabamentos ou o seu projeto. É só tocar no microfone e falar.'; addMsg('h', t); HIST.push({ r: 'h', t: t }); falar(t); }
-}
-function addMsg(quem, texto, abrir) {
-  var d = document.createElement('div'); d.className = 'msg ' + quem; d.textContent = texto;
-  if (abrir) { var b = document.createElement('button'); b.className = 'ac'; b.textContent = rotAcao(abrir); b.onclick = function () { executar(abrir); }; d.appendChild(b); }
-  $('msgs').appendChild(d); $('msgs').scrollTop = 1e6; return d;
-}
-var CORES = { pretas: 'Pretas', brancas: 'Brancas', cinzas: 'Cinzas', bege: 'Bege e marrons', verdes: 'Verdes', azuis: 'Azuis' };
-var CATS = [['cozinha', 'Cozinhas'], ['banheiro', 'Banheiros'], ['lavabo', 'Lavabos'], ['gourmet', 'Áreas gourmet'], ['escada', 'Escadas'], ['soleira', 'Soleiras e peitoris'], ['nicho', 'Nichos'], ['servico', 'Áreas de serviço'], ['mesa', 'Mesas'], ['tumulo', 'Túmulos'], ['piso', 'Pisos']];
-function rotAcao(a) {
-  if (a === 'orcamento') return '📐 Fazer meu orçamento';
-  if (a === 'atendente') return '🙋 Já chamei a equipe';
-  if (a.indexOf('pedras') === 0) { var c = a.split(':')[1]; return '💎 Ver pedras' + (c && CORES[c] ? ' ' + CORES[c].toLowerCase() : ''); }
-  if (a.indexOf('modelos:') === 0) { var m = CATS.filter(function (x) { return x[0] === a.split(':')[1]; })[0]; return '🏠 Ver ' + (m ? m[1].toLowerCase() : 'modelos'); }
-  return 'Abrir';
-}
-function executar(a) {
-  if (a === 'orcamento') iniciarOrc();
-  else if (a === 'atendente') toast('A equipe já foi avisada e vem te atender.');
-  else if (a.indexOf('pedras') === 0) abrirPedras(a.split(':')[1]);
-  else if (a.indexOf('modelos:') === 0) abrirModelos(a.split(':')[1]);
-}
-var pensando = false;
-function perguntar(texto) {
-  texto = String(texto || '').trim(); if (!texto || pensando) return;
-  pararAudio(); addMsg('c', texto); $('entrada').value = '';
-  var esp = addMsg('h', ''); esp.innerHTML = '<span class="carreg"></span>'; pensando = true; $('estado').textContent = 'Helena está pensando...';
-  fetch(api('/totem/conversa'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: texto, hist: HIST.slice(-10) }) })
-    .then(function (r) { return r.json(); }).then(function (j) {
-      esp.remove(); var f = j.fala || 'Pode repetir?'; addMsg('h', f, j.abrir);
-      HIST.push({ r: 'c', t: texto }, { r: 'h', t: f }); if (HIST.length > 20) HIST = HIST.slice(-20);
-      falar(f);
-      if (j.abrir === 'atendente') toast('Chamei alguém da equipe pra te atender aqui no balcão.', 5000);
-    }).catch(function () { esp.remove(); addMsg('h', 'Deu uma falha na internet. Pode tentar de novo?'); })
-    .then(function () { pensando = false; if (!falando) $('estado').textContent = 'Toque no microfone e fale'; mexeu(); });
-}
-function enviarTexto() { perguntar($('entrada').value); }
-
-// ── microfone com detecção de silêncio ──
-var gravando = false, rec = null, partes = [], stream = null, actx = null, vadT = null;
-function micToque() { if (gravando) pararGravacao(false); else gravar(); }
-function gravar() {
-  pararAudio();
-  if (!navigator.mediaDevices || !window.MediaRecorder) { toast('Este aparelho não grava áudio. Escreva a pergunta.'); return; }
-  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (s) {
-    stream = s; partes = [];
-    var tipo = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].filter(function (t) { return MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t); })[0] || '';
-    rec = new MediaRecorder(s, tipo ? { mimeType: tipo } : undefined);
-    rec.ondataavailable = function (e) { if (e.data && e.data.size) partes.push(e.data); };
-    rec.onstop = function () { enviarAudio(rec.mimeType || tipo || 'audio/webm'); };
-    rec.start(250); gravando = true; $('mic').classList.add('gravando'); $('mic').textContent = '■'; avatares('ouve'); $('estado').textContent = 'Estou ouvindo... pode falar';
-    // silêncio: depois que a pessoa falou, 1,5 s calada encerra; no máximo 20 s
-    try {
-      actx = new (window.AudioContext || window.webkitAudioContext)(); var an = actx.createAnalyser(); an.fftSize = 1024; actx.createMediaStreamSource(s).connect(an);
-      var buf = new Uint8Array(an.fftSize), falou = false, calado = 0, ini = Date.now(), base = 0, nb = 0;
-      vadT = setInterval(function () {
-        an.getByteTimeDomainData(buf); var soma = 0; for (var i = 0; i < buf.length; i++) { var v = (buf[i] - 128) / 128; soma += v * v; } var rms = Math.sqrt(soma / buf.length);
-        if (Date.now() - ini < 400) { base += rms; nb++; return; }
-        var lim = Math.max(0.025, (nb ? base / nb : 0.01) * 2.5);
-        if (rms > lim) { falou = true; calado = 0; } else if (falou) calado += 100;
-        if ((falou && calado >= 1500) || Date.now() - ini > 20000 || (!falou && Date.now() - ini > 8000)) pararGravacao(!falou);
-      }, 100);
-    } catch (e) {}
-  }).catch(function () { toast('Permita o uso do microfone para falar com a Helena.'); });
-}
-function pararGravacao(descartar) {
-  clearInterval(vadT); vadT = null; try { actx && actx.close(); } catch (e) {} actx = null;
-  if (!gravando) return; gravando = false; $('mic').classList.remove('gravando'); $('mic').textContent = '🎤'; avatares('');
-  if (descartar && rec) rec.onstop = function () {};
-  try { rec && rec.state !== 'inactive' && rec.stop(); } catch (e) {}
-  try { stream && stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
-  if (descartar && TELA === 'helena') $('estado').textContent = 'Toque no microfone e fale';
-}
-function enviarAudio(tipo) {
-  var b = new Blob(partes, { type: tipo }); partes = [];
-  if (b.size < 2500) { $('estado').textContent = 'Não ouvi nada. Toque e fale de novo.'; return; }
-  $('estado').textContent = 'Entendendo...';
-  fetch(api('/totem/ouvir'), { method: 'POST', headers: { 'Content-Type': tipo.split(';')[0] }, body: b }).then(function (r) { return r.json(); }).then(function (j) {
-    if (j.texto) perguntar(j.texto); else $('estado').textContent = 'Não entendi. Toque e fale de novo.';
-  }).catch(function () { $('estado').textContent = 'Falha na internet. Tente de novo.'; });
-}
-
-// ── pedras ──
-var COR_RX = { pretas: /pret|negr|black|absolut|sao gabriel|via lactea|nero/, brancas: /branc|white|bianc|itaunas|dallas|siena|carrara|polar|marfim/, cinzas: /cinz|grafit|gray|grey|corumba|andorinha|ocre itabira/, bege: /beg|marr|caf|bronze|ouro|dourad|amarel|gold|cream|crema|travertino|bege|rosa|castanh|giallo/, verdes: /verde|green|ubatuba/, azuis: /azul|blue/ };
-var pedFiltro = '', ESCOLHENDO = false;
-function abrirPedras(cor) { ESCOLHENDO = false; mostrar('pedras'); pedFiltro = CORES[cor] ? cor : ''; listaPedras('pedLista', 'pedChips'); }
-function pedrasFiltradas() {
-  var l = (CAT && CAT.pedras) || [];
-  if (pedFiltro && COR_RX[pedFiltro]) l = l.filter(function (p) { return COR_RX[pedFiltro].test(norm(p.nm + ' ' + p.cat + ' ' + p.desc)); });
-  return l;
-}
-function listaPedras(alvo, chipsId) {
-  var ch = $(chipsId);
-  ch.innerHTML = '<button class="chip' + (pedFiltro ? '' : ' on') + '" data-c="">Todas</button>' + Object.keys(CORES).map(function (c) { return '<button class="chip' + (pedFiltro === c ? ' on' : '') + '" data-c="' + c + '">' + CORES[c] + '</button>'; }).join('');
-  ch.querySelectorAll('.chip').forEach(function (b) { b.onclick = function () { pedFiltro = b.dataset.c; listaPedras(alvo, chipsId); }; });
-  var l = pedrasFiltradas();
-  if (!CAT) { $(alvo).innerHTML = '<div class="vazio"><span class="carreg"></span></div>'; return; }
-  $(alvo).innerHTML = l.length ? l.map(function (p, i) {
-    var sel = ORC && ORC.pedra && ORC.pedra.id === p.id;
-    return '<button class="card' + (sel ? ' on' : '') + '" data-i="' + i + '" style="position:relative">' + (p.top ? '<span class="top">★ Mais pedida</span>' : '') +
-      '<span class="im" style="' + (p.foto ? 'background-image:url(&quot;' + fotoPedra(p) + '&quot;)' : '') + '">' + (p.foto ? '' : '💎') + '</span>' +
-      '<span class="tx"><b>' + esc(p.nm) + '</b><small>' + esc([p.cat, p.fin].filter(Boolean).join(' · ')) + '</small>' + (p.pr ? '<span class="pr">R$ ' + reais(p.pr) + ' o m²</span>' : '') + '</span></button>';
-  }).join('') : '<div class="vazio">Nenhuma pedra nessa cor. Toque em "Todas".</div>';
-  $(alvo).querySelectorAll('.card').forEach(function (b) { b.onclick = function () { var p = l[+b.dataset.i]; if (ESCOLHENDO) { ORC.pedra = p; b.classList.add('on'); setTimeout(function () { if (ORC && orcPasso() === 'pedra') orcProx(); }, 350); } else verPedra(p); }; });
-}
-function verPedra(p) {
-  abrirLuz([{ u: fotoPedra(p), leg: '<b style="color:var(--ouro2);font-size:26px">' + esc(p.nm) + '</b><br>' + esc([p.cat, p.fin].filter(Boolean).join(' · ')) + (p.pr ? ' · R$ ' + reais(p.pr) + ' o m²' : '') + (p.desc ? '<br><span style="font-size:17px;color:#bbb">' + esc(p.desc.slice(0, 260)) + '</span>' : '') }], 0,
-    [['📐 Quero orçamento com essa pedra', function () { fecharLuz(); iniciarOrc(); ORC.pedra = p; }]]);
-}
-
-// ── modelos ──
-var modCat = '';
-function abrirModelos(cat) { mostrar('modelos'); modCat = cat || modCat || 'cozinha'; listaModelos(); }
-function listaModelos() {
-  $('modChips').innerHTML = CATS.map(function (c) { return '<button class="chip' + (c[0] === modCat ? ' on' : '') + '" data-c="' + c[0] + '">' + c[1] + '</button>'; }).join('');
-  $('modChips').querySelectorAll('.chip').forEach(function (b) { b.onclick = function () { modCat = b.dataset.c; listaModelos(); }; });
-  $('modLista').innerHTML = '<div class="vazio"><span class="carreg"></span></div>';
-  var nome = (CATS.filter(function (c) { return c[0] === modCat; })[0] || [0, 'trabalhos'])[1];
-  fetch(api('/totem/galeria?cat=' + encodeURIComponent(nome))).then(function (r) { return r.json(); }).then(function (g) {
-    var it = g.itens || []; $('modTit').textContent = g.titulo || nome;
-    $('modLista').innerHTML = it.length ? it.map(function (x, i) { return '<button data-i="' + i + '" style="background-image:url(&quot;' + esc(x.u) + '&quot;)"></button>'; }).join('') : '<div class="vazio">Ainda não temos fotos dessa categoria aqui. Pergunte à Helena!</div>';
-    $('modLista').querySelectorAll('button').forEach(function (b) { b.onclick = function () { abrirLuz(it.map(function (x) { return { u: x.u, leg: esc([x.leg, x.sub].filter(Boolean).join(' · ')) }; }), +b.dataset.i, [['📐 Quero um orçamento assim', function () { fecharLuz(); iniciarOrc(modCat); }]]); }; });
-  }).catch(function () { $('modLista').innerHTML = '<div class="vazio">Sem internet agora.</div>'; });
-}
-var LUZ = [], luzI = 0;
-function abrirLuz(l, i, acoes) {
-  LUZ = l; luzI = i || 0; luzMostra(); $('luz').classList.add('on');
-  $('luzAc').innerHTML = ''; (acoes || []).forEach(function (a) { var b = document.createElement('button'); b.className = 'bt ouro'; b.textContent = a[0]; b.onclick = a[1]; $('luzAc').appendChild(b); });
-  document.querySelectorAll('#luz .nav').forEach(function (n) { n.style.display = l.length > 1 ? '' : 'none'; });
-}
-function luzMostra() { var x = LUZ[luzI]; if (!x) return; $('luzImg').src = x.u; $('luzImg').style.display = x.u ? '' : 'none'; $('luzLeg').innerHTML = x.leg || ''; }
-function luzPasso(d) { luzI = (luzI + d + LUZ.length) % LUZ.length; luzMostra(); }
-function fecharLuz() { $('luz').classList.remove('on'); }
-
-// ── atendente ──
-function chamarAtendente() {
-  fetch(api('/totem/atendente'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(function () {});
-  toast('Pronto! Avisei a equipe. Já vem alguém te atender.', 5000); falar('Pronto! Já avisei a equipe, só um instantinho que alguém já vem te atender.');
-}
-
-// ── orçamento passo a passo ──
-var AMBS = [['cozinha', 'Cozinha', '🍳'], ['banheiro', 'Banheiro', '🚿'], ['lavabo', 'Lavabo', '🪞'], ['area_servico', 'Área de serviço', '🧺'], ['varanda', 'Churrasqueira / varanda', '🔥'], ['escada', 'Escada', '🪜'], ['soleira', 'Soleira / peitoril', '🚪'], ['piso', 'Piso / revestimento', '🧱'], ['outro', 'Outro (túmulo, mesa, nicho...)', '✨']];
-var TIPOS_PECA = { cozinha: ['Bancada', 'Ilha', 'Frontão', 'Saia', 'Outra'], banheiro: ['Bancada', 'Frontão', 'Saia', 'Nicho', 'Outra'], lavabo: ['Bancada', 'Frontão', 'Outra'], area_servico: ['Bancada', 'Frontão', 'Outra'], varanda: ['Bancada', 'Churrasqueira', 'Frontão', 'Outra'], escada: ['Degrau', 'Espelho', 'Patamar', 'Outra'], soleira: ['Soleira', 'Peitoril', 'Outra'], piso: ['Piso', 'Rodapé', 'Outra'], outro: ['Peça', 'Tampo', 'Nicho', 'Outra'] };
-var ORC = null, PASSOS = ['amb', 'pedra', 'cuba', 'med', 'dados', 'conf'];
-function iniciarOrc(amb) {
-  pararAudio(); ORC = { passo: 0, amb: '', pedra: null, cubaOp: '', cuba: null, pecas: [], semMed: false, nome: '', tel: '', cidade: '', aceite: false, tipoP: '', campo: 'c', c: '', l: '', q: '1' };
-  if (amb) { var m = { gourmet: 'varanda', servico: 'area_servico', tumulo: 'outro', nicho: 'outro', mesa: 'outro' }; ORC.amb = m[amb] || amb; ORC.passo = 1; }
-  mostrar('orc'); orcRender();
-}
-function passos() { return PASSOS.filter(function (p) { return p !== 'cuba' || /cozinha|banheiro|lavabo|area_servico|varanda/.test(ORC.amb); }); }
-function orcPasso() { return passos()[ORC.passo]; }
-function orcRender() {
-  var p = orcPasso(), c = $('orcCorpo'), tit = '', sub = '', ok = true, pular = false; ESCOLHENDO = false;
-  $('orcPass').innerHTML = passos().map(function (x, i) { return '<i class="' + (i <= ORC.passo ? 'on' : '') + '"></i>'; }).join('');
-  if (p === 'amb') {
-    tit = 'Qual é o ambiente?'; sub = 'Toque numa opção';
-    c.innerHTML = '<div class="amb">' + AMBS.map(function (a) { return '<button data-a="' + a[0] + '" class="' + (ORC.amb === a[0] ? 'on' : '') + '"><span>' + a[2] + '</span>' + a[1] + '</button>'; }).join('') + '</div>';
-    c.querySelectorAll('.amb button').forEach(function (b) { b.onclick = function () { ORC.amb = b.dataset.a; ORC.passo++; orcRender(); }; });
-    ok = !!ORC.amb;
-  } else if (p === 'pedra') {
-    tit = 'Escolha a pedra'; sub = ORC.pedra ? 'Escolhida: ' + ORC.pedra.nm : 'Pode pular se ainda não sabe: a Helena te ajuda no WhatsApp';
-    c.innerHTML = '<div class="chips" id="oChips"></div><div class="cards" id="oLista"></div>'; ESCOLHENDO = true; listaPedras('oLista', 'oChips'); pular = true; ok = !!ORC.pedra;
-  } else if (p === 'cuba') {
-    tit = 'E a cuba?'; sub = 'A cuba da pia';
-    var op = [['Quero escolher uma', '🛁'], ['Já tenho a cuba', '✅'], ['Não quero cuba', '🚫'], ['Ainda não sei', '🤔']];
-    var lista = ORC.amb === 'cozinha' || ORC.amb === 'area_servico' || ORC.amb === 'varanda' ? (CAT.cubas_coz || []) : (CAT.cubas_lav || []);
-    c.innerHTML = '<div class="amb">' + op.map(function (o) { return '<button data-o="' + o[0] + '" class="' + (ORC.cubaOp === o[0] ? 'on' : '') + '"><span>' + o[1] + '</span>' + o[0] + '</button>'; }).join('') + '</div>' +
-      (ORC.cubaOp === 'Quero escolher uma' ? '<div class="cards" style="margin-top:20px">' + (lista.length ? lista.map(function (x, i) { return '<button class="card' + (ORC.cuba && ORC.cuba.id === x.id ? ' on' : '') + '" data-i="' + i + '"><span class="im" style="' + (x.foto ? 'background-image:url(&quot;/portfolio/img/' + (lista === CAT.cubas_coz ? 'coz' : 'lav') + '/' + encodeURIComponent(x.id) + '&quot;)' : '') + '">' + (x.foto ? '' : '🛁') + '</span><span class="tx"><b>' + esc(x.nm) + '</b><small>' + esc([x.brand, x.dim].filter(Boolean).join(' · ')) + '</small>' + (x.pr ? '<span class="pr">R$ ' + reais(x.pr) + '</span>' : '') + '</span></button>'; }).join('') : '<div class="vazio">A Helena te mostra os modelos no WhatsApp.</div>') + '</div>' : '');
-    c.querySelectorAll('.amb button').forEach(function (b) { b.onclick = function () { ORC.cubaOp = b.dataset.o; if (ORC.cubaOp !== 'Quero escolher uma') { ORC.cuba = null; ORC.passo++; } orcRender(); }; });
-    c.querySelectorAll('.card').forEach(function (b) { b.onclick = function () { ORC.cuba = lista[+b.dataset.i]; ORC.cuba.g = lista === CAT.cubas_coz ? 'coz' : 'lav'; orcRender(); }; });
-    ok = !!ORC.cubaOp; pular = true;
-  } else if (p === 'med') {
-    tit = 'Você tem as medidas?'; sub = 'Em centímetros. Se não tiver, a gente vai até você medir.';
-    var tipos = TIPOS_PECA[ORC.amb] || TIPOS_PECA.outro; if (!ORC.tipoP) ORC.tipoP = tipos[0];
-    c.innerHTML = '<div class="lado"><div>' +
-      '<div class="chips">' + tipos.map(function (t) { return '<button class="chip' + (ORC.tipoP === t ? ' on' : '') + '" data-t="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
-      '<div class="camp">' + [['c', 'Comprimento (cm)'], ['l', 'Largura (cm)'], ['q', 'Quantidade']].map(function (f) { return '<button class="campo' + (ORC.campo === f[0] ? ' on' : '') + '" data-f="' + f[0] + '"><small>' + f[1] + '</small><span>' + esc(ORC[f[0]]) + '</span></button>'; }).join('') + '</div>' +
-      '<button class="bt ouro" id="addPc" style="width:100%"' + (+ORC.c > 0 && +ORC.l > 0 ? '' : ' disabled') + '>＋ Adicionar peça</button>' +
-      '<div class="pecas" style="margin-top:16px">' + ORC.pecas.map(function (x, i) { return '<div class="pc"><b>' + esc(x.t) + ' · ' + x.c + ' × ' + x.l + ' cm' + (x.q > 1 ? ' · ' + x.q + ' un.' : '') + '</b><button data-i="' + i + '">✕</button></div>'; }).join('') + '</div>' +
-      '<button class="aceite' + (ORC.semMed ? ' on' : '') + '" id="semMed"><i>' + (ORC.semMed ? '✓' : '') + '</i>Não tenho as medidas: quero que alguém vá medir</button>' +
-      '</div><div><div class="teclado">' + ['1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '0', '⌫'].map(function (k) { return '<button data-k="' + k + '">' + k + '</button>'; }).join('') + '</div></div></div>';
-    c.querySelectorAll('.chips .chip').forEach(function (b) { b.onclick = function () { ORC.tipoP = b.dataset.t; orcRender(); }; });
-    c.querySelectorAll('.campo').forEach(function (b) { b.onclick = function () { ORC.campo = b.dataset.f; if (ORC.campo === 'q' && ORC.q === '1') ORC.q = ''; orcRender(); }; });
-    c.querySelectorAll('.teclado button').forEach(function (b) { b.onclick = function () { var f = ORC.campo, v = String(ORC[f]); if (b.dataset.k === '⌫') v = v.slice(0, -1); else if (b.dataset.k === ',') { if (f !== 'q' && v.indexOf(',') < 0) v = (v || '0') + ','; } else if (v.replace(',', '').length < 5) v += b.dataset.k; ORC[f] = v; orcRender(); }; });
-    $('addPc').onclick = function () { ORC.pecas.push({ t: ORC.tipoP, c: ORC.c, l: ORC.l, q: Math.max(1, parseInt(ORC.q, 10) || 1) }); ORC.c = ''; ORC.l = ''; ORC.q = '1'; ORC.campo = 'c'; ORC.semMed = false; orcRender(); };
-    c.querySelectorAll('.pc button').forEach(function (b) { b.onclick = function () { ORC.pecas.splice(+b.dataset.i, 1); orcRender(); }; });
-    $('semMed').onclick = function () { ORC.semMed = !ORC.semMed; orcRender(); };
-    ok = ORC.pecas.length > 0 || ORC.semMed || (+ORC.c > 0 && +ORC.l > 0); pular = true;
-  } else if (p === 'dados') {
-    tit = 'Para onde mando o orçamento?'; sub = 'A Helena te chama no WhatsApp com o orçamento completo';
-    c.innerHTML = '<div class="lado"><div>' +
-      '<label class="rot">Seu nome</label><input class="txt" id="dNome" maxlength="60" value="' + esc(ORC.nome) + '" placeholder="Toque para escrever">' +
-      '<label class="rot">Cidade</label><input class="txt" id="dCid" maxlength="50" value="' + esc(ORC.cidade) + '" placeholder="Ex.: Pilão Arcado">' +
-      '<label class="rot">WhatsApp com DDD</label><button class="campo on" style="width:100%"><span id="dTel">' + (fmtTel(ORC.tel) || '&nbsp;') + '</span></button>' +
-      '<button class="aceite' + (ORC.aceite ? ' on' : '') + '" id="dAce"><i>' + (ORC.aceite ? '✓' : '') + '</i>Aceito receber o orçamento e o atendimento da Helena no meu WhatsApp</button>' +
-      '</div><div><label class="rot">Digite o WhatsApp</label><div class="teclado">' + ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Limpar', '0', '⌫'].map(function (k) { return '<button data-k="' + k + '"' + (k === 'Limpar' ? ' style="font-size:18px"' : '') + '>' + k + '</button>'; }).join('') + '</div></div></div>';
-    $('dNome').oninput = function () { ORC.nome = this.value; atualizaOk(); };
-    $('dCid').oninput = function () { ORC.cidade = this.value; };
-    c.querySelectorAll('.teclado button').forEach(function (b) { b.onclick = function () { var k = b.dataset.k; if (k === '⌫') ORC.tel = ORC.tel.slice(0, -1); else if (k === 'Limpar') ORC.tel = ''; else if (ORC.tel.length < 11) ORC.tel += k; $('dTel').innerHTML = fmtTel(ORC.tel) || '&nbsp;'; atualizaOk(); }; });
-    $('dAce').onclick = function () { ORC.aceite = !ORC.aceite; this.classList.toggle('on', ORC.aceite); this.querySelector('i').textContent = ORC.aceite ? '✓' : ''; atualizaOk(); };
-    ok = dadosOk();
-  } else if (p === 'conf') {
-    tit = 'Confira e envie'; sub = 'Está tudo certo?';
-    c.innerHTML = '<div class="resumo">' + resumoLinhas().map(function (l) { return '<div><b>' + esc(l[0]) + ':</b> ' + esc(l[1]) + '</div>'; }).join('') + '</div>';
-  }
-  $('orcTit').textContent = tit; $('orcSub').textContent = sub;
-  $('orcPular').style.display = pular && !ok ? '' : 'none';
-  $('orcProx').textContent = p === 'conf' ? 'Enviar pedido ✓' : 'Continuar ›'; $('orcProx').disabled = !ok;
-}
-function fmtTel(t) { t = String(t || ''); if (!t) return ''; if (t.length <= 2) return '(' + t; var r = '(' + t.slice(0, 2) + ') ' + t.slice(2, t.length > 10 ? 7 : 6); var f = t.slice(t.length > 10 ? 7 : 6); return f ? r + '-' + f : r; }
-function dadosOk() { return ORC.nome.trim().length >= 2 && (ORC.tel.length === 10 || ORC.tel.length === 11) && ORC.aceite; }
-function atualizaOk() { $('orcProx').disabled = !dadosOk(); }
-function medTexto() {
-  var l = ORC.pecas.slice(); if (+ORC.c > 0 && +ORC.l > 0) l.push({ t: ORC.tipoP, c: ORC.c, l: ORC.l, q: Math.max(1, parseInt(ORC.q, 10) || 1) });
-  return l.map(function (x) { return x.t + ' ' + x.c + ' x ' + x.l + ' cm' + (x.q > 1 ? ' (' + x.q + ' unidades)' : ''); }).join('; ');
-}
-function resumoLinhas() {
-  var a = AMBS.filter(function (x) { return x[0] === ORC.amb; })[0], m = medTexto();
-  return [['Ambiente', a ? a[1] : ''], ['Pedra', ORC.pedra ? ORC.pedra.nm : 'quero ajuda para escolher'], ORC.cubaOp ? ['Cuba', ORC.cuba ? ORC.cuba.nm : ORC.cubaOp.toLowerCase()] : null,
-    ['Medidas', m || (ORC.semMed ? 'quero que alguém vá medir' : 'não informei')], ['Nome', ORC.nome.trim()], ['WhatsApp', fmtTel(ORC.tel)], ORC.cidade.trim() ? ['Cidade', ORC.cidade.trim()] : null].filter(Boolean);
-}
-function orcProx() {
-  if (orcPasso() === 'conf') return orcEnviar();
-  ORC.passo = Math.min(passos().length - 1, ORC.passo + 1); orcRender(); $('orcCorpo').scrollTop = 0;
-}
-function orcPular() { if (orcPasso() === 'pedra') ORC.pedra = null; if (orcPasso() === 'cuba') { ORC.cubaOp = 'Ainda não sei'; ORC.cuba = null; } if (orcPasso() === 'med') ORC.semMed = true; orcProx(); }
-function orcVoltar() { if (ORC.passo === 0) irInicio(); else { ORC.passo--; orcRender(); } }
-var enviando = false;
-function orcEnviar() {
-  if (enviando) return; enviando = true; $('orcProx').disabled = true; $('orcProx').innerHTML = '<span class="carreg"></span> Enviando...';
-  var cubaOp = ORC.cubaOp === 'Já tenho a cuba' ? 'Já tenho' : ORC.cubaOp === 'Não quero cuba' ? 'Não quero' : ORC.cubaOp === 'Ainda não sei' ? 'Ainda não sei' : '';
-  var corpo = { nome: ORC.nome.trim(), tel: ORC.tel, cidade: ORC.cidade.trim(), ambiente: ORC.amb, pedra: ORC.pedra ? { id: ORC.pedra.id } : null,
-    cuba: ORC.cuba ? { id: ORC.cuba.id, g: ORC.cuba.g } : null, cubaOp: cubaOp, acessorios: [], medidas: medTexto() || (ORC.semMed ? 'Não tem as medidas: quer visita para medir' : '') };
-  fetch(api('/totem/pedido'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) }).then(function (r) { return r.json(); }).then(function (j) {
-    if (!j.ok) throw new Error(j.erro || 'Não consegui enviar.');
-    var pn = corpo.nome.split(' ')[0];
-    $('prTit').textContent = 'Pronto, ' + pn + '!';
-    $('prTxt').textContent = j.avisado ? 'A Helena já te mandou uma mensagem no WhatsApp ' + fmtTel(ORC.tel) + '. Responda por lá que ela continua o seu orçamento.' : 'Recebemos o seu pedido. A equipe vai te chamar no WhatsApp ' + fmtTel(ORC.tel) + ' com o orçamento.';
-    $('prProt').textContent = 'Protocolo ' + (j.protocolo || '');
-    ORC = null; mostrar('pronto'); falar('Pronto, ' + pn + '! Já te mandei uma mensagem no WhatsApp. É só responder por lá que eu continuo o seu orçamento. Obrigada!');
-  }).catch(function (e) { toast(e.message || 'Falha na internet. Tente de novo.', 5000); $('orcProx').disabled = false; $('orcProx').textContent = 'Enviar pedido ✓'; })
-    .then(function () { enviando = false; });
-}
-
-// ── sinal de vida e atualização ──
-function ping() {
-  fetch(api('/totem/ping'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tela: TELA }) }).then(function (r) { return r.json(); }).then(function (j) {
-    $('offline').style.display = 'none'; if (j.ver && j.ver !== VER && TELA === 'descanso') location.reload();
-  }).catch(function () { $('offline').style.display = 'block'; });
-}
-setInterval(function () { if (TELA === 'descanso') ping(); }, 5 * 60000);
-setInterval(function () { if (TELA === 'descanso') carregar(); }, 30 * 60000);
-window.addEventListener('online', function () { $('offline').style.display = 'none'; });
-window.addEventListener('offline', function () { $('offline').style.display = 'block'; });
-carregar(); ping();
+document.addEventListener('visibilitychange', function () { if (!document.hidden) { pedirWake(); estado(); } });
+document.addEventListener('pointerdown', pedirWake);
+fetch('/portfolio/catalogo').then(function (r) { return r.json(); }).then(function (j) { CAT = j; if (ABA === 'pedras') abaPedras(); }).catch(function () {});
+escala(); abrir('expl'); estado(); setInterval(estado, 3000);
 </script></body></html>
 `;
 // <<TOTEM-FIM>>
@@ -35745,7 +35670,7 @@ export default {
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
     if (url.pathname === '/totem' || url.pathname.startsWith('/totem/')) { const r = await rotaTotem(req, env, ctx, url); if (r) return r; } // v312: totem do balcão
-    if (url.pathname === '/tela' || url.pathname === '/tela/dados' || url.pathname.startsWith('/tela/img/') || url.pathname.startsWith('/tela/insp/')) { const r = await rotaTela(req, env, url); if (r) return r; } // v277
+    if (url.pathname === '/tela' || url.pathname === '/tela/dados' || url.pathname.startsWith('/tela/img/') || url.pathname.startsWith('/tela/insp/') || url.pathname.startsWith('/tela/arq/')) { const r = await rotaTela(req, env, url); if (r) return r; } // v277
     if (url.pathname === '/painel' || url.pathname.startsWith('/painel/')) { const r = await rotaPainelVendas(req, comKV(env), url, ctx); if (r) return r; } // v103
     if (url.pathname.startsWith('/marmoraria-')) { const r = await rotaCidade(req, comKV(env), url); if (r) return r; } // v92
     if (url.pathname === '/sitemap.xml') return rotaSitemap(comKV(env));
