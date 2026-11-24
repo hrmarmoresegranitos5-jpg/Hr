@@ -1,0 +1,24 @@
+// v323: a peça/pedra que o funcionário falou tem que bater com o pedido; nome de cliente não pode ser "Peitoril finalizado"
+import {T,KV,env,msg,sent} from './sim.mjs';
+const now=Date.now();
+KV.set('ponto:cfg',JSON.stringify({funcs:[{id:'1',nome:'Fabrício Morais',tel:'74999990011'},{id:'3',nome:'Lucas',tel:'74999994299'}]}));
+KV.set('equipe:numeros',JSON.stringify({fabrica:'5574999990011'}));
+const P=(id,o)=>T.salvarPedido(env,{id,criado:now-86400000,status:'fechado',...o});
+const cassio={nome:'Cássio Borges',fabResp:'1',resumoApp:{pedra:'Branco Pinta Verde',itens:[{ambiente:'Lavatório',pecas:[{qtd:2,comp_cm:80,larg_cm:45}]},{ambiente:'Área gourmet',pedra:'Preto São Gabriel',pecas:[{qtd:1,comp_cm:200,larg_cm:60}]}]}};
+const cler={nome:'Clériston Souza',resumoApp:{pedra:'Branco Itaúnas',itens:[{ambiente:'Soleira',pecas:[{qtd:3,comp_cm:90,larg_cm:15}]}]}};
+const jacob={nome:'Jacob da Mata',resumoApp:{pedra:'Preto São Gabriel',itens:[{ambiente:'Peitoril',pecas:[{qtd:4,comp_cm:120,larg_cm:20}]}]}};
+console.log('conflito soleira itaunas × Cássio:', T.pedConflitoTxt(cassio,'soleira de branco itaunas já cortado'));
+console.log('conflito lavatorio × Cássio:', JSON.stringify(T.pedConflitoTxt(cassio,'terminei o lavatório')));
+console.log('acharPorNome única tarefa conflitante:', T.acharPorNome([cassio],'soleira de branco itaunas já cortado').length);
+console.log('por item/pedra:', T.pedPorItemPedra([cassio,cler,jacob],'soleira de branco itaunas já cortado').map(p=>p.nome));
+console.log('peitoril:', T.pedPorItemPedra([cassio,cler,jacob],'Peitoril finalizadosn').map(p=>p.nome));
+for (const q of ['Peitoril finalizadosn','?','cortado','Jacó','Osmailton','é do Jacob']) console.log('nome válido', JSON.stringify(q), T.nomeClienteValido(q));
+await P(301,{...cassio,status:'fechado'}); await P(302,{...cler,status:'fechado'}); await P(303,{...jacob,status:'fechado'});
+console.log('--- msg Fabrício'); console.log(await msg('5574999990011','soleira de branco itaunas já cortado'));
+const c=await T.lerPedido(env,301); console.log('Cássio pronto?', !!(c.fabProntoEm||c.prontoEm||c.corteEm), 'entrega?', !!c.entregaEnviadaEm);
+console.log('--- pontos'); console.log(await msg('5574999990011','Quero saber dos pontos de hoje, dos peitoris, se é preto são gabriel'));
+const j=await T.lerPedido(env,303); j.prodLog=[{e:'corte',por:['1'],ts:Date.now()-3600000}]; j.corteEm=Date.now()-3600000; await T.salvarPedido(env,j);
+console.log('--- pontos com corte'); console.log(await msg('5574999990011','Quero saber dos pontos de hoje, dos peitoris, se é preto são gabriel'));
+console.log('--- foto pendente respondida com peça (rotina)');
+const d=await T.despacharPedidoDireto(env,{...(await T.lerPedido(env,302)),numero:'undefined'},{so:'entrega'}).catch(e=>e.message);
+console.log(sent.map(s=>s.txt).filter(t=>/ENTREGA/.test(t||'')).join('\n---\n').split('\n').filter(l=>/Contato|Itens/.test(l)).join('\n'));

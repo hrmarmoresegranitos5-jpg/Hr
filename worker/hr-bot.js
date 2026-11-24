@@ -8188,12 +8188,12 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
       : `COBRAR NA ENTREGA${ped.valor ? `: R$ ${reais(ped.valor)}` : ''} (dinheiro ou cartão)`;
   const e = ped.entrega || {};
   const prev = /^\d{4}-\d{2}-\d{2}$/.test(String(ped.entrega_prevista || '')) ? dataBR(ped.entrega_prevista) : '';
-  const telCli = ped.numero || (lv && lv.tel) || '', nPecasEnt = itens.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0);
-  const entrega = ['*ENTREGA*', `Cliente: ${ped.nome || '---'}`, telCli ? `Contato: wa.me/${normalizarBR(String(telCli).replace(/\D/g, '').replace(/^(?!55)/, '55'))}` : 'Contato: sem número no sistema (peça ao Sr. Hangel)', `Pagamento: ${pagto}`,
+  const telCli = [ped.numero, lv && lv.tel].map(x => String(x || '').replace(/\D/g, '')).find(x => x.length >= 10 && x.length <= 13) || '', nPecasEnt = itens.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (+x.qtd || 1), 0), 0); // v323: número inválido virava wa.me/undefined; qtd em texto somava errado
+  const entrega = ['*ENTREGA*', `Cliente: ${ped.nome || '---'}`, telCli ? `Contato: wa.me/${normalizarBR(telCli.replace(/^(?!55)/, '55')) || telCli}` : 'Contato: sem número no sistema (peça ao Sr. Hangel)', `Pagamento: ${pagto}`,
     ...(ped.trocoPara > 0 && !ped.pago && Number(ped.valor) > 0 ? [`Troco: cliente paga com R$ ${reais(ped.trocoPara)}; levar R$ ${reais(ped.trocoPara - Number(ped.valor))} de troco`] : []),
     ...(prev ? [`Entrega prevista: ${prev}`] : []), ...(ped.horaEntrega ? [`Horário: ${ped.horaEntrega}`] : []),
     ...(e.endereco ? [`Endereço: ${e.endereco}`] : []), ...(ped.endereco && ped.endereco !== e.endereco ? [`Endereço informado: ${ped.endereco}`] : []), `Referência: ${ped.referencia || '---'}`, '',
-    nPecasEnt === 0 ? `Itens: ${ped.projetoApp || INTERESSES[ped.interesse] || 'serviço'} (conferir as peças na fábrica)` : itens.some(it => !/soleira|peitoril|pe[cç]a/i.test(String(it.ambiente || ''))) ? `Itens: ${itens.map(it => it.ambiente || 'Peças').join(' + ')} (${nPecasEnt} peça${nPecasEnt > 1 ? 's' : ''})` : `Itens: ${itens.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), nm = String(it.ambiente || 'peça').toLowerCase(); return `${n} ${n === 1 ? nm : (nm === 'peitoril' ? 'peitoris' : /s$/.test(nm) ? nm : nm + 's')}`; }).join(' + ')}`].join('\n');
+    nPecasEnt === 0 ? `Itens: ${ped.projetoApp || INTERESSES[ped.interesse] || 'serviço'} (conferir as peças na fábrica)` : itens.some(it => !/soleira|peitoril|pe[cç]a/i.test(String(it.ambiente || ''))) ? `Itens: ${itens.map(it => it.ambiente || 'Peças').join(' + ')} (${nPecasEnt} peça${nPecasEnt > 1 ? 's' : ''})` : `Itens: ${itens.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (+x.qtd || 1), 0), nm = String(it.ambiente || 'peça').toLowerCase(); if (!n) return /^pe[cç]as?$/.test(nm) ? '' : capT(nm); return `${n} ${n === 1 ? nm : (nm === 'peitoril' ? 'peitoris' : /s$/.test(nm) ? nm : nm + 's')}`; }).filter(Boolean).join(' + ')}`].join('\n');
 
   const falhas = [];
   const tentar = async (rotulo, numero, fn, textoManual) => {
@@ -8303,6 +8303,18 @@ async function semDonoNaFila(env) { // serviço que ninguém pegou ainda
 }
 async function funcPerguntas(env, f, from, texto, nome, msg) {
   if (await prodReclamaPontos(env, f, from, texto, nome, msg).catch(e => { console.log('[PROD] reclamação:', e.message); return false; })) return true; // v284
+  if (/\bpont(os|uacao)\b/.test(msg) && /\b(saber|quero ver|quanto|quantos|quais|qual|conferir|confere|ver|valeu|vale|deu|ganhei|fiz|de hoje|hoje|ontem)\b/.test(msg) && !/\b(quantos pontos|meus pontos|minha meta)\b/.test(msg)) { // v323: "quero saber dos pontos de hoje, dos peitoris, se é preto são gabriel" → os pontos, nunca o fluxo de ficha
+    const dia = /\bontem\b/.test(msg) ? new Date(Date.now() - 86400000 - 3 * 3600000).toISOString().slice(0, 10) : dataBahia();
+    const d = ((await metasPontos(env, dia, dia).catch(() => ({})))[f.id]) || { pts: 0, tarefas: [] };
+    let ts = d.tarefas || []; const temPista = ITEM_RX.some(rx => rx.test(msg)) || msg.split(/\s+/).some(w => PEDRA_PAL.has(PEDRA_EQ(w)));
+    if (temPista && ts.length) { const ok = []; for (const t of ts) { const pd = t.pid ? await lerPedido(env, t.pid).catch(() => null) : null; if (pd && !pedConflitoTxt(pd, texto) && pedCasaTxt(pd, texto) > 0) ok.push({ ...t, pd }); } if (ok.length) ts = ok; else ts = ts.map(t => ({ ...t, fora: 1 })); }
+    const linhas = []; for (const t of ts.slice(0, 12)) { const pd = t.pd || (t.pid ? await lerPedido(env, t.pid).catch(() => null) : null); linhas.push(`• ${t.tipo} *${String(t.nome || '').split(' ').filter((w, i) => i === 0 || w.length > 2).slice(0, 2).join(' ')}*${pd ? ' (' + resumoPecas(pd) + ')' : ''}: +${vPt(t.pts)}`); }
+    const pn = await metaPainel(env, f.id).catch(() => null), dTxt = dia === dataBahia() ? 'hoje' : 'ontem';
+    await enviar(env, from, [ts.length ? `📊 *${nome}, seus pontos de ${dTxt}:* ${vPt(d.pts || 0)}` : `${nome}, ${dTxt} ainda não tem ponto registrado para você.`, '', ...linhas,
+      temPista && ts.some(t => t.fora) ? '\n(Não achei registro com essa peça/pedra; acima está tudo que entrou para você. Se fez e não entrou, me diga: _cortei os peitoris do Jacó_.)' : '',
+      pn && pn.ok ? `Semana: ${vPt(pn.pts)} de ${vPt(pn.meta)} (${pn.pct}%)` : ''].filter(x => x !== '').join('\n'));
+    return true;
+  }
   if (/\b(quantos pontos|meus pontos|minha meta|minha pontuacao|pontuacao|quanto (eu )?(tenho|fiz|to|estou) de ponto|como (ta|esta) (a )?minha (meta|semana))\b/.test(msg) && !/\b(nao (me )?(contou|contaram|deu|deram|entrou|entraram|veio|apareceu|ganhei|recebi)|cade|faltou|faltando|errad|so (um|1)|pouco|por que|porque|pq)\b/.test(msg) && msg.split(' ').length <= 12) { // v288: reclamação/dúvida vai para a IA com os dados
     const pn = await metaPainel(env, f.id).catch(() => null);
     if (!pn || !pn.ok) { await enviar(env, from, `${nome}, ainda não tenho a sua meta calculada. Pergunte ao Sr. Hangel.`); return true; }
@@ -8419,10 +8431,32 @@ async function fimDiaBotao(env, f, from, idB, nome) {
   const inst = naEntrega(p) && p.instIniEm;
   return producaoFuncionario(env, f, from, `${inst ? 'instalei' : 'terminei'} o de ${p.nome}`, '', nome);
 }
+// v323: peça e pedra que o funcionário falou × o que o pedido tem. "soleira Branco Itaúnas" não pode virar o lavatório Pinta Verde de outro cliente só porque era a única tarefa dele
+const ITEM_RX = [/\bsoleir/, /\bpeitor/, /\b(lavat|banheir|cuba)/, /\b(cozinh|pia|bancad|balcao)\b|\bbancad/, /\b(escad|degra)/, /\b(gourmet|churrasq)/, /\brodap/, /\bnich/, /\b(mesa|tampo)\b/, /\bilha\b/, /\bfront[ao]/];
+const PEDRA_PAL = new Set(['branco', 'branca', 'preto', 'preta', 'verde', 'cinza', 'marrom', 'bege', 'itaunas', 'gabriel', 'absoluto', 'ubatuba', 'dallas', 'siena', 'andorinha', 'corumba', 'travertino', 'pinta', 'carrara', 'quartzo', 'nanoglass', 'marfim', 'fortaleza', 'arabesco', 'aqualux', 'juparana', 'iracema', 'giallo', 'crema', 'galaxy', 'kinawa', 'ornamental', 'polar', 'dourado', 'amendoa']);
+const PEDRA_EQ = w => w === 'branca' ? 'branco' : w === 'preta' ? 'preto' : w;
+function pedTxtItens(p) { const r = p.resumoApp || {}; return normaliza([p.interesse, INTERESSES[p.interesse], p.projetoApp, p.cor, r.pedra, ...(r.itens || []).map(it => `${it.ambiente || ''} ${it.pedra || ''} ${(it.pecas || []).map(x => `${x.tipo || ''} ${x.rot || ''} ${x.desc || ''}`).join(' ')}`), ...(p.pecas || []).map(x => `${x.tipo || ''} ${x.rot || ''} ${x.desc || ''}`)].filter(Boolean).join(' ')); }
+function pedConflitoTxt(p, texto) { // '' = combina ou não dá para saber; 'item' / 'pedra' = o texto fala de outra coisa
+  const t = normaliza(texto || ''), pt = pedTxtItens(p);
+  const its = ITEM_RX.filter(rx => rx.test(t));
+  if (its.length && ITEM_RX.some(rx => rx.test(pt)) && !its.some(rx => rx.test(pt))) return 'item';
+  const pw = new Set(pt.split(/[^a-z0-9]+/).map(PEDRA_EQ)), tw = t.split(/[^a-z0-9]+/).map(PEDRA_EQ);
+  if ([...pw].some(w => PEDRA_PAL.has(w)) && tw.some(w => PEDRA_PAL.has(w) && !pw.has(w))) return 'pedra';
+  return '';
+}
+function pedCasaTxt(p, texto) { // quantas pistas de peça/pedra do texto o pedido tem (0 = nenhuma)
+  const t = normaliza(texto || ''), pt = pedTxtItens(p), pw = new Set(pt.split(/[^a-z0-9]+/).map(PEDRA_EQ));
+  return ITEM_RX.filter(rx => rx.test(t) && rx.test(pt)).length + t.split(/[^a-z0-9]+/).map(PEDRA_EQ).filter(w => PEDRA_PAL.has(w) && pw.has(w)).length;
+}
+// pedidos abertos que batem com a peça e a pedra que ele falou (sem conflito e com pelo menos uma pista)
+function pedPorItemPedra(lista, texto) { const ok = lista.filter(p => !pedConflitoTxt(p, texto)).map(p => ({ p, n: pedCasaTxt(p, texto) })).filter(x => x.n > 0), mx = Math.max(0, ...ok.map(x => x.n)); return ok.filter(x => x.n === mx).map(x => x.p); }
+// "Peitoril finalizadosn", "?", "cortado" não são nome de cliente
+const NAO_NOME = /^(soleir|peitor|lavat|banheir|cozinh|bancad|escad|degra|gourmet|rodap|nicho|tampo|front|pecas?$|pedra|granit|marmor|finaliz|termin|pront|cortad|corte|cortei|acaba|polid|polimen|instal|entreg|feit[oa]s?$|beleza|certo$|isso$|esse$|essa$|aqui$|hoje$|ontem$|servic|foto|mesa$|ilha$|pia$|sim$|nao$|blz$|foi$|esta$)/;
+function nomeClienteValido(q) { const ws = normaliza(String(q || '')).split(/[^a-z0-9]+/).filter(w => w.length >= 3); return ws.some(w => !NAO_NOME.test(w) && !PEDRA_PAL.has(PEDRA_EQ(w)) && !NOME_COMUM.has(w)); }
 function acharPorNome(lista, texto) {
   const tk = tokensPedra(texto || '');
   const ach = nomeMelhores(lista, tk); // v215: exato primeiro; sem exato, o parecido
-  return ach.length ? ach : (lista.length === 1 ? lista : []);
+  return ach.length ? ach : (lista.length === 1 && !pedConflitoTxt(lista[0], texto) ? lista : []); // v323: a única tarefa só vale se a peça/pedra bater
 }
 async function papelFuncionario(env, f, from) {
   const { map } = await funcoesEquipe(env).catch(() => ({ map: {} })), fs = map[f.id] || []; // v146
@@ -8458,7 +8492,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     if (fp && fp.mid) { const rec = await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000); if (acharPorNome(rec, texto).length) return prodFotoPerguntar(env, f, from, { type: 'image', image: { id: fp.mid } }, nome, texto);
       // v273: respondeu com um nome que não está na lista nem no sistema ("Osmailton") → a foto vai ao dono com o nome, e ele sabe que foi guardada
       const quem = String(texto).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40);
-      if (quem && tokensPedra(quem).length && !/\?$/.test(texto)) {
+      if (quem && tokensPedra(quem).length && !/\?/.test(texto) && nomeClienteValido(quem)) { // v323: "Peitoril finalizadosn" não é nome de cliente
         await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
         await etapaPedirConfirmacao(env, from, nome, quem, fp.mid, fp.leg || '');
         await enviar(env, from, `Certo, ${nome}! O serviço de *${quem}* ainda não está aberto na produção. Mandei a foto para o Sr. Hangel confirmar e registrar para você.`);
@@ -8541,7 +8575,9 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       const outros = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado')).filter(p => p.id !== ach[0].id && nomeCasa(p.nome, tkT));
       if (outros.length) ach = [];
     }
-    if (!ach.length) { if (await prodServicoForaDaLista(env, f, from, texto, nome)) return true; // v284: falou de um cliente que não está na produção → o dono confirma
+    if (!ach.length) { const pp = pedPorItemPedra(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), texto); // v323: pela peça e pela pedra que ele falou → pergunta, nunca marca sozinho
+      if (pp.length >= 1 && pp.length <= 3) { await env.HR_KV.put('prod:qualcli:' + ultimos8(from), JSON.stringify({ texto, em: Date.now() }), { expirationTtl: 1200 }); await enviarComBotoes(env, from, `${nome}, ${pp.length === 1 ? `é de *${pp[0].nome}* (${resumoPecas(pp[0])})?` : 'de qual cliente é?'} Se for de outro, me diga o nome do cliente.`, pp.map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
+      if (await prodServicoForaDaLista(env, f, from, texto, nome)) return true; // v284: falou de um cliente que não está na produção → o dono confirma
       if (l.length) { await env.HR_KV.put('prod:qualcli:' + ultimos8(from), JSON.stringify({ texto, em: Date.now() }), { expirationTtl: 1200 }); await enviarComBotoes(env, from, `${nome}, de qual cliente é?`, l.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); } else { // v308: já tinha feito (mensagem repetida) → diz que já contou, em vez de "não achei ficha"
         const tkR = tokensPedra(texto), feitos = (await pedidosProducao(env, p => Date.now() - (p.entregueEm || p.fabProntoEm || p.prontoEm || Date.now()) < 7 * 86400000 && nomeNota(p.nome, tkR) > 0).catch(() => [])).map(p => ({ p, l: (p.prodLog || []).filter(x => (x.por || []).map(String).includes(String(f.id))).pop() })).filter(x => x.l)[0];
         if (feitos) await enviar(env, from, `${nome}, o ${ETAPA_NOME2[feitos.l.e] || feitos.l.e} de *${feitos.p.nome}* já está anotado para você (${dataBR(diaDe(feitos.l.ts)).slice(0, 5)}), valendo ${vPt(ptsEtapa(feitos.p, feitos.l.e, feitos.l.ts))} ponto(s). Não precisa mandar de novo.`);
@@ -10494,7 +10530,7 @@ function metasDiasServico(env, log, x) {
 async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; await precosCarregar(env).catch(() => {}); // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
   const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
   Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
-  const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: diaDe(ts), ts: ts || 0 }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
+  const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pid: ped.id, pts, dia: diaDe(ts), ts: ts || 0 }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
   for (const p of (lista || await pedidosProducao(env, () => true))) {
     const n = nPecasPed(p), cx = pedComplexo(p), log = Array.isArray(p.prodLog) ? p.prodLog.slice() : [], tipos = new Set(log.map(x => x.e));
     if (!tipos.has('corte') && p.corteFeitoPor && p.corteEm) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm });
@@ -11373,6 +11409,23 @@ async function retroBonificacao(env, opc = {}) {
   return txt;
 }
 // v322: tira o registro do dono que repetiu o que o próprio funcionário já tinha registrado (pontos em dobro), nos últimos 3 dias
+// v323: 24/11 12:04 o "soleira de Branco Itaúnas já cortado" do Fabrício caiu no Cássio Borges (era a única tarefa dele): desfaz o que foi marcado nessa janela e avisa SÓ o dono
+async function fixCassioV323(env) {
+  const de = Date.parse('2026-11-24T14:55:00Z'), ate = Date.parse('2026-11-24T16:30:00Z'), dentro = t => +t >= de && +t <= ate;
+  const l = await pedidosProducao(env, p => /\bcassio\b/.test(normaliza(p.nome || ''))).catch(() => []); const feito = [];
+  for (const p of l) { let mud = 0;
+    const log0 = Array.isArray(p.prodLog) ? p.prodLog : [], log1 = log0.filter(x => !(x && ['corte', 'fabricacao', 'acabamento', 'finalizado'].includes(x.e) && dentro(x.ts || x.t)));
+    if (log1.length !== log0.length) { p.prodLog = log1; mud = 1; }
+    let ent = false; for (const k of ['corteEm', 'fabProntoEm', 'prontoEm', 'acabEm', 'entregaEnviadaEm']) if (p[k] && dentro(p[k])) { if (k === 'entregaEnviadaEm') ent = true; p[k] = null; mud = 1; }
+    if (!mud) continue; await salvarPedido(env, p); feito.push({ p, ent, n: log0.length - log1.length });
+    const fl = await env.HR_KV.list({ prefix: 'prod:fotoesp:' }).catch(() => ({ keys: [] }));
+    for (const k of fl.keys || []) { try { const v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (v && String(v.pid) === String(p.id)) await env.HR_KV.delete(k.name); } catch (_) {} }
+  }
+  if (!feito.length) return;
+  await pontoAvisarDono(env, ['🔧 *Correção feita (pontos/produção)*', '', ...feito.map(x => `• *${x.p.nome}*: desfiz o "pronto" de hoje 12h (${x.n} registro${x.n === 1 ? '' : 's'} de ponto tirado${x.n === 1 ? '' : 's'})${x.ent ? ' e a ENTREGA que tinha ido para o entregador' : ''}.`), '',
+    'O Fabrício falou da *soleira de Branco Itaúnas* e eu tinha colocado no Cássio por engano (o Cássio é lavatório Pinta Verde + área gourmet). Agora, quando a peça ou a pedra não bate, eu pergunto de qual cliente é.',
+    feito.some(x => x.ent) ? '\n⚠️ Avise o Gibson que a entrega do Cássio *não* está liberada ainda (não mandei nada para ele).' : ''].join('\n')).catch(() => {});
+}
 async function prodDuplicadosDono(env) {
   const desde = Date.now() - 3 * 86400000, L = [];
   for (const ped of await pedidosProducao(env, p => Array.isArray(p.prodLog) && p.prodLog.some(x => x.dono && (x.ts || 0) > desde))) {
@@ -11390,6 +11443,7 @@ async function prodDuplicadosDono(env) {
   return L;
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v323cassio')) && await travaEnvio(env, 'fix:v323cassio')) { await env.HR_KV.put('fix:v323cassio', '1', { expirationTtl: 60 * 86400 }); await fixCassioV323(env).catch(e => console.log('[FIX323]', e.message)); } // v323: uma vez
   if (!(await env.HR_KV.get('fix:v322dup')) && await travaEnvio(env, 'fix:v322dup')) { await env.HR_KV.put('fix:v322dup', '1', { expirationTtl: 60 * 86400 }); await prodDuplicadosDono(env).catch(e => console.log('[DUP]', e.message)); } // v322: uma vez
   if (!(await env.HR_KV.get('fix:v311retro')) && await travaEnvio(env, 'fix:v311retro')) { await env.HR_KV.put('fix:v311retro', '1', { expirationTtl: 60 * 86400 }); await retroBonificacao(env).catch(e => console.log('[RETRO]', e.message)); } // v311: uma vez
   { const dk = 'proj:passe:' + dataBahia(); if (!(await env.HR_KV.get(dk)) && await travaEnvio(env, dk)) { await env.HR_KV.put(dk, '1', { expirationTtl: 3 * 86400 }); await projetoNosPedidos(env, { avisar: true, faltas: !(await env.HR_KV.get('proj:faltas1')) }).catch(e => console.log('[PROJ]', e.message)); await env.HR_KV.put('proj:faltas1', '1', { expirationTtl: 7 * 86400 }); } } // v286
@@ -12632,7 +12686,14 @@ async function pendFotosRotina(env) {
       const f = telDe(k.name.slice(pref.length)); if (!f) continue;
       if (pref === 'prod:fotopend:' && v.mid) { // v278: ele já respondeu com um nome depois da foto ("Osmailton") → a foto vai ao dono com esse nome; não cobra de novo
         const tx = await txLer(env, f.tel).catch(() => null), resp = ((tx && tx.f) || []).filter(x => x && x.q === 'c' && x.t > v.em && x.t - v.em < 3 * 3600000 && String(x.x).split(/\s+/).length <= 5 && !/^\[/.test(String(x.x))).pop();
-        if (resp) { const quem = String(resp.x).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40);
+        const quem0 = resp ? String(resp.x).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40) : '';
+        if (resp && !nomeClienteValido(quem0)) { // v323: respondeu com a peça ("Peitoril finalizado"), não com o cliente → procura pela peça/pedra e pergunta
+          const pp = pedPorItemPedra(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), `${v.leg || ''} ${resp.x}`);
+          await env.HR_KV.put(k.name, JSON.stringify({ ...v, lembrado: Date.now() }), { expirationTtl: 6 * 3600 });
+          if (pp.length >= 1 && pp.length <= 3) await enviarComBotoes(env, f.tel, `${avisoTeste(env)}📸 ${f.nome}, a foto que você mandou às ${horaTs(v.em)} é de qual cliente?`, pp.map(p => ({ id: `fot|${p.id}|foto`, titulo: String(p.nome || 'cliente').slice(0, 20) }))).catch(() => {});
+          else await enviar(env, f.tel, `${avisoTeste(env)}📸 ${f.nome}, a foto que você mandou às ${horaTs(v.em)}: de qual *cliente* é? Escreva só o nome (ex.: _Jacó_).`).catch(() => {});
+          continue; }
+        if (resp) { const quem = quem0;
           await env.HR_KV.delete(k.name).catch(() => {});
           await etapaPedirConfirmacao(env, f.tel, f.nome, quem, v.mid, v.leg || '').catch(() => {});
           continue; } }
@@ -17305,7 +17366,8 @@ function etapaDaLegenda(t) {
 function itemDaLegenda(t) { const m = normaliza(t || '').match(/\b(balcao|bancada|cozinha|lavatorio|banheiro|soleiras?|peitoris?|peitoril|nicho|escada|degraus?|tampo|mesa|churrasqueira|frontao|rodape|pia)\b/); return m ? m[1] : ''; }
 const ETAPA_NOME2 = { inicio: 'início', corte: 'corte', polimento: 'polimento', acabamento: 'acabamento', fabricacao: 'fabricação', finalizado: 'finalização', instalacao: 'instalação' };
 async function etapaPedirConfirmacao(env, fone, nomeFunc, quem, mid, leg) {
-  const etapa = etapaDaLegenda(leg), item = itemDaLegenda(leg), cid = estId(8);
+  let etapa = etapaDaLegenda(leg); const item = itemDaLegenda(leg), cid = estId(8);
+  if (['finalizado', 'instalacao'].includes(etapa)) { const cfg = await pontoCfg(env).catch(() => null), f = cfg && pontoFuncPorFone(cfg, fone); if (f && await papelFuncionario(env, f, fone).catch(() => '') === 'fabrica') etapa = 'acabamento'; } // v323: "finalizado" na fábrica é acabamento, não entrega (não sai mural de "serviço entregue")
   await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from: fone, func: nomeFunc, cliente: quem, etapa, item, mid, leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
   if (mid) try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nomeFunc}: "${String(leg || '').slice(0, 160)}" · serviço de *${quem}*` } }); } catch (_) {}
   const o = etapa ? `o *${ETAPA_NOME2[etapa]}*${item ? ' do ' + item : ''} de *${quem}*` : `a foto do serviço de *${quem}*`;
