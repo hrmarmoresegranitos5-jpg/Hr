@@ -45,7 +45,7 @@
   function form() {
     var a = D.atual;
     return {
-      perfil: document.getElementById('vzPerf').value, modelo: document.getElementById('vzMod').value, voz: document.getElementById('vzVoz').value, velocidade: +document.getElementById('vzVel').value,
+      perfil: document.getElementById('vzPerf').value, intensidade: document.getElementById('vzInt').value, modelo: document.getElementById('vzMod').value, voz: document.getElementById('vzVoz').value, velocidade: +document.getElementById('vzVel').value,
       instr: document.getElementById('vzIns').value, sotaque: document.getElementById('vzSot').value,
       emocao: document.getElementById('vzEmo').checked, reescrever: document.getElementById('vzRee').checked, semPausas: document.getElementById('vzPau').checked,
       _a: a
@@ -61,6 +61,7 @@
     h += '<div><label>Velocidade</label><select id="vzVel">' + opt(['0.95', '1', '1.05'], String(a.velocidade || 1), function (v) { return v === '1' ? '1,0 (normal)' : v.replace('.', ','); }) + '</select></div></div>';
     h += '<div class="res">No modelo Speech a velocidade entra como orientação na interpretação. No Realtime ela é o ajuste de velocidade do próprio modelo. O Realtime gera só no teste aqui: no WhatsApp continua o Speech até o bot conseguir converter o áudio do Realtime para o formato do WhatsApp.</div></div>';
     h += '<div class="cx"><h3>Interpretação</h3><label>Instruções vocais</label><textarea id="vzIns" style="min-height:170px">' + esc(a.instr) + '</textarea>';
+    h += '<label>Intensidade das emoções</label><select id="vzInt">' + opt(['suave', 'natural', 'expressiva'], a.intensidade || 'expressiva', function (v) { return { suave: 'Suave — contida e elegante', natural: 'Natural', expressiva: 'Expressiva — emoção bem perceptível' }[v]; }) + '</select>';
     h += '<label>Sotaque</label><input type="text" id="vzSot" value="' + esc(a.sotaque || '') + '">';
     h += '<label class="chk"><input type="checkbox" id="vzEmo"' + (a.emocao ? ' checked' : '') + '> Emoção pelo contexto (orçamento, reclamação, cobrança…)</label>';
     h += '<label class="chk"><input type="checkbox" id="vzRee"' + (a.reescrever ? ' checked' : '') + '> Reescrever o texto como fala (números nunca mudam)</label>';
@@ -94,11 +95,11 @@
       if (i >= lista.length) return; var it = lista[i++], id = 'vza' + i;
       var nomeIt = it.rot || ROT[it.voz] || it.voz;
       res.insertAdjacentHTML('beforeend', '<div class="amo" id="' + id + '"><b>' + esc(nomeIt) + '</b> · ' + String(it.velocidade).replace('.', ',') + ' <span class="res">gerando…</span></div>');
-      api('/bot/voz/teste', { texto: txt, perfil: it.perfil || f.perfil, modelo: f.modelo, voz: it.voz, velocidade: it.velocidade, instr: f.instr, sotaque: f.sotaque, reescrever: f.reescrever, semPausas: f.semPausas }).then(function (j) {
+      api('/bot/voz/teste', { texto: txt, perfil: it.perfil || f.perfil, intensidade: f.intensidade, modelo: f.modelo, voz: it.voz, velocidade: it.velocidade, instr: f.instr, sotaque: f.sotaque, reescrever: f.reescrever, semPausas: f.semPausas }).then(function (j) {
         var el = document.getElementById(id);
         if (!j.ok) { el.innerHTML = '<b>' + esc(nomeIt) + '</b> · <span style="color:#ff8f7e">' + esc(j.error || 'falhou') + '</span>'; return; }
         el.innerHTML = '<b>' + esc(nomeIt) + '</b> · ' + String(it.velocidade).replace('.', ',') + ' <span class="res">' + (j.ms / 1000).toFixed(1) + ' s · US$ ' + (j.custoUsd || 0).toFixed(4) + (j.contexto ? ' · tom: ' + esc(j.contexto) : '') + '</span>' +
-          '<audio controls src="data:' + j.mime + ';base64,' + j.audio + '"></audio><div class="res">' + (j.direcao ? '🎭 ' + esc(j.direcao) + '<br>' : '') + 'Falado: ' + esc(j.fala) + (j.transcricao ? '<br>Realtime leu: ' + esc(j.transcricao) : '') + '</div>';
+          '<audio controls src="data:' + j.mime + ';base64,' + j.audio + '"></audio><div class="res">' + (j.direcao ? '🎭 ' + (j.emocao ? '<b>' + esc(j.emocao) + '</b> · ' : '') + esc(j.direcao) + '<br>' : '') + 'Falado: ' + esc(j.fala) + (j.transcricao ? '<br>Realtime leu: ' + esc(j.transcricao) : '') + '</div>';
         if (lista.length === 1) { var au = el.querySelector('audio'); if (au) au.play().catch(function () {}); }
       }).catch(function (e) { var el = document.getElementById(id); if (el) el.innerHTML = '<span style="color:#ff8f7e">' + esc(e.message) + '</span>'; }).then(prox);
     }

@@ -2776,7 +2776,7 @@ async function subirVozEnviar(env, para, audio, fala) {
 // lido do jeito que está, o áudio sai robótico. Uma IA rápida reescreve como uma pessoa falaria num áudio, sem mudar nenhum dado.
 async function vozPrepararFala(env, texto, cfg, rapido) { // v295: o mesmo caminho para todos os áudios (consistência)
   let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL');
-  if (vozEhV3(cfg)) { if (!rapido && cfg.reescrever !== false) fala = await falaV3(env, fala, cfg, env._ctx && (env._ctx.bruto || '')); fala = falaPausasLeves(vozNormalizarV3(fala)); }
+  if (vozEhV3(cfg)) { if (!rapido && cfg.reescrever !== false) fala = await falaV3(env, fala, cfg, env._ctx && (env._ctx.bruto || ''), cfg._para ? await vozOuvinte(env, cfg._para) : null); fala = falaPausasLeves(vozNormalizarV3(fala)); }
   else { if (!rapido && cfg.reescrever) fala = await falaNatural(env, fala); fala = vozNormalizar(fala); if (cfg.semPausas) fala = falaSemPausas(fala); }
   return fala.replace(/\bHangel\b/g, 'Rangel');
 }
@@ -2816,7 +2816,14 @@ const VOZ_PERFIS = {
 };
 function vozEhV3(cfg) { return !!(cfg && VOZ_PERFIS[cfg.perfil]); }
 // escrito ≠ falado: transforma a resposta escrita (listas, links, PDF, negrito) no que uma pessoa diria
-async function falaV3(env, fala, cfg, contexto) {
+// v300: quem vai ouvir (cliente, equipe ou o dono) e como a conversa vinha emocionalmente
+async function vozOuvinte(env, para) {
+  const o = { quem: 'cliente', emoAnterior: '', hora: agoraBahia().min };
+  try { if (ehDono(env, para)) o.quem = 'dono'; else { const cfgP = await pontoCfg(env).catch(() => null); if (cfgP && pontoFuncPorFone(cfgP, para)) o.quem = 'equipe'; } } catch (_) {}
+  try { o.emoAnterior = (await env.HR_KV.get('voz:emo:' + ultimos8(para))) || ''; } catch (_) {}
+  o.para = para; return o;
+}
+async function falaV3(env, fala, cfg, contexto, ouv) {
   const t = String(fala || '').trim(), pf = VOZ_PERFIS[cfg.perfil]; if (!pf || t.length < 25) return t;
   const sis = `Você transforma uma resposta ESCRITA de WhatsApp no texto que a Helena vai FALAR num áudio. Uma resposta escrita não se fala do mesmo jeito.
 ${pf.fala}
@@ -2824,24 +2831,30 @@ Regras:
 - Fale para a pessoa, em primeira pessoa, como numa conversa. Listas e tópicos viram frases ligadas ("primeiro… depois…", "e também"). Link, PDF ou foto: "te mandei aqui embaixo" (nunca leia link).
 - Tire o que só serve no texto: asteriscos, emojis, "segue abaixo", "conforme solicitado", repetições e instruções do tipo "toque no botão" (diga "é só me responder aqui").
 - Varie o tamanho das frases. Poucas vírgulas (a voz para nelas): use no máximo uma por frase.
+- QUEM OUVE: ${ouv && ouv.quem === 'dono' ? 'o Sr. Rangel, dono da empresa e chefe da Helena: tom de secretária de confiança, próxima e prestativa' : ouv && ouv.quem === 'equipe' ? 'um funcionário da equipe: tom de colega de trabalho, direto, animado e parceiro' : 'um cliente: atendente simpática que quer ajudar de verdade'}.${ouv && ouv.emoAnterior ? ' No áudio anterior desta conversa a Helena estava "' + ouv.emoAnterior + '": mantenha a continuidade, sem mudar de humor bruscamente sem motivo.' : ''}${ouv && ouv.hora != null ? ' Agora são ' + Math.floor(ouv.hora / 60) + 'h (' + (ouv.hora < 12 * 60 ? 'manhã: energia boa de começo de dia' : ouv.hora < 18 * 60 ? 'tarde' : 'noite: um pouco mais tranquila, sem perder a simpatia') + ').' : ''}
 - Toda pergunta do texto continua sendo pergunta e termina com "?". Nunca transforme pergunta em afirmação.
 - Valores, medidas, datas, horários e números: EXATAMENTE os mesmos e em algarismos.
 - Nomes de clientes, pedras e materiais: iguais.
 - Não acrescente informação, promessa, pergunta ou saudação que não esteja no texto. Pode ficar mais curto.
-EMOÇÃO DE VERDADE: a Helena sente o que fala. Pode abrir com uma reação curta e sincera quando combinar com a situação ("Ah, que bom!", "Poxa, entendo…", "Opa!", "Que notícia boa!", "Olha só…"), sem exagero e sem repetir sempre a mesma.
-Responda SÓ com JSON: {"fala":"o texto falado","direcao":"1 ou 2 frases curtas de direção de atriz para a voz: a emoção e como ela muda ao longo do áudio (ex.: começa alegre e sorridente com a novidade, fica segura e clara no valor, termina carinhosa na pergunta)"}`;
+EMOÇÃO DE VERDADE: a Helena sente o que fala e isso aparece nas palavras.
+- Reaja ao que a pessoa disse antes de responder, quando combinar: alegria ("Ah, que bom!", "Que notícia boa!", "Eba!"), surpresa ("Nossa!", "Opa!"), empatia ("Poxa… entendo", "Ai, que chato isso"), carinho ("Fica tranquilo que a gente resolve"), animação ("Vai ficar lindo!"), gratidão ("Muito obrigada pela confiança!"). Varie; nunca a mesma reação duas vezes seguidas.
+- Use "!" na alegria e no entusiasmo e "…" depois de "Poxa", "Ai", "Hmm" ou "Olha" para a pausa de quem sente.
+- Elogie de forma sincera uma escolha boa (pedra, cor, projeto) quando o texto falar dela, sem bajular.
+- Não invente sentimento que a situação não pede: cobrança é cordial, reclamação é séria e acolhedora, valor é seguro.
+Responda SÓ com JSON: {"fala":"o texto falado","emocao":"uma palavra (alegre, empolgada, acolhedora, empática, segura, carinhosa, grata, tranquila, séria)","direcao":"1 ou 2 frases curtas de direção de atriz para a voz: a emoção e como ela muda ao longo do áudio (ex.: começa alegre e sorridente com a novidade, fica segura e clara no valor, termina carinhosa na pergunta)"}`;
   try {
     const r = await Promise.race([chamarIA(env, sis, [], (contexto ? `O cliente/pessoa tinha dito: "${String(contexto).slice(0, 300)}"\n\nResposta escrita da Helena:\n` : '') + t.slice(0, 1500), { maxTokens: 600, model: env.AI_MODEL_VOZ || 'claude-haiku-5-5', cat: 'voz' }), new Promise(res => setTimeout(() => res(''), 7000))]);
     let j = null; try { j = lerJsonIA(String(r || '')); } catch (_) {}
     const x = String((j && j.fala) || '').replace(/^["“]|["”]$/g, '').replace(/[*_#•]/g, '').trim();
     if (j && j.direcao) cfg._direcao = String(j.direcao).slice(0, 300);
+    if (j && j.emocao) { cfg._emocao = String(j.emocao).slice(0, 30); if (ouv && ouv.para) await env.HR_KV.put('voz:emo:' + ultimos8(ouv.para), cfg._emocao, { expirationTtl: 3 * 3600 }).catch(() => {}); }
     const nq = z => (String(z).match(/\?/g) || []).length;
     return x && x.length < t.length * 1.3 + 40 && vozMesmosNumeros(t, x) && nq(x) >= nq(t) ? x : t; // v298: não pode perder pergunta
   } catch (_) { return t; }
 }
 // V3: pausas leves — tira dois-pontos e ponto e vírgula; vírgula só fica uma por frase, e só em frase longa
 function falaPausasLeves(t) {
-  return String(t || '').replace(/(\d),(\d)/g, '$1\u0001$2').replace(/\.{2,}|…/g, '.').replace(/\s*[;:]\s*/g, ' ')
+  return String(t || '').replace(/(\d),(\d)/g, '$1\u0001$2').replace(/\b(poxa|ai|hmm|olha|nossa|ah|ué)\s*(?:\.{2,}|…)/gi, '$1\u0002').replace(/\.{2,}|…/g, '.').replace(/\u0002/g, '…').replace(/\s*[;:]\s*/g, ' ')
     .split(/(?<=[.!?])\s+/).map(fr => { const n = fr.split(/\s+/).length; let k = 0; return fr.replace(/\s*,\s*/g, () => (n >= 14 && k++ === 0) ? ', ' : ' '); }).join(' ')
     .replace(/\u0001/g, ',').replace(/\s{2,}/g, ' ').trim();
 }
@@ -2865,7 +2878,7 @@ function vozNormalizarV3(t) {
 const VOZ_INSTR_PADRAO = 'Interprete a fala como Helena, assistente virtual brasileira especializada em atendimento comercial de uma marmoraria de alto padrão. Fale em português brasileiro, com naturalidade, simpatia e segurança.\n\nUtilize um sotaque brasileiro com uma influência baiana extremamente sutil. Evite pronúncias estrangeiras, formalidade excessiva, entonação teatral e ritmo mecânico.\n\nFale como em uma conversa espontânea pelo WhatsApp. Varie naturalmente a velocidade, a intensidade e a melodia das frases. Faça pequenas pausas quando necessário, sem exagerar.\n\nDemonstre interesse genuíno pelo assunto, mantendo profissionalismo. Não transforme todas as frases em perguntas e não termine todas as sentenças com a mesma entonação.\n\nLeia exatamente as informações fornecidas, sem inventar, acrescentar ou modificar valores, medidas, nomes, prazos ou condições comerciais.';
 const VOZ_MODELOS = { 'gpt-4o-mini-tts-2025-12-15': 'GPT-4o mini TTS (dez/2025) · Speech API', 'gpt-4o-mini-tts': 'GPT-4o mini TTS · Speech API', 'gpt-realtime-2.1-mini': 'GPT Realtime 2.1 mini · Realtime API (teste no painel)' };
 const VOZ_VOZES = ['marin', 'coral', 'nova', 'shimmer', 'sage', 'cedar'];
-const VOZ_CFG_PADRAO = { perfil: 'v2', modelo: 'gpt-4o-mini-tts-2025-12-15', voz: 'shimmer', velocidade: 1, instr: VOZ_INSTR_PADRAO, sotaque: 'baiano sutil, do interior da Bahia, sem exagero', emocao: true, reescrever: true, semPausas: true };
+const VOZ_CFG_PADRAO = { intensidade: 'expressiva', perfil: 'v2', modelo: 'gpt-4o-mini-tts-2025-12-15', voz: 'shimmer', velocidade: 1, instr: VOZ_INSTR_PADRAO, sotaque: 'baiano sutil, do interior da Bahia, sem exagero', emocao: true, reescrever: true, semPausas: true };
 const VOZ_EMOCAO = {
   primeiro: 'Primeiro atendimento: receptiva e simpática.',
   orcamento: 'Apresentação de orçamento: segura, clara e objetiva.',
@@ -2892,6 +2905,7 @@ async function vozCfgSalvar(env, nova, quem) {
   if (typeof nova.sotaque === 'string') limpa.sotaque = nova.sotaque.trim().slice(0, 200);
   ['emocao', 'reescrever', 'semPausas'].forEach(k => { if (typeof nova[k] === 'boolean') limpa[k] = nova[k]; });
   if (nova.perfil === 'v2' || VOZ_PERFIS[nova.perfil]) limpa.perfil = nova.perfil;
+  if (['suave', 'natural', 'expressiva'].includes(nova.intensidade)) limpa.intensidade = nova.intensidade;
   if (!c.v2) c.v2 = { ...VOZ_CFG_PADRAO, ...(c.atual || {}), perfil: 'v2' }; // v295: a V2 fica guardada como estava
   if (nova.padrao) Object.assign(limpa, VOZ_CFG_PADRAO);
   if (c.atual && Object.keys(c.atual).length) c.hist = [{ em: Date.now(), quem: quem || 'painel', cfg: c.atual }, ...(c.hist || [])].slice(0, 15);
@@ -2923,7 +2937,7 @@ function vozContexto(t) {
   return '';
 }
 function vozInstrucoes(cfg, texto) {
-  if (vozEhV3(cfg)) { const ctx = cfg.emocao === false ? '' : vozContexto(texto), vel = +cfg.velocidade || 1; return [VOZ_V3_BASE, VOZ_PERFIS[cfg.perfil].instr, vel >= 1.03 ? 'Fale ainda mais ágil que o normal, sem atropelar.' : '', ctx ? 'TOM DESTE ÁUDIO: ' + VOZ_EMOCAO[ctx] : '', cfg._direcao ? 'DIREÇÃO DESTE ÁUDIO (interprete com emoção real, como atriz): ' + cfg._direcao : '', 'Emoção verdadeira na voz: sorria quando a notícia é boa, fique séria e acolhedora quando é problema, mostre interesse real. Nada de voz neutra de leitura.', 'Lembre: ritmo ágil, nunca lento.'].filter(Boolean).join('\n'); }
+  if (vozEhV3(cfg)) { const ctx = cfg.emocao === false ? '' : vozContexto(texto), vel = +cfg.velocidade || 1; return [VOZ_V3_BASE, VOZ_PERFIS[cfg.perfil].instr, vel >= 1.03 ? 'Fale ainda mais ágil que o normal, sem atropelar.' : '', ctx ? 'TOM DESTE ÁUDIO: ' + VOZ_EMOCAO[ctx] : '', cfg._direcao ? 'DIREÇÃO DESTE ÁUDIO (interprete com emoção real, como atriz): ' + cfg._direcao : '', ({ suave: 'Emoção presente mas contida, elegante.', natural: 'Emoção verdadeira na voz: sorria quando a notícia é boa, fique séria e acolhedora quando é problema, mostre interesse real. Nada de voz neutra de leitura.', expressiva: 'EMOÇÃO BEM PERCEPTÍVEL E HUMANA: dá para ouvir o sorriso quando a notícia é boa, a empolgação sobe a energia, a empatia baixa o tom e deixa a voz mais macia, a surpresa aparece no "Nossa!". Varie claramente a energia entre as frases. Reações ("Ah, que bom!", "Poxa…") são ditas com o sentimento de verdade. Sem teatro e sem exagero de novela.' })[cfg.intensidade || 'expressiva'], 'Lembre: ritmo ágil, nunca lento.'].filter(Boolean).join('\n'); }
   const vel = +cfg.velocidade || 1, ritmo = vel <= 0.97 ? 'Ritmo de conversa normal, sem pressa (mas nunca arrastado).' : vel >= 1.03 ? 'Ritmo bem ágil, de quem fala rápido no dia a dia, sem atropelar as palavras.' : 'Ritmo ágil e fluido de conversa (por volta de 185 palavras por minuto): nunca fale devagar nem arraste as sílabas.'; // v296: estava lento
   const ctx = cfg.emocao ? vozContexto(texto) : '';
   return [cfg.instr || VOZ_INSTR_PADRAO, cfg.sotaque ? `Sotaque: ${cfg.sotaque}.` : '', 'O nome do dono é Rangel (escrito Hangel): pronuncie RAN-JÉU.', cfg.semPausas ? 'Não pare nas vírgulas: só respire de leve no fim das frases.' : '', ritmo, ctx ? 'Neste áudio: ' + VOZ_EMOCAO[ctx] : ''].filter(Boolean).join('\n');
@@ -2974,8 +2988,8 @@ const VOZ_MSG_TESTE = 'Oi, Rangel! Aqui é a Helena, da HR Mármores e Granitos.
 async function vozV2(env) { let c = null; try { c = JSON.parse((await env.HR_KV.get('cfg:vozid')) || 'null'); } catch (_) {} return { ...VOZ_CFG_PADRAO, ...((c && (c.v2 || (c.atual && (!c.atual.perfil || c.atual.perfil === 'v2') ? c.atual : null))) || {}), perfil: 'v2' }; }
 // as 4 versões (V2 + 3 da V3) com a MESMA mensagem, no WhatsApp do dono, para ouvir no celular
 async function vozVersoesWhatsApp(env, texto) {
-  const dono = numeroDono(env), base = await vozCfg(env), v2 = await vozV2(env), out = [];
-  const lista = [['v2', 'Helena V2 (atual)', v2], ...Object.entries(VOZ_PERFIS).map(([k, v]) => [k, v.nome + ' — ' + v.desc, { ...base, ...v2, perfil: k, reescrever: true, emocao: true }])];
+  const dono = numeroDono(env), base = { ...(await vozCfg(env)) }, v2 = await vozV2(env), out = [];
+  const lista = [['v2', 'Helena V2 (atual)', v2], ...Object.entries(VOZ_PERFIS).map(([k, v]) => [k, v.nome + ' — ' + v.desc, { ...base, ...v2, perfil: k, reescrever: true, emocao: true, intensidade: base.intensidade || 'expressiva', _para: dono }])];
   const gerados = await Promise.all(lista.map(async ([k, nome, cfg]) => { // v296: gera as 4 ao mesmo tempo (cabe no tempo do Worker)
     try { const fala = await vozPrepararFala(env, texto, cfg, false), g = await vozSpeech(env, fala, cfg, 'opus'); return { k, nome, fala, g }; }
     catch (e) { return { k, nome, erro: String(e.message).slice(0, 160) }; }
@@ -3015,7 +3029,7 @@ async function enviarVoz(env, para, texto, opts = {}) {
     await vozEscolhaCarregar(env).catch(() => {});
     let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
-    { const vc = { ...(await vozCfg(env)) }; fala = await vozPrepararFala(env, texto, vc, !!env._vozRapida); env._vozDirecao = vc._direcao || ''; } // v295 · v299: direção emocional // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
+    { const vc = { ...(await vozCfg(env)), _para: para }; fala = await vozPrepararFala(env, texto, vc, !!env._vozRapida); env._vozDirecao = vc._direcao || ''; } // v295 · v299: direção emocional // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
     let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
     await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
@@ -25761,14 +25775,14 @@ async function rotaBotInterna(req, env, url) {
   if (p === '/bot/voz/versoes' && req.method === 'POST') { const b = await req.json().catch(() => ({})); return jsonR(await vozVersoesWhatsApp(env, String(b.texto || '').trim() || VOZ_MSG_TESTE)); }
   if (p === '/bot/voz/teste' && req.method === 'POST') {
     const b = await req.json().catch(() => ({})), base = await vozCfg(env);
-    const cfg = { ...base, ...(b.perfil === 'v2' ? (await vozV2(env)) : VOZ_PERFIS[b.perfil] ? { perfil: b.perfil } : {}), ...(VOZ_MODELOS[b.modelo] ? { modelo: b.modelo } : {}), ...(VOZ_VOZES.includes(b.voz) ? { voz: b.voz } : {}), ...(+b.velocidade ? { velocidade: +b.velocidade } : {}), ...(typeof b.instr === 'string' && b.instr.trim().length > 20 ? { instr: b.instr } : {}), ...(typeof b.sotaque === 'string' ? { sotaque: b.sotaque } : {}) };
+    const cfg = { ...base, ...(b.perfil === 'v2' ? (await vozV2(env)) : VOZ_PERFIS[b.perfil] ? { perfil: b.perfil } : {}), ...(VOZ_MODELOS[b.modelo] ? { modelo: b.modelo } : {}), ...(VOZ_VOZES.includes(b.voz) ? { voz: b.voz } : {}), ...(+b.velocidade ? { velocidade: +b.velocidade } : {}), ...(typeof b.instr === 'string' && b.instr.trim().length > 20 ? { instr: b.instr } : {}), ...(typeof b.sotaque === 'string' ? { sotaque: b.sotaque } : {}), ...(['suave', 'natural', 'expressiva'].includes(b.intensidade) ? { intensidade: b.intensidade } : {}) };
     if (typeof b.reescrever === 'boolean') cfg.reescrever = b.reescrever; if (typeof b.semPausas === 'boolean') cfg.semPausas = b.semPausas;
     const fala = await vozPrepararFala(env, String(b.texto || VOZ_MSG_TESTE).slice(0, 600), cfg, false);
     const t0 = Date.now();
     try {
       const g = /realtime/.test(cfg.modelo) ? await vozRealtimeWav(env, fala, cfg) : await vozSpeech(env, fala, cfg, 'mp3');
       await vozUso(env, g.via, fala.length, g.seg);
-      return jsonR({ ok: true, audio: bytesParaBase64(new Uint8Array(g.audio)), mime: g.mime, ms: Date.now() - t0, fala, via: g.via, transcricao: g.transcricao || '', direcao: cfg._direcao || '', contexto: cfg.emocao ? vozContexto(fala) : '', custoUsd: Math.round(((g.seg || fala.length / 14) / 60 * (/^rt:/.test(g.via) ? 0.02 : 0.015)) * 10000) / 10000 });
+      return jsonR({ ok: true, audio: bytesParaBase64(new Uint8Array(g.audio)), mime: g.mime, ms: Date.now() - t0, fala, via: g.via, transcricao: g.transcricao || '', direcao: cfg._direcao || '', emocao: cfg._emocao || '', contexto: cfg.emocao ? vozContexto(fala) : '', custoUsd: Math.round(((g.seg || fala.length / 14) / 60 * (/^rt:/.test(g.via) ? 0.02 : 0.015)) * 10000) / 10000 });
     } catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 300), ms: Date.now() - t0 }, 200); }
   }
   if (p === '/bot/status' && req.method === 'GET') {
