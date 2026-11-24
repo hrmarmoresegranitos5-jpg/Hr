@@ -2775,7 +2775,8 @@ async function falaNatural(env, fala) {
   const t = String(fala || '').trim(); if (t.length < 25 || String(env.VOZ_REESCREVER ?? '1') === '0') return t;
   const sis = `Reescreva o texto como uma moça baiana simpática FALARIA num áudio de WhatsApp para alguém conhecido. Regras:
 - Português falado do dia a dia: "tá", "pra", "né", "viu", "a gente", "olha", "beleza"; nada de "por gentileza", "prezado", "informo", "senhor(a)" formal (pode manter "seu Rangel"/"Sr. Rangel" se o texto chamar assim).
-- Frases curtas e diretas. Poucas vírgulas: troque vírgula por ponto ou por "e". Sem listas, sem tópicos, sem parênteses, sem emoji.
+- Frases corridas, como se fala de verdade, SEM VÍRGULAS e sem dois-pontos (a voz para em cada vírgula). Junte as ideias com "e", "aí", "que". No máximo um ponto a cada duas ou três ideias. Sem listas, sem tópicos, sem parênteses, sem emoji.
+- Não repita saudação nem pergunta que já esteja no texto.
 - Valores, medidas, datas, horários, nomes e números: EXATAMENTE os mesmos (pode escrever por extenso o jeito de falar, ex.: "1,20" → "um e vinte").
 - Não acrescente informação nem pergunta nova; não corte nada importante. Mesmo tamanho ou menor.
 Responda SÓ com o texto falado.`;
@@ -2785,6 +2786,19 @@ Responda SÓ com o texto falado.`;
     return x && x.length < t.length * 1.4 + 40 ? x : t;
   } catch (_) { return t; }
 }
+function falaSemPausas(t) {
+  return String(t || '')
+    .replace(/(\d),(\d)/g, '$1\u0001$2')            // protege decimais (1,20)
+    .replace(/\.{2,}|…/g, ' ')
+    .replace(/\s*[,;:]\s*/g, ' ')                   // vírgula, ponto e vírgula e dois-pontos: sem parada
+    .replace(/\s*\.\s*\.+/g, '.')                    // ". ." → "."
+    .replace(/([.!?])\s+(?=\S)/g, (m0, p1, off, str) => { // frase muito curta antes do ponto se junta com a próxima (menos paradas)
+      const antes = str.slice(0, off).split(/[.!?]/).pop().trim().split(/\s+/).length;
+      return antes <= 3 && p1 === '.' ? ' ' : p1 + ' ';
+    })
+    .replace(/\u0001/g, ',')
+    .replace(/\s{2,}/g, ' ').trim();
+}
 // Gera a voz (OGG/Opus), sobe na Meta e envia como mensagem de voz. Nunca derruba o fluxo.
 async function enviarVoz(env, para, texto, opts = {}) {
   try {
@@ -2792,6 +2806,7 @@ async function enviarVoz(env, para, texto, opts = {}) {
     let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
     if (!env._vozRapida) fala = (await falaNatural(env, fala)).replace(/\bHangel\b/g, 'Rangel'); // v289 (pula quando o tempo está curto)
+    fala = falaSemPausas(fala); // v293: a voz da OpenAI para ~0,45 s em CADA vírgula, dois-pontos e ponto (medido: 9 paradas em 16 s)
     let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
     await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
