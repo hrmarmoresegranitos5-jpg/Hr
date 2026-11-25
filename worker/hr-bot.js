@@ -15674,7 +15674,7 @@ const FERRAMENTAS = [
   {
     name: 'responder_cliente',
     description: 'Prepara um RASCUNHO de resposta a um cliente, em nome da empresa, quando o Sr. Hangel pedir para explicar, responder, avisar ou falar com um cliente (ex.: "explica pra ela porque tá caro"). O rascunho vai ao Sr. Hangel com botões Enviar e Cancelar; só é enviado ao cliente depois que ele confirmar. Escreva o texto PARA O CLIENTE: curto (até 3 frases), cordial, profissional, sem emojis, sem inventar desconto, prazo ou valor. Sem "numero" nem "cliente", usa o último cliente que falou. SE ele citou um cliente pelo nome (ex.: RL planejados), preencha "cliente": nunca deixe cair no último que falou. NUNCA afirme que o cliente pagou, que houve pagamento em certa data ou que algo já foi enviado, a não ser que o Sr. Hangel tenha dito; fale só do serviço, do valor informado e da data de entrega.',
-    input_schema: { type: 'object', properties: { texto: { type: 'string', description: 'mensagem pronta para o cliente' }, numero: { type: 'string', description: 'telefone do cliente, só se o Sr. Hangel citou um' }, cliente: { type: 'string', description: 'NOME do cliente, quando o Sr. Hangel citou um nome' } }, required: ['texto'] },
+    input_schema: { type: 'object', properties: { anexar_midia: { type: 'boolean', description: 'true quando o Sr. Hangel mandou foto/vídeo agora há pouco como exemplo para o cliente (vai junto); false para não mandar' },  texto: { type: 'string', description: 'mensagem pronta para o cliente' }, numero: { type: 'string', description: 'telefone do cliente, só se o Sr. Hangel citou um' }, cliente: { type: 'string', description: 'NOME do cliente, quando o Sr. Hangel citou um nome' } }, required: ['texto'] },
   },
   {
     name: 'marcar_visita',
@@ -16171,9 +16171,14 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     }
     if (!num) return { erro: true, texto: 'Não sei a qual cliente se refere. Pergunte ao Sr. Hangel o nome ou o número, em uma frase. Nada foi preparado.' }; // v167: nunca supõe o último cliente
     const nm = nomeDest || (a.cliente ? String(a.cliente).slice(0, 40) : '') || await nomeParaDono(env, num);
-    await env.HR_KV.put('rascunho:resp', JSON.stringify({ numero: num, texto, nome: nm || '', em: Date.now() }), { expirationTtl: 60 * 60 });
+    let midia = null; { // v358f: vídeo/foto que o Sr. Hangel acabou de mandar + "use esse modelo como exemplo" → vai junto para o cliente (antes ficava só no acervo)
+      let mu = null; try { mu = JSON.parse((await env.HR_KV.get('dono:midiault')) || 'null'); } catch (_) {}
+      const pedido = normaliza(String((env._ctx && (env._ctx.bruto || '')) || '') + ' ' + texto);
+      if (mu && Date.now() - mu.em < 20 * 60000 && (a.anexar_midia === true || /\b(video|foto|imagem|modelo|exemplo|igual|parecid\w*|como esse|como essa|desse|dessa|esse aqui)\b/.test(pedido)) && a.anexar_midia !== false && !(mu.tipo === 'video' && mu.tam > 15.5 * 1024 * 1024)) midia = mu;
+    }
+    await env.HR_KV.put('rascunho:resp', JSON.stringify({ numero: num, texto, nome: nm || '', em: Date.now(), midia }), { expirationTtl: 60 * 60 });
     await env.HR_KV.put('rascunho:atalho', '1', { expirationTtl: 10 * 60 }); // v167: "sim" só vale logo em seguida
-    await enviarComBotoes(env, from, `Rascunho para ${nm ? nm + ' (wa.me/' + num + ')' : 'wa.me/' + num}:\n\n_${texto}_\n\nEnvio assim?`, [{ id: 'resp_ok', titulo: 'Enviar' }, { id: 'resp_no', titulo: 'Cancelar' }]);
+    await enviarComBotoes(env, from, `Rascunho para ${nm ? nm + ' (wa.me/' + num + ')' : 'wa.me/' + num}:\n\n_${texto}_${midia ? `\n\n📎 Vai junto ${midia.tipo === 'video' ? 'o vídeo' : 'a foto'} que o senhor mandou.` : ''}\n\nEnvio assim?`, [{ id: 'resp_ok', titulo: 'Enviar' }, { id: 'resp_no', titulo: 'Cancelar' }]);
     return { texto: 'Rascunho mostrado ao Sr. Hangel com botões. NÃO escreva mais nada; responda apenas "Aguardo a sua confirmação."', nota: `rascunho de resposta ao cliente ${nm || num}` };
   }
 
@@ -21582,6 +21587,7 @@ async function decidirRascunho(env, from, enviarAgora) {
       via = 'aviso';
     }
     else via = await enviarProativo(env, r.numero, r.texto, usaModelo ? { nome: tplResp, params: [r.texto] } : null);
+    if (via === 'texto' && r.midia && r.midia.md) { try { const u = await mdUrl(env, r.midia.md, r.midia.mime); await postarMsg(env, r.numero, r.midia.tipo === 'video' ? { type: 'video', video: { link: u } } : { type: 'image', image: { link: u } }); r.midiaFoi = 1; } catch (e) { console.log('[BOT] mídia junto:', e.message); r.midiaErro = String(e.message || e).slice(0, 80); } } // v358f
     if (via === 'texto' && pedPdf && pedPdf.mediaId) await postarMsg(env, r.numero, { type: 'document', document: { id: pedPdf.mediaId, filename: pedPdf.arquivoNome || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[BOT] pdf junto:', e.message));
   }
   catch (e) { erro = String(e.message || e).slice(0, 160); console.log('[BOT] responder_cliente:', erro); }
@@ -21594,7 +21600,7 @@ async function decidirRascunho(env, from, enviarAgora) {
   await semearConversaProativa(env, r.numero, via === 'modelo' ? `Olá! Aqui é a assistente virtual da ${env.EMPRESA || 'HR Mármores e Granitos'}. ${r.texto}` : r.texto).catch(e => console.log('[BOT] semear conversa:', e.message));
   await enviar(env, from, via === 'modelo'
     ? 'Enviei ao cliente por modelo, Sr. Hangel (ele estava fora da janela de 24 h). Quando ele responder, o bot segue a conversa.'
-    : 'Enviado ao cliente, Sr. Hangel.');
+    : 'Enviado ao cliente, Sr. Hangel.' + (r.midiaFoi ? ` Mandei junto ${r.midia.tipo === 'video' ? 'o vídeo' : 'a foto'}.` : r.midiaErro ? ` ${r.midia.tipo === 'video' ? 'O vídeo' : 'A foto'} não foi (${r.midiaErro}); encaminhe o senhor mesmo.` : ''));
 }
 async function tratarAssumir(env, from, bruto, msg) {
   if (!/^(isso|sim|pode|pode enviar|pode mandar|envia|enviar|manda|mandar|ok|confirmo|isso mesmo|positivo|nao|cancela|cancelar|deixa|nao envia|nao mande|nao manda)$/.test(msg)) await env.HR_KV.delete('rascunho:atalho').catch(() => {}); // v167
@@ -25699,6 +25705,7 @@ async function acvTratarMidia(env, from, m) {
   if (mid.buf.byteLength > 95 * 1024 * 1024) { await enviar(env, from, 'Esse arquivo passou de 95 MB. Mande uma versão menor (1080p).'); return true; }
   const mime = tipo === 'video' ? 'video/mp4' : (/png/.test(mid.tipo) ? 'image/png' : 'image/jpeg');
   const md = await mdSalvar(env, mid.buf, mime);
+  await env.HR_KV.put('dono:midiault', JSON.stringify({ md, mime, tipo: tipo === 'video' ? 'video' : 'foto', tam: mid.buf.byteLength, em: Date.now() }), { expirationTtl: 3600 }).catch(() => {}); // v358f: o Sr. Hangel pode mandar a mídia como exemplo para um cliente logo em seguida
   const it = { md, mime, tipo: tipo === 'video' ? 'video' : 'foto', tam: mid.buf.byteLength, doc: m.type === 'document', em: Date.now() };
   if (tipo === 'video') { const inf = mp4Info(mid.buf); it.w = inf.w; it.h = inf.h; it.dur = inf.dur; }
   // foto vai para o catálogo de serviços feitos (site/portfólio)
