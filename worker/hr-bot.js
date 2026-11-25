@@ -10382,7 +10382,7 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   if (m._jaSalva) { /* a foto já foi guardada na conferência */ } else
   if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('ped:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(e => console.log('[FOTO]', e.message));
   await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid: ped.id, em: Date.now() }), { expirationTtl: 3600 });
-  if (!pe) { await enviar(env, from, `📸 Mais uma foto guardada no pedido de ${ped.nome}. 👍`); return true; } // fotos extras
+  if (!pe) { if (!(await env.HR_KV.get('prod:fotomais:' + ultimos8(from)))) { await env.HR_KV.put('prod:fotomais:' + ultimos8(from), '1', { expirationTtl: 180 }); await enviar(env, from, `📸 Foto guardada no pedido de ${ped.nome}. 👍`); } return true; } // fotos extras (v336: no álbum, avisa uma vez só)
   await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from));
   ped.fotoEntregaEm = Date.now(); ped.fotoPor = String(f.id); if (pe.contado != null) ped.pecasEntregues = pe.contado; await salvarPedido(env, ped);
   try { // a foto vai ao dono e ao cliente (comprovante)
@@ -12675,12 +12675,24 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
   if (!linhas.length) { // v176: não acha o pedido → a foto não se perde: vai para o dono
     try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: m.image.id, caption: `📷 Foto do ${nome}${leg ? ` ("${leg}")` : ''}. Não achei o pedido no sistema; confira de qual cliente é.` } }); } catch (_) {}
     await enviar(env, from, `📸 Recebi a foto, ${nome}!${leg ? ` Não achei o pedido de *${leg.replace(/^(servi[cç]os?|foto|fotos)\s+(d[aoe]s?\s+)?/i, '')}* no sistema.` : ' Não achei serviço aberto com você.'} Guardei e mandei para o Sr. Hangel conferir. Se quiser, me diga o nome do cliente (ex.: _instalei o da Maria_).`); return true; }
+  { // v336: antes da IA — se só UM serviço dele tem a etapa que a legenda diz (ou só um está em andamento), é esse
+    const nL = normaliza(leg || ''), qFim = /\b(finaliz\w*|termin\w*|conclu\w*|pront\w*|instalei|instalad\w*|entreguei|cortad\w*|acabad\w*|polid\w*)\b/.test(nL), qIni = /\b(inici\w*|comec\w*|vou comecar)\b/.test(nL), id = String(f.id);
+    const saindo = /\b(saindo|indo|a caminho|carregando|carreguei|levando)\b/.test(nL);
+    if ((qFim || qIni) && !saindo && !(leg && nomeMelhores(l, tokensPedra(leg)).length)) {
+      const grp = qIni ? ['ini', 'cti', 'aci'] : ['fim', 'pronto', 'acf'], ops = linhas.filter(x => grp.includes(x.id.split('|')[2]));
+      const emAnd = qFim ? ops.filter(x => { const p = l.find(q => String(q.id) === x.id.split('|')[1]); return p && ((x.id.endsWith('|fim') && p.instIniEm) || (x.id.endsWith('|acf') && p.acabIniEm) || (x.id.endsWith('|pronto') && p.corteIniEm && !p.corteEm)); }) : [];
+      const peds = [...new Set(ops.map(x => x.id.split('|')[1]))], esc = emAnd.length === 1 ? emAnd[0] : peds.length === 1 && ops.length === 1 ? ops[0] : null;
+      if (esc) { const pd = l.find(q => String(q.id) === esc.id.split('|')[1]); await env.HR_KV.put('prod:fotoia:' + k8, JSON.stringify({ op: esc.id, mid: m.image.id, mids: [m.image.id], leg: leg || '', em: Date.now() }), { expirationTtl: 3600 });
+        await enviar(env, from, `📸 Anotei: *${esc.descricao}* — *${pd ? pd.nome : ''}*${emAnd.length === 1 ? ' (o serviço que você tinha começado)' : ''}. Se não for isso, me diga (ex.: _não, é do Jacó_).`); return prodFotoEscolha(env, f, from, esc.id, nome); }
+    }
+  }
   if (linhas.length > 1 && String(env.FOTO_IA ?? '1') !== '0') { // v334: FOTO INTELIGENTE — a IA olha a foto (peça, pedra, se é chapa sendo cortada, peça pronta, local antes ou pedra instalada) e escolhe o serviço e a etapa
     const r = await fotoInteligente(env, f, from, m, leg, l, linhas).catch(e => { console.log('[FOTO IA]', e.message); return null; });
     if (r && r.op && r.certeza !== 'baixa') {
       const pd = l.find(p => String(p.id) === r.op.id.split('|')[1]), cli = pd ? pd.nome : '';
       if (pd && leg && pedConflitoTxt(pd, leg)) r.certeza = 'media';
-      if (leg && !/\b(inici\w*|comec\w*|finaliz\w*|termin\w*|pront\w*|instal\w*|entreg\w*|cortad\w*|acabad\w*|conclu\w*|vou)\b/.test(normaliza(leg))) r.certeza = 'media'; // v335: "Serviços da dona Renata" não diz a etapa: só sugere // a legenda fala de outra peça/pedra: só sugere
+      if (leg && !/\b(inici\w*|comec\w*|finaliz\w*|termin\w*|pront\w*|instal\w*|entreg\w*|cortad\w*|acabad\w*|conclu\w*|vou)\b/.test(normaliza(leg))) r.certeza = 'media';
+      if (leg && /\b(saindo|indo|a caminho|carregando|carreguei|levando)\b/.test(normaliza(leg))) r.certeza = 'media'; // v336: indo entregar ainda não é instalação // v335: "Serviços da dona Renata" não diz a etapa: só sugere // a legenda fala de outra peça/pedra: só sugere
       if (r.certeza === 'alta' && !/\|foto$/.test(r.op.id)) { let fpI = null; try { fpI = JSON.parse((await env.HR_KV.get('prod:fotopend:' + k8)) || 'null'); } catch (_) {} await env.HR_KV.put('prod:fotoia:' + k8, JSON.stringify({ op: r.op.id, mid: m.image.id, mids: (fpI && fpI.mids) || [m.image.id], leg: leg || '', em: Date.now() }), { expirationTtl: 3600 }); await enviar(env, from, `📸 Pela foto: ${r.vejo}. Anotei: *${r.op.descricao}* — *${cli}*. Se não for isso, me diga (ex.: _não, é do Jacó_).`); return prodFotoEscolha(env, f, from, r.op.id, nome); }
       const ord = [r.op, ...linhas.filter(x => x.id !== r.op.id)];
       await enviarLista(env, from, `📸 ${r.vejo ? r.vejo.charAt(0).toUpperCase() + r.vejo.slice(1) + '. ' : ''}Parece *${r.op.descricao}* — *${cli}*. É isso? Se for, toque na primeira opção.`, 'Escolher', ord.slice(0, 10), true);
@@ -12725,7 +12737,7 @@ async function instAjudAnotar(env, ped, f) {
   ped.instAjud = [...l, { id, ts: Date.now() }].slice(-6); await salvarPedido(env, ped);
 }
 async function prodFotoEscolha1(env, f, from, idB, nome) {
-  let [, pid, ac] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
+  let [, pid, ac] = idB.split('|'); await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid, em: Date.now() }), { expirationTtl: 3600 }).catch(() => {}); /* v336: as outras fotos do álbum vão para o mesmo pedido, sem nova ação */ const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
   let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!fp || !fp.mid) { await enviar(env, from, 'A foto expirou. Manda de novo, por favor.'); return true; }
   await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
@@ -13263,7 +13275,7 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   if (ach.length !== 1) return false;
   const ped = ach[0];
   const papel = (await funcoesEquipe(env)).map[id] || [];
-  let et = /\b(cortei|cortad)/.test(msg) ? 'corte' : /\b(poli|polid|lustr|polimento)/.test(msg) ? 'polimento' : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : pedComplexo(ped) && String(ped.poliResp || '') === id && ped.corteEm && !ped.poliEm ? 'polimento' : null; // v188
+  let et = /\b(cortei|cortad)/.test(msg) ? 'corte' : /\b(poli|polid|lustr|polimento)/.test(msg) ? (pedComplexo(ped) ? 'polimento' : 'acabamento') : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : pedComplexo(ped) && String(ped.poliResp || '') === id && ped.corteEm && !ped.poliEm ? 'polimento' : null; // v188
   if (!et) et = String(ped.acabResp) === id && !ped.acabEm ? 'acabamento' : String(ped.fabResp) === id && !ped.corteEm ? 'corte' : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : ped.corteEm || !papel.includes('corte') ? (pedComplexo(ped) && papel.includes('fabricacao') ? 'fabricacao' : 'acabamento') : 'corte';
   const U = unidadesPed(ped, et); if (U.length < 2) return false; // v188: as partes dependem da etapa
   const prog = ped.prog || {}, feitos = new Set(prog[et] || []);
@@ -13277,7 +13289,7 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   if (q && q <= cand.length && q < 30) sel = cand.slice(0, q);
   else if (todos && cand.length) sel = cand;
   else if (cand.length === 1 && (noun || esse)) sel = cand;
-  else if (noun && !qn && !/^(pecas?|itens|item)$/.test(normaliza(noun)) && cand.length && /\b(finaliz\w*|pront\w*|cortad\w*|terminad\w*|acabad\w*|feit[oa]s?|terminei|acabei|cortei)\b/.test(msg)) sel = cand; // v335: "Peitoril de Douglas finalizado" (singular, sem número) = os peitoris dele
+  else if (noun && !qn && !/^(pecas?|itens|item)$/.test(normaliza(noun)) && cand.length && /\b(finaliz\w*|pront\w*|cortad\w*|terminad\w*|acabad\w*|feit[oa]s?|terminei|acabei|cortei|polid[oa]s?|poli)\b/.test(msg)) sel = cand; // v335: "Peitoril de Douglas finalizado" (singular, sem número) = os peitoris dele
   else if (noun && (/(s|es|is)$/.test(noun) || /^pedras /.test(noun) || /coes$/.test(noun)) && !/^(pecas|itens)$/.test(noun) && cand.length) sel = cand; // "terminei os lavatórios", "as pedras de retenção"
   else if (noun && !/^(pecas?|itens|item)$/.test(noun) && /\b(\w+ad[oa]s|feitos|feitas|prontos|prontas|terminamos)\b/.test(msg) && cand.length) sel = cand; // "frontões finalizados"
   if (foto) await env.HR_KV.put('prod:itensfoto:' + ultimos8(from), JSON.stringify(foto), { expirationTtl: 3600 });

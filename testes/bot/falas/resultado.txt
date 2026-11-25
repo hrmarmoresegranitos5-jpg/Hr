@@ -1,12 +1,12 @@
 [D] gastei 150 de combustível
    IA: —
-   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Gasto:* R$ 150,00 ⏎ *Descrição:* Combustível ⏎ *Categoria:* Combustível ⏎ *Data:* 25/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 150,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na próxima sincronização do aplicativo._ [Desfazer|Trocar categoria|Hoje]
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, chefe.* ⏎  ⏎ *Gasto:* R$ 150,00 ⏎ *Descrição:* Combustível ⏎ *Categoria:* Combustível ⏎ *Data:* 25/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 150,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na próxima sincronização do aplicativo._ [Desfazer|Trocar categoria|Hoje]
 [D] paguei 80 reais de almoço pros meninos
    IA: —
    → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Gasto:* R$ 80,00 ⏎ *Descrição:* Almoço pros meninos ⏎ *Categoria:* Outros ⏎ *Data:* 25/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na próxima sincronização do aplicativo._ [Desfazer|Trocar categoria|Hoje]
 [D] recebi 500 do Jacó no pix
    IA: —
-   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Entrada:* R$ 500,00 ⏎ *Descrição:* Recebido de Jacó no pix ⏎ *Categoria:* — ⏎ *Data:* 25/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 500,00 ⏎  ⏎ _Será incluído em Finanças na próxima sincronização do aplicativo._ [Desfazer|Hoje]
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, patrão.* ⏎  ⏎ *Entrada:* R$ 500,00 ⏎ *Descrição:* Recebido de Jacó no pix ⏎ *Categoria:* — ⏎ *Data:* 25/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 500,00 ⏎  ⏎ _Será incluído em Finanças na próxima sincronização do aplicativo._ [Desfazer|Hoje]
 [D] Ele pagou 150
    IA: GASTOS DO MERCADO PAGO SEM NOM
    → →ined: undefined ⏎ →4460: {}
@@ -78,10 +78,10 @@
    → →ined: undefined ⏎ →4460: {}
 [D] fechei com a Maria a cozinha de 3.200
    IA: —
-   → →ined: undefined ⏎ →4460: Sr. Hangel, não achei orçamento de *maria* no app nem no bot. Me diga o que fechou com as medidas (ex.: _fechei com maria 2 soleiras 80x15 em Branco Siena, 350 reais_) que eu monto a ficha.
+   → →ined: undefined ⏎ →4460: Patrão, não achei orçamento de *maria* no app nem no bot. Me diga o que fechou com as medidas (ex.: _fechei com maria 2 soleiras 80x15 em Branco Siena, 350 reais_) que eu monto a ficha.
 [D] quais orçamentos estão aguardando?
    IA: —
-   → →ined: undefined ⏎ →4460: Chefe, o aplicativo ainda não mandou o histórico de orçamentos ao bot. Abra o app que ele sincroniza sozinho e peça de novo.
+   → →ined: undefined ⏎ →4460: Chefia, o aplicativo ainda não mandou o histórico de orçamentos ao bot. Abra o app que ele sincroniza sozinho e peça de novo.
 [D] quem não respondeu o orçamento?
    IA: GASTOS DO MERCADO PAGO SEM NOM
    → →ined: undefined ⏎ →4460: {}
@@ -210,7 +210,7 @@
    → →ined: undefined ⏎ →4460: {}
 [D] cadê o link do totem?
    IA: —
-   → →ined: undefined ⏎ →4460: *Tablet do balcão* ⏎ App no modo balcão (orçamento, histórico e controle da TV): https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1 ⏎ Entre com a conta Google da HR para sincronizar. ⏎  ⏎ Só o controle da TV: ⏎ /totem?k=5c671a4k414v6x3b1n ⏎  ⏎ O controle da TV ainda não foi aberto no tablet. ⏎  ⏎ No tablet: abra o link no Chrome → ⋮ → "Adicionar à tela inicial" → Instalar, e abra pelo ícone. Para trocar o link: "novo link do totem".
+   → →ined: undefined ⏎ →4460: *Tablet do balcão* ⏎ App no modo balcão (orçamento, histórico e controle da TV): https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1 ⏎ Entre com a conta Google da HR para sincronizar. ⏎  ⏎ Só o controle da TV: ⏎ /totem?k=1s731n1q5r1t0w0p0r ⏎  ⏎ O controle da TV ainda não foi aberto no tablet. ⏎  ⏎ No tablet: abra o link no Chrome → ⋮ → "Adicionar à tela inicial" → Instalar, e abra pelo ícone. Para trocar o link: "novo link do totem".
 [D] controle da tv
    IA: GASTOS DO MERCADO PAGO SEM NOM
    → →ined: undefined ⏎ →4460: {}
@@ -231,7 +231,7 @@
    → →ined: undefined ⏎ →4460: Olá, *Sr. Hangel*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais boletos vencem esta semana?_ ⏎ • _o que tenho na agenda?_ ⏎  ⏎ *Elaborar orçamento de soleira ou peitoril* ⏎ • _quero fazer um orçamento_ ⏎ • _orçamento para o João, soleira preto são gabriel 120x13, sem acabamento_ ⏎  ⏎ *Avisar que o pedido está pronto:* escreva _pronto João_. ⏎  ⏎ *Lembrar clientes de boletos vencidos:* escreva _cobrar_. ⏎  ⏎ *Fechamento do dia:* escreva _fechamento_ (o bot também o convoca às 17h). ⏎  ⏎ *Desfazer o que o bot fez no aplicativo:* escreva _desfazer no app_. ⏎  ⏎ *Perfil do bot:* envie uma *foto* com a legenda _perfil_ ou escreva _sobre: seu texto_. [Hoje|Finanças do mês|Agenda]
 [D] oi Helena
    IA: —
-   → →ined: undefined ⏎ →4460: Olá, *chefe*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais boletos vencem esta semana?_ ⏎ • _o que tenho na agenda?_ ⏎  ⏎ *Elaborar orçamento de soleira ou peitoril* ⏎ • _quero fazer um orçamento_ ⏎ • _orçamento para o João, soleira preto são gabriel 120x13, sem acabamento_ ⏎  ⏎ *Avisar que o pedido está pronto:* escreva _pronto João_. ⏎  ⏎ *Lembrar clientes de boletos vencidos:* escreva _cobrar_. ⏎  ⏎ *Fechamento do dia:* escreva _fechamento_ (o bot também o convoca às 17h). ⏎  ⏎ *Desfazer o que o bot fez no aplicativo:* escreva _desfazer no app_. ⏎  ⏎ *Perfil do bot:* envie uma *foto* com a legenda _perfil_ ou escreva _sobre: seu texto_. [Hoje|Finanças do mês|Agenda]
+   → →ined: undefined ⏎ →4460: Olá, *chefia*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais boletos vencem esta semana?_ ⏎ • _o que tenho na agenda?_ ⏎  ⏎ *Elaborar orçamento de soleira ou peitoril* ⏎ • _quero fazer um orçamento_ ⏎ • _orçamento para o João, soleira preto são gabriel 120x13, sem acabamento_ ⏎  ⏎ *Avisar que o pedido está pronto:* escreva _pronto João_. ⏎  ⏎ *Lembrar clientes de boletos vencidos:* escreva _cobrar_. ⏎  ⏎ *Fechamento do dia:* escreva _fechamento_ (o bot também o convoca às 17h). ⏎  ⏎ *Desfazer o que o bot fez no aplicativo:* escreva _desfazer no app_. ⏎  ⏎ *Perfil do bot:* envie uma *foto* com a legenda _perfil_ ou escreva _sobre: seu texto_. [Hoje|Finanças do mês|Agenda]
 [D] obrigado
    IA: —
    → →ined: undefined ⏎ →4460: 
@@ -297,7 +297,7 @@
    → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (25/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_).
 [0011] comecei o acabamento do Cássio
    IA: —
-   → →ined: undefined ⏎ →4460: *Fabrício* pegou o acabamento de *Cássio Borges* (não estava com ele). Os pontos dessa etapa vão para ele. ⏎ →0011: Anotado, Fabrício: acabamento de *Cássio Borges* começou às 06:46. Bom trabalho!
+   → →ined: undefined ⏎ →4460: *Fabrício* pegou o acabamento de *Cássio Borges* (não estava com ele). Os pontos dessa etapa vão para ele. ⏎ →0011: Anotado, Fabrício: acabamento de *Cássio Borges* começou às 06:51. Bom trabalho!
 [0011] ainda não terminei o Cássio
    IA: —
    → →ined: undefined ⏎ →0011: Certo, Fabrício: anotado que ainda não terminou. Quando terminar, me diga: _terminei o de (cliente)_.

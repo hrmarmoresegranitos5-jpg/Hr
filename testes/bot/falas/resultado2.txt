@@ -30,7 +30,7 @@
    → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (25/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_).
 [0011] Terminei o corte das peças do cassio borges e já comecei o acabamento
    IA: —
-   → →ined: undefined ⏎ →4460: *Fabrício* pegou o acabamento de *Cássio Borges* (não estava com ele). Os pontos dessa etapa vão para ele. ⏎ →0011: Anotado, Fabrício: acabamento de *Cássio Borges* começou às 06:46. Bom trabalho!
+   → →ined: undefined ⏎ →4460: *Fabrício* pegou o acabamento de *Cássio Borges* (não estava com ele). Os pontos dessa etapa vão para ele. ⏎ →0011: Anotado, Fabrício: acabamento de *Cássio Borges* começou às 06:51. Bom trabalho!
 [0011] o cliente do Osmailton ligou perguntando quando fica pronto
    IA: —
    → →ined: undefined ⏎ →4460: *Recado da entrega/cliente* — Fabrício Morais: "o cliente do Osmailton ligou perguntando quando fica pronto" ⏎ Cliente: *Osmailton Souza* (Cozinha · Preto) ⏎ →0011: Anotado, Fabrício. Avisei o Sr. Hangel (Osmailton).
@@ -87,7 +87,7 @@
    → →ined: undefined ⏎ →0022: Gibson, esse pagamento é de qual cliente? (Jacob, Cássio, Osmailton, Poliana)
 [0022] cheguei no Osmailton
    IA: —
-   → →ined: undefined ⏎ →0022: Boa, Gibson! Início da instalação de *Osmailton Souza* às 06:46. Me manda uma *foto do local antes de começar* (mostra como estava). Ela protege você e a empresa. ⏎ →4460: *Gibson* começou a instalação de *Osmailton Souza* às 06:46.
+   → →ined: undefined ⏎ →0022: Boa, Gibson! Início da instalação de *Osmailton Souza* às 06:51. Me manda uma *foto do local antes de começar* (mostra como estava). Ela protege você e a empresa. ⏎ →4460: *Gibson* começou a instalação de *Osmailton Souza* às 06:51.
 [0022] preciso de ajuda na instalação, é muito pesada
    IA: —
    → →ined: undefined ⏎ →4460: *Recado da entrega/cliente* — Gibson: "preciso de ajuda na instalação, é muito pesada" ⏎ →0022: Anotado, Gibson. Avisei o Sr. Hangel.

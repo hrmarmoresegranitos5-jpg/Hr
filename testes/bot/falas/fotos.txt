@@ -1,19 +1,19 @@
 [F] FOTO "corte do Jacó pronto"
    → →ined: undefined ⏎ →0011: *+0,3 ponto(s)*, Fabrício! (corte · Jacob da Mata) ⏎  Hoje: *0,3 de 3,5* ⏎  Semana: *0,3 de 19* · faltam 18,7 ⏎ →0022: [TEMPLATE resposta_cliente] ⏎ →0011: Show, Fabrício! Anotei que o de *Jacob da Mata* ficou pronto. Avisei o Sr. Hangel. Mandei a entrega para o Gibson; ele vê assim que abrir o WhatsApp. ⏎ →4460: *Fabrício* terminou o pedido de *Jacob da Mata* (2 peitoris · Preto São Gabriel
 [F] FOTO ""
-   → →ined: undefined ⏎ →0011: Mais uma foto guardada no pedido de Jacob da Mata.
+   → →ined: undefined ⏎ →0011: Foto guardada no pedido de Jacob da Mata.
 [F] TXT "é do Cássio"
    → →ined: undefined ⏎ →0011: Certo, Fabrício: a foto é de *Cássio Borges* (Lavatório · Branco Pinta Verde), não de Jacob da Mata. Já mudei. Se terminou alguma etapa dele, me diga (ex.: _terminei o corte do Cássio_).
 [F] FOTO "peitoril finalizado"
    → →ined: undefined ⏎ →0011: Fabrício, *Jacob da Mata* (2 peitoris · Preto São Gabriel) já estava pronto e anotado. Guardei a foto no pedido. Se é de outro cliente, me diga o nome.
 [F] FOTO "soleira itaunas cortada"
-   → →ined: undefined ⏎ →0011: Recebi a foto, Fabrício! É de qual serviço? [lista]
+   → →ined: undefined ⏎ →0011: Anotei: *Terminei (peças prontas)* — *Cássio Borges*. Se não for isso, me diga (ex.: _não, é do Jacó_). ⏎ →4299: Lucas, as peças de *Cássio Borges* (Lavatório · Branco Pinta Verde) estão cortadas. Pode fazer o *acabamento*. Quando terminar: _terminei o acabamento de Cássio_. ⏎ →0011: Show, Fabrício! Corte de *Cássio Borges* anotado. Passei para o Lucas fazer o acabamento. ⏎ →0011: *+0,3 pont
 [L] FOTO "acabamento do Cássio"
-   → →ined: undefined ⏎ →4460: Lucas terminou o acabamento de *Cássio Borges*, mas o corte não tinha sido registrado. Contei o corte para Fabrício (responsável pelo corte). Se foi outra pessoa, me diga. ⏎ →0011: *+0,3 ponto(s)*, Fabrício! (corte · Cássio Borges) ⏎  Hoje: *0,6 de 3,5* ⏎  Semana: *0,6 de 19* · faltam 18,4 ⏎ →4299: *+0,3 ponto(s)*, Lucas! (acabamento · Cássio Borges) ⏎  Hoje: *0,3 de 3,5* ⏎  Semana: *0,3 de 
+   → →ined: undefined ⏎ →4299: *+0,3 ponto(s)*, Lucas! (acabamento · Cássio Borges) ⏎  Hoje: *0,3 de 3,5* ⏎  Semana: *0,3 de 19* · faltam 18,7 ⏎ →0022: [TEMPLATE resposta_cliente] ⏎ →4299: Show, Lucas! Anotei que o de *Cássio Borges* ficou pronto. Avisei o Sr. Hangel. Mandei a entrega para o Gibson; ele vê assim que abrir o WhatsApp. ⏎ →4460: *Fabrício* cortou e *Lucas* fez o acabamento. Ficou pronto o pedido de *Cássio B
 [L] FOTO ""
-   → →ined: undefined ⏎ →4299: Mais uma foto guardada no pedido de Cássio Borges.
+   → →ined: undefined ⏎ →4299: Foto guardada no pedido de Cássio Borges.
 [L] FOTO ""
-   → →ined: undefined ⏎ →4299: Mais uma foto guardada no pedido de Cássio Borges.
+   → →ined: undefined
 [G] TXT "instalei a cozinha da Poliana"
    → →ined: undefined ⏎ →0022: *ENTREGA* ⏎ Cliente: Jacob da Mata ⏎ Contato: sem número no sistema (peça ao Sr. Hangel) ⏎ Pagamento: CONFIRMAR COM O SR. HANGEL antes de cobrar (o valor não está no sistema) ⏎ Referência: --- ⏎  ⏎ Itens: 2 peitoris ⏎ →0022: *ENTREGA* ⏎ Cliente: Cássio Borges ⏎ Contato: sem número no sistema (peça ao Sr. Hangel) ⏎ Pagamento: CONFIRMAR COM O SR. HANGEL antes de cobrar (o valor não está no sis
 [G] FOTO ""
