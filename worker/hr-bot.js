@@ -32825,7 +32825,7 @@ Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resum
   if (citado) texto = `(respondendo à mensagem: "${citado.slice(0, 300)}") ${texto}`;
   let out = null;
   try {
-    const t = await chamarIA(env, sistema, hist.slice(-6), texto, { maxTokens: 400, model: env.AI_MODEL_RH || 'claude-haiku-5-5', cat: 'equipe' }); // v184: Haiku basta para o RH
+    const t = await chamarIA(env, sistema, hist.slice(-6), texto, { maxTokens: 500, model: env.AI_MODEL_RH || 'claude-sonnet-5-5', cat: 'equipe' }); // v332: Sonnet — o Haiku respondia "avisei o Sr. Hangel sobre o serviço de hoje" e "como posso ajudar"
     const mj = /\{[\s\S]*\}/.exec(t || ''); out = mj ? JSON.parse(mj[0]) : null;
   } catch (e) { console.log('[RH] IA:', e.message); }
   if (out && out.acao === 'registrar' && out.cliente) { // v288: a IA entendeu o serviço: o fluxo da produção registra (ou pede ao dono para confirmar)
@@ -32836,6 +32836,9 @@ Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resum
   }
   if (!out || !out.resposta) out = { resposta: `${nome}, recebi sua mensagem e vou passar para o responsável.`, escalar: true, resumo_para_dono: texto };
   out.resposta = String(out.resposta).replace(/\bObrigado\b/g, 'Obrigada').replace(/\bobrigado\b/g, 'obrigada'); // v162: a secretária é mulher
+  if (/\b(vou passar (o |seu )?recado ao respons\w*|avisei o sr\.? hangel sobre o servi\w* de|como posso (te )?ajudar|nao achei ficha pendente|precisa de orcamento|seu projeto)\b/.test(normaliza(out.resposta))) { // v332: resposta vazia de atendente → pergunta o que falta e o dono fica sabendo
+    out.resposta = /\b(servic|pont|cort|acab|instal|termin|fiz|feito|cozinh|lavat|peitor|soleir|balca|bancad)\w*/.test(normaliza(texto)) ? `${nome}, me diga o cliente e o que você fez (ex.: _terminei o corte do Cássio_ ou _instalei a cozinha da Poliana_) que eu registro agora.` : `${nome}, não entendi bem. Me explica de novo em poucas palavras?`;
+    out.escalar = true; out.resumo_para_dono = out.resumo_para_dono || `mensagem que não entendi: "${String(texto).slice(0, 300)}"`; out.assunto = 'outro'; }
   await enviar(env, from, String(out.resposta).slice(0, 1200));
   hist = hist.concat([{ role: 'user', content: texto.slice(0, 800) }, { role: 'assistant', content: String(out.resposta).slice(0, 800) }]).slice(-12);
   await env.HR_KV.put('rh:hist:' + f.id, JSON.stringify(hist), { expirationTtl: 3 * 86400 });
