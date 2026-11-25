@@ -1402,7 +1402,7 @@
         lista().forEach(function (q) { try { var t = textoDoOrcamento(q); if (!t) return; var hs = hashTxt([q.cli, q.mat, q.tipo, t].join('|')); if (feitos[String(q.id)] !== hs) fila.push({ q: q, t: t, hs: hs }); } catch (e) {} });
         var n = 0;
         function prox() {
-          var it = fila.shift(); if (!it || n >= 4) { rodando = false; return; }
+          var it = fila.shift(); if (!it || n >= 8) { rodando = false; return; }
           var d = novo(); d.cliente = it.q.cli || ''; d.material = it.q.mat || ''; d.desc = it.q.tipo || ''; d.texto = it.t; d.pecas = interpretar(it.t);
           if (!d.pecas.length) return prox();
           n++;
@@ -1413,7 +1413,7 @@
         prox();
       }).catch(function () { rodando = false; });
     }
-    setTimeout(ciclo, 45000); setInterval(ciclo, 3 * 60 * 1000);
+    setTimeout(ciclo, 15000); setInterval(ciclo, 2 * 60 * 1000);
     window.hrFichasParaBot = ciclo;
   })();
   window.abrirDesenho = abrir; window.__hrDesTeste = { paginacaoSvg: paginacaoSvg, planoCorte: planoCorte, pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };

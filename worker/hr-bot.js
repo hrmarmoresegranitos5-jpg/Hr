@@ -8080,7 +8080,7 @@ function fichaCortePdf(d) {
     let o = '';
     for (const ch of String(t == null ? '' : t)) {
       const c = ch.charCodeAt(0);
-      o += c === 0x2014 ? '\x97' : c === 0x2013 ? '\x96' : c === 0xD7 ? '\xD7' : c < 256 ? ch : '?';
+      o += c === 0x2014 ? '\x97' : c === 0x2013 ? '\x96' : c === 0xD7 ? '\xD7' : c < 256 ? ch : (c >= 0xD800 && c <= 0xDFFF) || c >= 0x2190 || c === 0xFE0F || c === 0x200D ? '' : '?'; // v344: emoji some (era "??")
     }
     return o.replace(/[\\()]/g, m => '\\' + m);
   };
@@ -17816,7 +17816,9 @@ function appPecasDoAmb(amb) {
     const ms = resto.match(/\s*\[([^\]]*)\]\s*$/); if (ms) { sv = ms[1].split(',').map(x => x.trim()).filter(Boolean); resto = resto.slice(0, ms.index); }
     const pecas = resto.split(/,\s*/).map(t => { const p = t.trim().match(/^(?:(\d+)x\s+)?(\d+(?:[.,]\d+)?)x(\d+(?:[.,]\d+)?)(?:\s+(.+))?$/); if (!p) return null; const a = +p[2].replace(',', '.'), b = +p[3].replace(',', '.'); return { qtd: +p[1] || 1, comp_cm: Math.max(a, b), larg_cm: Math.min(a, b), nome: (p[4] || '').trim() }; }).filter(Boolean);
     const ac = [...new Set(sv.map(k => SV_TXT[k]).filter(Boolean))]; if (cuba) ac.push('cuba ' + cuba);
-    return { ambiente: m[1].trim(), acabTxt: ac.join(' · ').slice(0, 46).replace(/[\s·]+$/, ''), pecas: agruparPecas(pecas) };
+    const limpo = t => String(t || '').replace(/[\u{1F000}-\u{1FFFF}\u{2190}-\u{2BFF}\uFE0F\u200D]/gu, '').replace(/\s*[×x]\s*\d+\s*$/i, '').replace(/\s+/g, ' ').trim(); // v344: sem emoji e sem "×2" repetido no nome
+    pecas.forEach(p => { p.nome = limpo(p.nome); });
+    return { ambiente: limpo(m[1]) || 'Peças', acabTxt: ac.join(' · ').slice(0, 46).replace(/[\s·]+$/, ''), pecas: agruparPecas(pecas) };
   }).filter(x => x && x.pecas.length);
 }
 async function fichaTecnicaTool(env, from, a) {
