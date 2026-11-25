@@ -13968,6 +13968,15 @@ async function fix353Fabricio(env) {
   // sem mensagem extra ao Fabrício: só o aviso normal de pontos do sistema; o Sr. Hangel decide se fala com ele
 }
 // v353: conferência dos pontos do Fabrício (semana) e dos pedidos do Cássio — só leitura, vai para tmp_diag
+async function diag356(env) { // v356: Renata (extrato errado)
+  if (!env.HR_DB || await env.HR_KV.get('diag:356')) return; await env.HR_KV.put('diag:356', '1', { expirationTtl: 2 * 86400 });
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
+  const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 900000)).run();
+  const liv = (await livTodos(env)).filter(r => /renata/i.test(r.cliente || '')); await put('356liv', liv);
+  const h = await lerHistorico(env).catch(() => null);
+  if (h) { await put('356orc', (h.orcamentos || []).filter(o => /renata/i.test(o.cliente || ''))); await put('356cli', (h.clientes || []).filter(c => /renata/i.test(c.nome || ''))); await put('356hkeys', Object.keys(h)); }
+  const peds = await pedidosProducao(env, p => /renata/i.test(p.nome || '')).catch(() => []); await put('356ped', peds.map(p => ({ id: p.id, nome: p.nome, status: p.status, valor: p.valor, pagamentos: p.pagamentos, entrada: p.entrada, projetoApp: p.projetoApp, pedra: (p.resumoApp || {}).pedra, entregueEm: p.entregueEm })));
+}
 async function diag353(env) {
   if (!env.HR_DB || await env.HR_KV.get('diag:353')) return; await env.HR_KV.put('diag:353', '1', { expirationTtl: 2 * 86400 });
   await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
@@ -33535,7 +33544,8 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
     return true;
   }
   const rel = await pontoRelUltimo(env, f.id);
-  if (rel && rel.status !== 'aprovado' && /^(sim|s|ok|okay|aprovo|aprovado|confirmo|certo|ta certo|esta certo|tudo certo|ta tudo certo|correto|de acordo|pode ser|isso|blz|beleza|👍)[.! ]*$/.test(normaliza(texto))) { // v162
+  let relUlt = false; if (rel && rel.status !== 'aprovado') { if (citado) relUlt = /relat[oó]rio|dec[eê]ndio/i.test(citado); else { const cv = await crmConversa(env, from, 4, 6).catch(() => []), ub = cv.filter(x => x.q !== 'c').pop(); relUlt = !!(ub && /relat[oó]rio|dec[eê]ndio/i.test(String(ub.texto || ''))); } } // v356: "Ok" a outra mensagem ("Passei a sua resposta…") não aprova o relatório
+  if (rel && rel.status !== 'aprovado' && relUlt && /^(sim|s|ok|okay|aprovo|aprovado|confirmo|certo|ta certo|esta certo|tudo certo|ta tudo certo|correto|de acordo|pode ser|isso|blz|beleza|👍)[.! ]*$/.test(normaliza(texto))) { // v162
     await pontoRelDecidir(env, cfg, f, rel.df, 'ok');
     await enviar(env, from, `Obrigada, ${nome}! Relatório do ${rel.label} aprovado. ✅`); return true;
   }
@@ -36976,6 +36986,7 @@ export default {
     if (req.method === 'GET' && /^\/voz-video2\/[a-z]+$/.test(url.pathname)) return vozVideo2Rota(env, url.pathname.split('/')[2]); // v353
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
+    if (ctx && ctx.waitUntil && !globalThis.__diag356) { globalThis.__diag356 = 1; ctx.waitUntil(diag356(env).catch(e => console.log('[DIAG356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
     if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).then(() => mig206(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
