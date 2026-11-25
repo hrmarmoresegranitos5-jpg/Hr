@@ -1,0 +1,32 @@
+[F] FOTO "corte do Jacó pronto"
+   → →ined: undefined ⏎ →0011: *+0,3 ponto(s)*, Fabrício! (corte · Jacob da Mata) ⏎  Hoje: *0,3 de 3,5* ⏎  Semana: *0,3 de 19* · faltam 18,7 ⏎ →0022: [TEMPLATE resposta_cliente] ⏎ →0011: Show, Fabrício! Anotei que o de *Jacob da Mata* ficou pronto. Avisei o Sr. Hangel. Mandei a entrega para o Gibson; ele vê assim que abrir o WhatsApp. ⏎ →4460: *Fabrício* terminou o pedido de *Jacob da Mata* (2 peitoris · Preto São Gabriel
+[F] FOTO ""
+   → →ined: undefined ⏎ →0011: Mais uma foto guardada no pedido de Jacob da Mata.
+[F] TXT "é do Cássio"
+   → →ined: undefined ⏎ →0011: Certo, Fabrício: a foto é de *Cássio Borges* (Lavatório · Branco Pinta Verde), não de Jacob da Mata. Já mudei. Se terminou alguma etapa dele, me diga (ex.: _terminei o corte do Cássio_).
+[F] FOTO "peitoril finalizado"
+   → →ined: undefined ⏎ →0011: Fabrício, *Jacob da Mata* (2 peitoris · Preto São Gabriel) já estava pronto e anotado. Guardei a foto no pedido. Se é de outro cliente, me diga o nome.
+[F] FOTO "soleira itaunas cortada"
+   → →ined: undefined ⏎ →0011: Recebi a foto, Fabrício! É de qual serviço? [lista]
+[L] FOTO "acabamento do Cássio"
+   → →ined: undefined ⏎ →4460: Lucas terminou o acabamento de *Cássio Borges*, mas o corte não tinha sido registrado. Contei o corte para Fabrício (responsável pelo corte). Se foi outra pessoa, me diga. ⏎ →0011: *+0,3 ponto(s)*, Fabrício! (corte · Cássio Borges) ⏎  Hoje: *0,6 de 3,5* ⏎  Semana: *0,6 de 19* · faltam 18,4 ⏎ →4299: *+0,3 ponto(s)*, Lucas! (acabamento · Cássio Borges) ⏎  Hoje: *0,3 de 3,5* ⏎  Semana: *0,3 de 
+[L] FOTO ""
+   → →ined: undefined ⏎ →4299: Mais uma foto guardada no pedido de Cássio Borges.
+[L] FOTO ""
+   → →ined: undefined ⏎ →4299: Mais uma foto guardada no pedido de Cássio Borges.
+[G] TXT "instalei a cozinha da Poliana"
+   → →ined: undefined ⏎ →0022: *ENTREGA* ⏎ Cliente: Jacob da Mata ⏎ Contato: sem número no sistema (peça ao Sr. Hangel) ⏎ Pagamento: CONFIRMAR COM O SR. HANGEL antes de cobrar (o valor não está no sistema) ⏎ Referência: --- ⏎  ⏎ Itens: 2 peitoris ⏎ →0022: *ENTREGA* ⏎ Cliente: Cássio Borges ⏎ Contato: sem número no sistema (peça ao Sr. Hangel) ⏎ Pagamento: CONFIRMAR COM O SR. HANGEL antes de cobrar (o valor não está no sis
+[G] FOTO ""
+   → →ined: undefined ⏎ →0022: *+2 ponto(s)*, Gibson! (instalação · Poliana Reis) ⏎  Hoje: *2 de 3,5* ⏎  Semana: *2 de 19* · faltam 17 ⏎ →4460: *Gibson* entregou o pedido de *Poliana Reis* (Cozinha · Branco Siena). ⏎ →0022: Valeu, Gibson! Anotei a entrega de *Poliana Reis* e avisei o Sr. Hangel.
+[G] FOTO "entregue Osmailton"
+   → →ined: undefined ⏎ →0003: [TEMPLATE resposta_cliente] ⏎ →4460: A garantia *G-0001* de *Osmailton Souza* só sai com nome completo e CPF. Já pedi ao cliente; emito o certificado assim que chegar. ⏎ →0022: *+1,8 ponto(s)*, Gibson! (instalação · Osmailton Souza) ⏎  Hoje: *3,8 de 3,5* ⏎  Semana: *3,8 de 19* · faltam 15,2 ⏎ →4460: *Gibson* entregou o pedido de *Osmailton Souza* (Cozinha · Preto). ⏎ A cobrar na entrega: R$ 
+[F] FOTO "terminei"
+   → →ined: undefined ⏎ →0011: Recebi a foto, Fabrício! É de qual serviço? [lista]
+[F] FOTO "cortei 1 peitoril do Jacó, falta 1"
+   → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (24/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_). ⏎ →0011: Foto guardada no pedido de Jacob da Mata. Valeu, Fabrício!
+
+ESTADO:
+undefined: corte=false pronto=false acab=false entregue=false fotos=0 log=[]
+undefined: corte=false pronto=false acab=false entregue=false fotos=0 log=[]
+undefined: corte=false pronto=false acab=false entregue=false fotos=0 log=[]
+undefined: corte=false pronto=false acab=false entregue=false fotos=0 log=[]

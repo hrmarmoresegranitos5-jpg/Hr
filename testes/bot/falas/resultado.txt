@@ -1,12 +1,12 @@
 [D] gastei 150 de combustível
    IA: —
-   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Gasto:* R$ 150,00 ⏎ *Descrição:* Combustível ⏎ *Categoria:* Combustível ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 150,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na pr
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, patrão.* ⏎  ⏎ *Gasto:* R$ 150,00 ⏎ *Descrição:* Combustível ⏎ *Categoria:* Combustível ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 150,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na próxim
 [D] paguei 80 reais de almoço pros meninos
    IA: —
-   → →ined: undefined ⏎ →4460: *Lançamento registrado, patrão.* ⏎  ⏎ *Gasto:* R$ 80,00 ⏎ *Descrição:* Almoço pros meninos ⏎ *Categoria:* Outros ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na próx
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Gasto:* R$ 80,00 ⏎ *Descrição:* Almoço pros meninos ⏎ *Categoria:* Outros ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na 
 [D] recebi 500 do Jacó no pix
    IA: —
-   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Entrada:* R$ 500,00 ⏎ *Descrição:* Recebido de Jacó no pix ⏎ *Categoria:* — ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 500,00 ⏎  ⏎ _Será incluído em Finanças
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, chefe.* ⏎  ⏎ *Entrada:* R$ 500,00 ⏎ *Descrição:* Recebido de Jacó no pix ⏎ *Categoria:* — ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 500,00 ⏎  ⏎ _Será incluído em Finanças na p
 [D] Ele pagou 150
    IA: GASTOS DO MERCADO PAGO SEM NOM
    → →ined: undefined ⏎ →4460: {}
@@ -78,10 +78,10 @@
    → →ined: undefined ⏎ →4460: {}
 [D] fechei com a Maria a cozinha de 3.200
    IA: —
-   → →ined: undefined ⏎ →4460: Patrão, não achei orçamento de *maria* no app nem no bot. Me diga o que fechou com as medidas (ex.: _fechei com maria 2 soleiras 80x15 em Branco Siena, 350 reais_) que eu monto a ficha.
+   → →ined: undefined ⏎ →4460: Chefe, não achei orçamento de *maria* no app nem no bot. Me diga o que fechou com as medidas (ex.: _fechei com maria 2 soleiras 80x15 em Branco Siena, 350 reais_) que eu monto a ficha.
 [D] quais orçamentos estão aguardando?
    IA: —
-   → →ined: undefined ⏎ →4460: Patrão, o aplicativo ainda não mandou o histórico de orçamentos ao bot. Abra o app que ele sincroniza sozinho e peça de novo.
+   → →ined: undefined ⏎ →4460: Sr. Hangel, o aplicativo ainda não mandou o histórico de orçamentos ao bot. Abra o app que ele sincroniza sozinho e peça de novo.
 [D] quem não respondeu o orçamento?
    IA: GASTOS DO MERCADO PAGO SEM NOM
    → →ined: undefined ⏎ →4460: {}
@@ -111,7 +111,7 @@
    → →ined: undefined ⏎ →4460: {}
 [D] entreguei a cozinha da Poliana
    IA: —
-   → →ined: undefined ⏎ →4460: Anotei a entrega de *Poliana Reis* (Cozinha · Branco Siena) e tirei da produção. Não há restante em aberto, patrão.
+   → →ined: undefined ⏎ →4460: Anotei a entrega de *Poliana Reis* (Cozinha · Branco Siena) e tirei da produção. Não há restante em aberto, chefia.
 [D] marca entregue o serviço do Wesley
    IA: GASTOS DO MERCADO PAGO SEM NOM
    → →ined: undefined ⏎ →4460: {}
@@ -210,7 +210,7 @@
    → →ined: undefined ⏎ →4460: {}
 [D] cadê o link do totem?
    IA: —
-   → →ined: undefined ⏎ →4460: *Tablet do balcão* ⏎ App no modo balcão (orçamento, histórico e controle da TV): https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1 ⏎ Entre com a conta Google da HR para sincronizar. ⏎  ⏎ Só o controle da TV: ⏎ /totem?k=5i1o1a6v6
+   → →ined: undefined ⏎ →4460: *Tablet do balcão* ⏎ App no modo balcão (orçamento, histórico e controle da TV): https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1 ⏎ Entre com a conta Google da HR para sincronizar. ⏎  ⏎ Só o controle da TV: ⏎ /totem?k=1a3s40624
 [D] controle da tv
    IA: GASTOS DO MERCADO PAGO SEM NOM
    → →ined: undefined ⏎ →4460: {}
@@ -228,10 +228,10 @@
    → →ined: undefined ⏎ →4460: {}
 [D] bom dia
    IA: —
-   → →ined: undefined ⏎ →4460: Olá, *chefia*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais boleto
+   → →ined: undefined ⏎ →4460: Olá, *chefe*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais boletos
 [D] oi Helena
    IA: —
-   → →ined: undefined ⏎ →4460: Olá, *Sr. Hangel*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais bo
+   → →ined: undefined ⏎ →4460: Olá, *chefia*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais boleto
 [D] obrigado
    IA: —
    → →ined: undefined ⏎ →4460: 
@@ -297,7 +297,7 @@
    → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (24/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_).
 [0011] comecei o acabamento do Cássio
    IA: —
-   → →ined: undefined ⏎ →4460: *Fabrício* pegou o acabamento de *Cássio Borges* (não estava com ele). Os pontos dessa etapa vão para ele. ⏎ →0011: Anotado, Fabrício: acabamento de *Cássio Borges* começou às 21:49. Bom trabalho!
+   → →ined: undefined ⏎ →4460: *Fabrício* pegou o acabamento de *Cássio Borges* (não estava com ele). Os pontos dessa etapa vão para ele. ⏎ →0011: Anotado, Fabrício: acabamento de *Cássio Borges* começou às 22:40. Bom trabalho!
 [0011] ainda não terminei o Cássio
    IA: —
    → →ined: undefined ⏎ →0011: Certo, Fabrício: anotado que ainda não terminou. Quando terminar, me diga: _terminei o de (cliente)_.
@@ -333,7 +333,7 @@
    → →ined: undefined ⏎ →0011: [IA-RH] resposta com dados: PONTOS DELE: hoje 0,1 de 3,5 · semana 0,1 de 19 (1%).
 [0011] Peitoril finalizado
    IA: —
-   → →ined: undefined ⏎ →0011: Fabrício, é de *Jacob da Mata* (2 peitoris · Preto São Gabriel)? Se for de outro, me diga o nome do cliente. [Jacob da Mata]
+   → →ined: undefined ⏎ →0011: Fabrício, *Jacob da Mata* (2 peitoris · Preto São Gabriel) já estava pronto e anotado. Se é de outro cliente, me diga o nome.
 [0022] bom dia
    IA: —
    → →ined: undefined ⏎ →0022: *ENTREGA* ⏎ Cliente: Jacob da Mata ⏎ Contato: wa.me/5574988880001 ⏎ Pagamento: CONFIRMAR COM O SR. HANGEL antes de cobrar (o valor não está no sistema) ⏎ Referência: --- ⏎  ⏎ Itens: 2 peitoris

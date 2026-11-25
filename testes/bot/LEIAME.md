@@ -16,3 +16,4 @@ Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). 
 - t11: peça/pedra × pedido, nome de cliente inválido, pontos por pergunta. t12: correção do Cássio (v323).
 - t13: corrigir pagamento já no app (v324).
 - falas/: bateria de ~120 falas reais do dono e da equipe (node falas/rodar.mjs → falas/resultado.txt mostra quem respondeu: comando fixo ou IA). v325.
+- falas/fotos.mjs: fotos da equipe (com e sem legenda, etapa já feita, foto no pedido errado, entregador) → falas/fotos.txt. v326.
