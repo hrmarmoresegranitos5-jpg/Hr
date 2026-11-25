@@ -2473,6 +2473,8 @@ async function tratarBotao(env, from, id, F) {
   if (/^fimc\|/.test(id)) return fimConfBotao(env, from, id); // v274
   if (/^etpc\|/.test(id)) return etapaConfBotao(env, from, id); // v279
   if (/^apv\|/.test(id)) return aprovBotao(env, from, id); // v339
+  if (id === 'apv_tudo') return aprovComandoDono(env, from, 'aprovar tudo'); // v346
+  if (id === 'apv_ver') { await enviar(env, from, 'No app: 🏭 Produção → ✅ Aprovar produção. Lá dá para aprovar um por um ou recusar o que estiver errado.'); return true; }
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
@@ -7313,6 +7315,7 @@ async function pedirAvaliacoes(env) {
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
   await helenaAuditoriaRotina(env).catch(e => console.log('[FALHA] auditoria:', e.message)); // v329
+  await aprovLembrete(env).catch(e => console.log('[APROV] lembrete:', e.message)); // v346
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
   await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
@@ -11045,7 +11048,9 @@ async function producaoStatusTool(env, a) {
     const EN = { corte: 'o corte', acabamento: 'o acabamento', fabricacao: 'a fabricação', instalacao: 'a instalação', entrega: 'a entrega', retirada: 'a retirada', polimento: 'o polimento' }[et2] || et2;
     const quemN = []; for (const p of st.quem) quemN.push(await respNome(env, p) || p);
     const recente = st.entradas.find(x => Math.abs(ts - x.ts) < 4 * 3600000 && (x.por || []).some(p => ids.includes(String(p))));
+    if (ids.length && recente && !a.forcar && recente.ap === 0 && recente.apId) { const r = await aprovDecidir(env, [{ pid: ped.id, apId: recente.apId, ok: true }]); if (r.aprovados) return { texto: `APROVADO: ${EN} de ${ped.nome} que o funcionário tinha registrado às ${horaTs(recente.ts)} (estava esperando a aprovação). Os pontos entraram e ele foi avisado. Diga isso ao Sr. Hangel em 1 frase.` }; } // v346: o dono confirmou o que estava pendente
     if (ids.length && recente && !a.forcar) { const nm = []; for (const p of recente.por || []) nm.push(await respNome(env, p)); return { texto: `JÁ ESTAVA REGISTRADO: ${EN} de ${ped.nome} por ${nm.join(' e ')} às ${horaTs(recente.ts)}${recente.frac != null && recente.frac < 1 ? ' (parte das peças)' : ''}, registrado ${recente.dono ? 'pelo senhor' : 'pelo próprio funcionário'}. Não registrei de novo para não dar ponto em dobro. Diga isso ao Sr. Hangel em 1 frase. Só registre outra vez (forcar=true) se ele confirmar que é OUTRA peça/serviço.` }; }
+    if (ids.length && st.soma >= 0.999 && !a.forcar && etapa !== 'inicio') { const pend = (st.entradas || []).filter(x => x.ap === 0 && x.apId); if (pend.length) { const r = await aprovDecidir(env, pend.map(x => ({ pid: ped.id, apId: x.apId, ok: true }))); if (r.aprovados) return { texto: `APROVADO: ${EN} de ${ped.nome} (${r.aprovados} registro(s) da equipe que esperavam a aprovação). Os pontos entraram. Diga isso ao Sr. Hangel em 1 frase.` }; } }
     if (ids.length && st.soma >= 0.999 && !a.forcar && etapa !== 'inicio') return { texto: `JÁ ESTAVA COMPLETO: ${EN} de ${ped.nome} já foi registrado por inteiro (${quemN.join(', ') || 'equipe'}). Não registrei de novo. Diga isso ao Sr. Hangel em 1 frase; se for outra peça/serviço, ele confirma e você registra com forcar=true.` };
     if (ids.length && st.soma > 0.001 && st.soma < 0.999 && etapa !== 'inicio' && !a.forcar) { // já foi feito por partes: só a parte que ele disse
       const n = Math.max(1, nPecasPed(ped)), resto = Math.round((1 - st.soma) * 1000) / 1000;
@@ -13251,7 +13256,7 @@ async function mig185Garantias(env) {
 // v182: ETAPAS POR ITEM — um projeto com vários itens (ex.: 4 lavatórios, a bancada e os frontões da cozinha) tem cada item como
 // uma parte da etapa (corte, polimento, acabamento, fabricação). Cada item vale a sua parte dos pontos (pelo tamanho).
 // "terminei esse lavatório", "terminei 2 lavatórios da Maria", "poli os frontões do Papinha", "cortei todos os peitoris".
-const ITEM_NOUN = /\b(retenc(?:ao|oes)|pedras? de retencao|rebaixos?|cubas?|cooktops?|cook|furos?|tampos?|saias? (?:em |de )?45|lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
+const ITEM_NOUN = /\b(retenc(?:ao|oes)|pedras? de retencao|rebaixos?|cubas?|cooktops?|cook|furos?|tampos?|saias? (?:em |de )?45|lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|pratileiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
 const capT = t => String(t || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 function ptsItemPed(p, it) { return { __item: true, interesse: it.ambiente || p.interesse || '', projetoApp: it.ambiente || '', resumoApp: { pedra: (p.resumoApp || {}).pedra, itens: [it] }, pecas: (it.pecas || []).map(pc => ({ tipo: it.ambiente || 'peça', ...pc })) }; }
 // v310: o serviço que ele citou existe mas ainda não está pronto na produção → explica em que etapa está (e o dono confere)
@@ -13318,6 +13323,13 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   const papel = (await funcoesEquipe(env)).map[id] || [];
   let et = /\b(cortei|cortad)/.test(msg) ? 'corte' : /\b(poli|polid|lustr|polimento)/.test(msg) ? (pedComplexo(ped) ? 'polimento' : 'acabamento') : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : pedComplexo(ped) && String(ped.poliResp || '') === id && ped.corteEm && !ped.poliEm ? 'polimento' : null; // v188
   if (!et) et = String(ped.acabResp) === id && !ped.acabEm ? 'acabamento' : String(ped.fabResp) === id && !ped.corteEm ? 'corte' : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : ped.corteEm || !papel.includes('corte') ? (pedComplexo(ped) && papel.includes('fabricacao') ? 'fabricacao' : 'acabamento') : 'corte';
+  { const nn = nm ? normaliza(nm[1]).replace(/^pratileir/, 'prateleir') : ''; // v346: peça que NÃO está no projeto ("duas prateleiras do Cássio") → não diz "já estava anotado": vai ao dono
+    if (nn && !/^(pecas?|itens|item)$/.test(nn) && !unidadesPed(ped).some(u => casaNoun(u, nn)) && !unidadesPed(ped, et).some(u => casaNoun(u, nn))) {
+      if (foto && foto.mid) await fotosNoPedido(env, ped.id, [foto.mid], id).catch(() => {});
+      const qtxt = qn ? qn[1] + ' ' : '', oq = `${qtxt}${nm[1].replace(/^pratileir/i, 'prateleir')}`;
+      await pontoAvisarDono(env, `🧩 *${nome}* disse que fez ${ETAPA_NOME[et] || et} de *${oq}* do *${ped.nome}*, mas o projeto do ${ped.nome} no sistema não tem ${nm[1].replace(/^pratileir/i, 'prateleir')} (${resumoPecas(ped)}).\n"${String(texto).slice(0, 160)}"\nSe é peça a mais e vale ponto, me diga: _registra ${ETAPA_NOME[et] || et} de ${oq} do ${String(ped.nome).split(' ')[0]} pro ${nome}_.`).catch(() => {});
+      await enviar(env, from, `Anotei, ${nome}: ${oq} do *${ped.nome}*${foto && foto.mid ? ' (foto guardada)' : ''}. Essa peça não está no projeto do sistema, então passei para o Sr. Hangel confirmar os pontos.`);
+      return true; } }
   const U = unidadesPed(ped, et); if (U.length < 2) return false; // v188: as partes dependem da etapa
   const prog = ped.prog || {}, feitos = new Set(prog[et] || []);
   const etCompleta = (et === 'corte' && ped.corteEm) || (et === 'acabamento' && ped.acabEm) || (et === 'polimento' && ped.poliEm) || (et === 'fabricacao' && ped.fabProntoEm) || (!pedComplexo(ped) && (ped.fabProntoEm || ped.prontoEm) && et !== 'acabamento') || (prodEtapaFeita(ped, et).soma >= 0.999); // v326: já foi dado como pronto inteiro → não conta de novo
@@ -15261,6 +15273,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'o que ele quer no vídeo (frase, tema, estilo), com as palavras dele' }, usar_recentes: { type: 'boolean', description: 'true para usar o que ele acabou de mandar (padrão)' }, vai_mandar: { type: 'boolean', description: 'true quando ele disse que AINDA VAI mandar as fotos/vídeos ("vou te mandar..."): o bot guarda o pedido e monta quando chegarem' } }, required: ['pedido'] },
   },
   {
+    name: 'aprovar_producao',
+    description: 'APROVAÇÃO DA PRODUÇÃO: lista o que a equipe registrou e espera o ✅ do Sr. Hangel, ou aprova/recusa. Use quando ele disser "o que falta aprovar", "aprova o do Lucas", "aprova tudo do Cássio", "pode aprovar", "não aprova o do Hugo", ou perguntar se alguém ganhou os pontos de um serviço (os pontos só entram depois da aprovação).',
+    input_schema: { type: 'object', properties: { acao: { type: 'string', enum: ['listar', 'aprovar', 'recusar'] }, cliente: { type: 'string', description: 'filtra pelo cliente' }, funcionario: { type: 'string', description: 'filtra pelo funcionário' }, todos: { type: 'boolean', description: 'true = todos os pendentes (com os filtros)' } }, required: ['acao'] },
+  },
+  {
     name: 'ficha_tecnica',
     description: 'GERA E MANDA a FICHA TÉCNICA (PDF com cada ambiente, cada peça com nome, medida e quantidade, acabamentos e pedra) de QUALQUER orçamento do app — rascunho, aguardando, aceito ou entregue (nicho, cozinha, lavatório, escada, soleira...). Use quando o Sr. Hangel pedir "ficha técnica", "ficha do fulano", "medidas do projeto em PDF", "manda a ficha pro Fabrício". Por padrão manda ao Sr. Hangel; para_funcionario só se ELE pedir para mandar a alguém da equipe.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, orc: { type: 'string', description: 'nº ORC, se souber' }, projeto: { type: 'string', description: 'qual projeto, se o cliente tem mais de um' }, para_funcionario: { type: 'string', description: 'nome do funcionário, só se o Sr. Hangel mandou enviar a ele' } }, required: ['cliente'] },
@@ -15764,6 +15781,15 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   }
   if (nome === 'buscar_no_app') return appBuscarTool(env, a); // v340
   if (nome === 'ficha_tecnica') return fichaTecnicaTool(env, from, a); // v342
+  if (nome === 'aprovar_producao') { // v346
+    let l = (await aprovListar(env)).filter(x => x.st === 0);
+    if (a.cliente) l = l.filter(x => appCasaTexto({ cliente: x.cliente }, appToks(a.cliente)));
+    if (a.funcionario) l = l.filter(x => (x.quem || []).some(q => appCasaTexto({ cliente: q }, appToks(a.funcionario))));
+    if (a.acao === 'listar' || !l.length) return { texto: l.length ? `Esperando aprovação (${l.length}):\n${l.slice(0, 15).map(x => `• ${x.itens}${x.pts != null ? ' · ' + vPt(x.pts) + ' pt' : ''}${x.disse ? ' — "' + x.disse.slice(0, 80) + '"' : ''}`).join('\n')}` : 'Nada esperando aprovação com esse filtro (já foi aprovado ou o Sr. Hangel mesmo registrou).' };
+    if (l.length > 1 && !a.todos && !a.cliente && !a.funcionario) return { texto: `Há ${l.length} pendentes; confirme com o Sr. Hangel se é para ${a.acao} todos ou qual.` };
+    const r = await aprovDecidir(env, l.map(x => ({ pid: x.pid, apId: x.apId, ok: a.acao === 'aprovar' })));
+    return { texto: `${a.acao === 'aprovar' ? 'APROVADOS' : 'RECUSADOS'}: ${l.map(x => x.itens).join('; ')}. ${a.acao === 'aprovar' ? 'Os pontos entraram e os funcionários foram avisados.' : 'Não contam ponto; os funcionários foram avisados.'} Confirme em uma frase.` };
+  }
   if (nome === 'detalhe_no_app') return appDetalheTool(env, a); // v340
   if (nome === 'orcamentos_do_cliente') { // v118
     const r = await orcsDoCliente(env, a.cliente || '');
@@ -16101,6 +16127,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- VALOR/ORÇAMENTO DE UM CLIENTE (v49): antes de perguntar o valor ao Sr. Hangel, e antes de dizer que não encontrou um orçamento, chame consultar_historico_cliente com o nome do cliente (o da mensagem citada ou do assunto). Ela traz o número (ORC-…), o valor À VISTA e o valor A PRAZO. Se ele pedir "a prazo", use o valor a prazo; se a prazo não vier no histórico, diga isso e pergunte. Nunca afirme "não encontrei" sem ter consultado nesta mesma resposta.`,
       `- O APP INTEIRO (v340): você enxerga TODOS os orçamentos de todos os tempos (rascunho, aguardando, aceito, entregue, concluído, perdido), as peças e medidas de cada ambiente, a agenda, o contrato, os pagamentos do livro e a produção. Para qualquer pergunta sobre serviço/orçamento/cliente/valor/período chame buscar_no_app; para detalhes de um serviço chame detalhe_no_app. Os DADOS DO APP acima podem estar cortados: na dúvida, BUSQUE. Nunca responda "não encontrei" sem ter buscado.`,
       `- NUNCA diga "registrei", "anotei", "marquei", "lancei" ou "a partir de agora não faço X" sem ter chamado uma ferramenta que fez isso. Promessa de mudar o próprio comportamento não vale: diga que vai passar para o ajuste do sistema. Quando ele CORRIGIR um registro de produção (quem fez, qual cliente, se já foi instalado), use as ferramentas de produção para corrigir de fato.`,
+      `- TEMPO DO VERBO (v346): "finalizou", "terminou", "cortou", "entregou", "instalou" = JÁ FEITO: registre direto, sem perguntar se foi agora ou se ainda vai fazer. Só pergunte quando ele usar futuro ("vai terminar", "amanhã").`,
       `- APROVAÇÃO DA PRODUÇÃO (v339): o que os funcionários mandam fica PENDENTE (não conta ponto e não manda entrega) até o Sr. Hangel aprovar. "aprovar tudo" aprova; no app: Produção → Aprovar produção. O que ELE mesmo manda registrar entra aprovado.`,
       `- FICHA TÉCNICA (v342): "ficha técnica", "ficha do fulano", "as medidas em PDF" de QUALQUER orçamento (inclusive rascunho, nicho, cozinha): chame ficha_tecnica. Nunca diga que não existe ficha técnica salva: ela é gerada na hora a partir das peças do orçamento.`,
       `- DESCONTO / ABATIMENTO / PERMUTA (v341): "desconta 150", "ele vai me dar uma torneira de 150, desconta": PRIMEIRO grave no livro com registrar_entrega_pagamento (pagamento_valor = o valor, pagamento_forma "abatimento", pagamento_obs = o que foi, ex.: "torneira"), DEPOIS gere o PDF com pdf_saldo_cliente. Assim o saldo novo fica guardado; nunca só no PDF.`,
@@ -17717,6 +17744,11 @@ async function aprovDoFunc(env) { const c = env && env._ctx; if (!(c && c.de && 
 const APROV_ET = { corte: 'corte', polimento: 'polimento', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação', retirada: 'retirada', finalizado: 'finalização' };
 const aprovChave = x => `${x.e}|${x.ts}|${(x.por || []).map(String).sort().join(',')}`;
 async function aprovMarcar(env, p) {
+  if (p && Array.isArray(p.prodLog) && !env._aprovando && !(await aprovDoFunc(env))) { // v346: o Sr. Hangel registrou a etapa (WhatsApp/app) → a pendente igual vira "resolvida pelo dono"
+    const grp = e => ['entrega', 'instalacao', 'retirada', 'finalizado'].includes(e) ? 'ent' : ['fabricacao', 'acabamento', 'polimento'].includes(e) ? 'fab' : e;
+    const novosDono = p.prodLog.filter(x => x.ap === undefined && APROV_ET[x.e]);
+    for (const y of p.prodLog) if (y.ap === 0 && novosDono.some(x => grp(x.e) === grp(y.e) && (x.ts || 0) >= (y.ts || 0))) { y.ap = -1; y.apEm = Date.now(); y.apPorDono = 1; }
+    return; }
   if (!p || !(await aprovDoFunc(env)) || !(await aprovAtivo(env))) return;
   const old = await lerPedido(env, p.id).catch(() => null), ja = new Set(((old && old.prodLog) || []).map(aprovChave));
   p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : [];
@@ -17787,6 +17819,13 @@ async function aprovPosMensagem(env, from) {
       [{ id: `apv|${pid}|${apId}|s`, titulo: '✅ Aprovar' }, { id: `apv|${pid}|${apId}|n`, titulo: '❌ Não foi isso' }]).catch(() => {});
   }
   if (!c.apAvisou) { c.apAvisou = 1; await enviar(env, from, '⏳ _Os pontos entram quando o Sr. Hangel aprovar._').catch(() => {}); }
+}
+async function aprovLembrete(env) { // v346: 17:30 — o que ficou sem aprovar hoje (a equipe recebe os pontos só depois)
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.min < 17 * 60 + 30 || ag.min > 19 * 60 || !(await aprovAtivo(env))) return;
+  const k = 'aprov:lemb:' + hoje; if (await env.HR_KV.get(k)) return; if (!(await travaEnvio(env, k))) return; await env.HR_KV.put(k, '1', { expirationTtl: 2 * 86400 });
+  const l = (await aprovListar(env)).filter(x => x.st === 0); if (!l.length) return;
+  await enviarComBotoes(env, numeroDono(env), `📋 *Produção esperando sua aprovação (${l.length}):*\n${l.slice(0, 12).map(x => `• ${x.itens}${x.pts != null ? ' · ' + vPt(x.pts) + ' pt' : ''}`).join('\n')}${l.length > 12 ? `\n…e mais ${l.length - 12}` : ''}\n\nOs pontos só entram para a equipe depois do seu ✅.`,
+    [{ id: 'apv_tudo', titulo: '✅ Aprovar tudo' }, { id: 'apv_ver', titulo: 'Ver no app' }]);
 }
 async function aprovBotao(env, from, id) {
   const [, pid, apId, c] = id.split('|');
