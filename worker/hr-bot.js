@@ -2680,6 +2680,38 @@ async function vocabVoz(env) {
   ['Preto São Gabriel', 'Branco Dallas', 'Branco Itaúnas', 'Verde Ubatuba', 'Cinza Andorinha', 'Preto Absoluto', 'Branco pinta verde'].forEach(x => nm.add(x));
   const t = [...nm].join(', ').slice(0, 700); await env.HR_KV.put('voz:vocab', t, { expirationTtl: 3600 }).catch(() => {}); return t;
 }
+// v347: segunda passada nos áudios da equipe e do dono — a transcrição erra nomes com o barulho da produção.
+// Compara com os nomes que existem (serviços abertos, últimos orçamentos, equipe, pedras) e troca só o que for nome mal ouvido.
+function fonetico(t) { return normaliza(String(t || '')).replace(/[^a-z ]/g, '').replace(/ph/g, 'f').replace(/ch|sh|x/g, 'x').replace(/qu|q|c(?=[aou])|k|ck/g, 'k').replace(/c(?=[ei])|ç|z|ss/g, 's').replace(/y/g, 'i').replace(/w/g, 'v').replace(/h/g, '').replace(/(.)\1+/g, '$1').replace(/\s+/g, ' ').trim(); }
+function levDist(a, b) { const m = a.length, n = b.length; if (!m || !n) return Math.max(m, n); let v = Array.from({ length: n + 1 }, (_, i) => i); for (let i = 1; i <= m; i++) { const w = [i]; for (let j = 1; j <= n; j++) w[j] = Math.min(v[j] + 1, w[j - 1] + 1, v[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); v = w; } return v[n]; }
+async function vozNomesConhecidos(env) {
+  const nm = new Set();
+  try { (await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 15 * 86400000)).forEach(p => p.nome && nm.add(String(p.nome).trim())); } catch (_) {}
+  try { const h = await lerHistorico(env); ((h && h.orcamentos) || []).filter(o => !o.arquivado).sort((a, b) => String(b.data || '').localeCompare(String(a.data || ''))).slice(0, 150).forEach(o => o.cliente && nm.add(String(o.cliente).trim())); } catch (_) {}
+  try { (await livTodos(env)).slice(0, 80).forEach(r => r.cliente && nm.add(String(r.cliente).trim())); } catch (_) {}
+  return [...nm].filter(x => x.length >= 3 && nomeClienteValido(x)).slice(0, 260);
+}
+async function vozCorrigirNomes(env, texto, from, dono) {
+  if (!texto || texto.length > 600 || String(env.VOZ_CORRIGE ?? '1') === '0') return texto;
+  if (!dono) { const cfg = await pontoCfg(env).catch(() => null); if (!(cfg && pontoFuncPorFone(cfg, from))) return texto; } // só equipe e dono (cliente fala do próprio serviço)
+  const nomes = await vozNomesConhecidos(env); if (!nomes.length) return texto;
+  const tk = normaliza(texto); if (nomes.some(n => tokensPedra(n).length && casaNome(tokensPedra(n).slice(0, 1), texto) && nomeNota(n, tokensPedra(texto)) >= 2)) return texto; // já citou um nome conhecido certinho
+  const sis = `Você corrige transcrições de áudio de WhatsApp gravadas numa marmoraria barulhenta (Pilão Arcado, Bahia). A transcrição costuma errar NOMES DE CLIENTES (ex.: "caput boy" era "Caco Bola", "esio" era "Ésio"). Lista de clientes que existem: ${nomes.join('; ')}. Equipe: Fabrício, Lucas, Hugo, Gibson, Jefferson. Peças: soleira, peitoril, lavatório, bancada, balcão, nicho, frontão, prateleira, escada, cozinha. Pedras: Preto São Gabriel, Branco Itaúnas, Branco Siena, Verde Ubatuba, Branco Fortaleza, Branco Dallas.
+Troque SÓ trechos que são claramente um nome da lista (ou peça/pedra) mal ouvido, parecido no som. Não mude mais nada, não complete frases, não invente. Se não houver nada a corrigir, devolva igual. Responda SÓ JSON: {"texto":"...","trocas":[["de","para"]]}`;
+  const r = lerJsonIA(await chamarIA(env, sis, [], texto, { maxTokens: 400, timeoutMs: 12000, cat: 'voz', model: env.VOZ_MODELO || 'claude-haiku-5-5' }));
+  const novo = String((r && r.texto) || '').trim(), tr = Array.isArray(r && r.trocas) ? r.trocas : [];
+  if (!novo || !tr.length || novo.length > texto.length * 1.6 + 20) return texto;
+  const fn = nomes.map(n => ({ n, f: fonetico(n) }));
+  for (const t of tr) { // cada troca precisa ser um nome/peça conhecido e parecido no som (ou começar igual)
+    const para = String((t && t[1]) || ''), de = String((t && t[0]) || ''); if (!para || !de) return texto;
+    const alvo = fn.find(x => normaliza(x.n) === normaliza(para) || normaliza(x.n).startsWith(normaliza(para)) || normaliza(para).startsWith(normaliza(x.n).split(' ')[0])) || (/^(soleira|peitoril|peitoris|lavatorio|bancada|balcao|nicho|frontao|prateleira|escada|cozinha|preto|branco|verde|fabricio|lucas|hugo|gibson|jefferson)/.test(normaliza(para)) ? { f: fonetico(para) } : null);
+    if (!alvo) return texto;
+    const a = fonetico(de).replace(/ /g, ''), b = fonetico(para).replace(/ /g, '').slice(0, Math.max(a.length + 2, 4));
+    if (levDist(a, b) / Math.max(a.length, b.length, 1) > 0.6 && a[0] !== b[0]) return texto;
+  }
+  console.log('[VOZ] corrigido:', texto, '→', novo);
+  return novo;
+}
 async function ouvirAudio(env, from, m, dono = true) {
   const chave = chaveVoz(env);
   if (!chave) {
@@ -2720,6 +2752,7 @@ async function ouvirAudio(env, from, m, dono = true) {
       await enviar(env, from, dono ? 'Sr. Hangel, não foi possível entender esse áudio. Poderia repetir ou escrever a mensagem?' : 'Não foi possível entender esse áudio. Poderia repetir ou escrever a mensagem?');
       return null;
     }
+    texto = await vozCorrigirNomes(env, texto, from, dono).catch(e => { console.log('[VOZ] nomes:', e.message); return texto; }); // v347: barulho da fábrica → nome de cliente mal ouvido ("caput boy" = Caco Bola)
     // mostra o que foi entendido (importante para conferir valores)
     if (dono) await enviar(env, from, `_Mensagem entendida: “${texto.slice(0, 600)}”_`);
     return texto;

@@ -1,11 +1,12 @@
 import fs from 'fs'; import vm from 'vm';
 let src=fs.readFileSync(new URL('../../worker/hr-bot.js', import.meta.url),'utf8').replace(/^export default/m,'globalThis.__W=');
-src+=`\n;globalThis.__T={producaoStatusTool,fichaTecnicaTool,appPecasDoAmb,fichaCortePdf,appBuscarTool,appDetalheTool,appResumoPrompt,metasPontos,aprovListar,corrigirPagamentoCliente,correcoesPendentes,pedConflitoTxt,pedPorItemPedra,nomeClienteValido,acharPorNome,fixCassioV323,etapaPedirConfirmacao,pdfSaldoCliente,interpretarLancamento,producaoStatusTool,prodDuplicadosDono,lerPedido,chamarIA,tratarMensagem,salvarPedido,pedidosProducao,ptsEtapa,metaPainel,totemToken,auditoriaTexto,despacharPedidoDireto,horasDetalhe,explicarPontos,retroBonificacao};`;
+src+=`\n;globalThis.__T={vozCorrigirNomes,fonetico,producaoStatusTool,fichaTecnicaTool,appPecasDoAmb,fichaCortePdf,appBuscarTool,appDetalheTool,appResumoPrompt,metasPontos,aprovListar,corrigirPagamentoCliente,correcoesPendentes,pedConflitoTxt,pedPorItemPedra,nomeClienteValido,acharPorNome,fixCassioV323,etapaPedirConfirmacao,pdfSaldoCliente,interpretarLancamento,producaoStatusTool,prodDuplicadosDono,lerPedido,chamarIA,tratarMensagem,salvarPedido,pedidosProducao,ptsEtapa,metaPainel,totemToken,auditoriaTexto,despacharPedidoDireto,horasDetalhe,explicarPontos,retroBonificacao};`;
 const KV=new Map(); const KVM=new Map(); const sent=[]; const ai=[];
 const kv={async get(k){return KV.has(k)?KV.get(k):null}, async getWithMetadata(k){return {value:KV.has(k)?KV.get(k):null,metadata:KVM.get(k)||null}}, async put(k,v,o){KV.set(k,(v instanceof ArrayBuffer||ArrayBuffer.isView(v))?v:String(v)); if(o&&o.metadata)KVM.set(k,o.metadata)}, async delete(k){KV.delete(k)}, async list({prefix='',limit=1000}={}){return {keys:[...KV.keys()].filter(k=>k.startsWith(prefix)).slice(0,limit).map(name=>({name})),list_complete:true}}};
 const stmt={bind(){return stmt},async run(){return {meta:{changes:1}}},async all(){return {results:[]}},async first(){return null}};
 const db={prepare(){return stmt},batch:async()=>[]};
 function aiResp(sys,user){
+  if(/Você corrige transcrições/.test(sys)&&globalThis.__vozResp) return JSON.stringify(globalThis.__vozResp);
   if(/Você identifica fotos de serviço/.test(sys)){ // simula a IA de visão usando o que a legenda e os serviços dizem (a foto em si não existe no teste)
     const nz=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); const leg=nz((user.match(/Legenda: "([^"]*)"/)||[])[1]||'');
     const blocos=user.split('\n- ').slice(1).map(b=>({b:nz(b),ids:[...b.matchAll(/"(fot\|[^"]+)"/g)].map(x=>x[1])}));
