@@ -13869,6 +13869,17 @@ const NARR199 = {
   fim: 'Bora bater a meta, equipe!',
 };
 // v205: levantamento (uma vez) de quanto tempo cada tipo de tarefa levou x pontos, para calibrar
+// v353: conferência dos pontos do Fabrício (semana) e dos pedidos do Cássio — só leitura, vai para tmp_diag
+async function diag353(env) {
+  if (!env.HR_DB || await env.HR_KV.get('diag:353')) return; await env.HR_KV.put('diag:353', '1', { expirationTtl: 2 * 86400 });
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
+  const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 900000)).run();
+  const cfg = await pontoCfg(env), hoje = dataBahia(), ini = semIni(hoje), todos = await pedidosProducao(env, () => true);
+  const fab = cfg.funcs.find(f => /fabr/i.test(f.nome || '')), sem = await metasPontos(env, ini, isoSomaDias(ini, 6), todos);
+  await put('353fab', { id: fab && fab.id, ini, sem: fab && sem[fab.id] });
+  const rel = todos.filter(p => /c[aá]ssio|fabr|clerist|jac|osmail/i.test(p.nome || '') && (p.criado || 0) > Date.now() - 20 * 86400000);
+  await put('353peds', rel.map(p => ({ id: p.id, nome: p.nome, status: p.status, criado: p.criado, origem: p.origem, projetoApp: p.projetoApp, pedra: (p.resumoApp || {}).pedra, itens: ((p.resumoApp || {}).itens || []).map(i => [i.ambiente, (i.pecas || []).map(x => [x.qtd, x.comp_cm, x.larg_cm])]), pecas: p.pecas, corteEm: p.corteEm, corteFeitoPor: p.corteFeitoPor, fabProntoEm: p.fabProntoEm, fabFeitoPor: p.fabFeitoPor, acabEm: p.acabEm, entregueEm: p.entregueEm, prog: p.prog, prodLog: p.prodLog, pts: { corte: ptsEtapa(p, 'corte'), fab: ptsEtapa(p, 'fabricacao'), acab: ptsEtapa(p, 'acabamento') } })));
+}
 async function diag205(env) {
   if (!env.HR_DB || await env.HR_KV.get('diag:205')) return; await env.HR_KV.put('diag:205', '1', { expirationTtl: 3 * 86400 });
   await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
@@ -36837,6 +36848,7 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
+    if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
     if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).then(() => mig206(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
