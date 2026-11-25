@@ -10658,7 +10658,12 @@ function diasMesFator(env, ym) { let f = 0; for (let d = ym + '-01'; d.slice(0, 
 function metaDiaData(env, d) { return Math.round(MES100 * fatorDiaTrab(env, d) / diasMesFator(env, d.slice(0, 7)) * 100) / 100; }
 const reguaAtiva = ts => (ts ? diaDe(ts) : dataBahia()) >= REGUA_INI;
 function hCortePeca(c, l) { const a = (+c || 0) * (+l || 0) / 10000; let h = a < 0.15 ? 0.15 : a < 0.5 ? 0.25 : a < 1 ? 0.4 : a < 2 ? 0.6 : 0.8; if (Math.max(+c || 0, +l || 0) > 200) h += 0.15; return h; }
-function hAcabPeca(c, l) { const a = (+c || 0) * (+l || 0) / 10000; return a < 0.15 ? 0.35 : a < 0.5 ? 0.6 : a < 1 ? 1 : 1.5; }
+function hAcabPeca(c, l, ac) { // v354: acabamento pelo METRO do lado polido (pedido do Sr. Hangel): 2 lados = o dobro; 45° pesa mais; sem acabamento = só a limpeza
+  const m = Math.max(+c || 0, +l || 0) / 100, t = String(ac || '');
+  if (t === 'sem') return 0.1;
+  const lados = /2/.test(t) ? 2 : 1, porM = t === '45' ? 0.55 : 0.35;
+  return Math.round((0.15 + porM * m * lados) * 100) / 100;
+}
 function itensPecas(p) { return ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length); }
 function hSaiasItem(it) { // acabamento das saias que é do polidor (45° é do Hugo)
   const sv = it.sv || [], m = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia').reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
@@ -10690,7 +10695,7 @@ function horasDetalhe(p, e) {
     for (const it of its) {
       const pre = its.length > 1 ? (it.ambiente || 'item') + ': ' : '';
       if (cx) { let q = 0, h = 0; for (const pc of it.pecas) if (pcEstreita(pc, it)) { const k = Math.min(+pc.qtd || 1, 50); q += k; h += (0.25 + 0.25 * (+pc.comp_cm || 0) / 100) * k; } add(`${pre}polimento de ${q} saia(s)/frontão(ões)`, h); const pe = mlTipo(it, 'pe'); if (pe) add(`${pre}polimento do pé (${vPt(pe)} m)`, 0.4 * pe); }
-      else { let h = 0, q = 0; for (const pc of it.pecas) { const k = Math.min(+pc.qtd || 1, 50); q += k; h += hAcabPeca(pc.comp_cm, pc.larg_cm) * k; } add(`${pre}acabamento de ${q} peça(s)`, h); add(pre + 'polimento das saias', hSaiasItem(it)); }
+      else { let h = 0, q = 0, ml = 0; for (const pc of it.pecas) { const k = Math.min(+pc.qtd || 1, 50); q += k; ml += Math.max(+pc.comp_cm || 0, +pc.larg_cm || 0) / 100 * k; h += hAcabPeca(pc.comp_cm, pc.larg_cm, it.acabamento) * k; } add(`${pre}acabamento de ${q} peça(s) · ${vPt(Math.round(ml * 100) / 100)} m${/2/.test(String(it.acabamento || '')) ? ' (2 lados)' : ''}`, h); add(pre + 'polimento das saias', hSaiasItem(it)); }
     }
     return L;
   }
@@ -13357,14 +13362,22 @@ function unidadesPed(p, et) {
   if (its.length > 1) its.forEach((it, i) => { const nm = capT(it.ambiente || 'item'), mesmos = its.filter(x => x.ambiente === it.ambiente).length, k = its.slice(0, i + 1).filter(x => x.ambiente === it.ambiente).length;
     const qt = (it.pecas || []).reduce((t, pc) => t + (+pc.qtd || 1), 0), solta = /peitor|soleir|rodape|degrau|filete|baguete/.test(normaliza(it.ambiente || '')); // v186: peitoris/soleiras do mesmo item contam peça por peça
     if (qt > 1 && solta) { const pi = ptsEtapa(ptsItemPed(p, it), 'acabamento') || 1, ar = (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) || 1;
-      for (const pc of it.pecas || []) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ i: U.length, nome: `${nm} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: pi * area(pc) / ar, tipo: normaliza(it.ambiente || ''), larg: +pc.larg_cm || 0 });
+      for (const pc of it.pecas || []) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ i: U.length, med: `${Math.round(Math.max(+pc.comp_cm || 0, +pc.larg_cm || 0))}×${Math.round(Math.min(+pc.comp_cm || 0, +pc.larg_cm || 0))}`, nome: `${nm} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: pi * area(pc) / ar, tipo: normaliza(it.ambiente || ''), larg: +pc.larg_cm || 0 });
       return; }
-    U.push({ i: U.length, nome: mesmos > 1 ? `${nm} ${k}` : nm, peso: (et === 'corte' || et === 'fabricacao' ? ptsEtapa(ptsItemPed(p, it), et) : 0) || ptsEtapa(ptsItemPed(p, it), 'acabamento') || (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) / 1e4 || 1, tipo: normaliza(it.ambiente || ''), larg: Math.max(0, ...(it.pecas || []).map(pc => +pc.larg_cm || 0)) }); });
+    const pm = (it.pecas || []).slice().sort((a, b) => area(b) - area(a))[0], med = pm ? `${Math.round(Math.max(+pm.comp_cm || 0, +pm.larg_cm || 0))}×${Math.round(Math.min(+pm.comp_cm || 0, +pm.larg_cm || 0))}` : ''; // v354: a medida identifica qual dos iguais ele terminou
+    U.push({ i: U.length, med, nome: (mesmos > 1 ? `${nm} ${k}` : nm) + (med ? ` (${med})` : ''), peso: (et === 'corte' || et === 'fabricacao' ? ptsEtapa(ptsItemPed(p, it), et) : 0) || ptsEtapa(ptsItemPed(p, it), 'acabamento') || (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) / 1e4 || 1, tipo: normaliza(it.ambiente || ''), larg: Math.max(0, ...(it.pecas || []).map(pc => +pc.larg_cm || 0)) }); });
   else { const amb = normaliza(its[0].ambiente || p.interesse || '');
     for (const pc of its[0].pecas || []) for (let k = 0; k < Math.min(+pc.qtd || 1, 20); k++) { const est = (+pc.larg_cm || 0) <= 25;
       const tipo = /reten/.test(normaliza(String(pc.rot || pc.desc || ''))) ? 'pedra de retenção' : /peitor/.test(amb) ? 'peitoril' : /soleir/.test(amb) ? 'soleira' : est ? 'frontão/saia' : /lavat|banheir/.test(amb) ? 'lavatório' : 'bancada'; // v192
-      U.push({ i: U.length, nome: `${capT(tipo)} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: area(pc), tipo: normaliza(tipo + ' ' + amb), larg: +pc.larg_cm || 0 }); } }
+      U.push({ i: U.length, med: `${Math.round(Math.max(+pc.comp_cm || 0, +pc.larg_cm || 0))}×${Math.round(Math.min(+pc.comp_cm || 0, +pc.larg_cm || 0))}`, nome: `${capT(tipo)} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: area(pc), tipo: normaliza(tipo + ' ' + amb), larg: +pc.larg_cm || 0 }); } }
   const tot = U.reduce((t, u) => t + u.peso, 0) || 1; U.forEach(u => { u.frac = u.peso / tot; }); return U.slice(0, 30);
+}
+// v354: "66x50", "66 por 50", "2 de 90x15" → as unidades com essa medida (±4 cm, em qualquer ordem)
+function medidasUnid(t) { const out = [], re = /(?:\b(\d{1,2}|uma?|dois|duas|tres|três)\s+(?:de\s+|com\s+)?)?(\d{2,3}(?:[.,]\d)?)\s*(?:x|×|por|\*)\s*(\d{1,3}(?:[.,]\d)?)/gi; let m; const N = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, 'três': 3 }; while ((m = re.exec(String(t || '')))) { const a = +m[2].replace(',', '.'), b = +m[3].replace(',', '.'); out.push({ c: Math.max(a, b), l: Math.min(a, b), q: m[1] ? (+m[1] || N[normaliza(m[1])] || 1) : 1 }); } return out; }
+function unidadesPorMedida(lista, meds) {
+  const usadas = new Set(), sel = [];
+  for (const m of meds) { const ok = lista.filter(u => u.med && !usadas.has(u.i) && (() => { const [c, l] = u.med.split('×').map(Number); return Math.abs(c - m.c) <= 4 && Math.abs(l - m.l) <= 4; })()); ok.slice(0, m.q).forEach(u => { usadas.add(u.i); sel.push(u); }); }
+  return sel;
 }
 function casaNoun(u, noun) {
   const n = normaliza(noun), t = u.tipo + ' ' + normaliza(u.nome);
@@ -13419,9 +13432,12 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   const noun = nm ? nm[1] : '', cand = noun ? pend.filter(u => casaNoun(u, noun)) : pend;
   const q = qn ? (/^\d+$/.test(qn[1]) ? +qn[1] : NUM_TXT[qn[1]] || 0) : 0, todos = todosM;
   let sel = [];
-  if (q && q <= cand.length && q < 30) sel = cand.slice(0, q);
+  const medsT = medidasUnid(texto), porMed = medsT.length ? unidadesPorMedida(cand.length ? cand : pend, medsT) : []; // v354: "terminei o lavatório 66x50 do Cássio"
+  if (porMed.length) sel = porMed;
+  else if (q && q <= cand.length && q < 30 && !(noun && cand.length > q && new Set(cand.map(u => u.med)).size > 1)) sel = cand.slice(0, q); // v354: iguais de medidas diferentes → pergunta a medida
   else if (todos && cand.length) sel = cand;
   else if (cand.length === 1 && (noun || esse)) sel = cand;
+  else if (noun && !qn && !/(s|es|is)$/.test(normaliza(noun)) && !new RegExp('\\b(os|as|uns|umas)\\s+(\\w+\\s+)?' + normaliza(noun)).test(msg) && cand.length > 1 && !/peitor|soleir|rodape|degrau|filete|frontao|saia|reten/.test(normaliza(noun)) && !todos) { if (new Set(cand.map(u => u.med)).size === 1) sel = cand.slice(0, 1); } // v354: "terminei o lavatório do Cássio" (um só): iguais → 1; medidas diferentes → pergunta a medida
   else if (noun && !qn && !/^(pecas?|itens|item)$/.test(normaliza(noun)) && cand.length && /\b(finaliz\w*|pront\w*|cortad\w*|terminad\w*|acabad\w*|feit[oa]s?|terminei|acabei|cortei|polid[oa]s?|poli)\b/.test(msg)) sel = cand; // v335: "Peitoril de Douglas finalizado" (singular, sem número) = os peitoris dele
   else if (noun && (/(s|es|is)$/.test(noun) || /^pedras /.test(noun) || /coes$/.test(noun)) && !/^(pecas|itens)$/.test(noun) && cand.length) sel = cand; // "terminei os lavatórios", "as pedras de retenção"
   else if (noun && !/^(pecas?|itens|item)$/.test(noun) && /\b(\w+ad[oa]s|feitos|feitas|prontos|prontas|terminamos)\b/.test(msg) && cand.length) sel = cand; // "frontões finalizados"
@@ -13429,7 +13445,8 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   if (!sel.length) {
     const lista = (cand.length ? cand : pend);
     await env.HR_KV.put('prod:itens:' + ultimos8(from), JSON.stringify({ pid: ped.id, et, ids: lista.map(u => u.i), em: Date.now() }), { expirationTtl: 6 * 3600 });
-    await enviar(env, from, [`📋 ${nome}, qual item de *${ped.nome}* ficou ${et === 'corte' ? 'cortado' : et === 'polimento' ? 'polido' : 'pronto'}?`, '', ...lista.slice(0, 15).map((u, k) => `*${k + 1}.* ${u.nome}`), '', `Responda os números (ex.: _1, 3_) ou *todos*.`].join('\n'));
+    const vb = et === 'corte' ? 'cortado' : et === 'polimento' ? 'polido' : 'pronto', mesmoTipo = noun && lista.every(u => casaNoun(u, noun)) && lista.some(u => u.med);
+    await enviar(env, from, [mesmoTipo ? `📏 Certo, ${nome}! Qual é a *medida* ${(n => q > 1 ? 'dos ' + n + 's' : 'desse ' + n)(({ lavatorio: 'lavatório', balcao: 'balcão', frontao: 'frontão', rodape: 'rodapé' })[noun] || noun)} de *${ped.nome}*? Assim eu sei qual parte você terminou.` : `📋 ${nome}, qual item de *${ped.nome}* ficou ${vb}?`, '', ...lista.slice(0, 15).map((u, k) => `*${k + 1}.* ${u.nome}`), '', mesmoTipo ? `Responda a medida (ex.: _${(lista.find(u => u.med) || {}).med || '66×50'}_), o número da lista ou *todos*.` : `Responda os números (ex.: _1, 3_), a medida (ex.: _66x50_) ou *todos*.`].join('\n'));
     return true;
   }
   return prodItensRegistrar(env, f, from, ped, et, sel, nome);
@@ -13438,10 +13455,10 @@ const ETAPA_NOME = { corte: 'o corte', polimento: 'o polimento', acabamento: 'o 
 async function prodItensResposta(env, f, from, texto, nome) {
   if (NEG_FEITO.test(normaliza(texto || ''))) return false;
   let c = null; try { c = JSON.parse((await env.HR_KV.get('prod:itens:' + ultimos8(from))) || 'null'); } catch (_) {} if (!c) return false;
-  const msg = normaliza(texto || ''); if (!/^\s*(todos|todas|tudo|[\d\s,e]+)\s*$/.test(msg)) return false;
+  const msg = normaliza(texto || ''), medsR = medidasUnid(texto); if (!medsR.length && !/^\s*(todos|todas|tudo|[\d\s,e]+)\s*$/.test(msg)) return false;
   const ped = await lerPedido(env, c.pid).catch(() => null); if (!ped) return false; const U = unidadesPed(ped, c.et);
-  const nums = /todos|todas|tudo/.test(msg) ? c.ids.map((_, k) => k + 1) : (msg.match(/\d{1,2}/g) || []).map(Number);
-  const sel = [...new Set(nums)].map(k => U[c.ids[k - 1]]).filter(Boolean); if (!sel.length) { await enviar(env, from, 'Não entendi os números. Ex.: _1, 3_ ou *todos*.'); return true; }
+  const nums = medsR.length ? [] : /todos|todas|tudo/.test(msg) ? c.ids.map((_, k) => k + 1) : (msg.match(/\d{1,2}/g) || []).map(Number);
+  const sel = medsR.length ? unidadesPorMedida(c.ids.map(i => U[i]).filter(Boolean), medsR) : [...new Set(nums)].map(k => U[c.ids[k - 1]]).filter(Boolean); // v354: respondeu a medida if (!sel.length) { await enviar(env, from, 'Não entendi os números. Ex.: _1, 3_ ou *todos*.'); return true; }
   await env.HR_KV.delete('prod:itens:' + ultimos8(from));
   return prodItensRegistrar(env, f, from, ped, c.et, sel, nome);
 }
@@ -17912,7 +17929,7 @@ async function aprovPtsEst(env, p, x) { // quanto essa etapa vale (para o dono d
 }
 async function aprovItemTxt(env, p, x, cfg) {
   const nomes = (x.por || []).map(id => { const f = (cfg.funcs || []).find(y => String(y.id) === String(id)); return f ? (apelidoFunc(cfg, f) || f.nome.split(' ')[0]) : id; });
-  const it = Array.isArray(x.itens) && x.itens.length ? ' (' + x.itens.map(i => { const a = ((p.resumoApp && p.resumoApp.itens) || [])[i]; return a ? a.ambiente : 'item ' + (i + 1); }).join(', ') + ')' : x.frac != null && x.frac < 1 ? ` (parte: ${Math.round(x.frac * 100)}%)` : x.pecas ? ` (${x.pecas} peça${x.pecas > 1 ? 's' : ''})` : '';
+  const it = Array.isArray(x.itens) && x.itens.length ? ' (' + x.itens.map(i => { const a = ((p.resumoApp && p.resumoApp.itens) || [])[i]; const pm = a && (a.pecas || []).slice().sort((u, v) => (+v.comp_cm || 0) * (+v.larg_cm || 0) - (+u.comp_cm || 0) * (+u.larg_cm || 0))[0]; return a ? a.ambiente + (pm ? ' ' + Math.round(Math.max(+pm.comp_cm || 0, +pm.larg_cm || 0)) + '×' + Math.round(Math.min(+pm.comp_cm || 0, +pm.larg_cm || 0)) : '') : 'item ' + (i + 1); }).join(', ') + ')' : x.frac != null && x.frac < 1 ? ` (parte: ${Math.round(x.frac * 100)}%)` : x.pecas ? ` (${x.pecas} peça${x.pecas > 1 ? 's' : ''})` : '';
   return { nomes, txt: `${nomes.join(' e ')} · ${APROV_ET[x.e]}${it} · *${p.nome}*` };
 }
 async function aprovListar(env, dias) {
