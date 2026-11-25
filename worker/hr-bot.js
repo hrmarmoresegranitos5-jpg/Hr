@@ -13968,6 +13968,17 @@ async function fix353Fabricio(env) {
   // sem mensagem extra ao Fabrício: só o aviso normal de pontos do sistema; o Sr. Hangel decide se fala com ele
 }
 // v353: conferência dos pontos do Fabrício (semana) e dos pedidos do Cássio — só leitura, vai para tmp_diag
+async function fix356Renata(env) { // v356: junta os registros duplicados de um cliente do livro num só (pedido do Sr. Hangel); só ids, sem dados pessoais no código
+  if (await env.HR_KV.get('fix:356')) return; await env.HR_KV.put('fix:356', '1', { expirationTtl: 30 * 86400 });
+  const m = await livLer(env, 'q1790858149776'); if (!m) return;
+  const outros = (await Promise.all(['Lmwqh4uhtz72', 'Lmwnw1c5beho', 'Lmwqh4uoheah'].map(id => livLer(env, id)))).filter(Boolean);
+  const dono = outros.find(r => r.origem === 'dono' && +r.valor > 0);
+  m.cliente = [m.cliente, ...outros.map(r => r.cliente)].sort((x, y) => String(y).length - String(x).length)[0]; m.tel = m.tel || (outros.find(r => r.tel) || {}).tel || '';
+  if (dono) { m.valor = +dono.valor; m.valorFixo = 1; m.desc = dono.desc || m.desc; m.entregaEm = m.entregaEm || dono.entregaEm || ''; m.entregaFonte = m.entregaFonte || 'dono'; }
+  const pags = [...(m.pagamentos || []), ...outros.flatMap(r => r.pagamentos || [])].map(p => p.valor === 2000 && p.obs === 'entrada' ? { ...p, forma: 'Cartão' } : p); // o Sr. Hangel: os 2 mil foram no cartão
+  m.pagamentos = pags.filter((p, i, a) => a.findIndex(q => livMesmoPag(q, p)) === i).sort((x, y) => String(x.data).localeCompare(String(y.data)));
+  await livSalvar(env, m); for (const r of outros) await env.HR_KV.delete(LIV_PREFIX + r.id);
+}
 async function diag356(env) { // v356: Renata (extrato errado)
   if (!env.HR_DB || await env.HR_KV.get('diag:356')) return; await env.HR_KV.put('diag:356', '1', { expirationTtl: 2 * 86400 });
   await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
@@ -20944,7 +20955,9 @@ async function livTodos(env) {
   }
   return out.sort((a, b) => String(b.entregaEm || '').localeCompare(String(a.entregaEm || '')) || (b.atualizadoEm || 0) - (a.atualizadoEm || 0));
 }
-const livAchar = (todos, nome) => { const q = tokensPedra(nome || ''); return q.length ? todos.filter(r => casaNome(q, r.cliente)) : []; };
+// v356: "Maria S." e "Maria Silva Souza" são a mesma pessoa (abreviação/inicial) — antes viravam 4 registros e o extrato saía errado
+function livNomeCompat(a, b) { const tk = x => normaliza(String(x || '')).split(/[^a-z0-9]+/).filter(w => w && !/^(de|da|do|dos|das|e)$/.test(w)); let x = tk(a), y = tk(b); if (!x.length || !y.length || x[0] !== y[0]) return false; if (x.length > y.length) [x, y] = [y, x]; if (x.length < 2) return false; return x.slice(1).every(w => y.slice(1).some(v => v === w || (w.length <= 2 && v.startsWith(w)) || (v.length <= 2 && w.startsWith(v)))); }
+const livAchar = (todos, nome) => { const q = tokensPedra(nome || ''); return q.length ? todos.filter(r => casaNome(q, r.cliente) || livNomeCompat(nome, r.cliente)) : []; };
 const livTokensCasam = (a, b) => { const x = tokensPedra(a || ''), y = new Set(tokensPedra(b || '')); return !x.length || !y.size || x.some(w => y.has(w)); };
 function livEscolher(cands, a, preferir) { // estreita vários registros do mesmo cliente pelo serviço, pelo valor e pelo que ainda está em aberto
   let c = cands;
@@ -20980,7 +20993,7 @@ async function livRegistrar(env, a) {
   if (!Array.isArray(r.pagamentos)) r.pagamentos = [];
   if (a.tel) { const d = String(a.tel).replace(/\D/g, ''); if (d.length >= 10) r.tel = normalizarBR(d.startsWith('55') && d.length >= 12 ? d : '55' + d); }
   if (a.desc && (criado || !r.desc || a.sobrescrever)) r.desc = String(a.desc).replace(/\s+/g, ' ').trim().slice(0, 80);
-  if (Number(a.valor) > 0 && (!a.valorSeVazio || !(Number(r.valor) > 0))) r.valor = livR2(a.valor);
+  if (Number(a.valor) > 0 && (!a.valorSeVazio || !(Number(r.valor) > 0)) && !(r.valorFixo && a.origem !== 'dono')) r.valor = livR2(a.valor); // v356: valor que o Sr. Hangel acertou não volta ao do app
   if (a.entrega) { r.entregaEm = a.entrega === true ? dataBahia() : (livDataOk(a.entrega) || dataBahia()); r.entregaFonte = String(a.origem || 'dono').slice(0, 10); delete r.entregaAprox; }
   if (a.obs) r.obs = String(a.obs).replace(/\s+/g, ' ').trim().slice(0, 120);
   const novos = [...(a.pagamento ? [a.pagamento] : []), ...(Array.isArray(a.pagamentos) ? a.pagamentos : [])];
@@ -21107,9 +21120,10 @@ async function pdfSaldoCliente(env, from, a) {
   const liv = livAchar(await livTodos(env), nome);
   const h = await buscarOrcamentosPorCliente(env, nome).catch(() => ({ ok: false }));
   const orcs = h && h.ok ? h.orcamentos.filter(o => /aceit|fechad|aprov|entreg|conclu|produ/i.test(o.status || '') && !/perd|recus/i.test(o.status || '')) : [];
-  let cliNome = (liv[0] && liv[0].cliente) || (orcs[0] && orcs[0].cliente) || nome;
+  let cliNome = [...liv.map(r => r.cliente), ...orcs.map(o => o.cliente), ...((h && h.ok && h.clientes) || []).map(c => c.nome), nome].filter(Boolean).sort((x, y) => String(y).replace(/\.$/, '').length - String(x).replace(/\.$/, '').length)[0] || nome; // v356: nome completo, não "Renata B."
   const servs = []; // { desc, data, total, pagos: [{data, valor, forma, obs}] }
-  for (const r of liv) servs.push({ desc: r.desc || 'Serviço', data: r.entregaEm || '', total: +r.valor || 0, pagos: (r.pagamentos || []).map(p => ({ data: p.data, valor: +p.valor || 0, forma: p.forma || '', obs: p.obs || '' })) });
+  { const comV = liv.filter(r => +r.valor > 0); for (const r of liv.filter(r => !(+r.valor > 0) && (r.pagamentos || []).length)) { const alvo = comV.find(x => !r.desc || !x.desc || livTokensCasam(r.desc, x.desc)) || comV[0]; if (alvo && alvo !== r) { alvo.pagamentos = [...(alvo.pagamentos || []), ...r.pagamentos]; r.pagamentos = []; } } } // v356: pagamento solto (registro sem valor) entra no serviço
+  for (const r of liv.filter(r => +r.valor > 0 || (r.pagamentos || []).length)) servs.push({ desc: r.desc || 'Serviço', data: r.entregaEm || '', total: +r.valor || 0, pagos: (r.pagamentos || []).map(p => ({ data: p.data, valor: +p.valor || 0, forma: p.forma || '', obs: p.obs || '' })) });
   if (!servs.length) for (const o of orcs.slice(0, 3)) servs.push({ desc: [o.projeto, o.material].filter(Boolean).join(' — ') || 'Serviço', data: o.data || '', total: +o.valor || 0, pagos: [] });
   if (!servs.length) return { texto: `Não achei serviço fechado de "${nome}" no livro de pagamentos nem no histórico do app. Pergunte ao Sr. Hangel o valor total e quanto já foi pago, e chame de novo com total e ja_pago.` };
   if (+a.total > 0 && servs.length === 1) servs[0].total = +a.total;
@@ -36986,6 +37000,7 @@ export default {
     if (req.method === 'GET' && /^\/voz-video2\/[a-z]+$/.test(url.pathname)) return vozVideo2Rota(env, url.pathname.split('/')[2]); // v353
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
+    if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__diag356) { globalThis.__diag356 = 1; ctx.waitUntil(diag356(env).catch(e => console.log('[DIAG356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205

@@ -7,4 +7,5 @@ await env.HR_KV.put('eq:pend:'+tel.slice(-8), JSON.stringify({lista:[{texto:'*Su
 const n0=sent.length; await T.eqPendente(env,tel); const novos=sent.slice(n0); const tx=JSON.stringify(novos);
 console.log(tx.slice(0,500));
 ok(novos.length===1,'uma mensagem só: '+novos.length); ok(!/Hoje:/.test(tx),'tirou Hoje'); ok(/Poliano/.test(tx)&&/Guardei/.test(tx),'conteúdo');
+ok(T.livNomeCompat('Maria S.','Maria Silva Souza'),'renata b'); ok(!T.livNomeCompat('Maria S.','Maria Costa'),'renata silva'); ok(!T.livNomeCompat('Maria','Maria Costa'),'só primeiro nome');
 console.log('ERROS:',e); process.exit(e?1:0);
