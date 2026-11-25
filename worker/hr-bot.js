@@ -2474,6 +2474,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^etpc\|/.test(id)) return etapaConfBotao(env, from, id); // v279
   if (/^apv\|/.test(id)) return aprovBotao(env, from, id); // v339
   if (id === 'apv_tudo') return aprovComandoDono(env, from, 'aprovar tudo'); // v346
+  if (/^plx\|/.test(id)) return prodLixoBotao(env, from, id); // v349
   if (id === 'apv_ver') { await enviar(env, from, 'No app: 🏭 Produção → ✅ Aprovar produção. Lá dá para aprovar um por um ou recusar o que estiver errado.'); return true; }
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
@@ -7378,6 +7379,7 @@ async function pedirAvaliacoes(env) {
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
   await helenaAuditoriaRotina(env).catch(e => console.log('[FALHA] auditoria:', e.message)); // v329
   await aprovLembrete(env).catch(e => console.log('[APROV] lembrete:', e.message)); // v346
+  await prodLixoChecar(env).catch(e => console.log('[LIXO]', e.message)); // v349
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
   await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
@@ -16200,6 +16202,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- VALOR/ORÇAMENTO DE UM CLIENTE (v49): antes de perguntar o valor ao Sr. Hangel, e antes de dizer que não encontrou um orçamento, chame consultar_historico_cliente com o nome do cliente (o da mensagem citada ou do assunto). Ela traz o número (ORC-…), o valor À VISTA e o valor A PRAZO. Se ele pedir "a prazo", use o valor a prazo; se a prazo não vier no histórico, diga isso e pergunte. Nunca afirme "não encontrei" sem ter consultado nesta mesma resposta.`,
       `- O APP INTEIRO (v340): você enxerga TODOS os orçamentos de todos os tempos (rascunho, aguardando, aceito, entregue, concluído, perdido), as peças e medidas de cada ambiente, a agenda, o contrato, os pagamentos do livro e a produção. Para qualquer pergunta sobre serviço/orçamento/cliente/valor/período chame buscar_no_app; para detalhes de um serviço chame detalhe_no_app. Os DADOS DO APP acima podem estar cortados: na dúvida, BUSQUE. Nunca responda "não encontrei" sem ter buscado.`,
       `- NUNCA diga "registrei", "anotei", "marquei", "lancei" ou "a partir de agora não faço X" sem ter chamado uma ferramenta que fez isso. Promessa de mudar o próprio comportamento não vale: diga que vai passar para o ajuste do sistema. Quando ele CORRIGIR um registro de produção (quem fez, qual cliente, se já foi instalado), use as ferramentas de produção para corrigir de fato.`,
+      `- EMPRÉSTIMO DE FUNCIONÁRIO (v349): se o Sr. Hangel disser que um funcionário EMPRESTOU dinheiro a ele ou pagou algo por ele ("foi o Fabrício que me emprestou, tenho que dar pra ele"), NÃO é adiantamento nem vale (esses descontam do salário). É uma dívida com o funcionário: guarde com memorizar ("devo R$ X ao Fabrício — empréstimo de DD/MM") e crie lembrar_dono para devolver; NÃO pergunte forma de pagamento. Quando ele disser que devolveu, use pagar_funcionario com tipo "outro" e obs "devolução de empréstimo".`,
       `- TEMPO DO VERBO (v346): "finalizou", "terminou", "cortou", "entregou", "instalou" = JÁ FEITO: registre direto, sem perguntar se foi agora ou se ainda vai fazer. Só pergunte quando ele usar futuro ("vai terminar", "amanhã").`,
       `- APROVAÇÃO DA PRODUÇÃO (v339): o que os funcionários mandam fica PENDENTE (não conta ponto e não manda entrega) até o Sr. Hangel aprovar. "aprovar tudo" aprova; no app: Produção → Aprovar produção. O que ELE mesmo manda registrar entra aprovado.`,
       `- FICHA TÉCNICA (v342): "ficha técnica", "ficha do fulano", "as medidas em PDF" de QUALQUER orçamento (inclusive rascunho, nicho, cozinha): chame ficha_tecnica. Nunca diga que não existe ficha técnica salva: ela é gerada na hora a partir das peças do orçamento.`,
@@ -17895,6 +17898,23 @@ async function aprovPosMensagem(env, from) {
       [{ id: `apv|${pid}|${apId}|s`, titulo: '✅ Aprovar' }, { id: `apv|${pid}|${apId}|n`, titulo: '❌ Não foi isso' }]).catch(() => {});
   }
   if (!c.apAvisou) { c.apAvisou = 1; await enviar(env, from, '⏳ _Os pontos entram quando o Sr. Hangel aprovar._').catch(() => {}); }
+}
+// v349: serviço com nome que não é de cliente ("Peitoril finalizadosn") aberto por engano → pergunta ao dono se apaga (1x por serviço)
+async function prodLixoChecar(env) {
+  const ag = agoraBahia(); if (ag.min < 7 * 60 || ag.min > 19 * 60) return;
+  const l = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && p.status !== 'cancelado').catch(() => [])).filter(p => p.nome && !nomeClienteValido(p.nome));
+  for (const p of l.slice(0, 3)) {
+    const k = 'prodlixo:' + p.id; if (await env.HR_KV.get(k)) continue; if (!(await travaEnvio(env, k))) continue; await env.HR_KV.put(k, '1', { expirationTtl: 30 * 86400 });
+    await enviarComBotoes(env, numeroDono(env), `🧹 Na produção tem um serviço com nome estranho: *${p.nome}* (${resumoPecas(p)}). Parece aberto por engano a partir de uma mensagem mal entendida. Apago?`,
+      [{ id: `plx|${p.id}|s`, titulo: '🗑️ Apagar' }, { id: `plx|${p.id}|n`, titulo: 'Manter' }]);
+  }
+}
+async function prodLixoBotao(env, from, id) {
+  const [, pid, c] = id.split('|'), p = await lerPedido(env, pid).catch(() => null);
+  if (!p) { await enviar(env, from, 'Esse serviço não existe mais.'); return true; }
+  if (c !== 's') { await enviar(env, from, `Certo, mantive *${p.nome}*.`); return true; }
+  p.status = 'recusado'; p.cancelado = Date.now(); p.motivoCancel = 'nome inválido, aberto por engano (apagado pelo Sr. Hangel)'; await salvarPedido(env, p);
+  await enviar(env, from, `🗑️ Apaguei *${p.nome}* da produção.`); return true;
 }
 async function aprovLembrete(env) { // v346: 17:30 — o que ficou sem aprovar hoje (a equipe recebe os pontos só depois)
   const ag = agoraBahia(), hoje = dataBahia(); if (ag.min < 17 * 60 + 30 || ag.min > 19 * 60 || !(await aprovAtivo(env))) return;
