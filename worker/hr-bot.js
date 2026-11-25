@@ -14397,7 +14397,8 @@ async function siteDominio(req, env, ctx, url) {
   if (host.startsWith('www.')) return Response.redirect('https://' + dom + url.pathname + url.search, 301);
   ctx.waitUntil(env.HR_KV.get('cfg:dominio').then(v => v === dom ? null : env.HR_KV.put('cfg:dominio', dom)).catch(() => {}));
   const p = url.pathname;
-  if (!(p === '/' || p === '/index.html' || /^\/(img\/[\w.-]+|bot\.json|robots\.txt|favicon\.ico)$/.test(p))) return null; // o resto (álbum, catálogo, ponto...) é o próprio bot
+  if (p === '/' || p === '/index.html') return new Response(PORTFOLIO_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }); // v360d: o domínio abre direto o site novo (monte o seu projeto)
+  if (!(/^\/(img\/[\w.-]+|bot\.json|robots\.txt|favicon\.ico)$/.test(p))) return null; // o resto (álbum, catálogo, ponto...) é o próprio bot
   const r = await fetch(SITE_ORIGEM + (p === '/' ? '/' : p), { cf: { cacheTtl: 300, cacheEverything: true } });
   const h = new Headers(r.headers); h.delete('x-github-request-id'); h.set('Cache-Control', 'public, max-age=300');
   return new Response(r.body, { status: r.status, headers: h });
@@ -35448,6 +35449,9 @@ footer b{color:var(--t2)}
 .loja .bts .mapa{background:var(--gold);color:#1a1200}
 .loja .bts .zap{border:1.5px solid var(--line2);color:var(--tx)}
 .loja iframe{width:100%;height:220px;border:0;border-radius:12px;filter:grayscale(.3) contrast(1.05)}
+.zapflut{position:fixed;right:16px;bottom:18px;z-index:40;width:58px;height:58px;border-radius:50%;background:#25d366;color:#fff;display:grid;place-items:center;box-shadow:0 10px 30px rgba(0,0,0,.45);text-decoration:none}
+.zapflut svg{width:30px;height:30px}
+.zapflut[hidden]{display:none}
 .mosaico.foto{display:block}.mosaico.foto div{width:100%;height:100%}
 .mosaico.foto .bg{position:absolute;inset:-30px;background:center/cover no-repeat;filter:blur(22px) brightness(.55);animation:none}
 .mosaico.foto .fg{position:absolute;inset:0;background:center 30%/contain no-repeat;animation:none}
@@ -35618,6 +35622,7 @@ footer b{color:var(--t2)}
 </main>
 
 <footer><div class="wrap" id="rodape"></div></footer>
+<a class="zapflut" id="zapFlut" href="#" target="_blank" rel="noopener" aria-label="WhatsApp" hidden><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm4.6 12.3c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1-.4-.1-.9-.3-1.5-.6-2.6-1.1-4.3-3.8-4.4-4-.1-.2-1.1-1.4-1.1-2.7s.7-1.9.9-2.2c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 1.9c.1.1.1.3 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.7 1.2 1.5 1.9 1 .9 1.9 1.2 2.2 1.3.3.1.4.1.6-.1l.8-1c.2-.3.4-.2.6-.1l1.8.9c.3.1.5.2.5.3.1.1.1.6-.1 1.2z"/></svg></a>
 
 <div class="barra" id="barra" hidden><div class="wrap">
   <button class="bt sec" id="voltar">←</button>
@@ -35729,7 +35734,7 @@ footer b{color:var(--t2)}
   function ir(id){
     atual=id;
     document.querySelectorAll('section.passo').forEach(function(s){s.classList.toggle('on',s.id===id)});
-    $('capa').hidden=true;$('prog').hidden=id==='p-fim';$('barra').hidden=id==='p-fim';
+    $('capa').hidden=true;$('prog').hidden=id==='p-fim';if($('zapFlut'))$('zapFlut').hidden=true;$('barra').hidden=id==='p-fim';
     if(id==='p-cuba')desenharCubas();
     if(id==='p-acab'){desenharAcab();S.viuAcab=1;salvar();}
     if(id==='p-acess'){desenharAcess();S.viuAcess=1;salvar();}
@@ -36013,7 +36018,7 @@ footer b{color:var(--t2)}
     if(j.empresa)$('emp').textContent=j.empresa;
     var e=j.emp||{};if(e.cidade)$('cidadeSelo').textContent=String(e.cidade).split(/[—–-]/)[0].trim();
     var zap=j.whatsapp?'https://wa.me/'+j.whatsapp+'?text='+encodeURIComponent('Olá! Vim pelo site da '+(j.empresa||'HR')+'.'):'';
-    if(zap)$('zapTopo').href=zap;else $('zapTopo').style.display='none';
+    if(zap){$('zapTopo').href=zap;$('zapFlut').href=zap;$('zapFlut').hidden=!!atual;}else $('zapTopo').style.display='none';
     $('rodape').innerHTML='<b>'+esc(j.empresa||'')+'</b><br>'+esc([e.end,e.cidade].filter(Boolean).join(' · '))+(e.horario?'<br>'+esc(e.horario):'')+(e.tel?'<br>WhatsApp '+esc(e.tel):'')+(e.ig?'<br>Instagram '+esc(e.ig):'')+(j.cnpj?'<br>CNPJ '+esc(j.cnpj):'');
     if(S.pedra&&!D.pedras.some(function(p){return p.id===S.pedra.id}))S.pedra=null;
     desenharCapa();desenharPedras();
