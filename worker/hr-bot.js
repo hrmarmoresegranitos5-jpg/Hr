@@ -8489,7 +8489,7 @@ async function fimDiaBotao(env, f, from, idB, nome) {
   return producaoFuncionario(env, f, from, `${inst ? 'instalei' : 'terminei'} o de ${p.nome}`, '', nome);
 }
 // v323: peça e pedra que o funcionário falou × o que o pedido tem. "soleira Branco Itaúnas" não pode virar o lavatório Pinta Verde de outro cliente só porque era a única tarefa dele
-const ITEM_RX = [/\bsoleir/, /\bpeitor/, /\b(lavat|banheir|cuba)/, /\b(cozinh|pia|bancad|balcao)\b|\bbancad/, /\b(escad|degra)/, /\b(gourmet|churrasq)/, /\brodap/, /\bnich/, /\b(mesa|tampo)\b/, /\bilha\b/, /\bfront[ao]/];
+const ITEM_RX = [/\bsoleir/, /\bpeitor/, /\b(lavat|banheir|cuba)/, /\b(cozinh\w*|pias?|bancad\w*|balca\w*|balcoes|gourmet|churrasq\w*|ilhas?)\b/, /\b(escad|degra)/, /\brodap/, /\bnich/, /\b(mesa|tampo)\b/, /\bfront[ao]/]; // v329: cozinha = pia = bancada = balcão = área gourmet (o funcionário chama a área gourmet de "cozinha")
 const PEDRA_PAL = new Set(['branco', 'branca', 'preto', 'preta', 'verde', 'cinza', 'marrom', 'bege', 'itaunas', 'gabriel', 'absoluto', 'ubatuba', 'dallas', 'siena', 'andorinha', 'corumba', 'travertino', 'pinta', 'carrara', 'quartzo', 'nanoglass', 'marfim', 'fortaleza', 'arabesco', 'aqualux', 'juparana', 'iracema', 'giallo', 'crema', 'galaxy', 'kinawa', 'ornamental', 'polar', 'dourado', 'amendoa']);
 const PEDRA_EQ = w => w === 'branca' ? 'branco' : w === 'preta' ? 'preto' : w;
 function pedTxtItens(p) { const r = p.resumoApp || {}; return normaliza([p.interesse, INTERESSES[p.interesse], p.projetoApp, p.cor, r.pedra, ...(r.itens || []).map(it => `${it.ambiente || ''} ${it.pedra || ''} ${(it.pecas || []).map(x => `${x.tipo || ''} ${x.rot || ''} ${x.desc || ''}`).join(' ')}`), ...(p.pecas || []).map(x => `${x.tipo || ''} ${x.rot || ''} ${x.desc || ''}`)].filter(Boolean).join(' ')); }
@@ -8661,6 +8661,17 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       return true;
     }
     if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, qual ficha ficou pronta?`, ach.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
+    { const pdQ = ach[0], fe = prodEtapaFeita(pdQ, 'corte'); // v329: "já cortado" num pedido com corte pela metade → pergunta quais itens
+      if (/\bcort/.test(msg) && fe.soma > 0.001 && fe.soma < 0.999 && !ITEM_RX.some(rx => rx.test(msg)) && !msg.split(/[^a-z]+/).some(w => PEDRA_PAL.has(PEDRA_EQ(w))) && !/\b(tudo|todos|todas|resto)\b/.test(msg)) {
+        const fe2 = new Set((pdQ.prog && pdQ.prog.corte) || []), pendQ = unidadesPed(pdQ, 'corte').filter(u => !fe2.has(u.i));
+        if (pendQ.length) { await env.HR_KV.put('prod:itens:' + ultimos8(from), JSON.stringify({ pid: pdQ.id, et: 'corte', ids: pendQ.map(u => u.i), em: Date.now() }), { expirationTtl: 6 * 3600 });
+          await enviar(env, from, [`📋 ${nome}, o que mais você cortou de *${pdQ.nome}*?`, '', ...pendQ.slice(0, 12).map((u, k) => `*${k + 1}.* ${u.nome}`), '', 'Responda os números (ex.: _1, 2_) ou *todos*.'].join('\n')); return true; } } }
+    { const pd1 = ach[0], U1 = (!pd1.corteEm && /\bcort/.test(msg)) ? unidadesPed(pd1, 'corte') : [], r1 = pd1.resumoApp || {}, its1 = r1.itens || []; // v329: "a cozinha do preto já cortada" num pedido com cozinha + lavatórios → só a cozinha
+      if (U1.length > 1 && its1.length > 1) { const tN = normaliza(texto), tw = tN.split(/[^a-z0-9]+/).map(PEDRA_EQ);
+        const casaU = u => { const it = its1.find(x => normaliza(x.ambiente || '') === u.tipo || u.tipo.startsWith(normaliza(x.ambiente || '___'))) || {}, ut = normaliza(`${u.tipo} ${u.nome} ${it.ambiente || ''}`), up = new Set(normaliza(it.pedra || r1.pedra || pd1.cor || '').split(/[^a-z0-9]+/).map(PEDRA_EQ));
+          const itT = ITEM_RX.filter(rx => rx.test(tN)), stT = tw.filter(w => PEDRA_PAL.has(w));
+          return (!itT.length || itT.some(rx => rx.test(ut))) && (!stT.length || stT.every(w => up.has(w))) && (itT.length || stT.length); };
+        const sel1 = U1.filter(casaU); if (sel1.length && sel1.length < U1.length) return prodItensRegistrar(env, f, from, pd1, 'corte', sel1, nome); } }
     return prodMarcarPronto(env, ach[0], from, nome);
   }
   if (papel === 'fabrica' && /\b(entreguei|entregamos|instalei|instalamos|ja entreguei)\b/.test(msg) && !/\b(terminei|cortei|poli|acabei)\b/.test(msg)) { await enviar(env, from, `${nome}, a entrega/instalação é marcada por quem instala. Se você terminou uma parte na fábrica, diga por exemplo: _terminei os frontões do Jailton_, _terminei 2 lavatórios da Maria_ ou _terminei o acabamento do Douglas_.`); return true; } // v182
@@ -10300,6 +10311,11 @@ async function prodFotoRecebida(env, f, from, m, nome) {
     env._fotoLeg = 1; env._fotoNaoAchou = 0; const tratou = await producaoFuncionario(env, f, from, leg, '', nome).catch(e => { console.log('[FOTO] legenda:', e.message); return false; }); env._fotoLeg = 0;
     await env.HR_KV.delete('prod:fotoja:' + ultimos8(from));
     try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
+    if (!pe && tratou && !env._fotoNaoAchou && !(await env.HR_KV.get('prod:qualcli:' + ultimos8(from)))) { // v329: a legenda registrou algo → a foto vai para esse pedido (sem mandar a lista)
+      const rec = (await pedidosProducao(env, p => (p.prodLog || []).some(x => (x.por || []).map(String).includes(String(f.id)) && Date.now() - (x.ts || 0) < 3 * 60000) || [p.corteIniEm, p.acabIniEm, p.fabProntoEm, p.corteEm].some(t => t && Date.now() - t < 3 * 60000)).catch(() => [])).sort((a, b) => (b.atualizadoEm || 0) - (a.atualizadoEm || 0))[0];
+      let fpX = null; try { fpX = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
+      if (rec && fpX && fpX.mid) { await fotosNoPedido(env, rec.id, fpX.mids || [fpX.mid], String(f.id)).catch(() => {}); await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid: rec.id, em: Date.now() }), { expirationTtl: 3600 }); return true; }
+    }
     if (pe) await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); else { if (tratou && !env._fotoNaoAchou && await env.HR_KV.get('prod:qualcli:' + ultimos8(from))) return true; /* v326: já perguntou de qual cliente (com a foto esperando): não manda a lista também */ if (await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) return prodFotoPerguntar(env, f, from, m, nome, leg); return true; } // v169: não entendeu a legenda → lista de opções
   }
   let ultimo = null; try { ultimo = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {}
@@ -13248,7 +13264,7 @@ async function prodItensRegistrar(env, f, from, ped, et, sel, nome) {
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
     const r = await prodMarcarPronto(env, ped, from, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return r;
   }
-  await enviar(env, from, `✅ Anotado, ${nome}: ${quais} de *${ped.nome}* — ${et === 'corte' ? 'cortado' : et === 'polimento' ? 'polido' : 'pronto'} (+${vPt(pts)} pts).${faltam.length ? `\nFaltam ${faltam.length}: ${faltam.slice(0, 6).map(u => u.nome).join(', ')}${faltam.length > 6 ? '…' : ''}.` : `\n${capT(ETAPA_NOME[et].replace(/^(o|a) /, ''))} completo.${ped.acabResp && String(ped.acabResp) !== id ? ' Falta o acabamento.' : ''}`}`);
+  await enviar(env, from, `✅ Anotado, ${nome}: ${quais} de *${ped.nome}* — ${et === 'corte' ? 'cortado' : et === 'polimento' ? 'polido' : 'pronto'}.${faltam.length ? `\nFaltam ${faltam.length}: ${faltam.slice(0, 6).map(u => u.nome).join(', ')}${faltam.length > 6 ? '…' : ''}.` : `\n${capT(ETAPA_NOME[et].replace(/^(o|a) /, ''))} completo.${ped.acabResp && String(ped.acabResp) !== id ? ' Falta o acabamento.' : ''}`}`);
   await metaChecar(env, id); return true;
 }
 // dono: reabre uma entrega/instalação marcada por engano (ex.: foto da fábrica escolhida como "terminei a instalação")
@@ -31785,6 +31801,7 @@ async function eqFichaResposta(env, cfg, f, from, texto, nome) {
   if (/\b(cozinha|balcao|bancada|lavatorio|soleira|peitoril|tumulo|escada|pia|ponto|pontos|cortei|cortamos|cliente)\b/.test(n)) return false; // v284: é serviço
   if (/\b(cheguei|sai|entrei|bati|esqueci|almoco|faltei|terminei|instalei|iniciei|cortei|cliente|pedido|foto|pronto)\b/.test(n) && !/\b(cpf|pix|nasc\w*|nome completo|banco)\b/.test(n)) return false; // é ponto/produção, não ficha
   const perg = (EQ_FICHA.find(x => x[0] === pend.atual) || [])[2] || '';
+  { const cv = await crmConversa(env, from, 4, 72).catch(() => []), ultB = cv.filter(x => x.q !== 'c').pop(); if (ultB && perg && !normaliza(String(ultB.texto || '')).includes(normaliza(perg.replace(/\*/g, '')).slice(0, 18))) return false; } // v329: só é resposta da ficha se a última pergunta foi a da ficha ("de Cássio" virava nome e vinha "data de nascimento")
   const pula = /^(nao (tenho|sei|lembro)|n sei|nao|pular|depois)\b/.test(n);
   let r = null;
   if (!pula) try { r = lerJsonIA(await chamarIA(env, `Extraia dados de cadastro de um funcionário da resposta dele. A pergunta feita foi: "${perg.replace(/\*/g, '')}". Hoje é ${dataBahia()}. Responda só JSON: {"nome_completo":"","nascimento":"AAAA-MM-DD","cpf":"só números","pix":"","banco":"","cargo":"","admissao":"AAAA-MM-DD (se disser só mês e ano, use o dia 01)"}. Deixe vazio o que não estiver na resposta. Uma resposta curta responde à pergunta feita (ex.: "Nubank" = banco; "ajudante" = cargo). Não invente.`, [], texto, { maxTokens: 200, cat: 'equipe' })); } catch (e) { console.log('[EQ] ficha IA:', e.message); }
@@ -32779,7 +32796,7 @@ ENTENDA TUDO o que ele disser (a mensagem pode ser áudio transcrito com erros: 
 - SERVIÇO FEITO ("cortei", "terminei", "instalei", "fiz o acabamento"): "acao":"registrar", com cliente e etapa (corte, acabamento, polimento, fabricacao, instalacao).
 - O QUE FAZER / PRÓXIMO SERVIÇO: use SERVIÇOS DELE.
 - Problema (pedra trincou, faltou material, máquina quebrou), recado, pedido ou qualquer outra coisa: responda com naturalidade e "escalar": true com um resumo claro para o Sr. Hangel.
-Nunca pergunte data de nascimento, dia ou horário se ele está falando de serviço ou pontos. Nunca responda só "Avisei o Sr. Hangel": diga o que você entendeu.
+Nunca pergunte data de nascimento, dia ou horário se ele está falando de serviço ou pontos. Quando ele fala de um serviço sem dizer o cliente ("a cozinha do preto são gabriel", "o balcão do verde ubatuba"), ache o cliente em SERVIÇOS ABERTOS pela peça e pela pedra; se só um bate, use esse cliente (acao registrar); se mais de um, pergunte qual, citando os nomes. O texto pode ser áudio mal transcrito: "Acunento", "Priton Gabriel", "Osmarilto" são palavras erradas — nunca as trate como nome de cliente; use só nomes da lista. NUNCA responda "não achei ficha pendente", "vou passar seu recado ao responsável" ou "avisei o Sr. Hangel sobre o serviço de <algo que não é cliente da lista>". Nunca responda só "Avisei o Sr. Hangel": diga o que você entendeu.
 POSTURA PROFISSIONAL (obrigatório): você é uma secretária experiente. Leia o HISTÓRICO antes de responder. Resposta curta ("sim", "ss", "não", "foi", "já") é resposta à última pergunta do histórico: entenda assim e siga (nunca responda "Olá, como posso ajudar?"). NÃO cumprimente de novo se já houve conversa hoje. NÃO repita uma pergunta que já foi feita ou respondida no histórico; NÃO peça de novo o que ele já disse. Uma pergunta por vez, só quando faltar algo de verdade. Sem frases genéricas.
 PONTOS MERECIDOS: se pelo histórico ele fez um serviço (foto "finalizando/finalizei/instalei/terminei o de X", "já foi entregue") e ainda não aparece nos PONTOS dele, use "acao":"registrar" com o cliente e a etapa certa (instalacao para quem instala), em vez de pedir para ele repetir.
 ${eqCtx}
@@ -32833,8 +32850,10 @@ async function eqContextoIA(env, f, texto) {
   }
   try { const mt = await minhasTarefas(env, f); L.push('SERVIÇOS DELE AGORA: ' + (mt.length ? mt.join(' | ').replace(/[*_]/g, '').slice(0, 900) : '(nenhum atribuído)')); } catch (_) {}
   const tk = tokensPedra(String(texto || ''));
+  const todosP = await pedidosProducao(env, p => p.status !== 'recusado' && (!p.entregueEm || Date.now() - p.entregueEm < 20 * 86400000)).catch(() => []);
+  L.push('SERVIÇOS ABERTOS NA PRODUÇÃO (cliente — peças · pedra): ' + (todosP.filter(p => !p.entregueEm).slice(0, 18).map(p => `${p.nome} — ${resumoPecas(p)}`).join(' | ') || '(nenhum)')); // v329: "cozinha do preto são gabriel" → acha o cliente pela peça e pela pedra
   if (tk.length) {
-    const peds = (await pedidosProducao(env, p => p.status !== 'recusado' && (!p.entregueEm || Date.now() - p.entregueEm < 20 * 86400000)).catch(() => [])).filter(p => nomeNota(p.nome, tk) > 0).slice(0, 2);
+    let peds = todosP.filter(p => nomeNota(p.nome, tk) > 0).slice(0, 2); if (!peds.length) peds = pedPorItemPedra(todosP.filter(p => !p.entregueEm), texto).slice(0, 2);
     for (const p of peds) {
       const meus = (p.prodLog || []).filter(l => (l.por || []).map(String).includes(id));
       const ets = [...new Set([...meus.map(l => l.e), 'corte', pedComplexo(p) ? 'polimento' : 'acabamento'])].filter(e => ['corte', 'acabamento', 'polimento', 'instalacao', 'entrega'].includes(e)).slice(0, 3);

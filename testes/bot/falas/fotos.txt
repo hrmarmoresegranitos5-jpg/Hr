@@ -23,7 +23,7 @@
 [F] FOTO "terminei"
    → →ined: undefined ⏎ →0011: Recebi a foto, Fabrício! É de qual serviço? [lista]
 [F] FOTO "cortei 1 peitoril do Jacó, falta 1"
-   → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (24/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_). ⏎ →0011: Foto guardada no pedido de Jacob da Mata. Valeu, Fabrício!
+   → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (24/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_).
 
 ESTADO:
 undefined: corte=false pronto=false acab=false entregue=false fotos=0 log=[]
