@@ -6,7 +6,15 @@ const kv={async get(k){return KV.has(k)?KV.get(k):null}, async getWithMetadata(k
 const stmt={bind(){return stmt},async run(){return {meta:{changes:1}}},async all(){return {results:[]}},async first(){return null}};
 const db={prepare(){return stmt},batch:async()=>[]};
 function aiResp(sys,user){
-  if(/Você identifica fotos de serviço/.test(sys)){ const ids=[...user.matchAll(/"(fot\|[^"]+)"/g)].map(x=>x[1]); const leg=(user.match(/Legenda: "([^"]*)"/)||[])[1]||''; const want=/inici|comec/i.test(leg)?/\|(ini|cti|aci)$/:/finaliz|pront|cortad|termin/i.test(leg)?/\|(fim|pronto|acf)$/:/\|(ini|cti)$/; const pick=(globalThis.__fotoAlvo&&ids.find(i=>i.includes('|'+globalThis.__fotoAlvo+'|')&&want.test(i)))||ids.find(i=>want.test(i))||ids[0]; return JSON.stringify({opcao:pick,certeza:globalThis.__fotoCerteza||'alta',vejo:'peças de granito preto na oficina'}); }
+  if(/Você identifica fotos de serviço/.test(sys)){ // simula a IA de visão usando o que a legenda e os serviços dizem (a foto em si não existe no teste)
+    const nz=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); const leg=nz((user.match(/Legenda: "([^"]*)"/)||[])[1]||'');
+    const blocos=user.split('\n- ').slice(1).map(b=>({b:nz(b),ids:[...b.matchAll(/"(fot\|[^"]+)"/g)].map(x=>x[1])}));
+    const pal=leg.split(/[^a-z0-9]+/).filter(w=>w.length>=4&&!/^(cortad|cortado|cortada|finaliz|inici|comec|pronto|servico|terminei|terminado|agora|ja|esta|estao|foto)/.test(w));
+    const sc=blocos.map(x=>({...x,n:pal.filter(w=>x.b.includes(w.slice(0,5))).length})); const mx=Math.max(0,...sc.map(x=>x.n)), top=sc.filter(x=>x.n===mx);
+    const want=/inici|comec|vou comec/.test(leg)?/\|(ini|cti|aci)$/:/finaliz|pront|cortad|termin|instal/.test(leg)?/\|(fim|pronto|acf)$/:/continua|andamento/.test(leg)?/\|foto$/:/\|(ini|cti|aci|pronto|acf|fim)$/;
+    const alvo=globalThis.__fotoAlvo?sc.find(x=>x.ids.some(i=>i.includes('|'+globalThis.__fotoAlvo+'|'))):(top.length===1?top[0]:null);
+    const ids=alvo?alvo.ids:sc.flatMap(x=>x.ids); const pick=ids.find(i=>want.test(i))||ids[0];
+    return JSON.stringify({opcao:pick,certeza:globalThis.__fotoCerteza||(alvo&&(mx>0||sc.length===1)?'alta':'baixa'),vejo:'peças de pedra'}); }
   if(/Descubra de qual serviço ele fala/.test(sys)){ const m=['Jacó','Cássio','Osmailton'].find(n=>user.toLowerCase().includes(n.toLowerCase().slice(0,4))); return JSON.stringify({cliente:m||'',item:/peitor/i.test(user)?'peitoril':'',etapa:'corte',feito:/cortad|cortei/i.test(user)&&!/quero saber/i.test(user)}); }
   if(/secretária de RH/.test(sys)) return JSON.stringify({resposta:'[IA-RH] resposta com dados: '+(sys.match(/PONTOS DELE:[^\n]*/)||['sem pontos'])[0],escalar:false,assunto:'outro',acao:''});
   if(/pelo totem \(tablet\)/.test(sys)) return JSON.stringify({fala:'O m² do Preto São Gabriel tá R$ 450,00, mas o valor final depende das medidas.',abrir:'pedras:pretas'});

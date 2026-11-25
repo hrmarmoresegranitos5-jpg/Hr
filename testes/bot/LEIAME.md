@@ -23,3 +23,4 @@ Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). 
 - t17: recado guardado não engole a foto; acabador com 'finalizadas' registra direto. v331.
 - t18: Gibson real — 'Finalizando o serviço de poliano' (foto) dá baixa; 'Ok' sem 'não entendi'. v332.
 - t19: foto inteligente (IA escolhe serviço+etapa pela foto; 'não, é do Cássio' desfaz). v334.
+- falas/fotos_reais.mjs: 29 fotos REAIS da equipe (legendas de 19–24/11, números de telefone trocados por falsos) com o cliente e a etapa esperados → ACERTOS x/29. v335: 29/29.
