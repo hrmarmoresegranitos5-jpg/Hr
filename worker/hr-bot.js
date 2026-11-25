@@ -8537,10 +8537,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       await env.HR_KV.delete('prod:fotoia:' + ultimos8(from));
       const [, pid, ac] = String(fi.op).split('|'), pd = await lerPedido(env, pid).catch(() => null), id = String(f.id);
       if (pd) {
-        if (ac === 'cti') { pd.corteIniEm = null; pd.corteIniPor = null; } else if (ac === 'aci') { pd.acabIniEm = null; pd.acabIniPor = null; } else if (ac === 'ini') { pd.instIniEm = null; pd.instIniPor = null; }
-        else if (ac === 'pronto' || ac === 'acf') { pd.prodLog = Array.isArray(pd.prodLog) ? pd.prodLog : []; pd.prodLog.push({ e: 'anulado', alvo: pedComplexo(pd) ? 'fabricacao' : (ac === 'acf' ? 'acabamento' : 'corte'), quem: id, ate: Date.now(), ts: Date.now() }); pd.fabProntoEm = null; pd.prontoEm = null; if (ac === 'acf') pd.acabEm = null; if (pd.entregaEnviadaEm && Date.now() - pd.entregaEnviadaEm < 3600000) { pd.entregaEnviadaEm = null; const tE = await numEquipe(env, 'entrega', pd).catch(() => ''); if (tE && ultimos8(tE) !== ultimos8(from)) await enviar(env, tE, `${avisoTeste(env)}⚠️ A entrega de *${pd.nome}* foi cancelada por enquanto (a foto era de outro serviço). Eu aviso quando ficar pronto.`).catch(() => {}); } }
-        else if (ac === 'fim') { pd.prodLog = (pd.prodLog || []).filter(x => !(['instalacao', 'entrega'].includes(x.e) && (x.por || []).map(String).includes(id) && Date.now() - (x.ts || 0) < 3600000)); pd.entregueEm = null; pd.fotoEntregaEm = null; }
-        await salvarPedido(env, pd); metaChecar(env, id).catch(() => {});
+        await fotoDesfazerAcao(env, pd, ac, id, from); await fotoDecisaoMarcar(env, fi.mid, 'desfeita', 'funcionário disse que não era');
         await pontoAvisarDono(env, `↩️ ${nome} disse que a foto não era de *${pd.nome}*. Desfiz o que eu tinha anotado pela foto.`).catch(() => {});
       }
       const resto = msg.replace(/^(nao|n|errado|errou|ta errado|nao e (isso|esse|essa|esse ai)|nao foi isso)\b[ ,.]*/, '').trim();
@@ -10341,7 +10338,7 @@ async function prodFotoRecebida(env, f, from, m, nome) {
     if (!pe && tratou && !env._fotoNaoAchou && !(await env.HR_KV.get('prod:qualcli:' + ultimos8(from)))) { // v329: a legenda registrou algo → a foto vai para esse pedido (sem mandar a lista)
       const rec = (await pedidosProducao(env, p => (p.prodLog || []).some(x => (x.por || []).map(String).includes(String(f.id)) && Date.now() - (x.ts || 0) < 3 * 60000) || [p.corteIniEm, p.acabIniEm, p.fabProntoEm, p.corteEm].some(t => t && Date.now() - t < 3 * 60000)).catch(() => [])).sort((a, b) => (b.atualizadoEm || 0) - (a.atualizadoEm || 0))[0];
       let fpX = null; try { fpX = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
-      if (rec && fpX && fpX.mid) { await fotosNoPedido(env, rec.id, fpX.mids || [fpX.mid], String(f.id)).catch(() => {}); await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid: rec.id, em: Date.now() }), { expirationTtl: 3600 }); return true; }
+      if (rec && fpX && fpX.mid) { const ultE = (rec.prodLog || []).filter(x => (x.por || []).map(String).includes(String(f.id))).pop(); await fotoDecisaoGravar(env, { fid: f.id, fnome: f.nome, tel: from, mid: fpX.mid, leg, pid: rec.id, pnome: rec.nome, acao: ultE ? ({ corte: 'pronto', acabamento: 'acf', instalacao: 'fim', entrega: 'fim', inicio: 'cti' }[ultE.e] || ultE.e) : (rec.corteIniEm && Date.now() - rec.corteIniEm < 3e5 ? 'cti' : 'foto'), origem: 'legenda' }); await fotosNoPedido(env, rec.id, fpX.mids || [fpX.mid], String(f.id)).catch(() => {}); await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid: rec.id, em: Date.now() }), { expirationTtl: 3600 }); return true; }
     }
     if (pe) await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); else { if (tratou && !env._fotoNaoAchou && await env.HR_KV.get('prod:qualcli:' + ultimos8(from))) return true; /* v326: já perguntou de qual cliente (com a foto esperando): não manda a lista também */ if (await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) return prodFotoPerguntar(env, f, from, m, nome, leg); return true; } // v169: não entendeu a legenda → lista de opções
   }
@@ -12682,7 +12679,7 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
       const grp = qIni ? ['ini', 'cti', 'aci'] : ['fim', 'pronto', 'acf'], ops = linhas.filter(x => grp.includes(x.id.split('|')[2]));
       const emAnd = qFim ? ops.filter(x => { const p = l.find(q => String(q.id) === x.id.split('|')[1]); return p && ((x.id.endsWith('|fim') && p.instIniEm) || (x.id.endsWith('|acf') && p.acabIniEm) || (x.id.endsWith('|pronto') && p.corteIniEm && !p.corteEm)); }) : [];
       const peds = [...new Set(ops.map(x => x.id.split('|')[1]))], esc = emAnd.length === 1 ? emAnd[0] : peds.length === 1 && ops.length === 1 ? ops[0] : null;
-      if (esc) { const pd = l.find(q => String(q.id) === esc.id.split('|')[1]); await env.HR_KV.put('prod:fotoia:' + k8, JSON.stringify({ op: esc.id, mid: m.image.id, mids: [m.image.id], leg: leg || '', em: Date.now() }), { expirationTtl: 3600 });
+      if (esc) { env._fotoOrigem = 'regra'; const pd = l.find(q => String(q.id) === esc.id.split('|')[1]); await env.HR_KV.put('prod:fotoia:' + k8, JSON.stringify({ op: esc.id, mid: m.image.id, mids: [m.image.id], leg: leg || '', em: Date.now() }), { expirationTtl: 3600 });
         await enviar(env, from, `📸 Anotei: *${esc.descricao}* — *${pd ? pd.nome : ''}*${emAnd.length === 1 ? ' (o serviço que você tinha começado)' : ''}. Se não for isso, me diga (ex.: _não, é do Jacó_).`); return prodFotoEscolha(env, f, from, esc.id, nome); }
     }
   }
@@ -12693,7 +12690,8 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
       if (pd && leg && pedConflitoTxt(pd, leg)) r.certeza = 'media';
       if (leg && !/\b(inici\w*|comec\w*|finaliz\w*|termin\w*|pront\w*|instal\w*|entreg\w*|cortad\w*|acabad\w*|conclu\w*|vou)\b/.test(normaliza(leg))) r.certeza = 'media';
       if (leg && /\b(saindo|indo|a caminho|carregando|carreguei|levando)\b/.test(normaliza(leg))) r.certeza = 'media'; // v336: indo entregar ainda não é instalação // v335: "Serviços da dona Renata" não diz a etapa: só sugere // a legenda fala de outra peça/pedra: só sugere
-      if (r.certeza === 'alta' && !/\|foto$/.test(r.op.id)) { let fpI = null; try { fpI = JSON.parse((await env.HR_KV.get('prod:fotopend:' + k8)) || 'null'); } catch (_) {} await env.HR_KV.put('prod:fotoia:' + k8, JSON.stringify({ op: r.op.id, mid: m.image.id, mids: (fpI && fpI.mids) || [m.image.id], leg: leg || '', em: Date.now() }), { expirationTtl: 3600 }); await enviar(env, from, `📸 Pela foto: ${r.vejo}. Anotei: *${r.op.descricao}* — *${cli}*. Se não for isso, me diga (ex.: _não, é do Jacó_).`); return prodFotoEscolha(env, f, from, r.op.id, nome); }
+      if (r.certeza === 'alta' && !/\|foto$/.test(r.op.id)) { env._fotoOrigem = 'ia'; env._fotoCerteza = 'alta'; env._fotoVejo = r.vejo; let fpI = null; try { fpI = JSON.parse((await env.HR_KV.get('prod:fotopend:' + k8)) || 'null'); } catch (_) {} await env.HR_KV.put('prod:fotoia:' + k8, JSON.stringify({ op: r.op.id, mid: m.image.id, mids: (fpI && fpI.mids) || [m.image.id], leg: leg || '', em: Date.now() }), { expirationTtl: 3600 }); await enviar(env, from, `📸 Pela foto: ${r.vejo}. Anotei: *${r.op.descricao}* — *${cli}*. Se não for isso, me diga (ex.: _não, é do Jacó_).`); return prodFotoEscolha(env, f, from, r.op.id, nome); }
+      await env.HR_KV.put('prod:fotosug:' + k8, JSON.stringify({ op: r.op.id, certeza: r.certeza, vejo: r.vejo }), { expirationTtl: 6 * 3600 }).catch(() => {});
       const ord = [r.op, ...linhas.filter(x => x.id !== r.op.id)];
       await enviarLista(env, from, `📸 ${r.vejo ? r.vejo.charAt(0).toUpperCase() + r.vejo.slice(1) + '. ' : ''}Parece *${r.op.descricao}* — *${cli}*. É isso? Se for, toque na primeira opção.`, 'Escolher', ord.slice(0, 10), true);
       return true;
@@ -12704,6 +12702,21 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
 }
 
 // v334: escolhe o serviço e a etapa olhando a foto + a legenda + os serviços dele (só entre as opções que ele tem)
+// v337: desfaz o que uma foto registrou (usado pelo "não, é do Jacó" e pela tela Fotos da equipe do app)
+async function fotoDesfazerAcao(env, pd, ac, id, from, semPrazo) {
+
+        if (ac === 'cti') { pd.corteIniEm = null; pd.corteIniPor = null; } else if (ac === 'aci') { pd.acabIniEm = null; pd.acabIniPor = null; } else if (ac === 'ini') { pd.instIniEm = null; pd.instIniPor = null; }
+        else if (ac === 'pronto' || ac === 'acf') { pd.prodLog = Array.isArray(pd.prodLog) ? pd.prodLog : []; pd.prodLog.push({ e: 'anulado', alvo: pedComplexo(pd) ? 'fabricacao' : (ac === 'acf' ? 'acabamento' : 'corte'), quem: id, ate: Date.now(), ts: Date.now() }); pd.fabProntoEm = null; pd.prontoEm = null; if (ac === 'acf') pd.acabEm = null; if (pd.entregaEnviadaEm && (semPrazo || Date.now() - pd.entregaEnviadaEm < 3600000)) { pd.entregaEnviadaEm = null; const tE = await numEquipe(env, 'entrega', pd).catch(() => ''); if (tE && ultimos8(tE) !== ultimos8(from)) await enviar(env, tE, `${avisoTeste(env)}⚠️ A entrega de *${pd.nome}* foi cancelada por enquanto (a foto era de outro serviço). Eu aviso quando ficar pronto.`).catch(() => {}); } }
+        else if (ac === 'fim') { pd.prodLog = (pd.prodLog || []).filter(x => !(['instalacao', 'entrega'].includes(x.e) && (x.por || []).map(String).includes(id) && (semPrazo || Date.now() - (x.ts || 0) < 3600000))); pd.entregueEm = null; pd.fotoEntregaEm = null; }
+        await salvarPedido(env, pd); metaChecar(env, id).catch(() => {});
+}
+// v337: diário das decisões de foto (o app mostra, o dono confere/corrige, e as correções ensinam a IA)
+async function fotoDecTab(env) { if (!env.HR_DB) return false; if (globalThis.__fotoDecTab) return true; await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS foto_decisao (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, fid TEXT, fnome TEXT, tel TEXT, mid TEXT, leg TEXT, pid TEXT, pnome TEXT, acao TEXT, origem TEXT, certeza TEXT, vejo TEXT, status TEXT, corr TEXT)').run(); globalThis.__fotoDecTab = 1; return true; }
+async function fotoDecisaoGravar(env, o) { try { if (!(await fotoDecTab(env))) return; await env.HR_DB.prepare('INSERT INTO foto_decisao (ts, fid, fnome, tel, mid, leg, pid, pnome, acao, origem, certeza, vejo, status, corr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(Date.now(), String(o.fid || ''), String(o.fnome || '').slice(0, 60), String(o.tel || ''), String(o.mid || ''), String(o.leg || '').slice(0, 300), String(o.pid || ''), String(o.pnome || '').slice(0, 80), String(o.acao || ''), String(o.origem || ''), String(o.certeza || ''), String(o.vejo || '').slice(0, 160), 'feita', '').run(); } catch (e) { console.log('[FOTODEC]', e.message); } }
+async function fotoDecisaoMarcar(env, mid, status, corr) { try { if (!mid || !(await fotoDecTab(env))) return; await env.HR_DB.prepare('UPDATE foto_decisao SET status = ?, corr = ? WHERE mid = ?').bind(status, String(corr || '').slice(0, 300), String(mid)).run(); } catch (_) {} }
+const FOTO_ACAO_TXT = { cti: 'começou o corte', aci: 'começou o acabamento', acf: 'terminou o acabamento', pronto: 'peças prontas / corte feito', ini: 'começou a instalação', fim: 'terminou a instalação / entregou', foto: 'só guardou a foto', reabre: 'reabriu a instalação' };
+// exemplos que o dono corrigiu: vão no pedido da IA da foto para ela não repetir o erro
+async function fotoExemplosCorrigidos(env) { try { if (!(await fotoDecTab(env))) return ''; const r = await env.HR_DB.prepare("SELECT leg, pnome, acao, corr, vejo FROM foto_decisao WHERE status = 'corrigida' ORDER BY ts DESC LIMIT 8").all(); return (r.results || []).map(x => `- legenda "${x.leg || '(sem legenda)'}"${x.vejo ? ', foto: ' + x.vejo : ''}: NÃO era ${FOTO_ACAO_TXT[x.acao] || x.acao} de ${x.pnome}; o certo: ${x.corr}`).join('\n'); } catch (_) { return ''; } }
 async function fotoInteligente(env, f, from, m, leg, l, linhas) {
   if (!m || !m.image || !m.image.id) return null;
   let img = null; try { const b = await baixarMidia(env, m.image.id); img = { buf: new Uint8Array(b.buf), mime: b.tipo || 'image/jpeg' }; } catch (_) { return null; }
@@ -12714,12 +12727,14 @@ async function fotoInteligente(env, f, from, m, leg, l, linhas) {
 Como ler a foto: chapa inteira na bancada/serra ou sendo riscada/cortada = COMEÇANDO o corte; peças já recortadas, brutas, empilhadas ou encostadas na oficina = corte feito / peças prontas; peças com borda polida, brilho, sainha colada, cuba recortada, na oficina = acabamento feito / peças prontas; local da obra sem a pedra (parede, armário, bancada vazia, piso sujo) = COMEÇANDO a instalação; pedra já assentada/instalada na casa do cliente (pia, bancada, lavatório, soleira no lugar) = instalação terminada / entreguei; peças no carro = entrega.
 Compare o TIPO de peça (cozinha/bancada/pia/balcão/área gourmet, lavatório, soleira, peitoril, escada, nicho) e a COR da pedra (preto, branco, verde, cinza, marrom, bege) com cada serviço. A legenda do funcionário vale muito ("iniciando" = começo, "finalizado/finalizando/pronto/cortado" = fim). Quem manda é ${f.nome} (${papel || 'equipe'}).
 certeza "alta" só quando a peça e a cor batem com UM só serviço e a etapa está clara; "media" quando dá para palpitar; "baixa" quando não dá. Responda SÓ JSON: {"opcao":"id exato","certeza":"alta|media|baixa","vejo":"o que aparece na foto, em até 12 palavras, em português simples"}`;
-  const o = await iaVisaoJSON(env, sis, [img], `Legenda: "${String(leg || '').slice(0, 200) || '(sem legenda)'}"\nServiços:\n${ctx}`, 300);
+  const exC = await fotoExemplosCorrigidos(env);
+  const o = await iaVisaoJSON(env, sis + (exC ? `\nERROS QUE VOCÊ JÁ COMETEU E O SR. HANGEL CORRIGIU (não repita):\n${exC}` : ''), [img], `Legenda: "${String(leg || '').slice(0, 200) || '(sem legenda)'}"\nServiços:\n${ctx}`, 300);
   if (!o || !o.opcao) return null;
   const op = linhas.find(x => x.id === String(o.opcao).trim()); if (!op) return null;
   return { op, certeza: ['alta', 'media', 'baixa'].includes(o.certeza) ? o.certeza : 'baixa', vejo: String(o.vejo || '').slice(0, 120) };
 }
-async function prodFotoEscolha(env, f, from, idB, nome) { // v176: com várias fotos, a 1ª vai para a etapa escolhida e as outras ficam guardadas no pedido
+async function prodFotoEscolha(env, f, from, idB, nome) { if (!env._fotoOrigem) { try { const sg = JSON.parse((await env.HR_KV.get('prod:fotosug:' + ultimos8(from))) || 'null'); if (sg) { await env.HR_KV.delete('prod:fotosug:' + ultimos8(from)); env._fotoOrigem = sg.op === idB ? 'ia+confirmou' : 'escolha (ia sugeriu outro)'; env._fotoCerteza = sg.certeza; env._fotoVejo = sg.vejo; } } catch (_) {} } // v337
+  // v176: com várias fotos, a 1ª vai para a etapa escolhida e as outras ficam guardadas no pedido
   let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
   const mids = fp && fp.mids && fp.mids.length > 1 ? fp.mids : null;
   if (mids) await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: mids[0], em: Date.now() }), { expirationTtl: 6 * 3600 });
@@ -12741,6 +12756,7 @@ async function prodFotoEscolha1(env, f, from, idB, nome) {
   let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!fp || !fp.mid) { await enviar(env, from, 'A foto expirou. Manda de novo, por favor.'); return true; }
   await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
+  await fotoDecisaoGravar(env, { fid: f.id, fnome: f.nome, tel: from, mid: fp.mid, leg: fp.leg || '', pid: ped.id, pnome: ped.nome, acao: ac, origem: env._fotoOrigem || 'escolha', certeza: env._fotoCerteza || '', vejo: env._fotoVejo || '' }); env._fotoOrigem = ''; env._fotoCerteza = ''; env._fotoVejo = '';
   const img = { type: 'image', image: { id: fp.mid } };
   await instAjudAnotar(env, ped, f).catch(e => console.log('[AJUD]', e.message)); // v198
   if (ac === 'reabre') { // v172: desfaz a instalação marcada antes da hora (os pontos voltam a contar quando terminar de verdade)
@@ -27001,6 +27017,39 @@ async function rotaBotInterna(req, env, url) {
     }
     return jsonR({ ok: true });
   }
+  if (p === '/bot/fotos/decisoes' && req.method === 'GET') { // v337: tela "Fotos da equipe" do app
+    await fotoDecTab(env); const dias = Math.min(30, Math.max(1, +url.searchParams.get('dias') || 7));
+    const r = await env.HR_DB.prepare('SELECT id, ts, fid, fnome, tel, mid, leg, pid, pnome, acao, origem, certeza, vejo, status, corr FROM foto_decisao WHERE ts >= ? ORDER BY ts DESC LIMIT 150').bind(Date.now() - dias * 86400000).all().catch(() => ({ results: [] }));
+    const cfg = await pontoCfg(env).catch(() => ({ funcs: [] })), pend = [];
+    const lk = await env.HR_KV.list({ prefix: 'prod:fotopend:' }).catch(() => ({ keys: [] }));
+    for (const k of lk.keys || []) { try { const v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); const k8 = k.name.slice('prod:fotopend:'.length), f = cfg.funcs.find(x => x.tel && ultimos8(x.tel) === k8); if (v && v.mid && f) pend.push({ tel: k8, fid: f.id, fnome: f.nome, mid: v.mid, mids: v.mids || [v.mid], leg: v.leg || '', em: v.em || 0 }); } catch (_) {} }
+    const peds = (await pedidosProducao(env, x => x.status !== 'recusado' && (!x.entregueEm || Date.now() - x.entregueEm < 7 * 86400000)).catch(() => [])).map(x => ({ id: String(x.id), nome: x.nome, resumo: resumoPecas(x), entregue: !!x.entregueEm, corte: !!x.corteEm, pronto: !!(x.fabProntoEm || x.prontoEm), inst: !!x.instIniEm }));
+    return jsonR({ ok: true, decisoes: r.results || [], pendentes: pend, pedidos: peds, acoes: FOTO_ACAO_TXT });
+  }
+  if (p === '/bot/fotos/img' && req.method === 'GET') { const mid = String(url.searchParams.get('mid') || ''); if (!/^[\w.-]{3,80}$/.test(mid)) return jsonR({ error: 'mid' }, 400);
+    try { const b = await baixarMidia(env, mid); return new Response(b.buf, { headers: { 'content-type': b.tipo || 'image/jpeg', 'cache-control': 'private, max-age=86400' } }); } catch (e) { return jsonR({ error: 'A foto não está mais disponível no WhatsApp.' }, 404); } }
+  if (p === '/bot/fotos/acao' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({})), cfg = await pontoCfg(env); await fotoDecTab(env);
+    const ETS = ['cti', 'aci', 'acf', 'pronto', 'ini', 'fim', 'foto'];
+    if (b.pend) { // foto que ficou sem serviço: o dono escolhe
+      const f = cfg.funcs.find(x => x.tel && ultimos8(x.tel) === String(b.pend)); if (!f || !ETS.includes(b.etapa) || !b.pid) return jsonR({ error: 'dados incompletos' }, 400);
+      const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel); env._fotoOrigem = 'dono'; await prodFotoEscolha1(env, f, tel, `fot|${b.pid}|${b.etapa}`, apelidoFunc(cfg, f) || f.nome.split(' ')[0]); return jsonR({ ok: true }); }
+    const row = await env.HR_DB.prepare('SELECT * FROM foto_decisao WHERE id = ?').bind(+b.id || 0).first(); if (!row) return jsonR({ error: 'não achei essa foto' }, 404);
+    if (b.acao === 'ok') { await env.HR_DB.prepare("UPDATE foto_decisao SET status = 'conferida' WHERE id = ?").bind(row.id).run(); return jsonR({ ok: true }); }
+    const f = cfg.funcs.find(x => String(x.id) === String(row.fid)), tel = f && f.tel ? normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel) : String(row.tel || ''), nome = f ? (apelidoFunc(cfg, f) || f.nome.split(' ')[0]) : 'equipe';
+    const pd = await lerPedido(env, row.pid).catch(() => null);
+    if (pd && row.acao && row.acao !== 'foto' && row.status !== 'desfeita') await fotoDesfazerAcao(env, pd, row.acao, String(row.fid), tel, true);
+    if (b.acao === 'desfazer') { await env.HR_DB.prepare("UPDATE foto_decisao SET status = 'corrigida', corr = ? WHERE id = ?").bind('não era nada disso (o Sr. Hangel desfez)', row.id).run();
+      if (f && tel) await enviar(env, tel, `↩️ ${nome}, o Sr. Hangel desfez o que eu tinha anotado com a sua foto de ${pd ? pd.nome : 'antes'} (${FOTO_ACAO_TXT[row.acao] || row.acao}).`).catch(() => {});
+      await falhaGravar(env, { num: tel, quem: row.fnome, papel: 'equipe', entrada: '[foto] ' + (row.leg || ''), resposta: `${FOTO_ACAO_TXT[row.acao] || row.acao} de ${row.pnome}`, tipo: 'foto_corrigida', nota: 'o dono desfez' }).catch(() => {}); return jsonR({ ok: true }); }
+    if (b.acao === 'mudar') { if (!b.pid || !ETS.includes(b.etapa) || !f) return jsonR({ error: 'escolha o pedido e a etapa' }, 400);
+      const novo = await lerPedido(env, b.pid).catch(() => null); if (!novo) return jsonR({ error: 'pedido não encontrado' }, 404);
+      await env.HR_DB.prepare("UPDATE foto_decisao SET status = 'corrigida', corr = ? WHERE id = ?").bind(`${FOTO_ACAO_TXT[b.etapa] || b.etapa} de ${novo.nome}`, row.id).run();
+      await falhaGravar(env, { num: tel, quem: row.fnome, papel: 'equipe', entrada: '[foto] ' + (row.leg || ''), resposta: `${FOTO_ACAO_TXT[row.acao] || row.acao} de ${row.pnome}`, tipo: 'foto_corrigida', nota: `certo: ${FOTO_ACAO_TXT[b.etapa] || b.etapa} de ${novo.nome}` }).catch(() => {});
+      await env.HR_KV.put('prod:fotopend:' + ultimos8(tel), JSON.stringify({ mid: row.mid, mids: [row.mid], leg: row.leg || '', em: Date.now() }), { expirationTtl: 3600 });
+      env._fotoOrigem = 'dono'; await prodFotoEscolha1(env, f, tel, `fot|${novo.id}|${b.etapa}`, nome); return jsonR({ ok: true }); }
+    return jsonR({ error: 'ação inválida' }, 400);
+  }
   if (p === '/bot/falhas' && req.method === 'GET') { await falhaTab(env); const r = await env.HR_DB.prepare('SELECT * FROM helena_falhas ORDER BY ts DESC LIMIT 200').all().catch(() => ({ results: [] })); return jsonR({ falhas: r.results || [] }); } // v329
   if (p === '/bot/correcoes' && req.method === 'GET') {
     const lista = await listarTodas(env, 'cor:'), out = [];
@@ -32658,9 +32707,11 @@ async function helenaAuditoriaRotina(env) {
   }
   const r2 = await env.HR_DB.prepare("SELECT quem, entrada, tipo FROM helena_falhas WHERE ts >= ? AND tipo != 'auditoria' ORDER BY ts").bind(t0).all().catch(() => ({ results: [] }));
   const vivos = (r2.results || []).filter(x => !achados.some(a => normaliza(a.e.fala || '').slice(0, 30) === normaliza(x.entrada || '').slice(0, 30)));
+  let nFotoIA = 0; try { await fotoDecTab(env); const rf = await env.HR_DB.prepare("SELECT COUNT(*) n FROM foto_decisao WHERE ts >= ? AND status = 'feita' AND (origem = 'ia' OR origem = 'regra')").bind(t0).first(); nFotoIA = +(rf && rf.n) || 0; } catch (_) {}
+  if (nFotoIA && !(achados.length + vivos.length)) { await pontoAvisarDono(env, `📸 Hoje eu decidi sozinha ${nFotoIA} foto(s) da equipe (cliente e etapa). Confira em *Secretária → Fotos da equipe* no app: um toque confirma ou corrige.`).catch(() => {}); return; }
   const n = achados.length + vivos.length; if (!n || String(env.DIARIO_ERROS_AVISO ?? '1') === '0' || await env.HR_KV.get('cfg:falha:aviso') === '0') return;
   const linhas = [...achados.map(a => `• *${a.f.nome.split(' ')[0]}* ${a.e.hora || ''}: "${String(a.e.fala || '').slice(0, 80)}" — ${a.e.problema}`), ...vivos.slice(0, 6).map(x => `• *${String(x.quem).split(' ')[0]}*: "${String(x.entrada || '').slice(0, 80)}" (${x.tipo.replace('nao_entendeu', 'não entendi').replace('reclamacao', 'reclamou').replace('sem_resposta', 'ficou sem resposta')})`)].slice(0, 8);
-  await pontoAvisarDono(env, [`🧠 *Onde eu me confundi hoje* (${n})`, '', ...linhas, '', 'Já guardei tudo para corrigir. Se algum ponto ficou errado, me diga (ex.: _tira o ponto do Fabrício no Jacó_). Para não receber este resumo: _parar resumo de erros_.'].join('\n')).catch(() => {});
+  await pontoAvisarDono(env, [`🧠 *Onde eu me confundi hoje* (${n})`, '', ...linhas, '', (nFotoIA ? `📸 ${nFotoIA} foto(s) decidida(s) por mim: confira em Secretária → Fotos da equipe.\n` : '') + 'Já guardei tudo para corrigir. Se algum ponto ficou errado, me diga (ex.: _tira o ponto do Fabrício no Jacó_). Para não receber este resumo: _parar resumo de erros_.'].join('\n')).catch(() => {});
 }
 async function falhaComandoDono(env, from, msg, bruto) {
   if (/^(parar|desligar|sem) (o )?resumo de erros$/.test(msg)) { await env.HR_KV.put('cfg:falha:aviso', '0'); await enviar(env, from, 'Certo: não mando mais o resumo de erros à noite. Continuo guardando para corrigir. Para voltar: _voltar resumo de erros_.'); return true; }

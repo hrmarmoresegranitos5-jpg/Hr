@@ -25,3 +25,4 @@ Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). 
 - t19: foto inteligente (IA escolhe serviço+etapa pela foto; 'não, é do Cássio' desfaz). v334.
 - falas/fotos_reais.mjs: 29 fotos REAIS da equipe (legendas de 19–24/11, números de telefone trocados por falsos) com o cliente e a etapa esperados → ACERTOS x/29. v335: 29/29.
 - t20: álbum sem ação dupla, 'finalizado' sem cliente vai para o serviço começado, acabador 'finalizado', 'polido', 'saindo pra entrega', 'terminei' com uma tarefa, sem serviço → pergunta. v336.
+- t21: tela Fotos da equipe (decisão gravada, dono corrige/desfaz, IA aprende) com D1 de verdade (d1sqlite.mjs, SQLite do Node). v337.

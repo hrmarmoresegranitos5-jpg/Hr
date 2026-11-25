@@ -1,0 +1,20 @@
+// v337: tela "Fotos da equipe" — a decisão da foto fica gravada; o dono corrige (desfaz o errado, registra o certo, a IA aprende) ou desfaz
+import {T,KV,env,msg,W} from './sim.mjs';
+import {d1} from './d1sqlite.mjs';
+env.HR_DB=d1(); env.BOT_KEY='k';
+const now=Date.now(), F='5574900000001';
+KV.set('ponto:cfg',JSON.stringify({funcs:[{id:'1',nome:'Fabrício Morais',tel:'74900000001'}]})); KV.set('equipe:numeros',JSON.stringify({fabrica:F}));
+const P=(id,o)=>T.salvarPedido(env,{id,criado:now-86400000,status:'fechado',fichaEnviadaEm:now-3600e3,...o});
+await P(101,{nome:'Jacob da Mata',fabResp:'1',resumoApp:{pedra:'Preto São Gabriel',itens:[{ambiente:'Peitoril',pecas:[{qtd:2,comp_cm:120,larg_cm:15}]}]}});
+await P(102,{nome:'Cássio Borges',fabResp:'1',resumoApp:{pedra:'Branco Pinta Verde',itens:[{ambiente:'Lavatório',pecas:[{qtd:2,comp_cm:80,larg_cm:45}]}]}});
+globalThis.__fotoAlvo='101'; globalThis.__fotoCerteza='alta';
+await msg(F,'',{type:'image',image:{id:'midA',mime_type:'image/jpeg',caption:'cortado'}});
+const api=async(path,body)=>{ const r=await W.fetch(new Request('https://x'+path,{method:body?'POST':'GET',headers:{'x-bot-key':'k','authorization':'Bearer k','content-type':'application/json'},body:body?JSON.stringify(body):undefined}),env,{waitUntil(){}}); return r.json(); };
+let d=await api('/bot/fotos/decisoes?dias=7'); console.log('decisões:', JSON.stringify(d.decisoes&&d.decisoes.map(x=>[x.id,x.pnome,x.acao,x.origem,x.status])), d.error||'');
+const id=d.decisoes&&d.decisoes[0]&&d.decisoes[0].id;
+console.log('Jacob pronto antes:', !!(await T.lerPedido(env,101)).fabProntoEm);
+const r=await api('/bot/fotos/acao',{id,acao:'mudar',pid:'102',etapa:'pronto'}); console.log('mudar:', JSON.stringify(r));
+console.log('Jacob pronto depois:', !!(await T.lerPedido(env,101)).fabProntoEm, '| Cássio pronto:', !!(await T.lerPedido(env,102)).fabProntoEm||!!(await T.lerPedido(env,102)).corteEm);
+d=await api('/bot/fotos/decisoes?dias=7'); console.log('decisões:', JSON.stringify(d.decisoes.map(x=>[x.pnome,x.acao,x.origem,x.status,x.corr])));
+const ex=await env.HR_DB.prepare("SELECT leg, pnome, acao, corr FROM foto_decisao WHERE status='corrigida'").all(); console.log('exemplo p/ IA:', JSON.stringify(ex.results));
+process.exit(0);
