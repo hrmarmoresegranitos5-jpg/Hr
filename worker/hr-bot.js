@@ -503,6 +503,7 @@ function respondeSoPorVoz(env, para) {
   return !!(c && c.voz && (c.cliente || c.func) && c.de && normalizarBR(para) === c.de); // v284: funcionário que mandou áudio também recebe áudio
 }
 async function enviar(env, para, texto) {
+  try { if (env && env._ctx && ultimos8(para) === ultimos8(env._ctx.de)) (env._ctx.saidas = env._ctx.saidas || []).push(String(texto || '').slice(0, 400)); } catch (_) {} // v329: o que a Helena respondeu nesta mensagem (diário de erros)
   if (ehDono(env, para)) texto = variarTratamentoDono(env, texto); // só o dono recebe apelidos
   texto = comNomeDono(env, texto);
   if (respondeSoPorVoz(env, para)) { env._ctx.suprimiu = true; registrarFala(env, semEmoji(texto), para); return; }
@@ -1615,9 +1616,10 @@ async function postarMsg(env, para, extra) {
 
 // Se o botão falhar por qualquer motivo, manda o mesmo texto simples (nunca fica sem resposta)
 async function enviarComBotoes(env, para, texto, botoes) {
+  try { if (env && env._ctx && ultimos8(para) === ultimos8(env._ctx.de)) (env._ctx.saidas = env._ctx.saidas || []).push(String(texto || '').slice(0, 400) + ' [' + (botoes || []).map(b => b.titulo).join('|') + ']'); } catch (_) {}
   texto = comNomeDono(env, organizarTexto(texto));
   const soVoz = respondeSoPorVoz(env, para);
-  if (soVoz) { env._ctx.suprimiu = true; registrarFala(env, texto, para); if (String(texto).length > 160) texto = 'Toque em uma das opções:'; } // v308: pergunta curta continua escrita junto dos botões
+  if (soVoz) { env._ctx.suprimiu = true; registrarFala(env, texto, para); if (String(texto).length > 160) { const fr = String(texto).replace(/[*_]/g, '').split(/\n+|(?<=[.!?])\s+/).map(x => x.trim()).filter(x => x.length > 8)[0] || ''; texto = fr && fr.length <= 160 ? fr : (fr ? fr.slice(0, 150).replace(/\s+\S*$/, '') + '…' : 'Toque em uma das opções:'); } } // v329: nunca só "Toque em uma das opções" // v308: pergunta curta continua escrita junto dos botões
   let longo = false;
   // corpo de botão aceita no máximo 1024 caracteres: texto maior vai inteiro, os botões vêm numa mensagem curta
   if (String(texto).length > 1024) {
@@ -7295,6 +7297,7 @@ async function pedirAvaliacoes(env) {
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
+  await helenaAuditoriaRotina(env).catch(e => console.log('[FALHA] auditoria:', e.message)); // v329
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
   await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
@@ -21189,6 +21192,7 @@ async function tratarMensagem(env0, m) {
     if (ok) { const au = ctx.crm.filter(x => x.q === 'b' && x.tipo === 'audio').pop(); if (au && !au.texto) au.texto = ctx.textos.join(' ').slice(0, 2000); } // v75
     if (!ok && ctx.suprimiu) await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(e => console.log('[BOT] texto de reserva:', e.message));
   }
+  await helenaFalhaChecar(env0, m, ctx).catch(e => console.log('[FALHA]', e.message)); // v329
   if (ctx.crm.length) { try { await crmGravar(env0, m.from, ctx.crm.splice(0), await lerNomeSalvo(env0, m.from).catch(() => ''), nomeDoPerfil(m._perfil) || ''); } catch (e) { console.log('[CRM]', e.message); } } // v75
   if (ctx.tx.length) { const nm = [await lerNomeSalvo(env0, m.from).catch(() => ''), nomeDoPerfil(m._perfil)].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' / '); await txGravar(env0, m.from, ctx.tx.splice(0), nm); await ctAtualizar(env0, m.from, { nome: await lerNomeSalvo(env0, m.from).catch(() => ''), perfil: nomeDoPerfil(m._perfil) || '' }); } // v62 · v63
 }
@@ -21509,6 +21513,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await inspAlbumComando(env, from, bruto, msg).catch(e => { console.log('[INSP] comando:', e.message); return false; })) return; // v283
     if (await camComandoDono(env, from, msg).catch(e => { console.log('[CAM] comando:', e.message); return false; })) return; // v317
     if (/^(confere|conferir|conferencia de|resolve|resolver|acerta|acertar) (os )?pontos\b|\bpontos (nao recebidos|pendentes|que faltam)\b/.test(msg)) { await enviar(env, from, 'Conferindo todos os serviços e etapas, um momento.'); await enviar(env, from, await pontosReconciliarTexto(env, {})); return; } // v304
+    if (await falhaComandoDono(env, from, msg, bruto).catch(e => { console.log('[FALHA] comando:', e.message); return false; })) return; // v329
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
@@ -26909,6 +26914,7 @@ async function rotaBotInterna(req, env, url) {
     }
     return jsonR({ ok: true });
   }
+  if (p === '/bot/falhas' && req.method === 'GET') { await falhaTab(env); const r = await env.HR_DB.prepare('SELECT * FROM helena_falhas ORDER BY ts DESC LIMIT 200').all().catch(() => ({ results: [] })); return jsonR({ falhas: r.results || [] }); } // v329
   if (p === '/bot/correcoes' && req.method === 'GET') {
     const lista = await listarTodas(env, 'cor:'), out = [];
     for (const k of lista.keys) { let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (c) out.push(c); }
@@ -32515,6 +32521,63 @@ async function rhPedidoVale(env, cfg, f, from, texto, nome) {
   const dono = numeroDono(env);
   if (dono) await enviarComBotoes(env, dono, `💸 *${f.nome}* pediu um vale de *${brl(valor)}*.${motivo ? `\n"${motivo}"` : ''}\n\nSe aprovar, eu aviso ele e o vale entra no RH (desconta no decêndio atual).`, [{ id: 'vl_ok|' + id, titulo: '✅ Aprovar' }, { id: 'vl_no|' + id, titulo: '❌ Recusar' }]).catch(e => console.log('[VALE] dono:', e.message));
   return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v329: HELENA APRENDE COM OS ERROS — cada conversa com a equipe e com o Sr. Hangel é conferida:
+//   • na hora: resposta de "não entendi", mensagem sem resposta, reclamação ("errado", "não contou", "não foi isso") → guarda no D1 (helena_falhas)
+//   • à noite (20h): a IA relê as conversas do dia da equipe e aponta onde a Helena se confundiu → guarda e manda um resumo curto ao Sr. Hangel
+//   • "erros da helena" lista os últimos; GET /bot/falhas entrega ao app. Quem corrige o bot lê essa tabela.
+// ═════════════════════════════════════════════════════════════════════════════
+const FALHA_RESP = /\b(nao achei esse servico|nao entendi|nao consegui (entender|achar|baixar|registrar)|de qual cliente e\?|toque em uma das opcoes|nao achei (o pedido|esse pedido|pagamento|orcamento de)|ainda nao tenho|nao sei (dizer|responder)|pode repetir|nao encontrei)\b/;
+const FALHA_RECLAMA = /\b(errad[oa]|errou|nao (foi|era|e) isso|nao (contou|entrou|deu) (meus? )?pontos?|nao contou|ja (falei|disse|mandei)|de novo\?|voce nao (entendeu|entende)|nao entendeu|se confundiu|confundiu|ta bagun\w*|nao e esse|nao e ele|nao e ela|nao e dele|nao e dela|nao fiz isso|nao terminei isso|eu nao disse isso)\b/;
+async function falhaTab(env) { if (!env.HR_DB) return false; if (globalThis.__falhaTab) return true; await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS helena_falhas (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, num TEXT, quem TEXT, papel TEXT, entrada TEXT, resposta TEXT, tipo TEXT, nota TEXT, status TEXT)').run(); globalThis.__falhaTab = 1; return true; }
+async function falhaGravar(env, o) { if (!(await falhaTab(env).catch(() => false))) return; await env.HR_DB.prepare('INSERT INTO helena_falhas (ts, num, quem, papel, entrada, resposta, tipo, nota, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(o.ts || Date.now(), String(o.num || ''), String(o.quem || '').slice(0, 60), String(o.papel || ''), String(o.entrada || '').slice(0, 800), String(o.resposta || '').slice(0, 1200), String(o.tipo || ''), String(o.nota || '').slice(0, 600), 'aberta').run(); }
+async function helenaFalhaChecar(env, m, ctx) {
+  if (String(env.DIARIO_ERROS ?? '1') === '0' || !env.HR_DB) return;
+  const dono = ehDono(env, m.from); let quem = '', papel = '';
+  if (dono) { quem = 'Sr. Hangel'; papel = 'dono'; }
+  else { const cfg = await pontoCfg(env).catch(() => null), f = cfg && pontoFuncPorFone(cfg, m.from); if (!f) return; quem = f.nome; papel = 'equipe'; }
+  const entrada = String(ctx.bruto || extrairTexto(m) || (m.image && m.image.caption ? '[foto] ' + m.image.caption : m.type ? '[' + m.type + ']' : '')).trim();
+  const resp = (ctx.saidas || []).join(' | '), nE = normaliza(entrada), nR = normaliza(resp);
+  if (/^(ok|okay|blz|beleza|valeu|vlw|obrigad[oa]|show|top|certo|sim|nao|kk+|rs+|\W*)$/.test(nE) || m.type === 'reaction' || m.type === 'sticker') return;
+  const tipos = [];
+  if (FALHA_RESP.test(nR)) tipos.push('nao_entendeu');
+  if (FALHA_RECLAMA.test(nE)) tipos.push('reclamacao');
+  if (!resp && m.type === 'text' && nE.split(' ').length >= 3 && !dono) tipos.push('sem_resposta');
+  if (!tipos.length) return;
+  await falhaGravar(env, { num: normalizarBR(m.from), quem, papel, entrada, resposta: resp, tipo: tipos.join(',') });
+}
+// à noite: a IA relê as conversas da equipe e aponta onde a Helena se confundiu
+async function helenaAuditoriaRotina(env) {
+  if (String(env.DIARIO_ERROS ?? '1') === '0' || !env.HR_DB || !crmAtivo(env)) return;
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.min < 20 * 60 || ag.min > 22 * 60) return;
+  if (await env.HR_KV.get('falha:aud:' + hoje)) return; if (!(await travaEnvio(env, 'falha:aud:' + hoje))) return;
+  await env.HR_KV.put('falha:aud:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  await falhaTab(env); await crmTabela(env);
+  const cfg = await pontoCfg(env).catch(() => ({ funcs: [] })), t0 = Date.parse(hoje + 'T03:00:00Z'), achados = [];
+  for (const f of cfg.funcs.filter(x => x.tel)) {
+    const num = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel);
+    const r = await env.HR_DB.prepare('SELECT ts, q, texto FROM crm_msg WHERE num = ? AND ts >= ? ORDER BY ts LIMIT 120').bind(num, t0).all().catch(() => ({ results: [] }));
+    const L = (r.results || []).filter(x => x.texto).map(x => `${horaTs(x.ts)} ${x.q === 'c' ? f.nome.split(' ')[0].toUpperCase() : 'HELENA'}: ${String(x.texto).replace(/\s+/g, ' ').slice(0, 300)}`);
+    if (L.filter(x => !/ HELENA: /.test(x)).length < 2) continue;
+    const sis = `Você confere o trabalho da Helena, assistente de WhatsApp de uma marmoraria, conversando com o funcionário ${f.nome}. A Helena registra serviços (corte, acabamento, instalação, entrega), pontos, fotos, vales e recados. Leia a conversa do dia e aponte SÓ os momentos em que a Helena errou de verdade: entendeu errado, marcou o serviço/cliente errado, deu ponto indevido ou deixou de dar, respondeu algo sem sentido, repetiu pergunta já respondida, ignorou um pedido ou o funcionário ficou sem resposta/irritado. Não aponte o que deu certo. Responda SÓ JSON: {"erros":[{"hora":"HH:MM","fala":"o que o funcionário disse (curto)","problema":"o que a Helena fez de errado (1 frase)","certo":"o que ela deveria ter feito (1 frase)"}]} — lista vazia se não houve erro.`;
+    try { const t = await chamarIA(env, sis, [], L.join('\n').slice(-9000), { maxTokens: 700, cat: 'auditoria' }); const mj = /\{[\s\S]*\}/.exec(t || ''), o = mj ? JSON.parse(mj[0]) : null;
+      for (const e of ((o && o.erros) || []).slice(0, 6)) { achados.push({ f, e }); await falhaGravar(env, { num, quem: f.nome, papel: 'equipe', entrada: e.fala, resposta: e.problema, tipo: 'auditoria', nota: e.certo }); } } catch (e) { console.log('[FALHA] auditoria', f.nome, e.message); }
+  }
+  const r2 = await env.HR_DB.prepare("SELECT quem, entrada, tipo FROM helena_falhas WHERE ts >= ? AND tipo != 'auditoria' ORDER BY ts").bind(t0).all().catch(() => ({ results: [] }));
+  const vivos = (r2.results || []).filter(x => !achados.some(a => normaliza(a.e.fala || '').slice(0, 30) === normaliza(x.entrada || '').slice(0, 30)));
+  const n = achados.length + vivos.length; if (!n || String(env.DIARIO_ERROS_AVISO ?? '1') === '0' || await env.HR_KV.get('cfg:falha:aviso') === '0') return;
+  const linhas = [...achados.map(a => `• *${a.f.nome.split(' ')[0]}* ${a.e.hora || ''}: "${String(a.e.fala || '').slice(0, 80)}" — ${a.e.problema}`), ...vivos.slice(0, 6).map(x => `• *${String(x.quem).split(' ')[0]}*: "${String(x.entrada || '').slice(0, 80)}" (${x.tipo.replace('nao_entendeu', 'não entendi').replace('reclamacao', 'reclamou').replace('sem_resposta', 'ficou sem resposta')})`)].slice(0, 8);
+  await pontoAvisarDono(env, [`🧠 *Onde eu me confundi hoje* (${n})`, '', ...linhas, '', 'Já guardei tudo para corrigir. Se algum ponto ficou errado, me diga (ex.: _tira o ponto do Fabrício no Jacó_). Para não receber este resumo: _parar resumo de erros_.'].join('\n')).catch(() => {});
+}
+async function falhaComandoDono(env, from, msg, bruto) {
+  if (/^(parar|desligar|sem) (o )?resumo de erros$/.test(msg)) { await env.HR_KV.put('cfg:falha:aviso', '0'); await enviar(env, from, 'Certo: não mando mais o resumo de erros à noite. Continuo guardando para corrigir. Para voltar: _voltar resumo de erros_.'); return true; }
+  if (/^(voltar|ligar) (o )?resumo de erros$/.test(msg)) { await env.HR_KV.delete('cfg:falha:aviso'); await enviar(env, from, 'Pronto: o resumo de erros volta hoje à noite.'); return true; }
+  if (/^(erros|falhas|enganos)( da helena| do bot| de hoje| da semana)?\??$/.test(msg)) {
+    await falhaTab(env); const r = await env.HR_DB.prepare('SELECT ts, quem, entrada, resposta, tipo, nota FROM helena_falhas WHERE ts >= ? ORDER BY ts DESC LIMIT 12').bind(Date.now() - 7 * 86400000).all().catch(() => ({ results: [] }));
+    const l = r.results || []; await enviar(env, from, l.length ? ['🧠 *Onde eu me confundi (7 dias)*', '', ...l.map(x => `• ${dataBR(diaDe(x.ts)).slice(0, 5)} *${String(x.quem).split(' ')[0]}*: "${String(x.entrada || '').slice(0, 70)}"${x.tipo === 'auditoria' ? ' — ' + String(x.resposta || '').slice(0, 90) : ''}`)].join('\n') : 'Nos últimos 7 dias não registrei nenhuma confusão minha. 👍'); return true; }
+  return false;
 }
 // v328: falta, sair mais cedo, chegar atrasado → o Sr. Hangel decide com um toque e o funcionário recebe a resposta
 async function rhPedidoAusencia(env, cfg, f, from, texto, nome) {
