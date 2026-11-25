@@ -36193,7 +36193,7 @@ async function siteObras(env, pedras) {
     const CATN = { cozinha: 'Cozinha', banheiro: 'Banheiro', lavabo: 'Lavabo', escada: 'Escada', soleira: 'Soleira', peitoril: 'Peitoril', varanda: 'Churrasqueira', piso: 'Piso', area_servico: 'Área de serviço' };
     const leg = String(i.legenda || '').replace(/\s+/g, ' ').trim(), generico = !leg || /^obra( de \d{1,2}\/\d{1,2})?$/i.test(leg);
     const tit = generico ? [CATN[i.cat] || 'Obra entregue', pn ? 'em ' + pn : ''].filter(Boolean).join(' ') : (leg.split(/[.!?]/)[0] || leg).slice(0, 70); // v360: título limpo (nada de "Obra de 16/11")
-    return { id: i.id, cat: i.cat || '', legenda: leg.slice(0, 220), t: tit, pedra: pid, obra: i.obraId || ('s' + i.id), em: i.em || 0 };
+    return { id: i.id, cat: i.cat || '', legenda: leg.slice(0, 220), t: tit, pedra: pid, obra: i.obraId || ('s' + diaDe(i.em || 0) + '|' + normaliza(leg).slice(0, 40)), em: i.em || 0 }; // fotos antigas sem obra: mesmo dia + mesma legenda = mesma obra
   }).reverse();
 }
 async function siteCatalogo(env, ctx, url) {
