@@ -26276,6 +26276,10 @@ async function tplRespostaCliente(env, from, m, forcar) {
     await notificarDono(env, Date.now(), ok ? `✅ ${p.nome || 'O cliente'} respondeu: mandei o Pix de R$ ${reais(q.valor)}. Aviso quando cair.` : `${p.nome || 'O cliente'} respondeu, mas o Pix guardado não existe mais. Peça um novo QR code.`).catch(() => {});
     return true;
   }
+  if (p.imgId) { // v351: ficha técnica (desenho limpo) que o Sr. Hangel mandou pelo app
+    await postarMsg(env, normalizarBR(from), { type: 'image', image: { id: p.imgId, caption: p.legenda || 'Projeto do seu serviço — HR Mármores e Granitos.' } }).catch(e => console.log('[TPL] ficha:', e.message));
+    await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} respondeu: mandei a ficha técnica (desenho do projeto).`).catch(() => {});
+    return true; }
   if (p.texto) await enviar(env, from, tirarSaudacao(p.texto)); // v117: o modelo já chamou pelo nome: não cumprimenta de novo
   if (p.texto && /\b(pix|sinal|chave)\b/i.test(p.texto) && !p.mediaId) { // v120: a mensagem promete o Pix: manda o Pix de verdade
     try {
@@ -27479,6 +27483,22 @@ async function rotaBotInterna(req, env, url) {
     const idx = JSON.parse((await env.HR_KV.get('fichaimg:idx')) || '{}'); idx[qid] = String(b.hash || ''); await env.HR_KV.put('fichaimg:idx', JSON.stringify(idx));
     await fichaLog(env, 'img', qid, String(b.cliente || '') + ' ' + img.length);
     return jsonR({ ok: true }); }
+  if (p === '/bot/ficha/cliente' && req.method === 'POST') { // v351: o app manda a ficha técnica LIMPA (sem lista de corte) ao cliente pelo WhatsApp da empresa
+    const b = await req.json().catch(() => ({})); const img = String(b.img || ''), nomeC = String(b.cliente || '').slice(0, 60);
+    if (img.length < 100) return jsonR({ ok: false, erro: 'imagem vazia' }, 400);
+    let num = String(b.tel || '').replace(/\D/g, ''); if (num && num.length >= 10 && !num.startsWith('55')) num = '55' + num;
+    if (!num || num.length < 12) num = String(await numeroDoClientePorNome(env, nomeC).catch(() => '') || '').replace(/\D/g, '');
+    if (!num || num.length < 12) return jsonR({ ok: false, erro: 'Não achei o WhatsApp de ' + (nomeC || 'cliente') + '. Digite o número.' });
+    num = normalizarBR(num);
+    const mid = await subirImagemMeta(env, base64ParaBytes(img), 'Projeto ' + nomeC);
+    const pn = nomeDeTratamento(nomeC), legenda = String(b.legenda || '').slice(0, 300) || `${pn ? pn + ', s' : 'S'}egue o projeto do seu ${String(b.projeto || 'serviço').toLowerCase().slice(0, 40)} com as medidas. Qualquer dúvida, é só chamar. — HR Mármores e Granitos`;
+    if (await janela24h(env, num)) { await postarMsg(env, num, { type: 'image', image: { id: mid, caption: legenda } }); await semearConversaProativa(env, num, legenda + ' [ficha técnica / desenho do projeto enviado]').catch(() => {}); return jsonR({ ok: true, via: 'direto', num }); }
+    const tpl = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta')) ? 'hr_resposta' : (env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'));
+    const curto = `${pn ? pn + ', t' : 'T'}enho o desenho do seu projeto para te mostrar. Posso enviar por aqui? É só responder esta mensagem.`;
+    await postarMsg(env, num, { type: 'template', template: { name: tpl, language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: curto }] }] } });
+    await env.HR_KV.put('tplpend:' + num, JSON.stringify({ imgId: mid, legenda, nome: nomeC, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 });
+    return jsonR({ ok: true, via: 'aviso', num });
+  }
   if (p === '/bot/ficha/hashes' && req.method === 'GET') { await fichaLog(env, 'hashes', '', url.searchParams.get('n') || ''); return jsonR({ ok: true, hashes: JSON.parse((await env.HR_KV.get('fichaimg:idx')) || '{}') }); }
   if (p === '/bot/ficha/log' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await fichaLog(env, 'app', String(b.qid || ''), String(b.msg || '').slice(0, 300)); return jsonR({ ok: true }); }
   if (p === '/bot/producao/aprovar' && req.method === 'GET') return jsonR({ ok: true, ativo: await aprovAtivo(env), itens: await aprovListar(env, +url.searchParams.get('dias') || 0) }); // v339: tela "Aprovar produção"

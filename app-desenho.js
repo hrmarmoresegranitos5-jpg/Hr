@@ -682,6 +682,7 @@
   }
   function rotuloPeca(pc) { return oblq(pc) ? (pc.tipo === 'L' ? f1(num(pc.A)) + ' + ' + f1(num(pc.B)) + ' × ' + f1(num(pc.p)) : f1(num(pc.A)) + ' × ' + f1(num(pc.p))) : f1(num(pc.A)) + ' × ' + f1(num(pc.H)); }
   function folhaSvg(d) {
+    var CLI = !!(d && d.paraCliente); // v42: versão LIMPA para o cliente (sem lista de corte nem m² de pedra)
     nClip = 0; TOM = tomDe(d.material); PLANTA = d.vista === 'planta';
     var M = 30, W = FW - 2 * M, ESC = '#1f1d19', CIN = '#8b877e', LIN = '#e3e0d8', OURO = '#c9a84c', h = '';
     h += '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + FW + ' ' + FH + '" width="' + FW + '" height="' + FH + '" font-family="' + FONTE + '">';
@@ -708,7 +709,7 @@
     y0 += dh + 10;
     // rodapé
     var yf = FH - M - 30; h += hl(yf, null, null, LIN, 1.2);
-    h += T(M, yf + 22, 'Medidas em centímetros · conferir no local antes do corte', 14, 'start', CIN);
+    h += T(M, yf + 22, CLI ? 'Projeto ilustrativo · medidas em centímetros · conferidas na medição final' : 'Medidas em centímetros · conferir no local antes do corte', 14, 'start', CIN);
     h += T(M + W, yf + 22, 'HR Mármores e Granitos', 14, 'end', OURO, ' font-weight="700" letter-spacing="1"');
     // observações
     var NP = notasPorPeca(d).filter(function (o) { return o.itens.length; }), gerais = vazio(d.obs) ? [] : String(d.obs).split(/\n+/).filter(function (x) { return x.trim(); });
@@ -718,13 +719,13 @@
     var nl = 0, lhn = 24, bl2 = []; blocos.forEach(function (b) { if (nl >= 10) return; var ls = b.ls.slice(0, 10 - nl); nl += ls.length; bl2.push({ n: b.n, tit: b.tit, ls: ls }); });
     var notH = bl2.length ? 46 + nl * lhn + 14 : 0, yn = yf - 14 - notH;
     if (notH) {
-      var rs0 = resumo(d); h += cartao(M, yn, W, notH) + lbl(M + 18, yn + 28, 'Observações') + T(M + W - 18, yn + 28, f1(Math.round(rs0.m2 * 100) / 100) + ' m² de pedra' + (rs0.saia ? ' · ' + f1(Math.round(rs0.saia * 10) / 10) + ' m de sainha' : '') + (rs0.fr ? ' · ' + f1(Math.round(rs0.fr * 10) / 10) + ' m de frontão' : ''), 14, 'end', CIN, ' font-weight="600"');
+      var rs0 = resumo(d); h += cartao(M, yn, W, notH) + lbl(M + 18, yn + 28, 'Observações') + (CLI ? '' : T(M + W - 18, yn + 28, f1(Math.round(rs0.m2 * 100) / 100) + ' m² de pedra' + (rs0.saia ? ' · ' + f1(Math.round(rs0.saia * 10) / 10) + ' m de sainha' : '') + (rs0.fr ? ' · ' + f1(Math.round(rs0.fr * 10) / 10) + ' m de frontão' : ''), 14, 'end', CIN, ' font-weight="600"'));
       var yy = yn + 56; bl2.forEach(function (b) { h += '<circle cx="' + (M + 30) + '" cy="' + (yy - 6) + '" r="11" fill="' + (b.n === '•' ? OURO : ESC) + '"/>' + T(M + 30, yy - 1.5, b.n === '•' ? '' : b.n, 13, 'middle', '#fff', ' font-weight="700"');
         b.ls.forEach(function (l, k) { h += T(M + 52, yy, (k === 0 && b.tit ? b.tit + ' — ' : '') + l, 18.5, 'start', ESC); yy += lhn; }); });
     }
     // v32: LISTA DE CORTE (ficha técnica): todas as peças da folha, iguais somadas
     var agr = {}, ordem = []; (d.pecas || []).forEach(function (pc) { if (!pc) return; try { corte(pc).forEach(function (c) { var k = c.nome + '|' + c.c + '|' + c.l; if (!agr[k]) { agr[k] = { nome: c.nome, c: c.c, l: c.l, q: 0 }; ordem.push(k); } agr[k].q += c.qtd; }); } catch (e) {} });
-    var LC = ordem.map(function (k) { return agr[k]; }), lcRows = Math.ceil(Math.min(LC.length, 24) / 2), lcH = LC.length ? 50 + lcRows * 25 + 10 : 0, yl = (notH ? yn : yf) - 14 - lcH;
+    var LC = CLI ? [] : ordem.map(function (k) { return agr[k]; }), lcRows = Math.ceil(Math.min(LC.length, 24) / 2), lcH = LC.length ? 50 + lcRows * 25 + 10 : 0, yl = (notH ? yn : yf) - 14 - lcH;
     if (lcH) { var pecasTot = LC.reduce(function (t, x) { return t + x.q; }, 0);
       h += cartao(M, yl, W, lcH) + lbl(M + 18, yl + 28, 'Lista de corte') + T(M + W - 18, yl + 28, pecasTot + ' peça' + (pecasTot > 1 ? 's' : ''), 14, 'end', CIN, ' font-weight="600"');
       LC.slice(0, 24).forEach(function (x, i) { var col = i < lcRows ? 0 : 1, row = col ? i - lcRows : i, xx = M + 18 + col * (W / 2), yy = yl + 56 + row * 25;
@@ -1314,7 +1315,7 @@
     css(); var v = document.getElementById('hrDes'); if (v) v.remove(); st.tela = 'lista';
     var el = document.createElement('div'); el.id = 'hrDes';
     el.innerHTML = '<div class="des-top"><button class="des-ic" data-acao="voltar">←</button><div style="flex:1;"><b>📐 Projeto 2D</b><div class="des-sub" id="desSub"></div></div></div><div class="des-main" id="desMain"></div>'
-      + '<div class="des-bar" id="desBar" style="display:none"><button class="des-bt des-bt2" data-acao="salvar">💾 Salvar</button><button class="des-bt des-bt2" data-acao="png">📤 Imagem</button><button class="des-bt" data-acao="prod">🏭 Produção</button></div>';
+      + '<div class="des-bar" id="desBar" style="display:none"><button class="des-bt des-bt2" data-acao="salvar">💾 Salvar</button><button class="des-bt des-bt2" data-acao="png">📤 Imagem</button><button class="des-bt des-bt2" data-acao="cli">📲 Cliente</button><button class="des-bt" data-acao="prod">🏭 Produção</button></div>';
     document.body.appendChild(el);
     el.addEventListener('input', function (e) { var t = e.target.closest('[data-f]'); if (!t || st.tela !== 'editor') return; lerCampo(t); if (t.getAttribute('data-f') === 'texto' && !pcDe(t)) { var np = interpretar(t.value); if (np.length || !t.value.trim()) st.d.pecas = np; var en = document.getElementById('desEnt'); if (en) en.innerHTML = entendiHtml(); desenharCv(); return; } desenharCv(); clearTimeout(st.tm); st.tm = setTimeout(function () { var pc = pcDe(t), sel = t.closest('.des-selpc'); if (pc && sel) { sel.querySelectorAll('.des-av').forEach(function (x) { x.remove(); }); avisos(pc).forEach(function (x) { var dv = document.createElement('div'); dv.className = 'des-av'; dv.textContent = '⚠️ ' + x; sel.appendChild(dv); }); var tb = sel.querySelector('.des-tabs .on'); if (tb) tb.textContent = (st.d.pecas.indexOf(pc) + 1) + '. ' + nomePeca(pc); return; } if (pc) { var hd = document.querySelector('[data-pc="' + st.d.pecas.indexOf(pc) + '"] .des-pc-h[data-abrepc]'); if (hd) { var tmp = document.createElement('div'); tmp.innerHTML = painelPeca(pc, st.d.pecas.indexOf(pc)); var nh = tmp.querySelector('.des-pc-h'); hd.innerHTML = nh.innerHTML; var sec = hd.parentNode; sec.querySelectorAll('.des-av').forEach(function (a) { a.remove(); }); var rb2 = sec.querySelector('[data-dup]'); if (!rb2) return; var ref = rb2.parentNode; tmp.querySelectorAll('.des-av').forEach(function (a) { sec.insertBefore(a, ref); }); } } }, 500); });
     el.addEventListener('click', function (e) {
@@ -1355,6 +1356,7 @@
       if (k3 === 'salvar') { guardar(d); aviso('💾 Projeto salvo'); return; }
       if (k3 === 'png') { guardar(d); pngDe(d).then(function (b) { var nome = 'Projeto ' + (d.cliente || 'HR') + '.png', f = new File([b], nome, { type: 'image/png' }); if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: nome }).catch(function () {}); var u2 = URL.createObjectURL(b), l = document.createElement('a'); l.href = u2; l.download = nome; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u2); }, 4000); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
       if (k3 === 'prod') { guardar(d); enviarProducao(); return; }
+      if (k3 === 'cli') { guardar(d); enviarAoCliente(d); return; } // v42: ficha técnica LIMPA para o cliente
     });
     render();
   }
@@ -1417,5 +1419,38 @@
     setTimeout(ciclo, 15000); setInterval(ciclo, 2 * 60 * 1000);
     window.hrFichasParaBot = ciclo;
   })();
+  // v42: FICHA PARA O CLIENTE — o mesmo desenho, sem lista de corte nem dados internos; vai pelo WhatsApp da empresa (Helena) ou pelo compartilhar do celular
+  function telDoCliente(nome) {
+    var n = semAc(nome || ''), t = '';
+    try { (DB.q || []).slice().reverse().some(function (q) { if (q && q.tel && semAc(q.cli || '') === n) { t = q.tel; return true; } return false; }); } catch (e) {}
+    if (!t) try { (CLDB.get() || []).some(function (c) { if (c && c.tel && semAc(c.nome || '') === n) { t = c.tel; return true; } return false; }); } catch (e) {}
+    return String(t || '').replace(/\D/g, '');
+  }
+  function enviarAoCliente(d) {
+    var dc = Object.assign({}, d, { paraCliente: true });
+    var v = document.getElementById('desCliSh'); if (v) v.remove();
+    var o = document.createElement('div'); o.id = 'desCliSh';
+    o.style.cssText = 'position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center';
+    o.innerHTML = '<div style="width:100%;max-width:520px;background:#15120d;border-top:1px solid rgba(201,168,76,.35);border-radius:20px 20px 0 0;padding:16px 14px calc(18px + env(safe-area-inset-bottom));color:#efe9dc;font-family:Outfit,inherit">'
+      + '<div style="font-weight:800;color:#f0d78c;font-size:1.05rem;margin-bottom:4px">📲 Ficha para o cliente</div><div style="font-size:.78rem;color:#9a917e;margin-bottom:12px">O desenho com as medidas, sem a lista de corte. ' + (d.cliente ? 'Cliente: <b>' + String(d.cliente).replace(/</g, '&lt;') + '</b>' : '') + '</div>'
+      + '<button data-c="helena" class="des-bt" style="width:100%;margin-bottom:8px">💬 Enviar pelo WhatsApp da HR (Helena)</button>'
+      + '<button data-c="share" class="des-bt des-bt2" style="width:100%;margin-bottom:8px">📤 Compartilhar / baixar imagem</button>'
+      + '<button data-c="x" class="des-bt des-bt2" style="width:100%">Cancelar</button></div>';
+    document.body.appendChild(o);
+    o.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-c]'); if (e.target === o || (b && b.getAttribute('data-c') === 'x')) { o.remove(); return; } if (!b) return;
+      var c = b.getAttribute('data-c'); o.remove();
+      if (c === 'share') { pngDe(dc).then(function (bl) { var nome = 'Projeto ' + (d.cliente || 'HR') + '.png', f = new File([bl], nome, { type: 'image/png' }); if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: nome }).catch(function () {}); var u2 = URL.createObjectURL(bl), l = document.createElement('a'); l.href = u2; l.download = nome; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u2); }, 4000); }).catch(function (er) { aviso(er.message); }); return; }
+      var cfg = null; try { cfg = _getBotCfg(); } catch (er) {} if (!cfg || !cfg.url) { aviso('A Helena não está configurada neste aparelho. Use Compartilhar.'); return; }
+      var tel = prompt('WhatsApp de ' + (d.cliente || 'cliente') + ' (com DDD). Deixe em branco para a Helena procurar pelo nome:', telDoCliente(d.cliente)); if (tel === null) return;
+      aviso('Enviando o desenho…');
+      pngDe(dc).then(function (bl) { return b64(bl); }).then(function (img) {
+        return fetch(String(cfg.url).replace(/\/+$/, '') + '/bot/ficha/cliente', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ cliente: d.cliente || '', projeto: d.desc || '', tel: String(tel || '').replace(/\D/g, ''), img: img }) });
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        if (!j || !j.ok) { aviso('Não enviei: ' + ((j && (j.erro || j.error)) || 'erro')); return; }
+        aviso(j.via === 'direto' ? '✅ Desenho enviado ao cliente no WhatsApp.' : '✅ O cliente estava sem conversa recente: mandei um aviso. Quando ele responder, o desenho vai sozinho.');
+      }).catch(function (er) { aviso('Não enviei: ' + er.message); });
+    });
+  }
   window.abrirDesenho = abrir; window.__hrDesTeste = { paginacaoSvg: paginacaoSvg, planoCorte: planoCorte, pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
 })();
