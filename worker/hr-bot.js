@@ -3702,7 +3702,7 @@ function pecasValidas(lista, ambiente) {
 function agruparPecas(pecas) { // peças de mesma medida viram uma linha só (1 + 1 = 2)
   const out = [];
   for (const p of pecas || []) {
-    const q = Number(p.qtd) || 1, ach = out.find(x => x.comp_cm === p.comp_cm && x.larg_cm === p.larg_cm && (x.tipo || '') === (p.tipo || ''));
+    const q = Number(p.qtd) || 1, ach = out.find(x => x.comp_cm === p.comp_cm && x.larg_cm === p.larg_cm && (x.tipo || '') === (p.tipo || '') && (x.nome || '') === (p.nome || ''));
     if (ach) ach.qtd += q; else out.push({ ...p, qtd: q });
   }
   return out;
@@ -8112,7 +8112,7 @@ function fichaCortePdf(d) {
   const ESC = [0.13, 0.13, 0.13], CIN = [0.45, 0.45, 0.45], BR = [1, 1, 1];
   rect(0, 0, W, H, BR);
   txt('HR Mármores e Granitos', W / 2, 36, 20, true, ESC, 'c');
-  txt('FICHA DE CORTE — SOLEIRAS E PEITORIS', W / 2, 66, 12, false, CIN, 'c');
+  txt(d.titulo || 'FICHA DE CORTE — SOLEIRAS E PEITORIS', W / 2, 66, 12, false, CIN, 'c'); // v342: título da ficha técnica
   txt('Cliente: ' + (d.cliente || '---'), W / 2, 86, 11, false, CIN, 'c');
   rect(0, 108, W, 2, ESC);
   y = 128;
@@ -8134,7 +8134,7 @@ function fichaCortePdf(d) {
     txt('QTD', W - M - 12, ty + 7, 8.5, true, CIN, 'r');
     let ry = ty + 24;
     for (const x of it.pecas) {
-      txt(String(it.ambiente || 'peça').toLowerCase(), M + 12, ry + 7, 11, false, ESC);
+      txt(String(x.nome || it.ambiente || 'peça').toLowerCase().slice(0, 34), M + 12, ry + 7, 11, false, ESC); // v342: nome da peça (base, lateral, frontão…)
       txt(`${fmt(x.comp_cm)} × ${fmt(x.larg_cm)} cm`, 395, ry + 7, 11, true, ESC, 'r');
       txt(String(x.qtd || 1), W - M - 12, ry + 7, 11, false, ESC, 'r');
       ry += 26;
@@ -15261,6 +15261,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'o que ele quer no vídeo (frase, tema, estilo), com as palavras dele' }, usar_recentes: { type: 'boolean', description: 'true para usar o que ele acabou de mandar (padrão)' }, vai_mandar: { type: 'boolean', description: 'true quando ele disse que AINDA VAI mandar as fotos/vídeos ("vou te mandar..."): o bot guarda o pedido e monta quando chegarem' } }, required: ['pedido'] },
   },
   {
+    name: 'ficha_tecnica',
+    description: 'GERA E MANDA a FICHA TÉCNICA (PDF com cada ambiente, cada peça com nome, medida e quantidade, acabamentos e pedra) de QUALQUER orçamento do app — rascunho, aguardando, aceito ou entregue (nicho, cozinha, lavatório, escada, soleira...). Use quando o Sr. Hangel pedir "ficha técnica", "ficha do fulano", "medidas do projeto em PDF", "manda a ficha pro Fabrício". Por padrão manda ao Sr. Hangel; para_funcionario só se ELE pedir para mandar a alguém da equipe.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, orc: { type: 'string', description: 'nº ORC, se souber' }, projeto: { type: 'string', description: 'qual projeto, se o cliente tem mais de um' }, para_funcionario: { type: 'string', description: 'nome do funcionário, só se o Sr. Hangel mandou enviar a ele' } }, required: ['cliente'] },
+  },
+  {
     name: 'buscar_no_app',
     description: 'BUSCA EM TUDO DO APP (todos os orçamentos de todos os tempos, com a seção do Histórico: rascunho, aguardando/pendente, aceito, entregue, concluído, perdido; peças e medidas; agenda/produção; contrato; pagamentos do livro). Use PRIMEIRO para qualquer pergunta sobre serviços, orçamentos, clientes, valores, o que está aceito/entregue/em rascunho, o que tem de cozinha/lavatório/nicho, de uma pedra, de uma cidade, de um período, quanto vendeu, etc. Filtre por texto (nome, telefone, nº ORC, pedra, peça, cidade), seção e período. Devolve a lista com totais.',
     input_schema: { type: 'object', properties: {
@@ -15758,6 +15763,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     return { texto: `Vídeo em montagem com ${r.j.mix ? 'uma compilação de ' + r.j.mix.length + ' obras do acervo' : 'a obra ' + r.o.desc}, seguindo: "${a.pedido}". Chega para ele aprovar. Responda em uma frase.` };
   }
   if (nome === 'buscar_no_app') return appBuscarTool(env, a); // v340
+  if (nome === 'ficha_tecnica') return fichaTecnicaTool(env, from, a); // v342
   if (nome === 'detalhe_no_app') return appDetalheTool(env, a); // v340
   if (nome === 'orcamentos_do_cliente') { // v118
     const r = await orcsDoCliente(env, a.cliente || '');
@@ -16096,6 +16102,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- O APP INTEIRO (v340): você enxerga TODOS os orçamentos de todos os tempos (rascunho, aguardando, aceito, entregue, concluído, perdido), as peças e medidas de cada ambiente, a agenda, o contrato, os pagamentos do livro e a produção. Para qualquer pergunta sobre serviço/orçamento/cliente/valor/período chame buscar_no_app; para detalhes de um serviço chame detalhe_no_app. Os DADOS DO APP acima podem estar cortados: na dúvida, BUSQUE. Nunca responda "não encontrei" sem ter buscado.`,
       `- NUNCA diga "registrei", "anotei", "marquei", "lancei" ou "a partir de agora não faço X" sem ter chamado uma ferramenta que fez isso. Promessa de mudar o próprio comportamento não vale: diga que vai passar para o ajuste do sistema. Quando ele CORRIGIR um registro de produção (quem fez, qual cliente, se já foi instalado), use as ferramentas de produção para corrigir de fato.`,
       `- APROVAÇÃO DA PRODUÇÃO (v339): o que os funcionários mandam fica PENDENTE (não conta ponto e não manda entrega) até o Sr. Hangel aprovar. "aprovar tudo" aprova; no app: Produção → Aprovar produção. O que ELE mesmo manda registrar entra aprovado.`,
+      `- FICHA TÉCNICA (v342): "ficha técnica", "ficha do fulano", "as medidas em PDF" de QUALQUER orçamento (inclusive rascunho, nicho, cozinha): chame ficha_tecnica. Nunca diga que não existe ficha técnica salva: ela é gerada na hora a partir das peças do orçamento.`,
       `- DESCONTO / ABATIMENTO / PERMUTA (v341): "desconta 150", "ele vai me dar uma torneira de 150, desconta": PRIMEIRO grave no livro com registrar_entrega_pagamento (pagamento_valor = o valor, pagamento_forma "abatimento", pagamento_obs = o que foi, ex.: "torneira"), DEPOIS gere o PDF com pdf_saldo_cliente. Assim o saldo novo fica guardado; nunca só no PDF.`,
       `- CLIENTE COM MAIS DE UM PROJETO (v338): se o cliente tem 2+ orçamentos/projetos (ex.: banheiro E cozinha), ANTES de gerar Pix, cobrança, link, PDF, ficha ou lançar pagamento, confirme com o Sr. Hangel QUAL projeto (ou se é a soma), listando-os em uma linha com o valor de cada. Só não pergunte quando ele já disse o projeto/valor ou quando a mensagem citada já mostra qual é. Nunca escolha sozinho o mais recente.`,
       `- COBRANÇA A CLIENTE: quando o Sr. Hangel pedir para cobrar um cliente ("vamos criar a cobrança", "cobra o João", "já entregamos, cobre"), use criar_cobranca, NÃO criar_link_pagamento. O valor e o serviço vêm do LIVRO DE ENTREGAS E PAGAMENTOS (o saldo em aberto do livro é o valor oficial a cobrar; o telefone e o nome do cliente também) ou, se não estiver nele, dos PEDIDOS RECENTES; o bot calcula multa e juros sozinho, mostra a prévia e só envia ao cliente depois do toque em Aprovar e enviar. Nunca diga que já enviou ao cliente nem invente percentuais. Para ver quem está devendo, ele escreve *inadimplência* (a lista mostra o protocolo de cada cobrança); para cancelar, use cancelar_cobranca com os protocolos. Se o cliente tiver MAIS DE UM serviço com saldo em aberto no livro, ANTES de criar a cobrança liste os serviços com valor e data e pergunte se cobra um deles ou a soma; nunca escolha sozinho o primeiro e avise sempre quanto ficou de fora. Para enviar a cobrança só depois ("amanhã às 7h"), use agendar_cobranca. REGRA GERAL: nunca diga que cancelou, criou, enviou, agendou ou registrou algo se a ferramenta correspondente não devolveu sucesso neste mesmo turno; se não há ferramenta, diga que não consegue e oriente o comando de texto. Ao criar cobrança, sempre passe o campo nome com o nome do cliente já citado na conversa; se ele só informar o telefone, o nome é o do cliente de quem se falava.`,
@@ -17798,6 +17805,41 @@ async function aprovComandoDono(env, from, msg) { // "aprovar tudo", "o que falt
 }
 
 
+
+// v342: FICHA TÉCNICA de qualquer orçamento do app (as peças vêm do histórico completo: "Nicho: 2x 47x14 base, 2x 30x14 lateral [s_45] | Cozinha: …")
+const SV_TXT = { s_45: 'sainha 45°', s_reta: 'sainha reta', s_slim: 'sainha slim', s_boleada: 'sainha boleada', frontao: 'frontão', frontao_chf: 'frontão', reb_a: 'rebaixo americano', reb_n: 'rebaixo normal', cook: 'cooktop', cuba_lav: 'cuba', cuba_coz: 'cuba', furo: 'furo', polimento: 'polimento' };
+function appPecasDoAmb(amb) {
+  return String(amb || '').split(' | ').map(seg => {
+    const m = seg.match(/^([^:]+):\s*(.*)$/); if (!m) return null;
+    let resto = m[2], sv = [], cuba = '';
+    const mc = resto.match(/\s+cuba\s+(.+)$/); if (mc) { cuba = mc[1].trim(); resto = resto.slice(0, mc.index); }
+    const ms = resto.match(/\s*\[([^\]]*)\]\s*$/); if (ms) { sv = ms[1].split(',').map(x => x.trim()).filter(Boolean); resto = resto.slice(0, ms.index); }
+    const pecas = resto.split(/,\s*/).map(t => { const p = t.trim().match(/^(?:(\d+)x\s+)?(\d+(?:[.,]\d+)?)x(\d+(?:[.,]\d+)?)(?:\s+(.+))?$/); if (!p) return null; const a = +p[2].replace(',', '.'), b = +p[3].replace(',', '.'); return { qtd: +p[1] || 1, comp_cm: Math.max(a, b), larg_cm: Math.min(a, b), nome: (p[4] || '').trim() }; }).filter(Boolean);
+    const ac = [...new Set(sv.map(k => SV_TXT[k]).filter(Boolean))]; if (cuba) ac.push('cuba ' + cuba);
+    return { ambiente: m[1].trim(), acabTxt: ac.join(' · ').slice(0, 46).replace(/[\s·]+$/, ''), pecas: agruparPecas(pecas) };
+  }).filter(x => x && x.pecas.length);
+}
+async function fichaTecnicaTool(env, from, a) {
+  const h = await lerHistorico(env); if (!h) return { texto: 'O app ainda não mandou o histórico. Peça ao Sr. Hangel para abrir o app uma vez (ele envia sozinho em 1 minuto) e tente de novo.' };
+  let l = []; const on = a.orc ? orcNumNorm(a.orc) : '';
+  if (on) l = h.orcamentos.filter(o => orcNumNorm(o.orcNum || '') === on);
+  if (!l.length) l = h.orcamentos.filter(o => !o.arquivado && appCasaTexto({ cliente: o.cliente }, appToks(a.cliente)));
+  if (a.projeto && l.length > 1) { const f = l.filter(o => appCasaTexto(o, appToks(a.projeto))); if (f.length) l = f; }
+  if (!l.length) return { texto: `Não achei orçamento de ${a.cliente} no app. Use buscar_no_app para conferir a grafia.` };
+  const comPecas = l.filter(o => o.amb);
+  if (!comPecas.length) return { texto: `O orçamento de ${l[0].cliente} chegou ao bot sem as peças (o app ainda não mandou a versão nova do histórico, ou o orçamento foi salvo sem peças). Diga ao Sr. Hangel: abra o app uma vez e aguarde 1 minuto; se continuar, abra o orçamento e salve de novo.` };
+  if (comPecas.length > 1 && !a.projeto && !on) { const ab = comPecas.filter(o => ['aceito', 'entregue', 'rascunho', 'pendente'].includes(appSecao(o))); if (ab.length > 1 && new Set(ab.map(o => normaliza(o.projeto || ''))).size > 1) return { texto: `${comPecas[0].cliente} tem ${ab.length} orçamentos com peças: ${ab.slice(0, 5).map(o => `${o.orcNum || ''} ${o.projeto || ''} (${APP_SEC_TXT[appSecao(o)]}, R$ ${reais(o.valor || 0)})`).join('; ')}. Pergunte ao Sr. Hangel de qual quer a ficha.` }; }
+  const o = comPecas.sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
+  const itens = appPecasDoAmb(o.amb); if (!itens.length) return { texto: `Não consegui ler as peças do orçamento de ${o.cliente}: "${o.amb.slice(0, 200)}". Diga ao Sr. Hangel que a ficha com o desenho 3D está no app (Desenho → Do orçamento).` };
+  const hojeF = dataBahia(), [yy, mm, dd] = hojeF.split('-'), nomeArq = `Ficha técnica - ${o.cliente}${o.projeto ? ' - ' + o.projeto : ''}.pdf`.replace(/[\\/:*?"<>|]/g, '');
+  const bytes = fichaCortePdf({ titulo: `FICHA TÉCNICA — ${String(o.projeto || 'PROJETO').toUpperCase().slice(0, 40)}`, cliente: o.cliente, pedra: o.material || '', geradoEm: `${DIAS_SEMANA[diaSemanaISO(hojeF)]}, ${dd} de ${NOMES_MES[Number(mm) - 1]} de ${yy}`, itens });
+  let para = numeroDono(env), quem = 'o Sr. Hangel';
+  if (a.para_funcionario) { const cfg = await pontoCfg(env).catch(() => ({ funcs: [] })), f = (cfg.funcs || []).find(x => appCasaTexto({ cliente: x.nome }, appToks(a.para_funcionario)) || normaliza(apelidoFunc(cfg, x) || '') === normaliza(a.para_funcionario)); if (!f || !f.tel) return { texto: `Não achei o funcionário "${a.para_funcionario}" com WhatsApp. Pergunte ao Sr. Hangel.` }; para = normalizarBR(String(f.tel).startsWith('55') ? f.tel : '55' + f.tel); quem = f.nome.split(' ')[0]; }
+  const docId = (await subirPdfMeta(env, bytes, nomeArq)).id;
+  await postarMsg(env, para, { type: 'document', document: { id: docId, filename: nomeArq, caption: `Ficha técnica: ${o.cliente}${o.projeto ? ' · ' + o.projeto : ''}${o.material ? ' · ' + o.material : ''}` } });
+  const nP = itens.reduce((t, it) => t + it.pecas.reduce((u, x) => u + (x.qtd || 1), 0), 0);
+  return { texto: `FICHA TÉCNICA JÁ ENVIADA a ${quem}: ${o.cliente} · ${o.projeto || ''} · ${itens.length} ambiente(s), ${nP} peça(s). Confirme em uma frase curta e diga que o desenho 3D fica no app (Desenho → Do orçamento → 📤 Imagem).` };
+}
 // ═════════════════════════════════════════════════════════════════════════════
 // v340: A HELENA ENTENDE O APP INTEIRO — índice de todos os orçamentos (histórico completo mandado pelo app, com seção,
 // peças, agenda e contrato) + livro de entregas/pagamentos + produção do bot. Busca por qualquer palavra e ficha completa.
