@@ -2684,6 +2684,35 @@ async function vocabVoz(env) {
 // Compara com os nomes que existem (serviços abertos, últimos orçamentos, equipe, pedras) e troca só o que for nome mal ouvido.
 function fonetico(t) { return normaliza(String(t || '')).replace(/[^a-z ]/g, '').replace(/ph/g, 'f').replace(/ch|sh|x/g, 'x').replace(/qu|q|c(?=[aou])|k|ck/g, 'k').replace(/c(?=[ei])|ç|z|ss/g, 's').replace(/y/g, 'i').replace(/w/g, 'v').replace(/h/g, '').replace(/(.)\1+/g, '$1').replace(/\s+/g, ' ').trim(); }
 function levDist(a, b) { const m = a.length, n = b.length; if (!m || !n) return Math.max(m, n); let v = Array.from({ length: n + 1 }, (_, i) => i); for (let i = 1; i <= m; i++) { const w = [i]; for (let j = 1; j <= n; j++) w[j] = Math.min(v[j] + 1, w[j - 1] + 1, v[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); v = w; } return v[n]; }
+// v348: INTÉRPRETE DA EQUIPE — a fala longa/embolada vira frases que as regras entendem ("terminei o acabamento da soleira do Caco Bola");
+// se não dá para saber o cliente, faz UMA pergunta certa em vez de chutar a tarefa do dia.
+async function funcInterpretar(env, f, from, texto, nome, papel, ipend) {
+  if (String(env.INTERPRETE ?? '1') === '0') return null;
+  const id = String(f.id), tx = await txLer(env, from).catch(() => null);
+  const conv = ((tx && tx.f) || []).slice(-8).map(x => `${x.q === 'c' ? nome : 'Helena'}: ${String(x.x || '').replace(/\s+/g, ' ').slice(0, 220)}`).join('\n');
+  const peds = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado').catch(() => []);
+  const st = p => [p.corteEm ? 'cortado' : 'falta cortar', p.acabEm ? 'acabamento feito' : '', p.fabProntoEm || p.prontoEm ? 'pronto' : ''].filter(Boolean).join(', ');
+  const lista = peds.slice(0, 30).map(p => `- ${p.nome}: ${resumoPecas(p)} (${st(p)})${[p.fabResp, p.fab2Resp, p.acabResp, p.entResp].map(String).includes(id) ? ' [tarefa dele]' : ''}`).join('\n');
+  const nomes = (await vozNomesConhecidos(env).catch(() => [])).slice(0, 120).join('; ');
+  const sis = `Você interpreta mensagens de funcionários de uma marmoraria (Pilão Arcado, BA) para o sistema de produção. ${nome} é da ${papel === 'entrega' ? 'entrega/instalação' : 'fábrica'}. A mensagem costuma vir de ÁUDIO com barulho: frases emboladas, nomes mal ouvidos.
+SERVIÇOS ABERTOS NA PRODUÇÃO:\n${lista || '(nenhum)'}\nOUTROS CLIENTES QUE EXISTEM: ${nomes}
+CONVERSA RECENTE:\n${conv || '(nenhuma)'}
+Traduza a ÚLTIMA mensagem de ${nome} em frases simples que o sistema entende, uma por ação, SEMPRE com o nome do cliente:
+"cortei <peças> do <cliente>", "terminei o acabamento <peças> do <cliente>", "terminei <peças> do <cliente>", "comecei o corte do <cliente>", "comecei o acabamento do <cliente>", "instalei o do <cliente>", "entreguei o do <cliente>".
+Regras: use o cliente que ele FALOU (corrija o nome mal ouvido para um da lista, se for parecido no som). Se ele falou de uma peça de um cliente que NÃO está na produção, use mesmo assim o nome que ele falou. NUNCA escolha um cliente que ele não disse só porque é a tarefa dele. Se não dá para saber de qual cliente é, devolva tipo "pergunta" com UMA pergunta curta e específica (ex.: "Lucas, a outra soleira que você finalizou é de qual cliente?"). Se a mensagem não é sobre serviço feito/começado, tipo "outro".
+Responda SÓ JSON: {"tipo":"registro"|"pergunta"|"outro","frases":["..."],"pergunta":"..."}`;
+  const entrada = ipend ? `Mensagem anterior de ${nome}: "${ipend.texto}"\nVocê perguntou: "${ipend.pergunta}"\nResposta dele (ÚLTIMA mensagem): "${texto}"` : texto;
+  const r = lerJsonIA(await chamarIA(env, sis, [], entrada, { maxTokens: 400, timeoutMs: 15000, cat: 'func' }));
+  if (!r || !r.tipo || r.tipo === 'outro') return null;
+  if (r.tipo === 'pergunta' && r.pergunta) { if (ipend) return null; /* já perguntou uma vez: não fica em loop */ await env.HR_KV.put('prod:interp:' + ultimos8(from), JSON.stringify({ texto: String(texto).slice(0, 400), pergunta: String(r.pergunta).slice(0, 200), em: Date.now() }), { expirationTtl: 1800 }); await enviar(env, from, String(r.pergunta).slice(0, 300)); return true; }
+  const frases = (Array.isArray(r.frases) ? r.frases : []).map(x => String(x || '').trim()).filter(x => x.length > 6 && x.length < 160).slice(0, 4);
+  if (!frases.length) return null;
+  console.log('[INTERP]', texto, '→', frases);
+  env._interp = 1; let ok = false;
+  try { for (const fr of frases) ok = (await producaoFuncionario(env, f, from, fr, '', nome).catch(e => { console.log('[INTERP] frase:', e.message); return false; })) || ok; }
+  finally { env._interp = 0; }
+  return ok ? true : null;
+}
 async function vozNomesConhecidos(env) {
   const nm = new Set();
   try { (await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 15 * 86400000)).forEach(p => p.nome && nm.add(String(p.nome).trim())); } catch (_) {}
@@ -8564,7 +8593,9 @@ function nomeClienteValido(q) { const ws = normaliza(String(q || '')).split(/[^a
 function acharPorNome(lista, texto) {
   const tk = tokensPedra(texto || '');
   const ach = nomeMelhores(lista, tk); // v215: exato primeiro; sem exato, o parecido
-  return ach.length ? ach : (lista.length === 1 && !pedConflitoTxt(lista[0], texto) ? lista : []); // v323: a única tarefa só vale se a peça/pedra bater
+  if (ach.length) return ach;
+  const cq = clienteCitado(texto); if (cq && lista.length === 1 && !nomeMelhores(lista, tokensPedra(cq)).length) return []; // v348: ele DISSE outro cliente ("do Caco Bola") → nunca cai na única tarefa dele
+  return lista.length === 1 && !pedConflitoTxt(lista[0], texto) ? lista : []; // v323: a única tarefa só vale se a peça/pedra bater
 }
 async function papelFuncionario(env, f, from) {
   const { map } = await funcoesEquipe(env).catch(() => ({ map: {} })), fs = map[f.id] || []; // v146
@@ -8582,6 +8613,15 @@ async function papelFuncionario(env, f, from) {
 async function producaoFuncionario(env, f, from, texto, idB, nome) {
   const papel = await papelFuncionario(env, f, from); if (!papel) return false;
   const msg = normaliza(texto || '');
+  let ipend = null; if (!idB && !env._interp) { try { ipend = JSON.parse((await env.HR_KV.get('prod:interp:' + ultimos8(from))) || 'null'); } catch (_) {} if (ipend && Date.now() - ipend.em > 30 * 60000) ipend = null; }
+  if (ipend && msg.split(' ').length <= 14 && !/\?/.test(texto)) { // v348: resposta à pergunta do intérprete ("é do Caco Bola")
+    await env.HR_KV.delete('prod:interp:' + ultimos8(from));
+    const r = await funcInterpretar(env, f, from, texto, nome, papel, ipend).catch(e => { console.log('[INTERP]', e.message); return null; });
+    if (r === true) return true;
+  } else if (!idB && !env._interp && msg.split(' ').length >= ((env._ctx && env._ctx.voz) ? 12 : 18) && /\b(soleir|peitor|lavat|bancad|balca|cozinh|nich|frontao|escad|pratel|termin|finaliz|cort|acab|pront|instal|entreg|comec|inici)\w*/.test(msg)) { // v348: fala longa e embolada (áudio da fábrica) → a IA traduz em frases simples antes das regras
+    const r = await funcInterpretar(env, f, from, texto, nome, papel).catch(e => { console.log('[INTERP]', e.message); return null; });
+    if (r === true) return true;
+  }
   if (!idB && msg.split(' ').length <= 10 && /^(nao|n|errado|errou|ta errado|nao e (isso|esse|essa|esse ai)|nao foi isso|nao e d[oa]|e d[oa]|e o d[oa]|e a d[oa])\b/.test(msg)) { // v334: desfaz o que a foto inteligente anotou ("não, é do Jacó")
     let fi = null; try { fi = JSON.parse((await env.HR_KV.get('prod:fotoia:' + ultimos8(from))) || 'null'); } catch (_) {}
     if (fi && Date.now() - fi.em < 30 * 60000) {
@@ -17743,15 +17783,18 @@ function etapaDaLegenda(t) {
 function itemDaLegenda(t) { const m = normaliza(t || '').match(/\b(balcao|bancada|cozinha|lavatorio|banheiro|soleiras?|peitoris?|peitoril|nicho|escada|degraus?|tampo|mesa|churrasqueira|frontao|rodape|pia)\b/); return m ? ({ balcao: 'balcão', lavatorio: 'lavatório', rodape: 'rodapé', frontao: 'frontão', peitoris: 'peitoris' }[m[1]] || m[1]) : ''; }
 const ETAPA_NOME2 = { inicio: 'início', corte: 'corte', polimento: 'polimento', acabamento: 'acabamento', fabricacao: 'fabricação', finalizado: 'finalização', instalacao: 'instalação' };
 // v338: nome de cliente que o funcionário escreveu ("Cliente Osmailton", "do Osmailton") — só nome de gente, nunca peça/pedra/etapa
-function clienteCitado(t) {
-  const m = String(t || '').match(/\b(?:cliente|cli|d[aoe]|dona|seu|sr\.?|sra\.?)\s*:?\s+([A-Za-zÀ-ÿ]{3,}(?:\s+(?!d[aoe]s?\b|e\b)[A-Za-zÀ-ÿ]{3,})?)/i); if (!m) return '';
-  const forte = /^\s*(cliente|cli|dona|seu|sr|sra)/i.test(String(t).slice(m.index, m.index + 8));
-  let nm = m[1].trim(); const ws = normaliza(nm).split(' ');
-  if (/^(balc|area|lavab|pia|cozin|banh|bancad|soleir|peitor|nicho|escad|preto|branco|verde|cinza|marrom|bege|granit|marmor|servic|mesmo|outro|hoje|ontem|amanha|manha|tarde|noite|semana|lado|meio|fundo|frente|loja|fabrica|obra|casa|chefe|patrao)/.test(ws[0])) return '';
-  if (ws.length > 1 && !nomeClienteValido(ws[1])) nm = nm.split(/\s+/)[0];
-  if (!nomeClienteValido(nm)) return '';
-  if (!forte && !/^[A-ZÀ-Ý]/.test(nm)) return ''; // "do" + minúscula: pode ser qualquer coisa
-  return nm.slice(0, 40);
+function clienteCitado(t) { // v348: olha TODAS as ocorrências ("da soleira do Caco Bola" → Caco Bola)
+  const src = String(t || ''), re = /\b(?:cliente|cli|d[aoe]|dona|seu|sr\.?|sra\.?)\s*:?\s+([A-Za-zÀ-ÿ]{3,}(?:\s+(?!d[aoe]s?\b|e\b)[A-Za-zÀ-ÿ]{3,})?)/gi; let m;
+  while ((m = re.exec(src))) {
+    const forte = /^\s*(cliente|cli|dona|seu|sr|sra)/i.test(src.slice(m.index, m.index + 8));
+    let nm = m[1].trim(); const ws = normaliza(nm).split(' ');
+    if (/^(balc|area|lavab|lavat|pia|cozin|banh|bancad|soleir|peitor|nicho|escad|pratel|pratil|front|preto|branco|verde|cinza|marrom|bege|granit|marmor|servic|mesmo|outro|outra|hoje|ontem|amanha|manha|tarde|noite|semana|lado|meio|fundo|frente|loja|fabrica|obra|casa|chefe|patrao|acabament|corte|peca|pedra)/.test(ws[0])) continue;
+    if (ws.length > 1 && !nomeClienteValido(ws[1])) nm = nm.split(/\s+/)[0];
+    if (!nomeClienteValido(nm)) continue;
+    if (!forte && !/^[A-ZÀ-Ý]/.test(nm)) continue;
+    return nm.slice(0, 40);
+  }
+  return '';
 }
 function limpaQuem(q) { return String(q || '').replace(/^\s*(e|eh|é)?\s*(o|a)?\s*(servi[cç]o\s+)?(d[aoe]s?\s+)?(cliente|cli|sr\.?|sra\.?|seu|dona)\s*:?\s+/i, '').replace(/^\s*(d[aoe]s?)\s+/i, '').replace(/[.!]+$/, '').trim().slice(0, 40); } // v338
 async function etapaPedirConfirmacao(env, fone, nomeFunc, quem, mid, leg) {
@@ -23652,7 +23695,7 @@ async function prodServicoForaDaLista(env, f, from, texto, nome) {
 }
 async function prodPedirDono(env, f, from, x, texto, nome) {
   const chave = 'etpdup:' + f.id + ':' + normaliza(String(x.cliente)).replace(/\s+/g, '') + ':' + (x.etapa || '');
-  const etp = ETAPA_NOME2[x.etapa] ? x.etapa : 'corte', art = /ção$/.test(ETAPA_NOME2[etp]) ? 'a' : 'o', o = `${ETAPA_NOME2[etp]}${x.item ? ' do ' + x.item : ''}${x.pedra ? ' (' + x.pedra + ')' : ''} de *${x.cliente}*`;
+  const etp = ETAPA_NOME2[x.etapa] ? x.etapa : 'corte', art = /ção$/.test(ETAPA_NOME2[etp]) ? 'a' : 'o', o = `${ETAPA_NOME2[etp]}${x.item ? (/^(soleira|bancada|cozinha|pia|escada|mesa|prateleira|cuba|area|área)/i.test(x.item) ? ' da ' : ' do ') + x.item : ''}${x.pedra ? ' (' + x.pedra + ')' : ''} de *${x.cliente}*`;
   if (await env.HR_KV.get(chave)) { await enviar(env, from, `${nome}, ${art} ${o.replace(/\*/g, '')} já está com o Sr. Hangel para confirmar. Assim que ele confirmar, os pontos entram e eu te aviso.`); return true; }
   await env.HR_KV.put(chave, '1', { expirationTtl: 86400 });
   const cid = estId(8), leg = `${x.etapa === 'corte' ? 'cortei' : x.etapa === 'fabricacao' || x.etapa === 'acabamento' ? 'terminei' : 'fiz'} ${x.item || ''} ${x.pedra || ''}`.trim();
