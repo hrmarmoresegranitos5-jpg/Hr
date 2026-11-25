@@ -35325,7 +35325,9 @@ section.passo.on{display:block;animation:ent .35s ease}
 .dets{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:22px}
 @media(min-width:720px){.dets{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
 .det{position:relative;background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer;color:var(--tx);text-align:left;padding:0;display:flex;flex-direction:column}
-.det .ft{aspect-ratio:4/3;background:#100d07 center/cover no-repeat;display:grid;place-items:center;font-size:40px;color:#6e624a}
+.det .ft{aspect-ratio:4/3;background:#100d07;display:grid;place-items:center;font-size:40px;color:#6e624a;position:relative;overflow:hidden}
+.det .ft .bg{position:absolute;inset:-20px;background:center/cover no-repeat;filter:blur(14px) brightness(.5)}
+.det .ft .fg{position:absolute;inset:0;background:center/contain no-repeat}
 .det .inf{padding:11px 12px 13px}
 .det b{display:block;font-size:15px}
 .det small{display:block;color:var(--t3);font-size:12px;line-height:1.35;margin-top:3px}
@@ -35429,13 +35431,26 @@ footer b{color:var(--t2)}
 .galeria .cont{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;border-radius:20px;padding:4px 10px}
 .obras{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px 8px}
 .obras::-webkit-scrollbar{display:none}
-.obg{flex:0 0 78%;max-width:340px;scroll-snap-align:start;position:relative;border-radius:var(--r);overflow:hidden;aspect-ratio:4/5;background:#14100a center/cover;cursor:pointer;border:1px solid var(--line);box-shadow:var(--sh)}
-@media(min-width:720px){.obg{flex-basis:300px}}
-.obg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(8,6,3,.92))}
-.obg .oi{position:absolute;left:16px;right:16px;bottom:16px;z-index:2}
-.obg b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:17px;line-height:1.25}
-.obg small{display:inline-block;margin-top:8px;background:rgba(13,10,5,.75);border:1px solid var(--line2);color:var(--gold2);font-weight:700;font-size:12px;border-radius:20px;padding:4px 10px}
+.obg{flex:0 0 74%;max-width:320px;scroll-snap-align:start;position:relative;border-radius:var(--r);overflow:hidden;background:var(--card);cursor:pointer;border:1px solid var(--line);box-shadow:var(--sh);display:flex;flex-direction:column}
+@media(min-width:720px){.obg{flex-basis:280px}}
+.ph{position:relative;aspect-ratio:3/4;overflow:hidden;background:#0b0906}
+.ph .bg{position:absolute;inset:-24px;background:center/cover no-repeat;filter:blur(18px) brightness(.5)}
+.ph .fg{position:absolute;inset:0;background:center/contain no-repeat}
+.ph .qt{position:absolute;right:10px;top:10px;background:rgba(13,10,5,.8);border:1px solid var(--line2);color:var(--gold2);font-weight:700;font-size:11.5px;border-radius:20px;padding:4px 9px}
+.obg .oi{padding:11px 14px 13px}
+.obg b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14.5px;line-height:1.3;font-weight:700}
+.obg small{display:block;color:var(--t3);font-size:12px;margin-top:3px}
+.loja{display:grid;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.loja .end{font-size:16px;line-height:1.45}
+.loja .end b{color:var(--gold2)}
+.loja .bts{display:flex;gap:10px;flex-wrap:wrap}
+.loja .bts a{flex:1;min-width:140px;text-align:center;text-decoration:none;border-radius:12px;padding:13px 14px;font-weight:700;font-size:15px}
+.loja .bts .mapa{background:var(--gold);color:#1a1200}
+.loja .bts .zap{border:1.5px solid var(--line2);color:var(--tx)}
+.loja iframe{width:100%;height:220px;border:0;border-radius:12px;filter:grayscale(.3) contrast(1.05)}
 .mosaico.foto{display:block}.mosaico.foto div{width:100%;height:100%}
+.mosaico.foto .bg{position:absolute;inset:-30px;background:center/cover no-repeat;filter:blur(22px) brightness(.55);animation:none}
+.mosaico.foto .fg{position:absolute;inset:0;background:center 30%/contain no-repeat;animation:none}
 .obra{position:relative;border-radius:14px;overflow:hidden;aspect-ratio:1/1;background:#14100a center/cover;cursor:pointer;border:1px solid var(--line)}
 .obra::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.8))}
 .obra span{position:absolute;left:10px;right:10px;bottom:9px;z-index:2;font-size:12.5px;line-height:1.3}
@@ -35481,6 +35496,12 @@ footer b{color:var(--t2)}
     <h2>Obras reais</h2>
     <p class="sub">Trabalhos entregues pela HR. Toque para ver todas as fotos.</p>
     <div class="obras" id="obrasCapa"></div>
+  </div></div>
+
+  <div class="bloco" id="blocoLoja" hidden><div class="wrap">
+    <h2>Venha nos visitar</h2>
+    <p class="sub">Veja as pedras de perto na nossa loja.</p>
+    <div class="loja" id="loja"></div>
   </div></div>
 
   <div class="bloco"><div class="wrap">
@@ -35880,7 +35901,7 @@ footer b{color:var(--t2)}
   $('fundo').onclick=function(ev){if(ev.target===this)fechar();};
 
   // ═══ acabamento (fotos reais de cada detalhe) ═══
-  function cardDet(x,sel){var f=(x.fotos||[])[0];return '<button class="det'+(sel?' sel':'')+'" data-d="'+esc(x.k)+'"><div class="ft" '+(f?'style="background-image:url(\\''+img('obra',f)+'\\')"':'')+'>'+(f?'':(x.ic||'◆'))+'</div>'+((x.fotos||[]).length>1?'<span class="vf">📷 '+x.fotos.length+' fotos</span>':(f?'<span class="vf">📷 foto real</span>':''))+'<span class="ck">✓</span><div class="inf"><b>'+esc(x.n)+'</b><small>'+esc(x.d||'')+'</small></div></button>'}
+  function cardDet(x,sel){var f=(x.fotos||[])[0],u=f?img('obra',f):'';return '<button class="det'+(sel?' sel':'')+'" data-d="'+esc(x.k)+'"><div class="ft">'+(f?'<div class="bg" style="background-image:url('+u+')"></div><div class="fg" style="background-image:url('+u+')"></div>':(x.ic||'◆'))+'</div>'+((x.fotos||[]).length>1?'<span class="vf">📷 '+x.fotos.length+' fotos</span>':(f?'<span class="vf">📷 foto real</span>':''))+'<span class="ck">✓</span><div class="inf"><b>'+esc(x.n)+'</b><small>'+esc(x.d||'')+'</small></div></button>'}
   function desenharAcab(){S.extras=S.extras||{};
     $('gBorda').innerHTML=detsDo('borda').map(function(x){return cardDet(x,S.borda===x.k)}).join('');
     var ex=detsDo('extra');$('tExtra').hidden=!ex.length;$('gExtra').innerHTML=ex.map(function(x){return cardDet(x,!!S.extras[x.k])}).join('');}
@@ -35957,17 +35978,22 @@ footer b{color:var(--t2)}
     var com=D.pedras.filter(function(p){return p.foto});
     var dst=com.filter(function(p){return p.top}).concat(com.filter(function(p){return !p.top})).slice(0,10);
     var GR=gruposObras();
-    if(GR.length){$('mosaico').classList.add('foto');$('mosaico').innerHTML='<div style="background-image:url('+img('obra',GR[0].fotos[0])+')"></div>';}
+    if(GR.length){var hu=img('obra',GR[0].fotos[0]);$('mosaico').classList.add('foto');$('mosaico').innerHTML='<div class="bg" style="background-image:url('+hu+')"></div><div class="fg" style="background-image:url('+hu+')"></div>';}
     else $('mosaico').innerHTML=dst.slice(0,6).map(function(p){return '<div style="background-image:url(\\''+img('pedra',p.id)+'\\')"></div>'}).join('');
     setTimeout(function(){$('mosaico').classList.add('on')},100);
     $('destaques').innerHTML=dst.map(function(p){return '<div class="dest" data-p="'+esc(p.id)+'" style="background-image:url(\\''+img('pedra',p.id)+'\\')"><div class="dd"><b>'+esc(p.nm)+'</b><small>'+esc(p.cat||'')+'</small>'+(pr()&&p.pr?'<div><span class="pp">'+brl(p.pr)+'/m²</span></div>':'')+'</div></div>'}).join('');
     var cats={};D.pedras.forEach(function(p){if(p.cat)cats[p.cat]=1});
     var ob=(D.obras||[]).slice(0,8);
     var dc=(D.detalhes||[]).filter(function(x){return (x.fotos||[]).length});
-    if(dc.length){$('blocoDet').hidden=false;$('detCapa').innerHTML=dc.map(function(x){return '<div class="dest" data-d="'+esc(x.k)+'" style="background-image:url(\\''+img('obra',x.fotos[0])+'\\')"><div class="dd"><b>'+esc(x.n)+'</b><small>'+x.fotos.length+' foto'+(x.fotos.length>1?'s':'')+' real'+(x.fotos.length>1?'is':'')+'</small></div></div>'}).join('');}
-    if(GR.length){$('blocoObras').hidden=false;$('obrasCapa').innerHTML=GR.slice(0,8).map(function(g,i){return '<div class="obg" data-g="'+i+'" style="background-image:url('+img('obra',g.fotos[0])+')"><div class="oi"><b>'+esc(g.t)+'</b>'+(g.fotos.length>1?'<small>📷 '+g.fotos.length+' fotos</small>':'')+'</div></div>'}).join('');}
+    if(dc.length){$('blocoDet').hidden=false;$('detCapa').innerHTML=dc.map(function(x){return '<div class="obg" data-d="'+esc(x.k)+'">'+fotoInteira(img('obra',x.fotos[0]),x.fotos.length>1?'<span class="qt">📷 '+x.fotos.length+'</span>':'')+'<div class="oi"><b>'+esc(x.n)+'</b><small>Foto real de obra da HR</small></div></div>'}).join('');}
+    if(GR.length){$('blocoObras').hidden=false;$('obrasCapa').innerHTML=GR.slice(0,8).map(function(g,i){return '<div class="obg" data-g="'+i+'">'+fotoInteira(img('obra',g.fotos[0]),g.fotos.length>1?'<span class="qt">📷 '+g.fotos.length+'</span>':'')+'<div class="oi"><b>'+esc(g.t)+'</b></div></div>'}).join('');}
+    var em=D.emp||{};if(em.end){var q=encodeURIComponent([em.end,em.cidade].filter(Boolean).join(', '));$('blocoLoja').hidden=false;
+      $('loja').innerHTML='<div class="end">📍 <b>'+esc(em.end)+'</b>'+(em.cidade?'<br>'+esc(em.cidade):'')+(em.horario?'<br><span style="color:var(--t2)">🕒 '+esc(em.horario)+'</span>':'')+'</div>'
+        +'<iframe loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q='+q+'&z=16&output=embed"></iframe>'
+        +'<div class="bts"><a class="mapa" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query='+q+'">Como chegar</a>'+(D.whatsapp?'<a class="zap" target="_blank" rel="noopener" href="https://wa.me/'+D.whatsapp+'">Chamar no WhatsApp</a>':'')+'</div>';}
     $('numeros').innerHTML='<div><b>'+D.pedras.length+'</b>pedras</div><div><b>'+Object.keys(cats).length+'</b>tipos</div><div><b>10×</b>sem juros</div>';
   }
+  function fotoInteira(u,qt){return '<div class="ph"><div class="bg" style="background-image:url('+u+')"></div><div class="fg" style="background-image:url('+u+')"></div>'+(qt||'')+'</div>'}
   function gruposObras(){var m={},l=[];(D.obras||[]).forEach(function(o){var g=m[o.obra];if(!g){g=m[o.obra]={t:o.t||o.legenda||'Obra entregue',d:o.legenda||'',pedra:o.pedra,fotos:[]};l.push(g);}g.fotos.push(o.id);if(!g.pedra&&o.pedra)g.pedra=o.pedra;});return l;}
   $('obrasCapa').onclick=function(ev){var b=ev.target.closest('[data-g]');if(!b)return;var g=gruposObras()[+b.getAttribute('data-g')];if(!g)return;
     var p=g.pedra&&D.pedras.filter(function(x){return x.id===g.pedra})[0];
@@ -35985,7 +36011,7 @@ footer b{color:var(--t2)}
     D=j;
     if(j.cliente){$('cTel').hidden=true;if(j.cliente.nome){$('fNome').value=j.cliente.nome;$('cNome').hidden=true;}}
     if(j.empresa)$('emp').textContent=j.empresa;
-    var e=j.emp||{};if(e.cidade)$('cidadeSelo').textContent=String(e.cidade).split(/[—-]/)[0].trim();
+    var e=j.emp||{};if(e.cidade)$('cidadeSelo').textContent=String(e.cidade).split(/[—–-]/)[0].trim();
     var zap=j.whatsapp?'https://wa.me/'+j.whatsapp+'?text='+encodeURIComponent('Olá! Vim pelo site da '+(j.empresa||'HR')+'.'):'';
     if(zap)$('zapTopo').href=zap;else $('zapTopo').style.display='none';
     $('rodape').innerHTML='<b>'+esc(j.empresa||'')+'</b><br>'+esc([e.end,e.cidade].filter(Boolean).join(' · '))+(e.horario?'<br>'+esc(e.horario):'')+(e.tel?'<br>WhatsApp '+esc(e.tel):'')+(e.ig?'<br>Instagram '+esc(e.ig):'')+(j.cnpj?'<br>CNPJ '+esc(j.cnpj):'');
@@ -36222,7 +36248,7 @@ async function siteCatalogo(env, ctx, url) {
   const corpo = {
     empresa: env.EMPRESA || e.nome || 'HR Mármores e Granitos', cnpj: env.EMPRESA_CNPJ || '', preco, estimativa: String(env.SITE_ESTIMATIVA ?? '1') !== '0',
     whatsapp: String(env.WHATSAPP_PUBLICO || '').replace(/\D/g, '') || await pontoBotNumero(env),
-    emp: { end: e.end || '', cidade: e.cidade || '', horario: e.horario || '', tel: e.tel || '', ig: e.ig || '' },
+    emp: { end: e.end || ENDERECO_MARMORARIA, cidade: e.cidade || 'Pilão Arcado – BA', horario: e.horario || env.HORARIO_LOJA || '', tel: e.tel || '', ig: e.ig || '' }, // v360c: endereço da loja no site
     pedras, cubas_coz, cubas_lav, acessorios,
   };
   try { corpo.obras = await siteObras(env, pedras); } catch (_) { corpo.obras = []; }
