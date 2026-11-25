@@ -35427,7 +35427,15 @@ footer b{color:var(--t2)}
 .galeria figure div{aspect-ratio:4/3;background:#100d07 center/cover no-repeat}
 .galeria figcaption{position:absolute;left:0;right:0;bottom:0;padding:30px 14px 46px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.8));font-size:13.5px;color:#eee}
 .galeria .cont{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;border-radius:20px;padding:4px 10px}
-.obras{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.obras{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;margin:0 -20px;padding:0 20px 8px}
+.obras::-webkit-scrollbar{display:none}
+.obg{flex:0 0 78%;max-width:340px;scroll-snap-align:start;position:relative;border-radius:var(--r);overflow:hidden;aspect-ratio:4/5;background:#14100a center/cover;cursor:pointer;border:1px solid var(--line);box-shadow:var(--sh)}
+@media(min-width:720px){.obg{flex-basis:300px}}
+.obg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(8,6,3,.92))}
+.obg .oi{position:absolute;left:16px;right:16px;bottom:16px;z-index:2}
+.obg b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:17px;line-height:1.25}
+.obg small{display:inline-block;margin-top:8px;background:rgba(13,10,5,.75);border:1px solid var(--line2);color:var(--gold2);font-weight:700;font-size:12px;border-radius:20px;padding:4px 10px}
+.mosaico.foto{display:block}.mosaico.foto div{width:100%;height:100%}
 .obra{position:relative;border-radius:14px;overflow:hidden;aspect-ratio:1/1;background:#14100a center/cover;cursor:pointer;border:1px solid var(--line)}
 .obra::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.8))}
 .obra span{position:absolute;left:10px;right:10px;bottom:9px;z-index:2;font-size:12.5px;line-height:1.3}
@@ -35471,7 +35479,7 @@ footer b{color:var(--t2)}
 
   <div class="bloco" id="blocoObras" hidden><div class="wrap">
     <h2>Obras reais</h2>
-    <p class="sub">Trabalhos entregues pela HR. Toque para ver maior.</p>
+    <p class="sub">Trabalhos entregues pela HR. Toque para ver todas as fotos.</p>
     <div class="obras" id="obrasCapa"></div>
   </div></div>
 
@@ -35948,19 +35956,25 @@ footer b{color:var(--t2)}
   function desenharCapa(){
     var com=D.pedras.filter(function(p){return p.foto});
     var dst=com.filter(function(p){return p.top}).concat(com.filter(function(p){return !p.top})).slice(0,10);
-    $('mosaico').innerHTML=dst.slice(0,6).map(function(p){return '<div style="background-image:url(\\''+img('pedra',p.id)+'\\')"></div>'}).join('');
+    var GR=gruposObras();
+    if(GR.length){$('mosaico').classList.add('foto');$('mosaico').innerHTML='<div style="background-image:url('+img('obra',GR[0].fotos[0])+')"></div>';}
+    else $('mosaico').innerHTML=dst.slice(0,6).map(function(p){return '<div style="background-image:url(\\''+img('pedra',p.id)+'\\')"></div>'}).join('');
     setTimeout(function(){$('mosaico').classList.add('on')},100);
     $('destaques').innerHTML=dst.map(function(p){return '<div class="dest" data-p="'+esc(p.id)+'" style="background-image:url(\\''+img('pedra',p.id)+'\\')"><div class="dd"><b>'+esc(p.nm)+'</b><small>'+esc(p.cat||'')+'</small>'+(pr()&&p.pr?'<div><span class="pp">'+brl(p.pr)+'/m²</span></div>':'')+'</div></div>'}).join('');
     var cats={};D.pedras.forEach(function(p){if(p.cat)cats[p.cat]=1});
     var ob=(D.obras||[]).slice(0,8);
     var dc=(D.detalhes||[]).filter(function(x){return (x.fotos||[]).length});
     if(dc.length){$('blocoDet').hidden=false;$('detCapa').innerHTML=dc.map(function(x){return '<div class="dest" data-d="'+esc(x.k)+'" style="background-image:url(\\''+img('obra',x.fotos[0])+'\\')"><div class="dd"><b>'+esc(x.n)+'</b><small>'+x.fotos.length+' foto'+(x.fotos.length>1?'s':'')+' real'+(x.fotos.length>1?'is':'')+'</small></div></div>'}).join('');}
-    if(ob.length){$('blocoObras').hidden=false;$('obrasCapa').innerHTML=ob.map(function(o){return '<div class="obra" data-o="'+esc(o.id)+'" style="background-image:url(\\''+img('obra',o.id)+'\\')"><span>'+esc(o.legenda||o.cat||'')+'</span></div>'}).join('');}
+    if(GR.length){$('blocoObras').hidden=false;$('obrasCapa').innerHTML=GR.slice(0,8).map(function(g,i){return '<div class="obg" data-g="'+i+'" style="background-image:url('+img('obra',g.fotos[0])+')"><div class="oi"><b>'+esc(g.t)+'</b>'+(g.fotos.length>1?'<small>📷 '+g.fotos.length+' fotos</small>':'')+'</div></div>'}).join('');}
     $('numeros').innerHTML='<div><b>'+D.pedras.length+'</b>pedras</div><div><b>'+Object.keys(cats).length+'</b>tipos</div><div><b>10×</b>sem juros</div>';
   }
-  $('obrasCapa').onclick=function(ev){var b=ev.target.closest('[data-o]');if(!b)return;var o=(D.obras||[]).filter(function(x){return x.id===b.getAttribute('data-o')})[0];if(!o)return;
-    var p=o.pedra&&D.pedras.filter(function(x){return x.id===o.pedra})[0];
-    if(p){if(!S.amb)S.amb='cozinha';detalhe('pedra',p);return;}
+  function gruposObras(){var m={},l=[];(D.obras||[]).forEach(function(o){var g=m[o.obra];if(!g){g=m[o.obra]={t:o.t||o.legenda||'Obra entregue',d:o.legenda||'',pedra:o.pedra,fotos:[]};l.push(g);}g.fotos.push(o.id);if(!g.pedra&&o.pedra)g.pedra=o.pedra;});return l;}
+  $('obrasCapa').onclick=function(ev){var b=ev.target.closest('[data-g]');if(!b)return;var g=gruposObras()[+b.getAttribute('data-g')];if(!g)return;
+    var p=g.pedra&&D.pedras.filter(function(x){return x.id===g.pedra})[0];
+    $('folha').innerHTML='<div class="vis" style="padding:10px"><div class="galdet">'+g.fotos.map(function(f){return '<img loading="lazy" src="'+img('obra',f)+'" alt="">'}).join('')+'</div><button class="x" id="fx">✕</button></div><div class="cp"><h3>'+esc(g.t)+'</h3>'+(g.fotos.length>1?'<div class="ct">Arraste para ver as '+g.fotos.length+' fotos</div>':'')+(g.d&&g.d!==g.t?'<p>'+esc(g.d)+'</p>':'')+'<button class="bt ouro" id="fok" style="margin-top:12px">'+(p?'Quero nessa pedra ('+esc(p.nm)+')':'Montar meu projeto')+'</button></div>';
+    $('fundo').classList.add('on');$('folha').scrollTop=0;$('fx').onclick=fechar;$('fok').onclick=function(){fechar();if(p){if(!S.amb)S.amb='cozinha';detalhe('pedra',p);}else ir(S.amb?'p-pedra':'p-amb');};
+    return;
+    var o={};
     $('folha').innerHTML='<div class="vis"><div class="fg" style="background-image:url(\\''+img('obra',o.id)+'\\')"></div><button class="x" id="fx">✕</button></div><div class="cp"><p>'+esc(o.legenda||'')+'</p><button class="bt ouro" id="fok">Montar meu projeto</button></div>';
     $('fundo').classList.add('on');$('fx').onclick=fechar;$('fok').onclick=function(){fechar();ir(S.amb?'p-pedra':'p-amb')};};
   $('destaques').onclick=function(ev){var b=ev.target.closest('[data-p]');if(!b)return;var p=D.pedras.filter(function(x){return x.id===b.getAttribute('data-p')})[0];if(p){if(!S.amb)S.amb='cozinha';detalhe('pedra',p);}};
@@ -36175,7 +36189,11 @@ async function siteObras(env, pedras) {
     const t = normaliza(i.legenda || '');
     const pe = chaves.filter(c => c.ws.every(w => t.includes(w))).sort((a, b) => b.ws.length - a.ws.length);
     const porId = i.pedraId && pedras.some(p => p.id === i.pedraId) ? i.pedraId : '';
-    return { id: i.id, cat: i.cat || '', legenda: String(i.legenda || '').slice(0, 160), pedra: porId || (pe.length ? pe[0].id : '') };
+    const pid = porId || (pe.length ? pe[0].id : ''), pn = i.pedraNome || ((pedras.find(p => p.id === pid) || {}).nm) || '';
+    const CATN = { cozinha: 'Cozinha', banheiro: 'Banheiro', lavabo: 'Lavabo', escada: 'Escada', soleira: 'Soleira', peitoril: 'Peitoril', varanda: 'Churrasqueira', piso: 'Piso', area_servico: 'Área de serviço' };
+    const leg = String(i.legenda || '').replace(/\s+/g, ' ').trim(), generico = !leg || /^obra( de \d{1,2}\/\d{1,2})?$/i.test(leg);
+    const tit = generico ? [CATN[i.cat] || 'Obra entregue', pn ? 'em ' + pn : ''].filter(Boolean).join(' ') : (leg.split(/[.!?]/)[0] || leg).slice(0, 70); // v360: título limpo (nada de "Obra de 16/11")
+    return { id: i.id, cat: i.cat || '', legenda: leg.slice(0, 220), t: tit, pedra: pid, obra: i.obraId || ('s' + i.id), em: i.em || 0 };
   }).reverse();
 }
 async function siteCatalogo(env, ctx, url) {
