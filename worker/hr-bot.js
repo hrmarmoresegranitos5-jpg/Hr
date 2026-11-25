@@ -2288,7 +2288,8 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('ppd_ok|') || id.startsWith('ppd_no|')) return pontoPedidoBotao(env, from, id); // v85
   if (id.startsWith('pb_ok|') || id.startsWith('pb_no|')) return pontoBatidaBotao(env, from, id); // v85
   if (/^sai_(ok|no|at|an)\|/.test(id)) return saiBotao(env, from, id); // v131
-  if (id.startsWith('vl_ok|') || id.startsWith('vl_no|')) { await valeBotaoDono(env, from, id); return true; } // v46: vale pelo WhatsApp
+  if (id.startsWith('vl_ok|') || id.startsWith('vl_no|')) { await valeBotaoDono(env, from, id); return true; }
+  if (id.startsWith('au_ok|') || id.startsWith('au_no|')) { await ausBotaoDono(env, from, id); return true; } // v328 // v46: vale pelo WhatsApp
   if (id.startsWith('conc_')) return tratarBotaoConc(env, from, id);
   if (id.startsWith('din_')) return tratarBotaoDinheiro(env, from, id);
   if (id.startsWith('ext_')) return tratarBotaoExtrato(env, from, id);
@@ -12135,6 +12136,11 @@ async function dividaLimparPedidosFalsos(env) {
 }
 
 async function acdComandoDono(env, from, msg) {
+  if (/\b(pode|libera\w*|deixa|autoriz\w*|nao pode|nega\w*|nao libera\w*|nao deixa)\b/.test(msg) && msg.split(' ').length <= 10) { // v328: "o Fabrício pode sair mais cedo" / "libera o Fabrício" responde o pedido dele
+    const l = await env.HR_KV.list({ prefix: 'ponto:aus:' }).catch(() => ({ keys: [] })), pend = [];
+    for (const k of l.keys || []) { try { const a = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (a && a.status === 'pendente' && Date.now() - a.em < 3 * 86400000) pend.push(a); } catch (_) {} }
+    if (pend.length) { const cfg = await pontoCfg(env).catch(() => null), fx = cfg && eqFuncPorNomeTexto(cfg, msg), alvo = fx ? pend.filter(a => String(a.funcId) === String(fx.id)) : pend.length === 1 ? pend : [];
+      if (alvo.length) { await ausBotaoDono(env, from, (/\b(nao pode|nega\w*|nao libera\w*|nao deixa)\b/.test(msg) ? 'au_no|' : 'au_ok|') + alvo[alvo.length - 1].id); return true; } } }
   if (await telaComandoDono(env, from, msg)) return true; // v282: galeria na TV
   if (await balcaoParearDono(env, from, msg)) return true; // v320: parear o tablet do balcão
   if (await totemComandoDono(env, from, msg)) return true; // v312: link do totem
@@ -32510,6 +32516,30 @@ async function rhPedidoVale(env, cfg, f, from, texto, nome) {
   if (dono) await enviarComBotoes(env, dono, `💸 *${f.nome}* pediu um vale de *${brl(valor)}*.${motivo ? `\n"${motivo}"` : ''}\n\nSe aprovar, eu aviso ele e o vale entra no RH (desconta no decêndio atual).`, [{ id: 'vl_ok|' + id, titulo: '✅ Aprovar' }, { id: 'vl_no|' + id, titulo: '❌ Recusar' }]).catch(e => console.log('[VALE] dono:', e.message));
   return true;
 }
+// v328: falta, sair mais cedo, chegar atrasado → o Sr. Hangel decide com um toque e o funcionário recebe a resposta
+async function rhPedidoAusencia(env, cfg, f, from, texto, nome) {
+  const tn = normaliza(texto);
+  const tipo = /\b(vou faltar|nao vou (poder )?(ir|vir|trabalhar|aparecer)|nao vou conseguir (ir|vir|trabalhar)|vou precisar faltar|preciso faltar|posso faltar|nao vou estar ai|vou ter que faltar|nao venho)\b/.test(tn) ? 'falta'
+    : /\b(sair (mais )?cedo|sair antes|preciso sair|posso sair|vou ter que sair|liberar (mais )?cedo|me libera|me liberar)\b/.test(tn) ? 'cedo'
+    : /\b(vou chegar atrasad\w*|vou atrasar|vou me atrasar|chego (mais )?tarde|vou chegar (mais )?tarde|vou chegar depois|atrasar um pouco)\b/.test(tn) ? 'atraso' : '';
+  if (!tipo) return false;
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5), rot = { falta: 'faltar', cedo: 'sair mais cedo', atraso: 'chegar atrasado' }[tipo];
+  await env.HR_KV.put('ponto:aus:' + id, JSON.stringify({ id, funcId: f.id, nome: f.nome, tipo, texto: String(texto).slice(0, 300), em: Date.now(), status: 'pendente' }), { expirationTtl: 15 * 86400 });
+  await enviar(env, from, tipo === 'atraso' ? `Certo, ${nome}. Avisei o Sr. Hangel que você vai chegar atrasado.` : `Certo, ${nome}. Pedi ao Sr. Hangel para você ${rot} e te aviso assim que ele responder.`);
+  const dono = numeroDono(env);
+  if (dono) { if (tipo === 'atraso') await enviar(env, dono, `⏰ *${f.nome}* avisou que vai chegar atrasado: "${String(texto).slice(0, 300)}"`);
+    else await enviarComBotoes(env, dono, `🙋 *${f.nome}* pediu para ${rot}: "${String(texto).slice(0, 300)}"`, [{ id: 'au_ok|' + id, titulo: '✅ Pode' }, { id: 'au_no|' + id, titulo: '❌ Não pode' }]); }
+  return true;
+}
+async function ausBotaoDono(env, from, id) {
+  const [acao, aid] = id.split('|'); let a = null; try { a = JSON.parse((await env.HR_KV.get('ponto:aus:' + aid)) || 'null'); } catch (_) {}
+  if (!a) { await enviar(env, from, 'Não achei esse pedido (pode ter expirado).'); return; }
+  if (a.status !== 'pendente') { await enviar(env, from, `Esse pedido já foi ${a.status}.`); return; }
+  a.status = acao === 'au_ok' ? 'liberado' : 'negado'; a.decididoEm = Date.now(); await env.HR_KV.put('ponto:aus:' + aid, JSON.stringify(a), { expirationTtl: 15 * 86400 });
+  const cfg = await pontoCfg(env), f = cfg.funcs.find(x => String(x.id) === String(a.funcId)), ap = f ? apelidoFunc(cfg, f) || f.nome.split(' ')[0] : String(a.nome).split(' ')[0], rot = { falta: 'faltar', cedo: 'sair mais cedo' }[a.tipo] || 'isso';
+  await enviar(env, from, `${a.status === 'liberado' ? '✅ Liberado' : '❌ Negado'}: ${a.nome} — ${rot}. Avisei ele.`);
+  if (f) await falarComFuncionario(env, f, a.status === 'liberado' ? `✅ ${ap}, o Sr. Hangel liberou você para ${rot}.` : `${ap}, o Sr. Hangel não conseguiu liberar você para ${rot} agora. Se precisar, fala com ele.`, { cfg, titulo: 'Pedido' });
+}
 async function valeBotaoDono(env, from, id) {
   const [acao, vid] = id.split('|');
   const v = JSON.parse((await env.HR_KV.get('ponto:vale:' + vid)) || 'null');
@@ -32654,6 +32684,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   if (entregues) return true; // ele escreveu e havia recado guardado: primeiro lê o recado
   if (await producaoFuncionario(env, f, from, texto, idB, nome).catch(e => { console.log('[PROD] funcionário:', e.message); return false; })) return true; // v133
   if (await rhPedidoVale(env, cfg, f, from, texto, nome)) return true; // v46
+  if (await rhPedidoAusencia(env, cfg, f, from, texto, nome).catch(e => { console.log('[RH] ausência:', e.message); return false; })) return true; // v328
   // v44: resposta a um recado do dono (até 24 h depois): repassa ao dono
   const rp = +(await env.HR_KV.get('ponto:recpend:' + f.id)) || 0;
   if ((rp && Date.now() - rp < 24 * 3600000) || (citado && /\?\s*$/.test(citado) && String(texto).length < 80)) { // v303: respondeu citando uma pergunta → repassa ao dono

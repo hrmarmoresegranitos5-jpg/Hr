@@ -1,0 +1,87 @@
+[D] entregamos o Jacó hoje
+   IA: —
+   → →ined: undefined ⏎ →4460: Anotei a entrega de *Jacob da Mata* (2 peitoris · Preto São Gabriel) e tirei da produção. Não há restante em aberto, Sr. Hangel.
+[D] o Jacó já pagou tudo
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] recebi o resto do Jacó
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] gastei 50 no almoço e 30 de gasolina
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] paguei 1.200 de aluguel ontem
+   IA: —
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, chefe.* ⏎  ⏎ *Gasto:* R$ 1.200,00 ⏎ *Descrição:* Aluguel ⏎ *Categoria:* Custo fixo ⏎ *Data:* 23/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 0,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na próxima sincronização do aplicativo._ [Desfazer|Trocar categoria|Hoje]
+[D] quanto custa o m² do preto são gabriel?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] qual o preço da soleira?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Fabrício pode sair mais cedo
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] libera o Fabrício
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] manda o Gibson buscar chapa amanhã
+   IA: —
+   → →ined: undefined ⏎ →4460: Recado: _Busca chapa amanhã_ ⏎  ⏎ Gibson: guardado (entrego quando ele falar com o bot) ⏎  ⏎ Para chegar sempre no WhatsApp deles, falta o modelo aprovado (TEMPLATE_RECADO).
+[D] avisa a equipe que amanhã não tem expediente
+   IA: —
+   → →ined: undefined ⏎ →4460: Recado: _Amanhã não tem expediente_ ⏎  ⏎ Fabrício: guardado (entrego quando ele falar com o bot) ⏎ Gibson: guardado (entrego quando ele falar com o bot) ⏎ Lucas: guardado (entrego quando ele falar com o bot) ⏎ Hugo: guardado (entrego quando ele falar com o bot) ⏎  ⏎ Para chegar sempre no WhatsApp deles, falta o modelo aprovado (TEMPLATE_RECADO).
+[D] avisa o Lucas que ele vai fazer o acabamento do Cássio
+   IA: Reescreva o recado do patrão p
+   → →ined: undefined ⏎ →4460: Recado: _Ele vai fazer o acabamento do Cássio_ ⏎  ⏎ Lucas: guardado (entrego quando ele falar com o bot) ⏎  ⏎ Para chegar sempre no WhatsApp deles, falta o modelo aprovado (TEMPLATE_RECADO).
+[D] pergunta pro Gibson se ele entregou o Osmailton
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto o Gibson tem pra receber?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] paga o vale do Fabrício
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Hugo tá de férias até sexta
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Lucas é ajudante agora
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] cadastra o Pedro como funcionário 74999998888
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quero ver as fotos do serviço da Poliana
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] manda a foto da cozinha da Poliana pro cliente
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o cliente Osmailton reclamou da pia
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] garantia do Osmailton
+   IA: —
+   → →ined: undefined ⏎ →4460: Não achei garantia de "osmailton".
+[D] o que falta pra fechar o mês?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto vendi em novembro?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] compara outubro com novembro
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quem é o melhor funcionário do mês?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] tá tudo certo hoje?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] resumo do dia
+   IA: DADOS DO APP: ainda não sincro
+   → →ined: undefined ⏎ →4460: Preparando o resumo do dia, Sr. Hangel. ⏎ →4460: *Resumo do dia, patrão* ⏎  ⏎ {}
+[D] me fala o que aconteceu hoje
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}

@@ -12,7 +12,7 @@ KV.set('liv:1',JSON.stringify({id:'1',cliente:'Jailton Santos',valor:5000,pagame
 const DONO='5574991484460', NUM={F:'5574999990011',G:'5574999990022'};
 const out=[]; const OUTF=process.env.OUT||'./resultado.txt';
 const run=async(from,t)=>{ const n0=ai.length; const r=await msg(from,t); const ia=ai.slice(n0).map(s=>s.slice(0,30)); out.push({t,from:from===DONO?'D':from.slice(-4),ia:ia.length?ia.join(' | '):'',r:r.replace(/\n/g,' ⏎ ').slice(0,1400)}); await new Promise(r=>setTimeout(r,5)); };
-for (const l of fs.readFileSync(new URL('./dono.txt',import.meta.url),'utf8').split('\n')) { if(!l.trim()||l.startsWith('#')) continue; await run(DONO,l); }
+if(!process.env.SOF) for (const l of fs.readFileSync(new URL(process.env.DONO||'./dono.txt',import.meta.url),'utf8').split('\n')) { if(!l.trim()||l.startsWith('#')) continue; await run(DONO,l); }
 for (const l of fs.readFileSync(new URL(process.env.FUNC||"./func.txt",import.meta.url),"utf8").split("\n")) { if(!l.trim()) continue; const [k,t]=l.split('|'); await run(NUM[k],t); }
 fs.writeFileSync(new URL(OUTF,import.meta.url).pathname, out.map(o=>`[${o.from}] ${o.t}\n   IA: ${o.ia||'—'}\n   → ${o.r||'(sem resposta)'}`).join('\n'));
 console.log('ok',out.length); process.exit(0);
