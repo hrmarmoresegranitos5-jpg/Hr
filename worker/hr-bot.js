@@ -8531,6 +8531,23 @@ async function papelFuncionario(env, f, from) {
 async function producaoFuncionario(env, f, from, texto, idB, nome) {
   const papel = await papelFuncionario(env, f, from); if (!papel) return false;
   const msg = normaliza(texto || '');
+  if (!idB && msg.split(' ').length <= 10 && /^(nao|n|errado|errou|ta errado|nao e (isso|esse|essa|esse ai)|nao foi isso|nao e d[oa]|e d[oa]|e o d[oa]|e a d[oa])\b/.test(msg)) { // v334: desfaz o que a foto inteligente anotou ("não, é do Jacó")
+    let fi = null; try { fi = JSON.parse((await env.HR_KV.get('prod:fotoia:' + ultimos8(from))) || 'null'); } catch (_) {}
+    if (fi && Date.now() - fi.em < 30 * 60000) {
+      await env.HR_KV.delete('prod:fotoia:' + ultimos8(from));
+      const [, pid, ac] = String(fi.op).split('|'), pd = await lerPedido(env, pid).catch(() => null), id = String(f.id);
+      if (pd) {
+        if (ac === 'cti') { pd.corteIniEm = null; pd.corteIniPor = null; } else if (ac === 'aci') { pd.acabIniEm = null; pd.acabIniPor = null; } else if (ac === 'ini') { pd.instIniEm = null; pd.instIniPor = null; }
+        else if (ac === 'pronto' || ac === 'acf') { pd.prodLog = Array.isArray(pd.prodLog) ? pd.prodLog : []; pd.prodLog.push({ e: 'anulado', alvo: pedComplexo(pd) ? 'fabricacao' : (ac === 'acf' ? 'acabamento' : 'corte'), quem: id, ate: Date.now(), ts: Date.now() }); pd.fabProntoEm = null; pd.prontoEm = null; if (ac === 'acf') pd.acabEm = null; if (pd.entregaEnviadaEm && Date.now() - pd.entregaEnviadaEm < 3600000) { pd.entregaEnviadaEm = null; const tE = await numEquipe(env, 'entrega', pd).catch(() => ''); if (tE && ultimos8(tE) !== ultimos8(from)) await enviar(env, tE, `${avisoTeste(env)}⚠️ A entrega de *${pd.nome}* foi cancelada por enquanto (a foto era de outro serviço). Eu aviso quando ficar pronto.`).catch(() => {}); } }
+        else if (ac === 'fim') { pd.prodLog = (pd.prodLog || []).filter(x => !(['instalacao', 'entrega'].includes(x.e) && (x.por || []).map(String).includes(id) && Date.now() - (x.ts || 0) < 3600000)); pd.entregueEm = null; pd.fotoEntregaEm = null; }
+        await salvarPedido(env, pd); metaChecar(env, id).catch(() => {});
+        await pontoAvisarDono(env, `↩️ ${nome} disse que a foto não era de *${pd.nome}*. Desfiz o que eu tinha anotado pela foto.`).catch(() => {});
+      }
+      const resto = msg.replace(/^(nao|n|errado|errou|ta errado|nao e (isso|esse|essa|esse ai)|nao foi isso)\b[ ,.]*/, '').trim();
+      if (resto && tokensPedra(resto).some(w => w.length >= 3)) { await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: fi.mid, mids: fi.mids, em: Date.now() }), { expirationTtl: 6 * 3600 }); await enviar(env, from, `Certo, ${nome}: desfiz o de ${pd ? pd.nome : 'antes'}.`); return prodFotoPerguntar(env, f, from, { type: 'image', image: { id: fi.mid } }, nome, `${fi.leg || ''} ${resto}`.trim()); }
+      await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: fi.mid, mids: fi.mids, em: Date.now() }), { expirationTtl: 6 * 3600 });
+      await enviar(env, from, `Certo, ${nome}: desfiz o de ${pd ? pd.nome : 'antes'}. De qual cliente é a foto e o que foi feito? (ex.: _terminei o corte do Jacó_)`); return true;
+    } }
   if (!idB && msg.split(' ').length <= 9 && /^(?:nao e d[oa] \w+,? )?(?:(?:essa|esta|a foto|essa foto|foto)\s+)?(?:e|eh)?\s*(?:d[oa]|do servico d[oa]|da obra d[oa])\s+\w+/.test(msg)) { // v326: "é do Cássio" logo depois de uma foto que caiu em outro pedido → muda a foto de pedido
     let fu = null; try { fu = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {}
     if (fu && Date.now() - fu.em < 20 * 60000) {
@@ -10306,6 +10323,14 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   if (pe && pe.tipo === 'inicio' && leg && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei|instalamos|instalad[oa]s?|terminamos a instalacao|terminei a instalacao|finalizamos a instalacao|finalizei a instalacao|montamos|assentamos|assentei)\b/.test(normaliza(leg))) { await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)); pe = null; await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); } // segue como foto com legenda de fim // v214: "poliana instalada" não é foto do início
   if (leg && !pe && await prodItensFuncionario(env, f, from, leg, nome, { mid: m.image.id }).catch(e => { console.log('[ITENS] foto:', e.message); return false; })) return true; // v182: "frontões do Papinha finalizados"
   if (leg && !pe && !/\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalando|instalad[oa]s?|instalamos|terminamos|entreguei|entregando|terminei|terminando|pronto|pronta|prontos|prontas|acabei|cortei|montando|montei|finaliz\w*|conclui\w*|terminad[oa]s?|acabad[oa]s?|cortad[oa]s?)\b/.test(normaliza(leg))) return prodFotoPerguntar(env, f, from, m, nome, leg); // v176: legenda só com o cliente ("Serviços da dona Renata") → lista desse cliente, sem passar pela IA
+  if (leg && !pe && String(env.FOTO_IA ?? '1') !== '0') { // v334: legenda sem nome de cliente ("iniciando", "finalizado", "pronto") → a foto decide (serviço e etapa) em vez de adivinhar pelo texto
+    const abertosL = await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000).catch(() => []);
+    const nL = normaliza(leg), temPista = ITEM_RX.some(rx => rx.test(nL)) || nL.split(/[^a-z0-9]+/).some(w => PEDRA_PAL.has(PEDRA_EQ(w))) || /\d/.test(nL); // peça/pedra/quantidade na legenda: o texto resolve (acha pela peça e pela pedra, e sabe o que já está pronto)
+    if (!temPista && !nomeMelhores(abertosL, tokensPedra(leg).filter(w => w.length >= 4)).length && !(await prodPorApelido(env, abertosL, leg).catch(() => [])).length) {
+      let fu = null; try { fu = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {}
+      if (!(fu && Date.now() - fu.em < 15 * 60000 && !/\b(inici\w*|comec\w*|finaliz\w*|termin\w*|pront\w*|instal\w*|entreg\w*|cortad\w*|acabad\w*)\b/i.test(normaliza(leg)))) return prodFotoPerguntar(env, f, from, m, nome, leg);
+    }
+  }
   if (leg && (!pe || /\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalad[oa]s?|instalamos|entreguei|terminei|pronto|prontos|prontas|finaliz\w*|terminad[oa]s?|acabad[oa]s?)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
     await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); // v161: a foto espera ele dizer qual é
@@ -12649,8 +12674,36 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
   if (!linhas.length) { // v176: não acha o pedido → a foto não se perde: vai para o dono
     try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: m.image.id, caption: `📷 Foto do ${nome}${leg ? ` ("${leg}")` : ''}. Não achei o pedido no sistema; confira de qual cliente é.` } }); } catch (_) {}
     await enviar(env, from, `📸 Recebi a foto, ${nome}!${leg ? ` Não achei o pedido de *${leg.replace(/^(servi[cç]os?|foto|fotos)\s+(d[aoe]s?\s+)?/i, '')}* no sistema.` : ' Não achei serviço aberto com você.'} Guardei e mandei para o Sr. Hangel conferir. Se quiser, me diga o nome do cliente (ex.: _instalei o da Maria_).`); return true; }
+  if (linhas.length > 1 && String(env.FOTO_IA ?? '1') !== '0') { // v334: FOTO INTELIGENTE — a IA olha a foto (peça, pedra, se é chapa sendo cortada, peça pronta, local antes ou pedra instalada) e escolhe o serviço e a etapa
+    const r = await fotoInteligente(env, f, from, m, leg, l, linhas).catch(e => { console.log('[FOTO IA]', e.message); return null; });
+    if (r && r.op && r.certeza !== 'baixa') {
+      const pd = l.find(p => String(p.id) === r.op.id.split('|')[1]), cli = pd ? pd.nome : '';
+      if (pd && leg && pedConflitoTxt(pd, leg)) r.certeza = 'media'; // a legenda fala de outra peça/pedra: só sugere
+      if (r.certeza === 'alta' && !/\|foto$/.test(r.op.id)) { let fpI = null; try { fpI = JSON.parse((await env.HR_KV.get('prod:fotopend:' + k8)) || 'null'); } catch (_) {} await env.HR_KV.put('prod:fotoia:' + k8, JSON.stringify({ op: r.op.id, mid: m.image.id, mids: (fpI && fpI.mids) || [m.image.id], leg: leg || '', em: Date.now() }), { expirationTtl: 3600 }); await enviar(env, from, `📸 Pela foto: ${r.vejo}. Anotei: *${r.op.descricao}* — *${cli}*. Se não for isso, me diga (ex.: _não, é do Jacó_).`); return prodFotoEscolha(env, f, from, r.op.id, nome); }
+      const ord = [r.op, ...linhas.filter(x => x.id !== r.op.id)];
+      await enviarLista(env, from, `📸 ${r.vejo ? r.vejo.charAt(0).toUpperCase() + r.vejo.slice(1) + '. ' : ''}Parece *${r.op.descricao}* — *${cli}*. É isso? Se for, toque na primeira opção.`, 'Escolher', ord.slice(0, 10), true);
+      return true;
+    }
+  }
   await enviarLista(env, from, `📸 Recebi a foto, ${nome}! É de qual serviço?`, 'Escolher', linhas.slice(0, 10), true);
   return true;
+}
+
+// v334: escolhe o serviço e a etapa olhando a foto + a legenda + os serviços dele (só entre as opções que ele tem)
+async function fotoInteligente(env, f, from, m, leg, l, linhas) {
+  if (!m || !m.image || !m.image.id) return null;
+  let img = null; try { const b = await baixarMidia(env, m.image.id); img = { buf: new Uint8Array(b.buf), mime: b.tipo || 'image/jpeg' }; } catch (_) { return null; }
+  const papel = await papelFuncionario(env, f, from).catch(() => '');
+  const est = p => [p.corteIniEm && !p.corteEm ? 'corte começou' : '', p.corteEm ? 'corte feito' : 'corte não feito', p.acabIniEm && !p.acabEm ? 'acabamento começou' : '', p.acabEm ? 'acabamento feito' : '', p.fabProntoEm || p.prontoEm ? 'peças prontas na fábrica' : '', p.entregaEnviadaEm ? 'liberado para entrega' : '', p.instIniEm ? 'instalação começou' : '', p.entregueEm ? 'entregue' : ''].filter(Boolean).join(', ');
+  const ctx = l.map(p => `- ${p.nome}: ${resumoPecas(p)}${(p.resumoApp && p.resumoApp.itens || []).length ? ' [' + p.resumoApp.itens.map(it => `${it.ambiente || 'peça'}${it.pedra ? ' em ' + it.pedra : ''}: ${(it.pecas || []).map(x => `${+x.qtd || 1}×${Math.round(+x.comp_cm || 0)}x${Math.round(+x.larg_cm || 0)}`).join(', ')}`).join('; ') + ']' : ''}. Situação: ${est(p) || 'aberto'}.\n  Opções: ${linhas.filter(x => x.id.split('|')[1] === String(p.id)).map(x => `"${x.id}" = ${x.descricao}`).join(' | ')}`).join('\n');
+  const sis = `Você identifica fotos de serviço que os funcionários de uma marmoraria mandam pelo WhatsApp. Olhe a foto com atenção e decida de qual serviço (cliente) e de qual etapa ela é, ESCOLHENDO UMA das opções listadas (copie o id exato).
+Como ler a foto: chapa inteira na bancada/serra ou sendo riscada/cortada = COMEÇANDO o corte; peças já recortadas, brutas, empilhadas ou encostadas na oficina = corte feito / peças prontas; peças com borda polida, brilho, sainha colada, cuba recortada, na oficina = acabamento feito / peças prontas; local da obra sem a pedra (parede, armário, bancada vazia, piso sujo) = COMEÇANDO a instalação; pedra já assentada/instalada na casa do cliente (pia, bancada, lavatório, soleira no lugar) = instalação terminada / entreguei; peças no carro = entrega.
+Compare o TIPO de peça (cozinha/bancada/pia/balcão/área gourmet, lavatório, soleira, peitoril, escada, nicho) e a COR da pedra (preto, branco, verde, cinza, marrom, bege) com cada serviço. A legenda do funcionário vale muito ("iniciando" = começo, "finalizado/finalizando/pronto/cortado" = fim). Quem manda é ${f.nome} (${papel || 'equipe'}).
+certeza "alta" só quando a peça e a cor batem com UM só serviço e a etapa está clara; "media" quando dá para palpitar; "baixa" quando não dá. Responda SÓ JSON: {"opcao":"id exato","certeza":"alta|media|baixa","vejo":"o que aparece na foto, em até 12 palavras, em português simples"}`;
+  const o = await iaVisaoJSON(env, sis, [img], `Legenda: "${String(leg || '').slice(0, 200) || '(sem legenda)'}"\nServiços:\n${ctx}`, 300);
+  if (!o || !o.opcao) return null;
+  const op = linhas.find(x => x.id === String(o.opcao).trim()); if (!op) return null;
+  return { op, certeza: ['alta', 'media', 'baixa'].includes(o.certeza) ? o.certeza : 'baixa', vejo: String(o.vejo || '').slice(0, 120) };
 }
 async function prodFotoEscolha(env, f, from, idB, nome) { // v176: com várias fotos, a 1ª vai para a etapa escolhida e as outras ficam guardadas no pedido
   let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}

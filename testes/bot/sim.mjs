@@ -6,6 +6,7 @@ const kv={async get(k){return KV.has(k)?KV.get(k):null}, async getWithMetadata(k
 const stmt={bind(){return stmt},async run(){return {meta:{changes:1}}},async all(){return {results:[]}},async first(){return null}};
 const db={prepare(){return stmt},batch:async()=>[]};
 function aiResp(sys,user){
+  if(/Você identifica fotos de serviço/.test(sys)){ const ids=[...user.matchAll(/"(fot\|[^"]+)"/g)].map(x=>x[1]); const leg=(user.match(/Legenda: "([^"]*)"/)||[])[1]||''; const want=/inici|comec/i.test(leg)?/\|(ini|cti|aci)$/:/finaliz|pront|cortad|termin/i.test(leg)?/\|(fim|pronto|acf)$/:/\|(ini|cti)$/; const pick=(globalThis.__fotoAlvo&&ids.find(i=>i.includes('|'+globalThis.__fotoAlvo+'|')&&want.test(i)))||ids.find(i=>want.test(i))||ids[0]; return JSON.stringify({opcao:pick,certeza:globalThis.__fotoCerteza||'alta',vejo:'peças de granito preto na oficina'}); }
   if(/Descubra de qual serviço ele fala/.test(sys)){ const m=['Jacó','Cássio','Osmailton'].find(n=>user.toLowerCase().includes(n.toLowerCase().slice(0,4))); return JSON.stringify({cliente:m||'',item:/peitor/i.test(user)?'peitoril':'',etapa:'corte',feito:/cortad|cortei/i.test(user)&&!/quero saber/i.test(user)}); }
   if(/secretária de RH/.test(sys)) return JSON.stringify({resposta:'[IA-RH] resposta com dados: '+(sys.match(/PONTOS DELE:[^\n]*/)||['sem pontos'])[0],escalar:false,assunto:'outro',acao:''});
   if(/pelo totem \(tablet\)/.test(sys)) return JSON.stringify({fala:'O m² do Preto São Gabriel tá R$ 450,00, mas o valor final depende das medidas.',abrir:'pedras:pretas'});

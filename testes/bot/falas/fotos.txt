@@ -7,7 +7,7 @@
 [F] FOTO "peitoril finalizado"
    → →ined: undefined ⏎ →0011: Fabrício, *Jacob da Mata* (2 peitoris · Preto São Gabriel) já estava pronto e anotado. Guardei a foto no pedido. Se é de outro cliente, me diga o nome.
 [F] FOTO "soleira itaunas cortada"
-   → →ined: undefined ⏎ →0011: Recebi a foto, Fabrício! É de qual serviço? [lista]
+   → →ined: undefined ⏎ →0011: Peças de granito preto na oficina. Parece *Terminei (peças prontas)* — *Cássio Borges*. É isso? Se for, toque na primeira opção. [lista]
 [L] FOTO "acabamento do Cássio"
    → →ined: undefined ⏎ →4460: Lucas terminou o acabamento de *Cássio Borges*, mas o corte não tinha sido registrado. Contei o corte para Fabrício (responsável pelo corte). Se foi outra pessoa, me diga. ⏎ →0011: *+0,3 ponto(s)*, Fabrício! (corte · Cássio Borges) ⏎  Hoje: *0,6 de 3,5* ⏎  Semana: *0,6 de 19* · faltam 18,4 ⏎ →4299: *+0,3 ponto(s)*, Lucas! (acabamento · Cássio Borges) ⏎  Hoje: *0,3 de 3,5* ⏎  Semana: *0,3 de 
 [L] FOTO ""
@@ -21,9 +21,9 @@
 [G] FOTO "entregue Osmailton"
    → →ined: undefined ⏎ →0003: [TEMPLATE resposta_cliente] ⏎ →4460: A garantia *G-0001* de *Osmailton Souza* só sai com nome completo e CPF. Já pedi ao cliente; emito o certificado assim que chegar. ⏎ →0022: *+1,8 ponto(s)*, Gibson! (instalação · Osmailton Souza) ⏎  Hoje: *3,8 de 3,5* ⏎  Semana: *3,8 de 19* · faltam 15,2 ⏎ →4460: *Gibson* entregou o pedido de *Osmailton Souza* (Cozinha · Preto). ⏎ A cobrar na entrega: R$ 
 [F] FOTO "terminei"
-   → →ined: undefined ⏎ →0011: Recebi a foto, Fabrício! É de qual serviço? [lista]
+   → →ined: undefined ⏎ →0011: Peças de granito preto na oficina. Parece *Só guardar a foto no pedido* — *Jacob da Mata*. É isso? Se for, toque na primeira opção. [lista]
 [F] FOTO "cortei 1 peitoril do Jacó, falta 1"
-   → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (24/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_).
+   → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (25/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_).
 
 ESTADO:
 undefined: corte=false pronto=false acab=false entregue=false fotos=0 log=[]
