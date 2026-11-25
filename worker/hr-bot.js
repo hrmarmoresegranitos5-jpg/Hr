@@ -17826,19 +17826,25 @@ async function fichaTecnicaTool(env, from, a) {
   if (!l.length) l = h.orcamentos.filter(o => !o.arquivado && appCasaTexto({ cliente: o.cliente }, appToks(a.cliente)));
   if (a.projeto && l.length > 1) { const f = l.filter(o => appCasaTexto(o, appToks(a.projeto))); if (f.length) l = f; }
   if (!l.length) return { texto: `Não achei orçamento de ${a.cliente} no app. Use buscar_no_app para conferir a grafia.` };
-  const comPecas = l.filter(o => o.amb);
+  const idxImg = JSON.parse((await env.HR_KV.get('fichaimg:idx').catch(() => null)) || '{}');
+  const comPecas = l.filter(o => o.amb || idxImg[String(o.id)] != null);
   if (!comPecas.length) return { texto: `O orçamento de ${l[0].cliente} chegou ao bot sem as peças (o app ainda não mandou a versão nova do histórico, ou o orçamento foi salvo sem peças). Diga ao Sr. Hangel: abra o app uma vez e aguarde 1 minuto; se continuar, abra o orçamento e salve de novo.` };
   if (comPecas.length > 1 && !a.projeto && !on) { const ab = comPecas.filter(o => ['aceito', 'entregue', 'rascunho', 'pendente'].includes(appSecao(o))); if (ab.length > 1 && new Set(ab.map(o => normaliza(o.projeto || ''))).size > 1) return { texto: `${comPecas[0].cliente} tem ${ab.length} orçamentos com peças: ${ab.slice(0, 5).map(o => `${o.orcNum || ''} ${o.projeto || ''} (${APP_SEC_TXT[appSecao(o)]}, R$ ${reais(o.valor || 0)})`).join('; ')}. Pergunte ao Sr. Hangel de qual quer a ficha.` }; }
   const o = comPecas.sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
+  let destF = numeroDono(env), quemF = 'o Sr. Hangel';
+  if (a.para_funcionario) { const cfg = await pontoCfg(env).catch(() => ({ funcs: [] })), f = (cfg.funcs || []).find(x => appCasaTexto({ cliente: x.nome }, appToks(a.para_funcionario)) || normaliza(apelidoFunc(cfg, x) || '') === normaliza(a.para_funcionario)); if (!f || !f.tel) return { texto: `Não achei o funcionário "${a.para_funcionario}" com WhatsApp. Pergunte ao Sr. Hangel.` }; destF = normalizarBR(String(f.tel).startsWith('55') ? f.tel : '55' + f.tel); quemF = f.nome.split(' ')[0]; }
+  { let fi = null; try { fi = JSON.parse((await env.HR_KV.get('fichaimg:' + o.id)) || 'null'); } catch (_) {} // v343: o desenho do Projeto 2D (igual ao do app)
+    if (fi && fi.img) { const mid = await subirImagemMeta(env, base64ParaBytes(fi.img), `Ficha ${o.cliente}`);
+      await postarMsg(env, destF, { type: 'image', image: { id: mid, caption: `📐 Ficha técnica: ${o.cliente}${o.projeto ? ' · ' + o.projeto : ''}${o.material ? ' · ' + o.material : ''}` } });
+      return { texto: `FICHA TÉCNICA (desenho do Projeto 2D) JÁ ENVIADA a ${quemF}: ${o.cliente} · ${o.projeto || ''}. Confirme em uma frase curta.` }; } }
   const itens = appPecasDoAmb(o.amb); if (!itens.length) return { texto: `Não consegui ler as peças do orçamento de ${o.cliente}: "${o.amb.slice(0, 200)}". Diga ao Sr. Hangel que a ficha com o desenho 3D está no app (Desenho → Do orçamento).` };
   const hojeF = dataBahia(), [yy, mm, dd] = hojeF.split('-'), nomeArq = `Ficha técnica - ${o.cliente}${o.projeto ? ' - ' + o.projeto : ''}.pdf`.replace(/[\\/:*?"<>|]/g, '');
   const bytes = fichaCortePdf({ titulo: `FICHA TÉCNICA — ${String(o.projeto || 'PROJETO').toUpperCase().slice(0, 40)}`, cliente: o.cliente, pedra: o.material || '', geradoEm: `${DIAS_SEMANA[diaSemanaISO(hojeF)]}, ${dd} de ${NOMES_MES[Number(mm) - 1]} de ${yy}`, itens });
-  let para = numeroDono(env), quem = 'o Sr. Hangel';
-  if (a.para_funcionario) { const cfg = await pontoCfg(env).catch(() => ({ funcs: [] })), f = (cfg.funcs || []).find(x => appCasaTexto({ cliente: x.nome }, appToks(a.para_funcionario)) || normaliza(apelidoFunc(cfg, x) || '') === normaliza(a.para_funcionario)); if (!f || !f.tel) return { texto: `Não achei o funcionário "${a.para_funcionario}" com WhatsApp. Pergunte ao Sr. Hangel.` }; para = normalizarBR(String(f.tel).startsWith('55') ? f.tel : '55' + f.tel); quem = f.nome.split(' ')[0]; }
+  const para = destF, quem = quemF;
   const docId = (await subirPdfMeta(env, bytes, nomeArq)).id;
   await postarMsg(env, para, { type: 'document', document: { id: docId, filename: nomeArq, caption: `Ficha técnica: ${o.cliente}${o.projeto ? ' · ' + o.projeto : ''}${o.material ? ' · ' + o.material : ''}` } });
   const nP = itens.reduce((t, it) => t + it.pecas.reduce((u, x) => u + (x.qtd || 1), 0), 0);
-  return { texto: `FICHA TÉCNICA JÁ ENVIADA a ${quem}: ${o.cliente} · ${o.projeto || ''} · ${itens.length} ambiente(s), ${nP} peça(s). Confirme em uma frase curta e diga que o desenho 3D fica no app (Desenho → Do orçamento → 📤 Imagem).` };
+  return { texto: `FICHA TÉCNICA JÁ ENVIADA a ${quem}: ${o.cliente} · ${o.projeto || ''} · ${itens.length} ambiente(s), ${nP} peça(s). Confirme em uma frase curta. (O desenho do Projeto 2D desse orçamento ainda não chegou do app; chega sozinho quando o app ficar aberto alguns minutos, e da próxima vez vai o desenho.)` };
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v340: A HELENA ENTENDE O APP INTEIRO — índice de todos os orçamentos (histórico completo mandado pelo app, com seção,
@@ -27327,6 +27333,13 @@ async function rotaBotInterna(req, env, url) {
     }
     return jsonR({ ok: true });
   }
+  if (p === '/bot/ficha/img' && req.method === 'POST') { // v343: o app manda o desenho (Projeto 2D) de cada orçamento com peças
+    const b = await req.json().catch(() => ({})); const qid = String(b.qid || '').slice(0, 40), img = String(b.img || '');
+    if (!qid || img.length < 100 || img.length > 6000000) return jsonR({ error: 'qid/img' }, 400);
+    await env.HR_KV.put('fichaimg:' + qid, JSON.stringify({ img, mime: b.mime === 'image/png' ? 'image/png' : 'image/jpeg', cliente: String(b.cliente || '').slice(0, 60), orcNum: String(b.orcNum || '').slice(0, 30), projeto: String(b.projeto || '').slice(0, 70), hash: String(b.hash || '').slice(0, 40), ts: Date.now() }), { expirationTtl: 400 * 86400 });
+    const idx = JSON.parse((await env.HR_KV.get('fichaimg:idx')) || '{}'); idx[qid] = String(b.hash || ''); await env.HR_KV.put('fichaimg:idx', JSON.stringify(idx));
+    return jsonR({ ok: true }); }
+  if (p === '/bot/ficha/hashes' && req.method === 'GET') return jsonR({ ok: true, hashes: JSON.parse((await env.HR_KV.get('fichaimg:idx')) || '{}') });
   if (p === '/bot/producao/aprovar' && req.method === 'GET') return jsonR({ ok: true, ativo: await aprovAtivo(env), itens: await aprovListar(env, +url.searchParams.get('dias') || 0) }); // v339: tela "Aprovar produção"
   if (p === '/bot/producao/aprovar' && req.method === 'POST') { const b = await req.json().catch(() => ({}));
     if (b.ativo != null) { await env.HR_KV.put('cfg:aprov', b.ativo ? '1' : '0'); return jsonR({ ok: true, ativo: !!b.ativo }); }

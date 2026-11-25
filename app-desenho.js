@@ -1380,5 +1380,41 @@
     st.aberta = -1; st.sel = 0; st.det = false; st.esc = false; st.tela = 'editor'; render();
     aviso('📐 Ficha técnica pronta. Toque em 📤 Imagem para baixar ou mandar.');
   };
+  // v38: a ficha técnica (este mesmo desenho) de TODO orçamento com peças vai sozinha para a Helena,
+  // que manda no WhatsApp quando o Sr. Hangel pedir ("ficha técnica do nicho do Raimundo"). Só reenvia o que mudou.
+  (function () {
+    var rodando = false;
+    function cfgBot() { try { var c = _getBotCfg(); return c && c.url ? { url: String(c.url).replace(/\/+$/, ''), h: _botHeaders() } : null; } catch (e) { return null; } }
+    function hashTxt(t) { var h = 5381; for (var i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0; return String(h >>> 0) + ':' + t.length; }
+    function jpgDe(d) {
+      return new Promise(function (ok, erro) {
+        var svg = folhaSvg(d), img = new Image(), url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+        img.onload = function () { var c = document.createElement('canvas'); c.width = Math.round(FW * 1.4); c.height = Math.round(FH * 1.4); var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.88).split(',')[1] || ''); };
+        img.onerror = function () { URL.revokeObjectURL(url); erro(new Error('desenho')); };
+        img.src = url;
+      });
+    }
+    function lista() { var l = []; try { if (typeof DB !== 'undefined' && Array.isArray(DB.q)) l = DB.q.slice(); } catch (e) {} return l.filter(function (q) { return q && q.id != null && (q.ambSnap || []).length; }).sort(function (a, b) { return String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')); }); }
+    function ciclo() {
+      var c = cfgBot(); if (!c || rodando || document.hidden) return; rodando = true;
+      fetch(c.url + '/bot/ficha/hashes', { headers: c.h }).then(function (r) { return r.json(); }).then(function (j) {
+        var feitos = (j && j.hashes) || {}, fila = [];
+        lista().forEach(function (q) { try { var t = textoDoOrcamento(q); if (!t) return; var hs = hashTxt([q.cli, q.mat, q.tipo, t].join('|')); if (feitos[String(q.id)] !== hs) fila.push({ q: q, t: t, hs: hs }); } catch (e) {} });
+        var n = 0;
+        function prox() {
+          var it = fila.shift(); if (!it || n >= 4) { rodando = false; return; }
+          var d = novo(); d.cliente = it.q.cli || ''; d.material = it.q.mat || ''; d.desc = it.q.tipo || ''; d.texto = it.t; d.pecas = interpretar(it.t);
+          if (!d.pecas.length) return prox();
+          n++;
+          jpgDe(d).then(function (b64) {
+            return fetch(c.url + '/bot/ficha/img', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, c.h), body: JSON.stringify({ qid: String(it.q.id), orcNum: it.q.orcNum || '', cliente: it.q.cli || '', projeto: it.q.tipo || '', hash: it.hs, img: b64, mime: 'image/jpeg' }) });
+          }).catch(function (e) { console.warn('[ficha→bot]', e); }).then(function () { setTimeout(prox, 400); });
+        }
+        prox();
+      }).catch(function () { rodando = false; });
+    }
+    setTimeout(ciclo, 45000); setInterval(ciclo, 3 * 60 * 1000);
+    window.hrFichasParaBot = ciclo;
+  })();
   window.abrirDesenho = abrir; window.__hrDesTeste = { paginacaoSvg: paginacaoSvg, planoCorte: planoCorte, pecasDoPedido: pecasDoPedido, MODS: MODS, miniSvg: miniSvg, folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, textoDoOrcamento: textoDoOrcamento, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
 })();
