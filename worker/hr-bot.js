@@ -21735,12 +21735,12 @@ async function tratarMensagem(env0, m) {
   if (ctx.voz && !ctx.falou && ctx.textos.length) {
     filaPasso(env, 'voz');
     const tarde = Date.now() - (env._t0 || Date.now()) > 16000; // v290: o segundo plano tem ~30 s; se já passou da metade, o texto sai antes (o áudio vem depois, se der tempo)
-    if (tarde && ctx.suprimiu) { await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(() => {}); ctx.suprimiu = false; env._vozRapida = true; }
+    if (tarde && ctx.suprimiu) { await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(() => {}); ctx.suprimiu = false; env._vozRapida = true; if (ctx.func) ctx.textos = []; } // v350: funcionário já leu o texto → não manda o mesmo em áudio (chegava repetido)
     const fala = textoParaFala(ctx.textos.join('\n\n'));
     if (!ehDono(env0, m.from)) ctx.tx.push({ q: 'b', t: Date.now(), x: '[áudio] ' + ctx.textos.join(' ').slice(0, 1100) }); // v62
     // cliente que falou só recebe áudio; se o áudio não couber ou falhar, o texto sai para ele não ficar sem resposta
     const cabe = fala.length <= VOZ_MAX_CHARS;
-    const ok = cabe && await enviarVoz(env, m.from, fala);
+    const ok = cabe && !!fala.trim() && await enviarVoz(env, m.from, fala);
     if (ok) { const au = ctx.crm.filter(x => x.q === 'b' && x.tipo === 'audio').pop(); if (au && !au.texto) au.texto = ctx.textos.join(' ').slice(0, 2000); } // v75
     if (!ok && ctx.suprimiu) await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(e => console.log('[BOT] texto de reserva:', e.message));
   }

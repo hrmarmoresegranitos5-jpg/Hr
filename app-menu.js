@@ -19,9 +19,9 @@
   // cada área: itens [ícone, título, descrição, ação, (condição)]
   var AREAS = [
     { k: 'inicio', ic: '🏠', nm: 'Início', pg: 12 },
-    { k: 'vendas', ic: '💰', nm: 'Vendas', pgs: [0, 1, 2, 7, 10], itens: [
+    { k: 'vendas', ic: '📋', nm: 'Serviços', pgs: [0, 1, 2, 7, 10], itens: [ // v2: "Vendas" virou "Serviços" e o Histórico vem primeiro (o Sr. Hangel não achava)
+      ['📋', 'Histórico dos serviços', 'Todos os orçamentos e serviços: rascunho, aguardando, aceitos, entregues, concluídos', pagina(7)],
       ['📝', 'Novo orçamento', 'Montar orçamento com ambientes, pedra e serviços', pagina(0)],
-      ['📋', 'Histórico de orçamentos', 'Aguardando, aceitos, entregues, PDFs e ficha técnica', pagina(7)],
       ['👥', 'Clientes', 'Cadastro, telefone e ficha de cada cliente', chama('abrirGestaoClientes'), existe('abrirGestaoClientes')],
       ['💬', 'Conversas com clientes', 'O que a Helena conversou no WhatsApp', chama('abrirConversasClientes'), existe('abrirConversasClientes')],
       ['📜', 'Contratos', 'Contratos gerados e assinados', pagina(10)],
@@ -29,6 +29,7 @@
     ] },
     { k: 'producao', ic: '🏭', nm: 'Produção', pgs: [3, 79], itens: [
       ['🏭', 'Produção', 'Etapas de cada pedido, partes, quem faz e pontos', chama('abrirProducao'), existe('abrirProducao')],
+      ['📋', 'Histórico dos serviços', 'Aceitos, entregues e concluídos (com PDF e ficha técnica)', pagina(7)],
       ['✅', 'Aprovar produção', 'O que a equipe mandou — só conta ponto e sai entrega depois do seu ✅', chama('abrirAprovarProducao'), existe('abrirAprovarProducao')],
       ['📸', 'Fotos da equipe', 'O que a Helena entendeu de cada foto — conferir e corrigir', chama('abrirFotosEquipe'), existe('abrirFotosEquipe')],
       ['📐', 'Projeto 2D / ficha técnica', 'Desenho com medidas para o corte', chama('abrirDesenho'), existe('abrirDesenho')],
