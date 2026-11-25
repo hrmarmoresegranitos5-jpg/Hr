@@ -10766,6 +10766,7 @@ async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; a
   Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
   const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pid: ped.id, pts, dia: diaDe(ts), ts: ts || 0 }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
   for (const p of (lista || await pedidosProducao(env, () => true))) {
+    if (p.cancelado || /^(cancelado|recusado)$/.test(String(p.status || ''))) continue; // v357: serviço cancelado/duplicado não dá ponto (a instalação da Renata contava 2×)
     const n = nPecasPed(p), cx = pedComplexo(p), log = Array.isArray(p.prodLog) ? p.prodLog.slice() : [], tipos = new Set(log.map(x => x.e));
     if (!tipos.has('corte') && p.corteFeitoPor && p.corteEm) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm });
     else if (tipos.has('corte') && p.corteEm && p.corteFeitoPor && log.filter(x => x.e === 'corte').every(x => x.pecas)) { const feitas = log.filter(x => x.e === 'corte').reduce((t, x) => t + x.pecas, 0); if (n - feitas > 0) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm, pecas: n - feitas }); } // v156: o resto do corte parcial
@@ -13979,8 +13980,18 @@ async function fix356Renata(env) { // v356: junta os registros duplicados de um 
   m.pagamentos = pags.filter((p, i, a) => a.findIndex(q => livMesmoPag(q, p)) === i).sort((x, y) => String(x.data).localeCompare(String(y.data)));
   await livSalvar(env, m); for (const r of outros) await env.HR_KV.delete(LIV_PREFIX + r.id);
 }
+async function fix357Cassio(env) { // v357: a foto do lavatório cinza do Ésio foi anotada como instalação do Cássio (Preto São Gabriel) → desfaz
+  if (await env.HR_KV.get('fix:357')) return; await env.HR_KV.put('fix:357', '1', { expirationTtl: 30 * 86400 });
+  const p = await lerPedido(env, '1795087427799').catch(() => null); if (!p) return;
+  const tsErr = 1795629768761; const antes = (p.prodLog || []).length;
+  p.prodLog = (p.prodLog || []).filter(x => !((x.e === 'instalacao' || x.e === 'entrega') && Math.abs((x.ts || 0) - tsErr) < 10 * 60000));
+  if (p.entregueEm && Math.abs(p.entregueEm - tsErr) < 10 * 60000) { p.entregueEm = null; p.entFeitoPor = null; p.fotoEntregaEm = null; }
+  env._aprovando = 1; await salvarPedido(env, p); env._aprovando = 0;
+  const gib = 'mpj69nyik9ua', pn = await metaPainel(env, gib).catch(() => null); if (pn) await env.HR_KV.put('meta:ult:' + gib + ':' + pn.semana.ini, String(pn.pts), { expirationTtl: 9 * 86400 });
+  await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357fix', JSON.stringify({ antes, depois: p.prodLog.length, ent: p.entregueEm, gibSemana: pn && pn.pts })).run().catch(() => {});
+}
 async function diag357(env) { // v357: auditoria dos pontos (pedido do Sr. Hangel)
-  if (!env.HR_DB || await env.HR_KV.get('diag:357')) return; await env.HR_KV.put('diag:357', '1', { expirationTtl: 2 * 86400 });
+  if (!env.HR_DB || await env.HR_KV.get('diag:357b')) return; await env.HR_KV.put('diag:357b', '1', { expirationTtl: 2 * 86400 });
   const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 1900000)).run();
   const cfg = await pontoCfg(env), hoje = dataBahia(), ini = semIni(hoje), iniAnt = isoSomaDias(ini, -7), lim = Date.now() - 16 * 86400000, todos = await pedidosProducao(env, () => true);
   await put('357funcs', cfg.funcs.map(f => ({ id: f.id, nome: f.nome, inativo: f.inativo })));
@@ -13990,8 +14001,8 @@ async function diag357(env) { // v357: auditoria dos pontos (pedido do Sr. Hange
     corte: [p.corteFeitoPor, p.corteEm], fab: [p.fabFeitoPor, p.fabProntoEm], acab: p.acabEm, ent: [p.entFeitoPor, p.entregueEm, p.entAjud, p.instAjud], instIni: p.instIniEm, fotoPronto: !!p.fotoProntoEm, fotoEnt: !!p.fotoEntregaEm,
     log: (p.prodLog || []).map(x => ({ e: x.e, por: x.por, ts: x.ts, d: diaDe(x.ts), ap: x.ap, frac: x.frac, pecas: x.pecas, itens: x.itens, dono: x.dono, pts: x.pts })), pts: { corte: ptsEtapa(p, 'corte'), fab: ptsEtapa(p, 'fabricacao'), acab: ptsEtapa(p, 'acabamento'), inst: ptsEtapa(p, 'instalacao'), ent: ptsEtapa(p, 'entrega') } })));
   const sem = await metasPontos(env, ini, hoje, todos), ant = await metasPontos(env, iniAnt, isoSomaDias(ini, -1), todos);
-  await put('357sem', { ini, por: Object.fromEntries(Object.entries(sem).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
-  await put('357ant', { ini: iniAnt, por: Object.fromEntries(Object.entries(ant).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
+  await put('357sem2', { ini, por: Object.fromEntries(Object.entries(sem).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
+  await put('357ant2', { ini: iniAnt, por: Object.fromEntries(Object.entries(ant).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
 }
 async function diag356b(env) { if (!env.HR_DB || await env.HR_KV.get('diag:356b') || !(await env.HR_KV.get('fix:356'))) return; await env.HR_KV.put('diag:356b', '1', { expirationTtl: 2 * 86400 });
   const l = (await livTodos(env)).filter(r => /renata/i.test(r.cliente || '')).map(r => ({ id: r.id, n: (r.pagamentos || []).length, valor: r.valor, pago: livPago(r), saldo: livSaldo(r), formas: (r.pagamentos || []).map(p => p.forma + ' ' + p.valor) }));
@@ -37018,6 +37029,7 @@ export default {
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
+    if (ctx && ctx.waitUntil && !globalThis.__fix357) { globalThis.__fix357 = 1; ctx.waitUntil(fix357Cassio(env).catch(e => console.log('[FIX357]', e.message))); } // v357
     if (ctx && ctx.waitUntil && !globalThis.__diag357) { globalThis.__diag357 = 1; ctx.waitUntil(diag357(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357err', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__diag356b) { globalThis.__diag356b = 1; ctx.waitUntil(diag356b(env).catch(() => {})); }
     if (ctx && ctx.waitUntil && !globalThis.__diag356) { globalThis.__diag356 = 1; ctx.waitUntil(diag356(env).catch(e => console.log('[DIAG356]', e.message))); } // v356
