@@ -2472,6 +2472,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^mpig\|/.test(id)) return mpigBotao(env, from, id); // v269
   if (/^fimc\|/.test(id)) return fimConfBotao(env, from, id); // v274
   if (/^etpc\|/.test(id)) return etapaConfBotao(env, from, id); // v279
+  if (/^apv\|/.test(id)) return aprovBotao(env, from, id); // v339
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
@@ -8791,7 +8792,9 @@ async function prodMarcarPronto(env, ped, from, nome) {
     await pontoAvisarDono(env, `✅ *${nome}* avisou que *${ped.nome}* (${resumoPecas(ped)}) já ficou pronto e já foi ${pedComplexo(ped) ? 'instalado' : 'entregue'}. Marquei como entregue (não mandei entrega a ninguém).`).catch(() => {});
     return true;
   }
-  if (ped.fechDono && !retirada && !ped.janela) { // v135: pronto agora → combina o horário com o cliente
+  const segura = (await aprovDoFunc(env)) && await aprovAtivo(env); // v339: veio do funcionário → nada sai para cliente/entregador antes do Sr. Hangel aprovar
+  if (segura) { if (!retirada && !ped.entregaEnviadaEm) { ped.entregaSegurada = Date.now(); await salvarPedido(env, ped); } }
+  else if (ped.fechDono && !retirada && !ped.janela) { // v135: pronto agora → combina o horário com o cliente
     if (!ped.prontoPrevisto) ped.prontoPrevisto = { ts: Date.now(), dia: dataBahia(), hora: horaTs(Date.now()) };
     await salvarPedido(env, ped);
     entTxt = (await fechAgendar(env, ped).catch(() => false)) ? ' Já mandei ao cliente o horário da entrega para confirmar.' : (ped.etapa !== 'concluido' ? ' A entrega é combinada assim que o cliente mandar a localização.' : '');
@@ -8800,7 +8803,7 @@ async function prodMarcarPronto(env, ped, from, nome) {
   const quemEntF = await (async () => { const cfgQ = await pontoCfg(env), fQ = env._entPara && env._entPara !== 'dono' ? pontoFuncPorFone(cfgQ, env._entPara) : null; return fQ ? (apelidoFunc(cfgQ, fQ) || String(fQ.nome).split(' ')[0]) : ((ped.entResp && await respNome(env, ped.entResp)) || nomeEntregador(env)); })();
   await enviar(env, from, `Show, ${nome}! Anotei que o de *${ped.nome}* ficou pronto. Avisei o Sr. Hangel.${entTxt && !ped.fechDono ? ' ' + (env._entPara === 'dono' ? 'O Sr. Hangel vai combinar a entrega.' : env._entFila ? 'Mandei a entrega para o ' + quemEntF + '; ele vê assim que abrir o WhatsApp.' : 'O ' + quemEntF + ' já recebeu a entrega.') : ''}`); // v214: nome de quem recebeu de verdade
   await prodPedirFotoPronto(env, ped, from, nome).catch(() => {}); // v151
-  if (ped.fechDono && retirada && ped.numero) { // v137: retirada combinada pelo bot → avisa o cliente sozinho
+  if (ped.fechDono && retirada && ped.numero && !segura) { // v137: retirada combinada pelo bot → avisa o cliente sozinho
     ped.prontoEm = Date.now(); await salvarPedido(env, ped);
     const pn = nomeDeTratamento(ped.nome), c = cobrarNaEntrega(ped);
     await enviar(env, ped.numero, `${pn ? pn + ', s' : 'S'}eu pedido está pronto! ✅ ${ped.horaRetirada ? `Te esperamos ${diaFalado(ped.horaRetirada.dia)} às ${ped.horaRetirada.hora}` : 'Pode vir buscar quando quiser'} na ${ENDERECO_MARMORARIA}.${c ? ` O pagamento de R$ ${reais(c)} é na retirada.` : ''}`).catch(() => {});
@@ -13136,7 +13139,7 @@ async function desempSemanalRotina(env) {
 const META_UNICAS = ['acabamento', 'fabricacao', 'instalacao', 'entrega', 'retirada'];
 function metasBlindar(p, log, n) {
   const anul = log.filter(x => x.e === 'anulado');
-  const vale = log.filter(x => x.e !== 'anulado' && !x.anulado && !anul.some(a => a.alvo === x.e && (!a.quem || (x.por || []).map(String).includes(String(a.quem))) && (!a.ate || x.ts <= a.ate)));
+  const vale = log.filter(x => x.e !== 'anulado' && !x.anulado && x.ap !== 0 && x.ap !== -1 && !anul.some(a => a.alvo === x.e && (!a.quem || (x.por || []).map(String).includes(String(a.quem))) && (!a.ate || x.ts <= a.ate)));
   const grp = e => ['entrega', 'instalacao', 'retirada'].includes(e) ? 'ent' : e, ETS = ['corte', 'polimento', 'acabamento', 'fabricacao', 'ent']; // v182: cada etapa soma no máximo 100% (itens/peças), uma só entrega
   const fr = x => x.frac != null ? +x.frac : x.pecas ? (+x.pecas) / n : null, out = vale.filter(x => !ETS.includes(grp(x.e)));
   for (const g of ETS) {
@@ -15983,7 +15986,7 @@ async function responderAgente(env, from, bruto, F, voz) {
   { // v48: respondeu citando uma mensagem do bot: a IA recebe qual era
     const cid = env._ctx && env._ctx.citado; const cit = cid ? ((await env.HR_KV.get('wo:' + cid).catch(() => null)) || (await crmTextoCitado(env, cid).catch(() => '')) || null) : null; // v325: também pelo CRM
     if (cit) bruto = `[O Sr. Hangel respondeu em cima desta mensagem do bot: "${cit.slice(0, 500)}"]\n${bruto}`;
-    else if (/\b(desse|deste|dessa|desta|nesse|neste|esse|este|essa|esta|dele|dela)\s+(projeto|servico|serviço|cliente|pedido|orcamento|orçamento|foto|trabalho|balcao|balcão|ficha)\b|\b(dele|dela)\b/i.test(bruto)) { // v338: "quero a ficha técnica desse projeto" logo depois da foto do Hugo
+    else if (/\b(desse|deste|dessa|desta|nesse|neste|nessa|esse|este|essa|esta|esses|essas|desses|dessas|nesses)\s+(projeto|servi[cç]o|cliente|pedido|or[cç]amento|foto|trabalho|balc[aã]o|ficha|lavat[oó]rios?|pe[cç]as?|pedras?|soleiras?|peitoris?|peitoril|bancadas?|cozinhas?|nichos?|item|itens)\b|\b(dele|dela)\b/i.test(bruto)) { // v338: "quero a ficha técnica desse projeto" logo depois da foto do Hugo
       try { const ul = JSON.parse((await env.HR_KV.get('dono:ultbot')) || '[]').filter(x => Date.now() - x.t < 20 * 60000); if (ul.length) bruto = `[Avisos que o bot acabou de mandar ao Sr. Hangel (o "desse/dele" provavelmente é o cliente do ÚLTIMO): ${ul.map(x => '"' + x.r + '"').join(' · ')}]\n${bruto}`; } catch (_) {} }
   }
   try {
@@ -16072,6 +16075,8 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- LIVRO DE ENTREGAS E PAGAMENTOS: quando o Sr. Hangel disser que ENTREGOU um serviço, que um cliente PAGOU (valor, forma e data) ou informar o TELEFONE de um cliente, CHAME registrar_entrega_pagamento para ficar salvo de forma permanente (se for dinheiro novo que entrou, chame também lancar_financeiro). Para perguntas sobre datas de entrega, formas de pagamento, quem ainda deve ou saldo, use o LIVRO acima ou consultar_entregas_pagamentos. Nunca diga que não tem onde guardar essas informações. O telefone salvo no livro é usado automaticamente na cobrança; se faltar telefone, peça UMA vez e grave com registrar_entrega_pagamento.`,
       `- QUEM É "ELA", "ELE", "ESSE CLIENTE", "ESSE SERVIÇO": é o cliente da mensagem que ele citou (vem como [O Sr. Hangel respondeu em cima desta mensagem do bot: …]) ou, sem citação, o do assunto MAIS RECENTE do histórico (inclusive [Aviso do bot…] e o que o bot acabou de responder). Nunca use um cliente de assunto mais antigo. Se ficar entre dois, pergunte citando os dois nomes. Valor e serviço que o bot acabou de calcular ("calculei: R$ …") valem para link, Pix, PDF e cobrança sem perguntar de novo. Se ele corrigir o nome do cliente, corrija o MESMO pedido/orçamento (não crie outro com o nome antigo) e diga qual ficou.`,
       `- VALOR/ORÇAMENTO DE UM CLIENTE (v49): antes de perguntar o valor ao Sr. Hangel, e antes de dizer que não encontrou um orçamento, chame consultar_historico_cliente com o nome do cliente (o da mensagem citada ou do assunto). Ela traz o número (ORC-…), o valor À VISTA e o valor A PRAZO. Se ele pedir "a prazo", use o valor a prazo; se a prazo não vier no histórico, diga isso e pergunte. Nunca afirme "não encontrei" sem ter consultado nesta mesma resposta.`,
+      `- NUNCA diga "registrei", "anotei", "marquei", "lancei" ou "a partir de agora não faço X" sem ter chamado uma ferramenta que fez isso. Promessa de mudar o próprio comportamento não vale: diga que vai passar para o ajuste do sistema. Quando ele CORRIGIR um registro de produção (quem fez, qual cliente, se já foi instalado), use as ferramentas de produção para corrigir de fato.`,
+      `- APROVAÇÃO DA PRODUÇÃO (v339): o que os funcionários mandam fica PENDENTE (não conta ponto e não manda entrega) até o Sr. Hangel aprovar. "aprovar tudo" aprova; no app: Produção → Aprovar produção. O que ELE mesmo manda registrar entra aprovado.`,
       `- CLIENTE COM MAIS DE UM PROJETO (v338): se o cliente tem 2+ orçamentos/projetos (ex.: banheiro E cozinha), ANTES de gerar Pix, cobrança, link, PDF, ficha ou lançar pagamento, confirme com o Sr. Hangel QUAL projeto (ou se é a soma), listando-os em uma linha com o valor de cada. Só não pergunte quando ele já disse o projeto/valor ou quando a mensagem citada já mostra qual é. Nunca escolha sozinho o mais recente.`,
       `- COBRANÇA A CLIENTE: quando o Sr. Hangel pedir para cobrar um cliente ("vamos criar a cobrança", "cobra o João", "já entregamos, cobre"), use criar_cobranca, NÃO criar_link_pagamento. O valor e o serviço vêm do LIVRO DE ENTREGAS E PAGAMENTOS (o saldo em aberto do livro é o valor oficial a cobrar; o telefone e o nome do cliente também) ou, se não estiver nele, dos PEDIDOS RECENTES; o bot calcula multa e juros sozinho, mostra a prévia e só envia ao cliente depois do toque em Aprovar e enviar. Nunca diga que já enviou ao cliente nem invente percentuais. Para ver quem está devendo, ele escreve *inadimplência* (a lista mostra o protocolo de cada cobrança); para cancelar, use cancelar_cobranca com os protocolos. Se o cliente tiver MAIS DE UM serviço com saldo em aberto no livro, ANTES de criar a cobrança liste os serviços com valor e data e pergunte se cobra um deles ou a soma; nunca escolha sozinho o primeiro e avise sempre quanto ficou de fora. Para enviar a cobrança só depois ("amanhã às 7h"), use agendar_cobranca. REGRA GERAL: nunca diga que cancelou, criou, enviou, agendou ou registrou algo se a ferramenta correspondente não devolveu sucesso neste mesmo turno; se não há ferramenta, diga que não consegue e oriente o comando de texto. Ao criar cobrança, sempre passe o campo nome com o nome do cliente já citado na conversa; se ele só informar o telefone, o nome é o do cliente de quem se falava.`,
       `- MERCADO PAGO: para saber quanto entrou, recebeu ou vendeu no Mercado Pago, use consultar_mercado_pago (só leitura; mostra apenas o que ENTROU na conta; para saídas e saldo use consultar_extrato_mp, que lê o último extrato diário, não o tempo real). Para gerar só um link ou Pix para o próprio Sr. Hangel repassar, use criar_link_pagamento quando ele pedir e disser o valor (para cobrar um cliente, use criar_cobranca): por padrão ele recebe dois botões (abrir a página de pagamento e copiar o Pix copia e cola). O código e o link vão ao Sr. Hangel; só vão ao cliente se ele pedir para cobrar um cliente (preencha cliente): aí o bot mostra uma prévia com botões Enviar e Cancelar. Nunca diga que já enviou ao cliente: depende do toque dele no botão. Nunca invente valores do Mercado Pago: use só o que a ferramenta devolveu.`,
@@ -16096,13 +16101,15 @@ async function responderAgente(env, from, bruto, F, voz) {
 
     const msgs = [...hist, { role: 'user', content: bruto }];
     const notas = [];
-    let resposta = '', terminou = false;
+    let resposta = '', terminou = false, usouFerr = 0, cobrouFerr = 0;
     for (let volta = 0; volta < AGENTE_MAX_VOLTAS && !terminou; volta++) {
       const r = await chamarModeloAgente(env, [blocoRegras, blocoDados, blocoVivo], msgs); // v184: ordem para o cache
       const blocos = Array.isArray(r.content) ? r.content : [];
-      const usos = blocos.filter(b => b.type === 'tool_use');
+      const usos = blocos.filter(b => b.type === 'tool_use'); usouFerr += usos.length;
       if (r.stop_reason !== 'tool_use' || !usos.length) {
         resposta = blocos.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+        if (!usouFerr && !cobrouFerr && volta + 1 < AGENTE_MAX_VOLTAS && /\b(registr(ei|ado|ada|ados|adas)|anotei|anotado|lancei|lan[cç]ado|marquei|atualizei|atualizado|salvei|corrigi|apaguei|enviei|mandei)\b/i.test(resposta)) { // v339: disse que fez sem chamar ferramenta nenhuma
+          cobrouFerr = 1; msgs.push({ role: 'assistant', content: blocos }); msgs.push({ role: 'user', content: '[SISTEMA] Você escreveu que registrou/anotou/enviou algo, mas NÃO chamou nenhuma ferramenta: nada mudou no sistema. Se o Sr. Hangel pediu uma mudança, chame AGORA a ferramenta certa. Se não há ferramenta para isso, ou se ele só estava informando, responda dizendo com honestidade o que ficou (ou não) no sistema, sem dizer "registrei".' }); continue; }
         terminou = true;
         break;
       }
@@ -17671,6 +17678,105 @@ async function etapaPedirConfirmacao(env, fone, nomeFunc, quem, mid, leg) {
   await enviarComBotoes(env, numeroDono(env), `${nomeFunc} mandou ${etapa ? 'que fez ' + o : o}. Esse serviço não está aberto na produção.\n\n${etapa ? `Registro ${o} para o ${nomeFunc}?` : 'Registro como andamento desse serviço?'}`,
     [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v339: APROVAÇÃO DA PRODUÇÃO — tudo o que vem de funcionário (texto, foto, botão) fica ANOTADO e PENDENTE:
+//   não conta ponto e não manda entrega a ninguém até o Sr. Hangel aprovar (WhatsApp: botões / "aprovar tudo"; app: Produção → Aprovar).
+//   O que o próprio Sr. Hangel registra (WhatsApp, app, painel) já entra aprovado. cfg:aprov = '0' desliga.
+// ═════════════════════════════════════════════════════════════════════════════
+async function aprovAtivo(env) { const k = await env.HR_KV.get('cfg:aprov').catch(() => null); return k != null ? k !== '0' : String(env.PROD_APROVACAO ?? '1') !== '0'; }
+async function aprovDoFunc(env) { const c = env && env._ctx; if (!(c && c.de && !ehDono(env, c.de) && !env._aprovando)) return false;
+  if (c.ehFunc == null) { const cfg = await pontoCfg(env).catch(() => null); c.ehFunc = !!(cfg && pontoFuncPorFone(cfg, c.de)); } return c.ehFunc; } // só funcionário (cliente não)
+const APROV_ET = { corte: 'corte', polimento: 'polimento', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação', retirada: 'retirada', finalizado: 'finalização' };
+const aprovChave = x => `${x.e}|${x.ts}|${(x.por || []).map(String).sort().join(',')}`;
+async function aprovMarcar(env, p) {
+  if (!p || !(await aprovDoFunc(env)) || !(await aprovAtivo(env))) return;
+  const old = await lerPedido(env, p.id).catch(() => null), ja = new Set(((old && old.prodLog) || []).map(aprovChave));
+  p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : [];
+  const tipos = new Set(p.prodLog.map(x => x.e)), novos = [];
+  // campos antigos que o fluxo do funcionário marca sem prodLog → viram etapa pendente (senão contariam ponto direto)
+  const leg = [['corte', 'corteEm', 'corteFeitoPor', ['corte']], ['fabricacao', 'fabProntoEm', 'fabFeitoPor', ['fabricacao', 'acabamento']], [pedComplexo(p) ? 'instalacao' : 'entrega', 'entregueEm', 'entFeitoPor', ['entrega', 'instalacao', 'retirada']]];
+  for (const [e, cTs, cPor, grp] of leg) if (p[cTs] && p[cPor] && !(old && old[cTs]) && !grp.some(g => tipos.has(g)) && !(e === 'fabricacao' && String(p.fabFeitoPor) === String(p.corteFeitoPor))) p.prodLog.push({ e, por: [...new Set([String(p[cPor]), ...(e !== 'corte' && e !== 'fabricacao' ? (p.entAjud || []).map(String) : [])])], ts: p[cTs], deCampo: 1 });
+  for (const x of p.prodLog) {
+    if (x.ap !== undefined || x.dono || ja.has(aprovChave(x)) || !APROV_ET[x.e] || !Array.isArray(x.por) || !x.por.length) continue;
+    x.ap = 0; x.apId = estId(6); x.apTxt = String((env._ctx && (env._ctx.bruto || (env._ctx.tx && env._ctx.tx[0] && env._ctx.tx[0].x))) || '').slice(0, 200); novos.push(x);
+  }
+  if (novos.length) { (env._ctx.apNovos = env._ctx.apNovos || []).push(...novos.map(x => ({ pid: p.id, apId: x.apId }))); }
+}
+async function aprovPtsEst(env, p, x) { // quanto essa etapa vale (para o dono decidir)
+  try { const c = JSON.parse(JSON.stringify(p)); delete c.corteFeitoPor; delete c.fabFeitoPor; delete c.entFeitoPor;
+    c.prodLog = (c.prodLog || []).map(y => y.apId === x.apId ? { ...y, ap: 1 } : y.ap === 0 ? { ...y, ap: -1 } : y);
+    const d = diaDe(x.ts), m = await metasPontos(env, d, d, [c]), q = (m._ped || {})[c.id] || {}; return Math.round(Object.values(q).reduce((t, v) => t + v, 0) * 10) / 10;
+  } catch (_) { return null; }
+}
+async function aprovItemTxt(env, p, x, cfg) {
+  const nomes = (x.por || []).map(id => { const f = (cfg.funcs || []).find(y => String(y.id) === String(id)); return f ? (apelidoFunc(cfg, f) || f.nome.split(' ')[0]) : id; });
+  const it = Array.isArray(x.itens) && x.itens.length ? ' (' + x.itens.map(i => { const a = ((p.resumoApp && p.resumoApp.itens) || [])[i]; return a ? a.ambiente : 'item ' + (i + 1); }).join(', ') + ')' : x.frac != null && x.frac < 1 ? ` (parte: ${Math.round(x.frac * 100)}%)` : x.pecas ? ` (${x.pecas} peça${x.pecas > 1 ? 's' : ''})` : '';
+  return { nomes, txt: `${nomes.join(' e ')} · ${APROV_ET[x.e]}${it} · *${p.nome}*` };
+}
+async function aprovListar(env, dias) {
+  const lim = Date.now() - Math.max(3, Math.min(30, dias || 10)) * 86400000, cfg = await pontoCfg(env).catch(() => ({ funcs: [] })), out = [];
+  const l = await pedidosProducao(env, p => (p.prodLog || []).some(x => x.apId && (x.ap === 0 || (x.ts || 0) > lim))).catch(() => []);
+  for (const p of l) for (const x of p.prodLog || []) {
+    if (!x.apId || (x.ap !== 0 && (x.apEm || x.ts || 0) < lim)) continue;
+    const t = await aprovItemTxt(env, p, x, cfg);
+    out.push({ pid: String(p.id), apId: x.apId, st: x.ap, cliente: p.nome, etapa: x.e, etapaTxt: APROV_ET[x.e], quem: t.nomes, itens: t.txt.replace(/\*/g, ''), resumo: resumoPecas(p), pedra: (p.resumoApp && p.resumoApp.pedra) || p.cor || '', ts: x.ts, disse: x.apTxt || '', pts: x.ap === 0 ? await aprovPtsEst(env, p, x) : null, apEm: x.apEm || null });
+  }
+  return out.sort((a, b) => (a.st === 0 ? 0 : 1) - (b.st === 0 ? 0 : 1) || b.ts - a.ts);
+}
+async function aprovDecidir(env, lista, opc = {}) {
+  const porPed = {}; for (const it of lista || []) if (it && it.pid && it.apId) (porPed[it.pid] = porPed[it.pid] || []).push(it);
+  let ok = 0, no = 0; const afetados = new Set(), recusas = [];
+  env._aprovando = 1;
+  try {
+    for (const pid of Object.keys(porPed)) {
+      const p = await lerPedido(env, pid).catch(() => null); if (!p) continue; let mud = false;
+      for (const it of porPed[pid]) { const x = (p.prodLog || []).find(y => y.apId === it.apId); if (!x || x.ap !== 0) continue;
+        x.ap = it.ok ? 1 : -1; x.apEm = Date.now(); mud = true; if (it.ok) { ok++; (x.por || []).forEach(id => afetados.add(String(id))); } else { no++; recusas.push({ p, x }); } }
+      if (mud) await salvarPedido(env, p);
+      if (mud && porPed[pid].some(i => i.ok)) await aprovLiberarEntrega(env, p).catch(e => console.log('[APROV] entrega:', e.message));
+    }
+  } finally { env._aprovando = 0; }
+  for (const id of afetados) await metaChecar(env, id).catch(() => {}); // o "+X pontos" sai agora, para o funcionário
+  const cfg = await pontoCfg(env).catch(() => ({ funcs: [] }));
+  for (const { p, x } of recusas) for (const id of x.por || []) { const tel = await respTel(env, id).catch(() => ''); if (tel) await eqTexto(env, tel, `O Sr. Hangel não confirmou ${APROV_ET[x.e]} de *${p.nome}*${opc.obs ? ': ' + opc.obs : ''}. Se foi engano, fale com ele.`).catch(() => {}); }
+  return { aprovados: ok, recusados: no };
+}
+// pedido ficou pronto por funcionário com entrega segurada: só agora (aprovado) pergunta ao dono se manda ao entregador
+async function aprovLiberarEntrega(env, p) {
+  if (!p.entregaSegurada || p.entregaEnviadaEm || p.entregueEm) return;
+  delete p.entregaSegurada; env._aprovando = 1; await salvarPedido(env, p); env._aprovando = 0;
+  await enviarComBotoes(env, numeroDono(env), `*${p.nome}* está pronto (${resumoPecas(p)}). Mando os dados da entrega (endereço, pagamento, mapa) para ${nomeEntregador(env)}?`,
+    [{ id: 'desp_ent|' + p.id, titulo: 'Enviar ao ' + nomeEntregador(env).slice(0, 12) }, { id: 'desp_entno|' + p.id, titulo: 'Agora não' }]);
+}
+// depois de cada mensagem de funcionário: avisa o dono (um aviso com botões por etapa) e diz ao funcionário que espera aprovação
+async function aprovPosMensagem(env, from) {
+  const c = env._ctx; if (!c || !c.apNovos || !c.apNovos.length) return;
+  const cfg = await pontoCfg(env).catch(() => ({ funcs: [] })), vistos = new Set();
+  for (const { pid, apId } of c.apNovos) { if (vistos.has(apId)) continue; vistos.add(apId);
+    const p = await lerPedido(env, pid).catch(() => null), x = p && (p.prodLog || []).find(y => y.apId === apId); if (!x || x.ap !== 0) continue;
+    const t = await aprovItemTxt(env, p, x, cfg), pts = await aprovPtsEst(env, p, x);
+    await enviarComBotoes(env, numeroDono(env), `📋 *Para aprovar:* ${t.txt}${pts != null ? ` · ${vPt(pts)} ponto(s)` : ''}${x.apTxt ? `\n_"${String(x.apTxt).slice(0, 160)}"_` : ''}${p.entregaSegurada ? '\n(Entrega ainda não foi enviada a ninguém.)' : ''}`,
+      [{ id: `apv|${pid}|${apId}|s`, titulo: '✅ Aprovar' }, { id: `apv|${pid}|${apId}|n`, titulo: '❌ Não foi isso' }]).catch(() => {});
+  }
+  if (!c.apAvisou) { c.apAvisou = 1; await enviar(env, from, '⏳ _Os pontos entram quando o Sr. Hangel aprovar._').catch(() => {}); }
+}
+async function aprovBotao(env, from, id) {
+  const [, pid, apId, c] = id.split('|');
+  const r = await aprovDecidir(env, [{ pid, apId, ok: c === 's' }]);
+  await enviar(env, from, r.aprovados ? '✅ Aprovado. Os pontos entraram e o funcionário foi avisado.' : r.recusados ? 'Certo, não contou ponto. Avisei o funcionário. Se quiser registrar outra coisa, me diga o que foi feito.' : 'Esse já tinha sido decidido.');
+  return true;
+}
+async function aprovComandoDono(env, from, msg) { // "aprovar tudo", "o que falta aprovar"
+  if (/^(aprovar? (tudo|todos|todas)|aprova tudo|pode aprovar tudo)\b/.test(msg)) { const l = (await aprovListar(env)).filter(x => x.st === 0); if (!l.length) { await enviar(env, from, 'Não tem nada esperando aprovação.'); return true; }
+    const r = await aprovDecidir(env, l.map(x => ({ pid: x.pid, apId: x.apId, ok: true }))); await enviar(env, from, `✅ Aprovei ${r.aprovados} registro(s) da produção. Os pontos entraram.`); return true; }
+  if (/\b(o que|oque|quais?|tem algo|tem coisa)\b.*\b(aprovar|aprovacao|pendente[s]? da producao)\b|^(aprovacoes|pendencias da producao|producao pendente)$/.test(msg)) { const l = (await aprovListar(env)).filter(x => x.st === 0);
+    await enviar(env, from, l.length ? `*Esperando sua aprovação (${l.length}):*\n${l.slice(0, 15).map(x => `• ${x.itens}${x.pts != null ? ' · ' + vPt(x.pts) + ' pt' : ''}`).join('\n')}\n\nResponda *aprovar tudo* ou use o app (Produção → Aprovar produção).` : 'Nada esperando aprovação.'); return true; }
+  if (/^(desligar|desliga|parar) (a )?aprovacao/.test(msg)) { await env.HR_KV.put('cfg:aprov', '0'); await enviar(env, from, 'Aprovação desligada: o que a equipe mandar volta a contar ponto direto.'); return true; }
+  if (/^(ligar|liga|ativar) (a )?aprovacao/.test(msg)) { await env.HR_KV.put('cfg:aprov', '1'); await enviar(env, from, 'Aprovação ligada: tudo da equipe espera o seu ✅.'); return true; }
+  return false;
+}
+
 function semInstrucaoIA(t) { return String(t || '').replace(/\s*Confirme em (UMA|uma) frase( curta)?\.?/g, '').replace(/\s*\(?responda em uma frase[^)]*\)?\.?/gi, '').trim(); } // v338
 async function etapaConfBotao(env, from, id) {
   const [, cid, c] = id.split('|'); let x = null; try { x = JSON.parse((await env.HR_KV.get('etpconf:' + cid)) || 'null'); } catch (_) {}
@@ -21317,6 +21423,7 @@ async function tratarMensagem(env0, m) {
     try { ctx.crm.push(ctx.crmEntrada = crmDeEntrada(m)); } catch (_) {} // v75
   }
   await tratarMensagemBase(env, m, ctx);
+  if (ctx.apNovos && ctx.apNovos.length && !ehDono(env0, m.from)) await aprovPosMensagem(env, m.from).catch(e => console.log('[APROV] pós:', e.message)); // v339
   if (ctx.crmEntrada && ctx.crmEntrada.tipo === 'audio' && !ctx.crmEntrada.texto && (m._texto || ctx.bruto)) ctx.crmEntrada.texto = String(m._texto || ctx.bruto).slice(0, 2000); // v75: transcrição do áudio
   if (ctx.cliente) { await avisarInicioConversa(env, m).catch(e => console.log('[BOT] aviso de início:', e.message)); ctx.cliente = false; } // v53: antes do registro abaixo, para a IA do dono saber quem chamou
   if (ehDono(env0, m.from) && !ctx.agente && ctx.paraDono.length) await agNota(env, ctx.bruto || extrairTexto(m) || '[mensagem do Sr. Hangel]', ctx.paraDono.join('\n')); // v48: a IA sabe o que as rotinas responderam
@@ -21657,6 +21764,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await camComandoDono(env, from, msg).catch(e => { console.log('[CAM] comando:', e.message); return false; })) return; // v317
     if (/^(confere|conferir|conferencia de|resolve|resolver|acerta|acertar) (os )?pontos\b|\bpontos (nao recebidos|pendentes|que faltam)\b/.test(msg)) { await enviar(env, from, 'Conferindo todos os serviços e etapas, um momento.'); await enviar(env, from, await pontosReconciliarTexto(env, {})); return; } // v304
     if (await falhaComandoDono(env, from, msg, bruto).catch(e => { console.log('[FALHA] comando:', e.message); return false; })) return; // v329
+    if (await aprovComandoDono(env, from, msg).catch(e => { console.log('[APROV] comando:', e.message); return false; })) return; // v339
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
@@ -26326,6 +26434,7 @@ async function gravarPedidoComRetry(env, p) {
   catch (e) { await new Promise(r => setTimeout(r, 1200)); await salvarPedido(env, p); }
 }
 async function salvarPedido(env, p) {
+  await aprovMarcar(env, p).catch(e => console.log('[APROV] marcar:', e.message)); // v339
   await igFunilPedido(env, p).catch(() => {}); // v87: orçamento/fechamento de quem veio do Instagram
   await env.HR_KV.put(chavePed(p.id), JSON.stringify(p), { expirationTtl: ttlPedido(p) });
   await atualizarAtivos(env, p);
@@ -27060,6 +27169,11 @@ async function rotaBotInterna(req, env, url) {
     }
     return jsonR({ ok: true });
   }
+  if (p === '/bot/producao/aprovar' && req.method === 'GET') return jsonR({ ok: true, ativo: await aprovAtivo(env), itens: await aprovListar(env, +url.searchParams.get('dias') || 0) }); // v339: tela "Aprovar produção"
+  if (p === '/bot/producao/aprovar' && req.method === 'POST') { const b = await req.json().catch(() => ({}));
+    if (b.ativo != null) { await env.HR_KV.put('cfg:aprov', b.ativo ? '1' : '0'); return jsonR({ ok: true, ativo: !!b.ativo }); }
+    const l = b.todos ? (await aprovListar(env)).filter(x => x.st === 0).map(x => ({ pid: x.pid, apId: x.apId, ok: true })) : (Array.isArray(b.itens) ? b.itens : []);
+    const r = await aprovDecidir(env, l, { obs: b.obs }); return jsonR({ ok: true, ...r }); }
   if (p === '/bot/fotos/decisoes' && req.method === 'GET') { // v337: tela "Fotos da equipe" do app
     await fotoDecTab(env); const dias = Math.min(30, Math.max(1, +url.searchParams.get('dias') || 7));
     const r = await env.HR_DB.prepare('SELECT id, ts, fid, fnome, tel, mid, leg, pid, pnome, acao, origem, certeza, vejo, status, corr FROM foto_decisao WHERE ts >= ? ORDER BY ts DESC LIMIT 150').bind(Date.now() - dias * 86400000).all().catch(() => ({ results: [] }));

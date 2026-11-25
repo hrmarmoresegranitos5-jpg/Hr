@@ -29,6 +29,7 @@
     ] },
     { k: 'producao', ic: '🏭', nm: 'Produção', pgs: [3, 79], itens: [
       ['🏭', 'Produção', 'Etapas de cada pedido, partes, quem faz e pontos', chama('abrirProducao'), existe('abrirProducao')],
+      ['✅', 'Aprovar produção', 'O que a equipe mandou — só conta ponto e sai entrega depois do seu ✅', chama('abrirAprovarProducao'), existe('abrirAprovarProducao')],
       ['📸', 'Fotos da equipe', 'O que a Helena entendeu de cada foto — conferir e corrigir', chama('abrirFotosEquipe'), existe('abrirFotosEquipe')],
       ['📐', 'Projeto 2D / ficha técnica', 'Desenho com medidas para o corte', chama('abrirDesenho'), existe('abrirDesenho')],
       ['📅', 'Agenda', 'Medições, entregas e instalações', pagina(3)],
