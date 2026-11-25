@@ -12423,10 +12423,18 @@ async function eqBoasVindasRotina(env, forcar) { // forcar: true = reenvia a tod
 }
 // resposta do funcionário ao aviso do modelo → manda o texto guardado
 async function eqPendLer(env, tel) { const t = await env.HR_KV.get('eq:pend:' + ultimos8(tel)); if (!t) return []; try { const o = JSON.parse(t); if (o && Array.isArray(o.lista)) return o.lista; if (o && o.texto) return [o]; } catch (_) {} return [{ texto: t }]; }
-async function eqPendAdd(env, tel, item) { const l = await eqPendLer(env, tel); l.push(item); await env.HR_KV.put('eq:pend:' + ultimos8(tel), JSON.stringify({ lista: l.slice(-5) }), { expirationTtl: 7 * 86400 }); }
+async function eqPendAdd(env, tel, item) { const l = await eqPendLer(env, tel); l.push({ em: Date.now(), ...item }); await env.HR_KV.put('eq:pend:' + ultimos8(tel), JSON.stringify({ lista: l.slice(-5) }), { expirationTtl: 7 * 86400 }); }
 async function eqPendente(env, from) { // v159: entrega tudo que ficou guardado (manual, recados em texto ou áudio)
   const l = await eqPendLer(env, from); if (!l.length) return false; await env.HR_KV.delete('eq:pend:' + ultimos8(from));
-  for (const o of l) { if (o.voz) { const ok = await enviarVoz(env, from, o.texto).catch(() => false); if (!ok) await enviar(env, from, o.texto); } else await enviar(env, from, o.texto); }
+  // v356: o que ficou guardado vai junto, numa mensagem só (antes eram 5-6 balões seguidos); aviso de ponto antigo perde o "Hoje/Semana" (já mudou) e ganha a hora
+  const velho = o => o.em && Date.now() - o.em > 3 * 3600000, quando = o => { const d = new Date(o.em - 3 * 3600000); return (diaDe(o.em) === dataBahia() ? 'hoje' : dataBR(diaDe(o.em)).slice(0, 5)) + ' às ' + String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); };
+  const txt = [];
+  for (const o of l) { if (o.voz) { const ok = await enviarVoz(env, from, o.texto).catch(() => false); if (!ok) await enviar(env, from, o.texto); continue; }
+    let t = String(o.texto || ''); if (!t.trim()) continue;
+    if (velho(o) && /\*\+[\d,]+ ponto/.test(t)) t = t.split('\n').filter(x => !/Hoje:|Semana:|Mês:/.test(x)).join('\n') + ` _(${quando(o)})_`;
+    else if (velho(o)) t = `_(${quando(o)})_ ` + t;
+    txt.push(t); }
+  if (txt.length === 1) await enviar(env, from, txt[0]); else if (txt.length) await enviar(env, from, '📬 *Guardei para você:*\n\n' + txt.join('\n\n━━━━━━━━\n\n'));
   return true; }
 // resumo do fim do dia (17h30, seg a sáb)
 async function eqResumoDiaRotina(env) {
@@ -12944,7 +12952,7 @@ async function prodFotoEscolha1(env, f, from, idB, nome) {
   let buf = null, tipo = 'image/jpeg'; try { const r = await baixarMidia(env, fp.mid); buf = new Uint8Array(r.buf); tipo = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
   if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('obra:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(() => {});
   try { const up = await subirImagemMeta(env, buf, 'obra-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nome} · andamento de ${ped.nome}` } }).catch(() => {}); } catch (_) {}
-  await enviar(env, from, `📷 Foto guardada no pedido de ${ped.nome}. Valeu, ${nome}!`); return true;
+  { const kd = 'prod:fotoguard:' + ultimos8(from) + ':' + ped.id; if (!(await env.HR_KV.get(kd))) { await env.HR_KV.put(kd, '1', { expirationTtl: 180 }); await enviar(env, from, `📷 Foto guardada no pedido de ${ped.nome}. Valeu, ${nome}!`); } } return true; // v356: álbum = uma resposta só
 }
 
 // v166: dica de FOTOS para a equipe (uma vez para cada um, em horário de trabalho)
@@ -33157,7 +33165,8 @@ async function entregarFilaFuncionario(env, f, para) {
   let fila = []; try { fila = JSON.parse((await env.HR_KV.get('ponto:fila:' + f.id)) || '[]'); } catch (_) {}
   if (!fila.length) return 0;
   await env.HR_KV.delete('ponto:fila:' + f.id);
-  for (const x of fila) await enviarTextoPuro(env, para, x.t, true).catch(e => console.log('[FUNC] fila:', e.message));
+  for (const x of fila) { const vel = x.recado && x.em && Date.now() - x.em > 3 * 3600000, d = new Date((x.em || 0) - 3 * 3600000); // v356: recado antigo diz de quando é (o do Jefferson chegou depois da instalação já feita)
+    await enviarTextoPuro(env, para, vel ? `_(Recado do Sr. Hangel de ${diaDe(x.em) === dataBahia() ? 'hoje' : dataBR(diaDe(x.em)).slice(0, 5)} às ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')})_\n${x.t}` : x.t, true).catch(e => console.log('[FUNC] fila:', e.message)); }
   if (fila.some(x => x.recado)) await env.HR_KV.put('ponto:recpend:' + f.id, String(Date.now()), { expirationTtl: 86400 });
   return fila.length;
 }
