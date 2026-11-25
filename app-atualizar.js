@@ -10,12 +10,16 @@
 // arquivo dele (?v=N) não é o que está rodando. Mudou → aparece o botão Atualizar.
 // Não precisa mexer em nada ao publicar: basta subir os arquivos como sempre.
 // ═══════════════════════════════════════════════════════════════════
+// v4: NUNCA recarrega enquanto o senhor está usando (antes recarregava depois de 8 s sem tocar = "o app reinicia sozinho").
+// Versão nova → só atualiza sozinho: logo ao abrir (antes de mexer) ou quando o app vai para o segundo plano.
+// Enquanto isso aparece um aviso discreto "Nova versão · Atualizar" no topo, para tocar quando quiser.
 (function () {
   'use strict';
+  var abriuEm = Date.now();
   var mostrado = false, conferindo = false, ultima = 0, mexeu = 0, indo = false; // ao abrir, ainda não mexeu: atualiza direto
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchmove'].forEach(function (ev) { document.addEventListener(ev, function () { mexeu = Date.now(); }, { passive: true, capture: true }); });
   function digitando() { var a = document.activeElement; return !!(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable) && String(a.value || a.textContent || '').length); }
-  function podeSozinho() { return document.hidden || (Date.now() - mexeu > 8000 && !digitando()); }
+  function podeSozinho() { return document.hidden || (!mexeu && Date.now() - abriuEm < 30000 && !digitando()); } // v4: só em segundo plano ou logo ao abrir
   function recentes() { try { return JSON.parse(sessionStorage.getItem('hr_atu_auto') || '[]').filter(function (t) { return Date.now() - t < 10 * 60000; }); } catch (e) { return []; } }
   function novaVersao() { // até 2 atualizações sozinhas em 10 min (se o GitHub ainda não terminou de publicar, não fica recarregando)
     var r = recentes();
@@ -53,7 +57,13 @@
     try { navigator.serviceWorker && navigator.serviceWorker.getRegistration().then(function (r) { r && r.update().catch(function () {}); }); } catch (e) {}
   }
 
-  function mostrar() { mostrado = true; } // v3: nada aparece na tela; o intervalo abaixo atualiza quando puder
+  function mostrar() { // v4: aviso discreto; atualiza ao tocar ou quando o app for para o segundo plano
+    mostrado = true;
+    if (document.getElementById('hrAtuAviso')) return;
+    try { var b = document.createElement('button'); b.id = 'hrAtuAviso'; b.type = 'button'; b.textContent = '⬆️ Nova versão · Atualizar';
+      b.style.cssText = 'position:fixed;top:max(8px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:99999;padding:7px 14px;border-radius:20px;border:1px solid rgba(201,168,76,.5);background:rgba(20,17,12,.94);color:#f0d78c;font-size:.75rem;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.4)';
+      b.addEventListener('click', function () { atualizar(); }); document.body.appendChild(b); } catch (e) {}
+  }
 
   function atualizar() {
     if (indo) return; indo = true;
@@ -81,7 +91,7 @@
 
   setTimeout(conferir, 8000);
   setInterval(conferir, 2 * 60000);
-  setInterval(function () { if (mostrado && podeSozinho()) atualizar(); }, 3000);
+  setInterval(function () { if (mostrado && podeSozinho()) atualizar(); }, 3000); // v4: podeSozinho só vale em segundo plano / ao abrir
   document.addEventListener('visibilitychange', function () { if (document.hidden) { if (mostrado) atualizar(); } else { ultima = 0; conferir(); } }); // saiu do app com o botão na tela → atualiza enquanto está fora
   window.addEventListener('online', conferir);
   window.HRAtualizar = { conferir: conferir, mostrar: mostrar, atualizar: atualizar };
