@@ -1,53 +1,98 @@
-<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vídeo da equipe com voz · HR</title>
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vídeo da equipe · Pontos · HR</title>
 <style>body{margin:0;background:#0a0908;color:#efe9dc;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:14px;gap:12px}
 canvas{width:min(92vw,420px);aspect-ratio:9/16;border-radius:14px;background:#000;box-shadow:0 8px 30px rgba(0,0,0,.6)}
 button{width:min(92vw,420px);padding:15px;border:none;border-radius:14px;font-size:1.05rem;font-weight:800;cursor:pointer}
 .ouro{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408}.sec{background:#1c1913;color:#f0d78c;border:1px solid #4a3f28}
 #st{font-size:.92rem;color:#c9bfa6;text-align:center;max-width:420px;line-height:1.4}h1{font-size:1.2rem;color:#f0d78c;margin:4px 0}</style></head><body>
-<h1>🎬 Vídeo da equipe com voz</h1><canvas id="cv" width="1080" height="1920"></canvas>
-<div id="st">Carregando a voz e as cenas…</div>
+<h1>🎬 Vídeo da equipe · Pontos (v2)</h1><canvas id="cv" width="1080" height="1920"></canvas>
+<div id="st">Carregando a voz…</div>
 <button class="ouro" id="bGerar" disabled>🎬 Gerar o vídeo com voz</button>
 <button class="sec" id="bVer" disabled>▶️ Só assistir</button>
 <a id="dl" style="display:none"></a>
 <script>
+// v2 (25/11/2026): as cenas são desenhadas aqui mesmo (não dependem de arquivos de vídeo) e a voz vem do bot (/voz-video2).
+// Regras de agora: como avisar a Helena (peça, pedra e cliente + foto), aprovação do Sr. Hangel, peça fora do projeto, meta de 100 no mês.
 const BOT='https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev';
-const CENAS=['titulo','pontos','semana','dia','faixas','cartao','premio','dicas','fim'];
+const CENAS=['titulo','pontos','avisar','aprovacao','extra','meta','faixas','premio','dicas','fim'];
 const cv=document.getElementById('cv'),cx=cv.getContext('2d'),st=document.getElementById('st');
-let AC=null,bufs={},vids={},pronto=false,rodando=false;
+const W=1080,H=1920,OURO='#e8c96a',OURO2='#c9a84c',TXT='#f4efe2',CIN='#9a917e',FUNDO='#0d0b08';
+let AC=null,bufs={},DADOS={premio:150,lider:50,meta:100},rodando=false;
 function msg(t){st.textContent=t;}
+const ease=x=>x<0?0:x>1?1:1-Math.pow(1-x,3);
+function fundo(t){const g=cx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#16120b');g.addColorStop(1,FUNDO);cx.fillStyle=g;cx.fillRect(0,0,W,H);
+  cx.globalAlpha=.07;for(let i=0;i<9;i++){cx.beginPath();cx.arc(W*.5+Math.sin(t*.4+i)*420,300+i*190,160+i*12,0,7);cx.strokeStyle=OURO;cx.lineWidth=2;cx.stroke();}cx.globalAlpha=1;
+  cx.fillStyle=OURO;cx.font='800 34px system-ui';cx.textAlign='left';cx.fillText('HR',70,110);cx.fillStyle=CIN;cx.font='500 26px system-ui';cx.fillText('MÁRMORES E GRANITOS',130,110);}
+function txt(s,x,y,sz,cor,peso,al,a){cx.globalAlpha=a==null?1:a;cx.fillStyle=cor||TXT;cx.font=(peso||600)+' '+sz+'px system-ui';cx.textAlign=al||'center';cx.fillText(s,x,y);cx.globalAlpha=1;}
+function quebra(s,max,sz,peso){cx.font=(peso||600)+' '+sz+'px system-ui';const ws=s.split(' '),L=[];let l='';for(const w of ws){const t=l?l+' '+w:w;if(cx.measureText(t).width>max&&l){L.push(l);l=w;}else l=t;}if(l)L.push(l);return L;}
+function bloco(s,x,y,max,sz,cor,peso,al,a,lh){quebra(s,max,sz,peso).forEach((l,i)=>txt(l,x,y+i*(lh||sz*1.25),sz,cor,peso,al,a));}
+function card(x,y,w,h,a,cor){cx.globalAlpha=a==null?1:a;cx.fillStyle=cor||'rgba(255,255,255,.06)';cx.strokeStyle='rgba(232,201,106,.35)';cx.lineWidth=2;cx.beginPath();cx.roundRect(x,y,w,h,34);cx.fill();cx.stroke();cx.globalAlpha=1;}
+function titulo(s,p){const a=ease(p*3);txt(s,W/2,300-30*(1-a),68,OURO,800,'center',a);}
+function aparece(i,p,n){return ease((p-0.12-i*(0.7/Math.max(n,1)))*4);} // cada item entra na sua vez
+function bolha(x,y,w,s,minha,a){const L=quebra(s,w-70,38,500),h=L.length*50+50;cx.globalAlpha=a;cx.fillStyle=minha?'#1f5c45':'#232019';cx.beginPath();cx.roundRect(x,y,w,h,30);cx.fill();L.forEach((l,i)=>txt(l,x+35,y+62+i*50,38,TXT,500,'left',a));cx.globalAlpha=1;return h;}
+const CENA={
+  titulo(p,t){const a=ease(p*2.5);txt('⭐',W/2,640,180,null,400,'center',a);txt('Pontos da equipe',W/2,860,92,OURO,800,'center',a);txt('como funciona agora',W/2,950,48,TXT,500,'center',ease(p*2.5-.4));card(210,1080,660,120,ease(p*2.5-.7));txt('HR Mármores e Granitos',W/2,1158,40,OURO,700,'center',ease(p*2.5-.7));},
+  pontos(p){titulo('Cada etapa vale pontos',p);const it=[['✂️','Corte'],['🪨','Acabamento'],['🔧','Fabricação'],['🏠','Instalação'],['🚚','Entrega']];
+    it.forEach((x,i)=>{const a=aparece(i,p,7);card(150,420+i*150,780,120,a);txt(x[0],230,500+i*150,64,null,400,'center',a);txt(x[1],300,500+i*150,52,TXT,700,'left',a);});
+    const a=aparece(5,p,7);card(110,1220,860,170,a,'rgba(232,201,106,.12)');txt('Conta pelo tempo de trabalho',W/2,1290,46,OURO,800,'center',a);txt('peça maior e mais difícil vale mais',W/2,1352,38,TXT,500,'center',a);
+    const b=aparece(6,p,7);txt('📸 foto  +  ⏱️ no prazo  =  ponto extra',W/2,1500,44,TXT,700,'center',b);},
+  avisar(p){titulo('Avise a Helena assim',p);const a1=aparece(0,p,4),a2=aparece(1,p,4),a3=aparece(2,p,4);
+    ['🧱 a peça','🎨 a pedra','👤 o cliente'].forEach((s,i)=>{const a=aparece(i,p,4);card(120+i*290,400,260,120,a,'rgba(232,201,106,.12)');txt(s,250+i*290,478,40,OURO,700,'center',a);});
+    const b=aparece(3,p,4);const h1=bolha(300,620,680,'Cortei 2 soleiras branco Siena do Cássio 📸',true,b);
+    const c=ease((p-.55)*4);bolha(100,660+h1,700,'Anotei, Fabrício! ⏳ Os pontos entram quando o Sr. Hangel aprovar.',false,c);
+    const d=ease((p-.7)*4);card(110,1330,860,180,d);txt('🎙️ No áudio:',W/2,1400,42,OURO,800,'center',d);txt('fale perto do celular, longe da máquina',W/2,1460,38,TXT,500,'center',d);},
+  aprovacao(p){titulo('Tudo passa pelo Sr. Hangel',p);const P=[['📱','Você avisa','peça, pedra, cliente + foto'],['🤖','A Helena anota','na hora, sem perder nada'],['✅','O Sr. Hangel aprova','confere no app ou no WhatsApp'],['⭐','Os pontos entram','e chega a sua mensagem']];
+    P.forEach((x,i)=>{const a=aparece(i,p,5);card(140,420+i*290,800,230,a,i===3?'rgba(232,201,106,.14)':null);txt(x[0],250,560+i*290,90,null,400,'center',a);txt(x[1],340,530+i*290,52,i===3?OURO:TXT,800,'left',a);txt(x[2],340,590+i*290,36,CIN,500,'left',a);
+      if(i<3){cx.globalAlpha=aparece(i+1,p,5);txt('↓',W/2,690+i*290,60,OURO,800);cx.globalAlpha=1;}});},
+  extra(p){titulo('Peça fora do projeto?',p);const a=aparece(0,p,4);txt('🧩',W/2,600,170,null,400,'center',a);
+    const b=aparece(1,p,4);bloco('Ou de outro serviço do mesmo cliente (ex.: as soleiras além dos lavatórios)',W/2,770,860,44,TXT,500,'center',b);
+    const c=aparece(2,p,4);card(110,960,860,200,c,'rgba(232,201,106,.12)');txt('Fale a peça e a pedra',W/2,1040,52,OURO,800,'center',c);txt('“2 prateleiras branco Siena do Cássio”',W/2,1110,38,TXT,500,'center',c);
+    const d=aparece(3,p,4);txt('➜ vai para o Sr. Hangel confirmar',W/2,1290,46,TXT,700,'center',d);txt('Nada se perde ✅',W/2,1400,64,OURO,800,'center',d);},
+  meta(p){titulo('A meta (a partir de dezembro)',p);const a=aparece(0,p,4);txt(String(DADOS.meta),W/2,640,220,OURO,900,'center',a);txt('pontos no mês',W/2,730,56,TXT,700,'center',a);
+    const b=aparece(1,p,4),f=Math.min(1,Math.max(0,(p-.3)*1.6));card(140,840,800,70,b);cx.globalAlpha=b;const g=cx.createLinearGradient(140,0,940,0);g.addColorStop(0,OURO2);g.addColorStop(1,OURO);cx.fillStyle=g;cx.beginPath();cx.roundRect(146,846,788*f,58,30);cx.fill();cx.globalAlpha=1;
+    const c=aparece(2,p,4);card(110,1010,860,170,c);txt('Meta do dia',W/2,1080,46,OURO,800,'center',c);txt('= meta do mês ÷ dias de trabalho',W/2,1142,38,TXT,500,'center',c);
+    const d=aparece(3,p,4);txt('Sábado conta meio dia · veja tudo no seu cartão',W/2,1290,38,CIN,600,'center',d);},
+  faixas(p){titulo('Faixas',p);const F=[['🥉','Bronze','80%'],['🥈','Prata','100% = meta'],['🥇','Ouro','125%'],['💎','Diamante','150%']];
+    F.forEach((x,i)=>{const a=aparece(i,p,5);card(150,420+i*260,780,210,a,i>=2?'rgba(232,201,106,.12)':null);txt(x[0],270,560+i*260,110,null,400,'center',a);txt(x[1],380,530+i*260,60,i>=2?OURO:TXT,800,'left',a);txt(x[2],380,590+i*260,40,CIN,600,'left',a);});},
+  premio(p){titulo('Prêmio do mês',p);const a=aparece(0,p,4);txt('🏆',W/2,620,170,null,400,'center',a);txt('R$ '+DADOS.premio,W/2,820,150,OURO,900,'center',a);txt('para quem bate a meta do mês',W/2,900,44,TXT,600,'center',a);
+    if(DADOS.lider>0){const b=aparece(1,p,4);card(160,990,760,150,b,'rgba(232,201,106,.12)');txt('👑 Líder do mês: + R$ '+DADOS.lider,W/2,1085,48,OURO,800,'center',b);}
+    const c=aparece(2,p,4);txt('Retrabalho e peça quebrada tiram pontos',W/2,1280,40,TXT,600,'center',c);const d=aparece(3,p,4);txt('Capricho vale ouro ✨',W/2,1380,56,OURO,800,'center',d);},
+  dicas(p){titulo('Quer saber como está?',p);const a=aparece(0,p,3);bolha(300,480,680,'Quantos pontos eu tenho?',true,a);
+    const b=aparece(1,p,3);bolha(100,680,760,'Sua semana: ⭐ 12 pontos · hoje 3,5 · faltam 7 para a meta!',false,b);
+    const c=aparece(2,p,3);card(110,1020,860,220,c);txt('Algum serviço não contou?',W/2,1100,46,OURO,800,'center',c);txt('Avise: a Helena confere',W/2,1160,40,TXT,500,'center',c);txt('com o Sr. Hangel',W/2,1210,40,TXT,500,'center',c);},
+  fim(p){const a=ease(p*2.5);txt('💪',W/2,780,200,null,400,'center',a);txt('Bora bater a meta,',W/2,980,80,OURO,800,'center',a);txt('equipe!',W/2,1080,80,OURO,800,'center',a);txt('HR Mármores e Granitos',W/2,1240,40,CIN,600,'center',ease(p*2.5-.5));}
+};
 async function carregar(){
   AC=new (window.AudioContext||window.webkitAudioContext)();
+  try{const r=await fetch(BOT+'/voz-video2-dados');if(r.ok)DADOS=Object.assign(DADOS,await r.json());}catch(e){}
   let n=0;
-  await Promise.all(CENAS.map(async k=>{
-    const v=document.createElement('video');v.src='video-equipe/v_'+k+'.mp4';v.muted=true;v.playsInline=true;v.preload='auto';vids[k]=v;
-    await new Promise((ok,er)=>{v.oncanplaythrough=ok;v.onerror=()=>er(new Error('cena '+k));v.load();});
-    const r=await fetch(BOT+'/voz-video/'+k);if(!r.ok)throw new Error('voz '+k+' ('+r.status+')');
-    bufs[k]=await AC.decodeAudioData(await r.arrayBuffer());n++;msg('Carregando… '+n+' de '+CENAS.length);
-  }));
-  pronto=true;msg('Pronto! Toque em "Gerar o vídeo com voz". Leva uns 2 minutos e meio: deixe a tela ligada.');
+  for(const k of CENAS){ // em sequência: a voz que ainda não existe é gerada na hora
+    const r=await fetch(BOT+'/voz-video2/'+k);if(!r.ok)throw new Error('voz '+k+' ('+r.status+')');
+    bufs[k]=await AC.decodeAudioData(await r.arrayBuffer());n++;msg('Carregando a voz… '+n+' de '+CENAS.length);
+  }
+  const tot=CENAS.reduce((t,k)=>t+bufs[k].duration+0.9,0);
+  msg('Pronto! Toque em "Gerar o vídeo com voz". Leva uns '+Math.ceil(tot/60)+' minuto(s): deixe a tela ligada.');
   document.getElementById('bGerar').disabled=false;document.getElementById('bVer').disabled=false;
-  vids.titulo.currentTime=0.6;vids.titulo.onseeked=()=>cx.drawImage(vids.titulo,0,0,1080,1920);
+  fundo(0);CENA.titulo(1,0);
 }
-function desenhar(v,a){cx.globalAlpha=1;cx.fillStyle='#0a0908';cx.fillRect(0,0,1080,1920);cx.globalAlpha=a;cx.drawImage(v,0,0,1080,1920);cx.globalAlpha=1;}
 async function tocar(dest){
   if(rodando)return;rodando=true;await AC.resume();
   for(const k of CENAS){
-    const v=vids[k],b=bufs[k],ad=b.duration+0.7,vd=v.duration;
-    v.playbackRate=Math.max(0.7,Math.min(1.6,vd/ad));v.currentTime=0;
-    const s=AC.createBufferSource();s.buffer=b;s.connect(AC.destination);if(dest)s.connect(dest);
-    const t0=performance.now();await v.play().catch(()=>{});s.start(AC.currentTime+0.25);
-    await new Promise(ok=>{(function f(){const el=(performance.now()-t0)/1000;desenhar(v,1);if(v.ended&&el>=ad){ok();return;}requestAnimationFrame(f);})();});
+    const b=bufs[k],dur=b.duration+0.9,s=AC.createBufferSource();s.buffer=b;s.connect(AC.destination);if(dest)s.connect(dest);
+    const t0=performance.now();s.start(AC.currentTime+0.2);
+    await new Promise(ok=>{(function f(){const el=(performance.now()-t0)/1000,p=Math.min(1,el/dur);fundo(el);cx.save();cx.translate(0,/^(titulo|fim)$/.test(k)?0:170);CENA[k](p,el);cx.restore();
+      if(el<0.35){cx.globalAlpha=1-el/0.35;cx.fillStyle=FUNDO;cx.fillRect(0,0,W,H);cx.globalAlpha=1;}
+      if(el>=dur){ok();return;}requestAnimationFrame(f);})();});
   }
   rodando=false;
 }
-document.getElementById('bVer').onclick=()=>tocar(null).catch(e=>msg('⚠️ '+e.message));
+document.getElementById('bVer').onclick=()=>tocar(null).catch(e=>{msg('⚠️ '+e.message);rodando=false;});
 document.getElementById('bGerar').onclick=async()=>{
   try{
     const dest=AC.createMediaStreamDestination(),vs=cv.captureStream(30),ms=new MediaStream([...vs.getVideoTracks(),...dest.stream.getAudioTracks()]);
     const tipos=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm'],tp=tipos.find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t))||'';
     const rec=new MediaRecorder(ms,tp?{mimeType:tp,videoBitsPerSecond:4e6}:{}),partes=[];rec.ondataavailable=e=>{if(e.data.size)partes.push(e.data);};
     msg('🔴 Gravando… deixe a tela ligada até o fim.');rec.start(1000);await tocar(dest);await new Promise(ok=>{rec.onstop=ok;rec.stop();});
-    const ext=/mp4/.test(rec.mimeType||tp)?'mp4':'webm',blob=new Blob(partes,{type:rec.mimeType||tp||'video/webm'}),nome='Pontos-metas-premio-HR.'+ext,f=new File([blob],nome,{type:blob.type});
+    const ext=/mp4/.test(rec.mimeType||tp)?'mp4':'webm',blob=new Blob(partes,{type:rec.mimeType||tp||'video/webm'}),nome='Pontos-equipe-HR.'+ext,f=new File([blob],nome,{type:blob.type});
     if(navigator.canShare&&navigator.canShare({files:[f]})){msg('✅ Pronto! Escolha o WhatsApp para mandar.');await navigator.share({files:[f],title:nome}).catch(()=>{});}
     const u=URL.createObjectURL(blob),a=document.getElementById('dl');a.href=u;a.download=nome;a.click();msg('✅ Vídeo salvo ('+(blob.size/1e6).toFixed(1)+' MB, '+ext+'). Se não abriu o compartilhar, ele está nos Downloads.');
   }catch(e){msg('⚠️ '+e.message);rodando=false;}

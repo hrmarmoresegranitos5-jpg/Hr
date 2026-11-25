@@ -13961,6 +13961,31 @@ async function diag201(env) {
   await put('jailton', js.map(p => ({ id: p.id, nome: p.nome, complexo: pedComplexo(p), nPecas: nPecasPed(p), dif: dificuldade(p), nivel: nivelDif(p), etapas: { corte: ptsEtapa(p, 'corte'), fabricacao: ptsEtapa(p, 'fabricacao'), acabamento: ptsEtapa(p, 'acabamento'), polimento: ptsEtapa(p, 'polimento'), instalacao: ptsEtapa(p, 'instalacao') }, hugo: ((p.resumoApp || {}).itens || []).map(it => ({ amb: it.ambiente, sv: it.sv, cuba: it.cuba, cubaInst: it.cubaInst, acab: it.acabamento, pecas: (it.pecas || []).map(x => [x.qtd, x.comp_cm, x.larg_cm, x.rot || '', x.tipoP || '']), hugo: servicosHugo(it) })), prodLog: p.prodLog, prog: p.prog, resp: { fab: p.fabResp, fab2: p.fab2Resp, acab: p.acabResp, poli: p.poliResp, ent: p.entResp }, ts: { corte: p.corteEm, fabPronto: p.fabProntoEm, acab: p.acabEm, entregue: p.entregueEm, fotoPronto: p.fotoProntoEm } })));
   await put('funcs', cfg.funcs.map(f => [f.id, f.nome]));
 }
+// v353: VÍDEO DA EQUIPE 2 — as regras de agora (aprovação do Sr. Hangel, como avisar, peça fora do projeto, meta de 100 no mês)
+async function narr353(env) {
+  const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })), ext = v => { const n = Math.round(+v || 0); const U = ['zero', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'], D = { 10: 'dez', 20: 'vinte', 30: 'trinta', 40: 'quarenta', 50: 'cinquenta', 60: 'sessenta', 70: 'setenta', 80: 'oitenta', 90: 'noventa' }, C = { 100: 'cem', 200: 'duzentos', 300: 'trezentos', 400: 'quatrocentos', 500: 'quinhentos' }; if (C[n]) return C[n]; if (n > 100 && n < 200) return 'cento e ' + ext(n - 100); if (n > 200 && n < 600 && C[Math.floor(n / 100) * 100]) return C[Math.floor(n / 100) * 100] + ' e ' + ext(n % 100); if (D[n]) return D[n]; if (n > 20 && n < 100) return D[Math.floor(n / 10) * 10] + ' e ' + U[n % 10]; return String(n); };
+  return {
+    titulo: 'Oi, equipe! Os pontos ficaram mais justos e mais fáceis de acompanhar. Neste vídeo eu explico tudo, rapidinho.',
+    pontos: 'Cada etapa que você termina vale pontos: corte, acabamento, fabricação, instalação e entrega. A conta é pelo tempo de trabalho: peça maior e serviço mais difícil valem mais. Foto do serviço e entrega no prazo dão ponto extra.',
+    avisar: 'Para os pontos caírem certinho, avise a Helena falando três coisas: a peça, a pedra e o nome do cliente. Por exemplo: cortei duas soleiras branco Siena do Cássio. E mande a foto junto. No áudio, fale perto do celular, longe da máquina.',
+    aprovacao: 'Novidade: agora tudo passa pelo Sr. Hangel. A Helena anota na hora e avisa que os pontos entram quando ele aprovar. Ele confere, aprova, e aí chega a sua mensagem com os pontos.',
+    extra: 'Cortou uma peça que não está no projeto, ou que é de outro serviço do mesmo cliente? Fale a peça e a pedra. A Helena manda para o Sr. Hangel confirmar, e os pontos entram do mesmo jeito. Nada se perde.',
+    meta: `A partir de dezembro, a meta é de ${ext(MES100)} pontos no mês. A meta do dia é essa meta dividida pelos dias de trabalho, e o sábado conta meio dia. Você acompanha tudo no seu cartão.`,
+    faixas: 'Passou da meta? Você sobe de faixa. Oitenta por cento é bronze. Cem por cento é prata, que é bater a meta. Cento e vinte e cinco é ouro. E cento e cinquenta é diamante!',
+    premio: `Quem bater a meta do mês ganha o prêmio de ${ext(pc.valor)} reais${+pc.lider > 0 ? `, e o líder do mês ganha mais ${ext(pc.lider)} reais` : ''}. Retrabalho e peça quebrada tiram pontos, então capricho vale ouro.`,
+    dicas: 'Quer saber como está? Pergunte à Helena: quantos pontos eu tenho? E se algum serviço não contou, avise: ela confere com o Sr. Hangel.',
+    fim: 'Bora bater a meta, equipe!',
+  };
+}
+async function vozVideo2Rota(env, k) {
+  const H = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=3600' }, N = await narr353(env);
+  if (!N[k] || !env.HR_DB) return new Response('não', { status: 404, headers: H });
+  let h = 5381; for (const ch of N[k]) h = ((h << 5) + h + ch.charCodeAt(0)) | 0; const key = 'v353:' + k + ':' + (h >>> 0);
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_voz (k TEXT PRIMARY KEY, b64 TEXT, via TEXT, n INTEGER)').run();
+  let r = await env.HR_DB.prepare('SELECT b64 FROM tmp_voz WHERE k = ?').bind(key).first();
+  if (!r || !r.b64) { await vozEscolhaCarregar(env).catch(() => {}); const g = await gerarVoz(env, N[k], globalThis.__voz || ''); const b = new Uint8Array(g.audio); await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_voz (k, b64, via, n) VALUES (?, ?, ?, ?)').bind(key, bytesParaBase64(b), g.via, b.length).run(); r = { b64: bytesParaBase64(b) }; }
+  return new Response(base64ParaBytes(r.b64), { headers: { ...H, 'Content-Type': 'audio/ogg' } });
+}
 // v200: serve a narração de cada cena (gera a que faltar) para a página que monta o vídeo com voz no celular do dono
 async function vozVideoRota(env, k) {
   const H = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=86400' };
@@ -36870,6 +36895,8 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
+    if (req.method === 'GET' && /^\/voz-video2\/[a-z]+$/.test(url.pathname)) return vozVideo2Rota(env, url.pathname.split('/')[2]); // v353
+    if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
