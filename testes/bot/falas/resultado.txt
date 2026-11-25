@@ -1,0 +1,369 @@
+[D] gastei 150 de combustível
+   IA: —
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Gasto:* R$ 150,00 ⏎ *Descrição:* Combustível ⏎ *Categoria:* Combustível ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 150,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na pr
+[D] paguei 80 reais de almoço pros meninos
+   IA: —
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, patrão.* ⏎  ⏎ *Gasto:* R$ 80,00 ⏎ *Descrição:* Almoço pros meninos ⏎ *Categoria:* Outros ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 0,00 ⏎  ⏎ _Será incluído em Finanças na próx
+[D] recebi 500 do Jacó no pix
+   IA: —
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Entrada:* R$ 500,00 ⏎ *Descrição:* Recebido de Jacó no pix ⏎ *Categoria:* — ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 230,00 ⏎ Entradas: R$ 500,00 ⏎  ⏎ _Será incluído em Finanças
+[D] Ele pagou 150
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Clériston pagou 150 e não 153
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto entrou hoje?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto eu gastei essa semana?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] como tá o caixa?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] qual o saldo do mês
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto tenho a receber?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quem tá me devendo?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] apaga o último lançamento
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] era 600 e não 500
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] muda pra pró-labore
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] lança uma saída de 2 mil de chapa
+   IA: —
+   → →ined: undefined ⏎ →4460: *Lançamento registrado, Sr. Hangel.* ⏎  ⏎ *Gasto:* R$ 2.000,00 ⏎ *Descrição:* Chapa ⏎ *Categoria:* Material ⏎ *Data:* 24/11/2026 ⏎  ⏎ *Total de hoje* ⏎ Gastos: R$ 2.230,00 ⏎ Entradas: R$ 500,00 ⏎  ⏎ _Será incluído em Finanças na próxi
+[D] comprei 3 chapas de preto são gabriel por 4500
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] paguei o Fabrício 300 de vale
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto posso tirar de pró-labore esse mês?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto já retirei?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] paga o boleto da Braskem amanhã
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quais boletos vencem essa semana?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] faz um orçamento de 2 soleiras 80x15 branco siena pro José
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] manda o orçamento do Wesley pra ele
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] qual foi o último orçamento que eu fiz?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto ficou o orçamento do Cássio?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Jailton fechou?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] fechei com a Maria a cozinha de 3.200
+   IA: —
+   → →ined: undefined ⏎ →4460: Patrão, não achei orçamento de *maria* no app nem no bot. Me diga o que fechou com as medidas (ex.: _fechei com maria 2 soleiras 80x15 em Branco Siena, 350 reais_) que eu monto a ficha.
+[D] quais orçamentos estão aguardando?
+   IA: —
+   → →ined: undefined ⏎ →4460: Patrão, o aplicativo ainda não mandou o histórico de orçamentos ao bot. Abra o app que ele sincroniza sozinho e peça de novo.
+[D] quem não respondeu o orçamento?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] manda mensagem pro Osmailton cobrando
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] cobra o Jailton do restante
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] manda o PDF do saldo pro Jailton
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] me manda o extrato do Clériston
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto o Jacó ainda deve?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] qual o telefone da Renata?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] cadastra o cliente João Pedro 74 99999-1234
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Joel buscou as peças hoje
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] entreguei a cozinha da Poliana
+   IA: —
+   → →ined: undefined ⏎ →4460: Anotei a entrega de *Poliana Reis* (Cozinha · Branco Siena) e tirei da produção. Não há restante em aberto, patrão.
+[D] marca entregue o serviço do Wesley
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] como tá a produção?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o que tá na fábrica hoje?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o que falta entregar?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Fabrício cortou o Jacó?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quem tá com o serviço do Cássio?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] passa o Osmailton pro Lucas
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] hoje o Hugo vai fazer o acabamento da Renata
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Gibson vai instalar a cozinha da Poliana amanhã
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quantos pontos o Fabrício fez hoje?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] como tá a meta da equipe?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] ranking da semana
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Lucas faltou hoje
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] dá folga pro Hugo sábado
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto vou pagar de bônus?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Fabrício terminou o peitoril do Jacó
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] cancela o pronto do Cássio
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] tira os pontos repetidos do Fabrício
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] a entrega do Cássio ainda não pode ir
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] manda a ficha do Clériston pra fábrica
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] abre o serviço do Jacob na produção
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quem bateu ponto hoje?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Hugo chegou que horas?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] relatório do ponto da semana
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o Fabrício saiu 16:38 e não registrou
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] lança 2 horas extras pro Lucas ontem
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto deu a folha desse mês?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] marca uma medição amanhã às 9h na casa do Pedro
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o que eu tenho amanhã?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] minha agenda da semana
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] desmarca a visita da Renata
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] me lembra de ligar pro fornecedor às 15h
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] cadê o link do totem?
+   IA: —
+   → →ined: undefined ⏎ →4460: *Tablet do balcão* ⏎ App no modo balcão (orçamento, histórico e controle da TV): https://hrmarmoresegranitos5-jpg.github.io/Hr/?balcao=1 ⏎ Entre com a conta Google da HR para sincronizar. ⏎  ⏎ Só o controle da TV: ⏎ /totem?k=5i1o1a6v6
+[D] controle da tv
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] parear 123456
+   IA: —
+   → →ined: undefined ⏎ →4460: Não achei o código 123456 (ele vale 10 minutos). No tablet, toque de novo em TV para gerar outro.
+[D] liga a câmera da fábrica
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o app tá sincronizado?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] faz backup
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] bom dia
+   IA: —
+   → →ined: undefined ⏎ →4460: Olá, *chefia*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais boleto
+[D] oi Helena
+   IA: —
+   → →ined: undefined ⏎ →4460: Olá, *Sr. Hangel*. Estou à sua disposição. ⏎  ⏎ *Registrar gastos e recebimentos* ⏎ • _gastei 150 com cimento_ ⏎ • _paguei 800 de energia ontem_ ⏎ • _recebi 2.500 do João_ ⏎  ⏎ *Consultar informações* ⏎ • _como estamos?_ ⏎ • _quais bo
+[D] obrigado
+   IA: —
+   → →ined: undefined ⏎ →4460: 
+[D] ok
+   IA: —
+   → →ined: undefined ⏎ →4460: 
+[D] 👍
+   IA: —
+   → →ined: undefined
+[D] beleza, valeu
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] não entendi
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] o que você sabe fazer?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] você tá aí?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] Senhor Jesus, e meus pão?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] e aquele lá?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] resolve isso pra mim
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] vê o negócio do Jailton
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] e o pagamento?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] quanto?
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[D] manda pra ele
+   IA: GASTOS DO MERCADO PAGO SEM NOM
+   → →ined: undefined ⏎ →4460: {}
+[0011] bom dia
+   IA: Você é a Helena, secretária de
+   → →ined: undefined ⏎ →0011: [IA-RH] resposta com dados: PONTOS DELE: hoje 0 de 3,5 · semana 0 de 19 (0%).
+[0011] o que eu tenho pra hoje?
+   IA: —
+   → →ined: undefined ⏎ →0011: *Fabrício, com você agora:* ⏎  ⏎  Cortar: *Jacob da Mata* — 2 peitoris · Preto São Gabriel ⏎  Cortar: *Cássio Borges* — Lavatório · Branco Pinta Verde ⏎  Cortar: *Osmailton Souza* — Cozinha · Preto ⏎  ⏎ Quando terminar cada um, me dig
+[0011] quantos pontos eu tenho?
+   IA: —
+   → →ined: undefined ⏎ →0011: *Fabrício, sua semana:* 0 de 19 pontos (0%) ⏎ Hoje: 0 de 3,5 ⏎ Faltam 15 para o Bronze.
+[0011] Quero saber dos pontos de hoje, dos peitoris, se é preto são gabriel
+   IA: —
+   → →ined: undefined ⏎ →0011: Fabrício, hoje ainda não tem ponto registrado para você. ⏎ Semana: 0 de 19 (0%)
+[0011] terminei o corte do Jacó
+   IA: —
+   → →ined: undefined ⏎ →0011: *+0,3 ponto(s)*, Fabrício! (corte · Jacob da Mata) ⏎  Hoje: *0,3 de 3,5* ⏎  Semana: *0,3 de 19* · faltam 18,7 ⏎ →0022: [TEMPLATE resposta_cliente] ⏎ →0011: Show, Fabrício! Anotei que o de *Jacob da Mata* ficou pronto. Avisei o Sr. Han
+[0011] soleira de branco itaunas já cortado
+   IA: Um funcionário de marmoraria (
+   → →ined: undefined ⏎ →0011: Fabrício, não achei esse serviço na produção. Me diga de qual cliente é e o que você fez (ex.: _cortei os peitoris do Jacó_) que eu confiro com o Sr. Hangel.
+[0011] cortei 2 peitoris do Jacó
+   IA: —
+   → →ined: undefined ⏎ →0011: Fabrício, o corte de *Jacob da Mata* já está anotado para você (24/11), valendo 0,3 ponto(s). Se foi outra parte, me diga o que faltava (ex.: _cortei mais 2 peitoris do Jacó_).
+[0011] comecei o acabamento do Cássio
+   IA: —
+   → →ined: undefined ⏎ →4460: *Fabrício* pegou o acabamento de *Cássio Borges* (não estava com ele). Os pontos dessa etapa vão para ele. ⏎ →0011: Anotado, Fabrício: acabamento de *Cássio Borges* começou às 21:49. Bom trabalho!
+[0011] ainda não terminei o Cássio
+   IA: —
+   → →ined: undefined ⏎ →0011: Certo, Fabrício: anotado que ainda não terminou. Quando terminar, me diga: _terminei o de (cliente)_.
+[0011] quebrou uma peça do Cássio
+   IA: —
+   → →ined: undefined ⏎ →0011: Entendi, Fabrício. Avisei o Sr. Hangel agora sobre *Cássio Borges*. Se puder, mande uma foto do problema aqui. ⏎ →4460: *Problema na produção* (Fabrício): "quebrou uma peça do Cássio" ⏎ Cliente: *Cássio Borges* ⏎ Se foi erro de alguém
+[0011] to sem serviço
+   IA: —
+   → →ined: undefined ⏎ →0011: *Fabrício, com você agora:* ⏎  ⏎  Cortar: *Cássio Borges* — Lavatório · Branco Pinta Verde ⏎  Cortar: *Osmailton Souza* — Cozinha · Preto ⏎  ⏎ Quando terminar cada um, me diga (ex.: _terminei o da Maria_).
+[0011] sobrou um retalho de preto
+   IA: —
+   → →ined: undefined ⏎ →0011: Fabrício, me diga a pedra e a medida da sobra. Ex.: _sobrou Preto São Gabriel 1,20 x 0,40_
+[0011] e meus pontos de ontem que não entrou?
+   IA: Um funcionário de marmoraria ( | Você é a Helena, secretária de
+   → →ined: undefined ⏎ →0011: [IA-RH] resposta com dados: PONTOS DELE: hoje 0,3 de 3,5 · semana 0,3 de 19 (2%).
+[0011] Senhor Jesus, e meus pão que você não me deu?
+   IA: Você é a Helena, secretária de
+   → →ined: undefined ⏎ →0011: [IA-RH] resposta com dados: PONTOS DELE: hoje 0,3 de 3,5 · semana 0,3 de 19 (2%).
+[0011] ?
+   IA: Você é a Helena, secretária de
+   → →ined: undefined ⏎ →0011: [IA-RH] resposta com dados: PONTOS DELE: hoje 0,3 de 3,5 · semana 0,3 de 19 (2%).
+[0011] ok
+   IA: —
+   → →ined: undefined
+[0011] valeu
+   IA: —
+   → →ined: undefined ⏎ →0011: Por nada, Fabrício!
+[0011] o Lucas me ajudou no corte do Jacó
+   IA: —
+   → →ined: undefined ⏎ →0011: Anotado, Fabrício: o corte de *Jacob da Mata* fica dividido entre você e Lucas. ⏎ →4460: *Fabrício* disse que *Lucas* ajudou no corte de *Jacob da Mata*. Os pontos foram divididos entre os dois.
+[0011] vou com o Gibson na Poliana
+   IA: Você é a Helena, secretária de
+   → →ined: undefined ⏎ →0011: [IA-RH] resposta com dados: PONTOS DELE: hoje 0,1 de 3,5 · semana 0,1 de 19 (1%).
+[0011] Peitoril finalizado
+   IA: —
+   → →ined: undefined ⏎ →0011: Fabrício, é de *Jacob da Mata* (2 peitoris · Preto São Gabriel)? Se for de outro, me diga o nome do cliente. [Jacob da Mata]
+[0022] bom dia
+   IA: —
+   → →ined: undefined ⏎ →0022: *ENTREGA* ⏎ Cliente: Jacob da Mata ⏎ Contato: wa.me/5574988880001 ⏎ Pagamento: CONFIRMAR COM O SR. HANGEL antes de cobrar (o valor não está no sistema) ⏎ Referência: --- ⏎  ⏎ Itens: 2 peitoris
+[0022] o que tenho pra entregar?
+   IA: —
+   → →ined: undefined ⏎ →0022: *Gibson, com você agora:* ⏎  ⏎  Entregar: *Jacob da Mata* ⏎  Instalar: *Osmailton Souza* · cobrar R$ 500,00 ⏎  ⏎ Quando terminar cada um, me diga (ex.: _terminei o da Maria_).
+[0022] entreguei o Osmailton
+   IA: —
+   → →ined: undefined ⏎ →0022: Gibson, antes de dar baixa: me manda uma *foto mostrando as peças* de *Osmailton Souza* (de preferência já no lugar). Se forem muitas e não couberem todas, tudo bem: pega o máximo que der. É o comprovante da entrega.
+[0022] o cliente pagou 500 em dinheiro
+   IA: —
+   → →ined: undefined ⏎ →0022: Gibson, esse pagamento é de qual cliente? (Jacob, Osmailton, Poliana)
+[0022] cheguei na casa da Poliana
+   IA: Você é a Helena, secretária de
+   → →ined: undefined ⏎ →0022: [IA-RH] resposta com dados: PONTOS DELE: hoje 0 de 3,5 · semana 0 de 19 (0%).
+[0022] instalei a cozinha da Poliana
+   IA: —
+   → →ined: undefined ⏎ →0022: Gibson, de qual cliente? Tenho: Jacob da Mata, Osmailton Souza.
+[0022] não deu pra instalar, faltou peça
+   IA: —
+   → →ined: undefined ⏎ →0022: Entendi, Gibson. Avisei o Sr. Hangel agora. Se puder, mande uma foto do problema aqui. ⏎ →4460: *Problema na produção* (Gibson): "não deu pra instalar, faltou peça" ⏎ Se foi erro de alguém, registre: _retrabalho (cliente), corte, foi 
+[0022] qual o endereço do Osmailton?
+   IA: —
+   → →ined: undefined ⏎ →0022: *Osmailton Souza* — Cozinha · Preto ⏎ Endereço: não está no sistema (pergunte ao Sr. Hangel) ⏎ Contato: wa.me/5574988880003 ⏎ Cobrar na entrega: *R$ 500,00*
+[0022] qual o telefone do Osmailton?
+   IA: —
+   → →ined: undefined ⏎ →0022: *Osmailton Souza* — Cozinha · Preto ⏎ Endereço: não está no sistema (pergunte ao Sr. Hangel) ⏎ Contato: wa.me/5574988880003 ⏎ Cobrar na entrega: *R$ 500,00*
+[0022] quanto eu cobro do Osmailton?
+   IA: —
+   → →ined: undefined ⏎ →0022: *Osmailton Souza* — Cozinha · Preto ⏎ Endereço: não está no sistema (pergunte ao Sr. Hangel) ⏎ Contato: wa.me/5574988880003 ⏎ Cobrar na entrega: *R$ 500,00*
+[0011] o Lucas me ajudou no corte do Jacó
+   IA: —
+   → →ined: undefined ⏎ →0011: Anotado, Fabrício: o corte de *Jacob da Mata* fica dividido entre você e Lucas. ⏎ →4460: *Fabrício* disse que *Lucas* ajudou no corte de *Jacob da Mata*. Os pontos foram divididos entre os dois.
