@@ -10651,7 +10651,7 @@ function nivelDif(p) { const d = dificuldade(p); const sc = d ? d.corte + d.det 
 // pontos base de cada etapa (sem prazo e foto)
 // v205: RÉGUA DO TEMPO — 1 ponto ≈ 2 horas de trabalho padrão em QUALQUER função (a partir de 23/11/2026).
 // Assim quem se esforça mais ganha mais, seja corte, acabamento, instalação ou a fabricação do Hugo (1 cozinha ≈ 1 semana ≈ 18 pts).
-const REGUA_INI = '2026-11-23', REGUA_H = 2;
+const REGUA_INI = '2026-11-23', REGUA_H = 2, CORTE_PREP_H = 1, CORTE_PECA_X = 1.5;
 // v209: a partir de 1º/12/2026 a meta é 100 pontos no MÊS (dia = 100 ÷ dias de trabalho do mês; semana = soma dos dias); 1 ponto ≈ 1,6 h
 const MES100_INI = '2026-12-01', MES100 = 100;
 const reguaH = ts => ((ts ? diaDe(ts) : dataBahia()) >= MES100_INI ? 1.6 : REGUA_H);
@@ -10678,11 +10678,12 @@ function horasRegua(p, e) { return horasRegua0(p, e) * (e === 'instalacao' ? 1 :
 function horasDetalhe(p, e) {
   const its = itensPecas(p), n = nPecasPed(p), cx = pedComplexo(p), L = [], add = (txt, h) => { if (h > 0) L.push({ txt, h: Math.round(h * 100) / 100 }); };
   const mlTipo = (it, t) => (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === t).reduce((a, pc) => a + (+pc.comp_cm || 0) * Math.min(+pc.qtd || 1, 50), 0) / 100;
-  if (e === 'corte') {
-    if (!its.length) { add(`${n} peça(s) sem ficha (estimativa)`, n * 0.3); return L; }
+  if (e === 'corte') { // v357: o Sr. Hangel: o corte valia pouco. Cada serviço tem o preparo (pegar a chapa, levar à serra, riscar, conferir medida, limpar) e cada peça vale 1,5× o que valia
+    add('preparar a chapa, riscar e conferir as medidas', CORTE_PREP_H);
+    if (!its.length) { add(`${n} peça(s) sem ficha (estimativa)`, n * 0.45); return L; }
     for (const it of its) {
       const sv = it.sv || [], pre = its.length > 1 ? (it.ambiente || 'item') + ': ' : '';
-      const porTipo = {}; for (const pc of it.pecas) { const t = tipoDaPeca(pc, it), q = Math.min(+pc.qtd || 1, 50); porTipo[t] = porTipo[t] || { q: 0, h: 0 }; porTipo[t].q += q; porTipo[t].h += hCortePeca(pc.comp_cm, pc.larg_cm) * q; }
+      const porTipo = {}; for (const pc of it.pecas) { const t = tipoDaPeca(pc, it), q = Math.min(+pc.qtd || 1, 50); porTipo[t] = porTipo[t] || { q: 0, h: 0 }; porTipo[t].q += q; porTipo[t].h += hCortePeca(pc.comp_cm, pc.larg_cm) * CORTE_PECA_X * q; }
       for (const [t, v] of Object.entries(porTipo)) add(`${pre}${v.q}× ${(NOME_PECA[t] || 'Peça').toLowerCase()}`, v.h);
       if (sv.includes('reb_a')) add(pre + 'recorte do rebaixo americano', 0.25); if (sv.includes('reb_n')) add(pre + 'corte do rebaixo normal', 0.2);
       if (sv.includes('cook')) add(pre + 'recorte do cooktop', 0.3);
@@ -10762,11 +10763,12 @@ function metasDiasServico(env, log, x) {
   return dias.length > 1 ? dias : [];
 }
 async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; await precosCarregar(env).catch(() => {}); // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
-  const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
+  const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; }; let ajFixo, eqdF; // v357: ajudante fixo (o Jefferson vai em todas as instalações do Gibson)
   Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
   const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pid: ped.id, pts, dia: diaDe(ts), ts: ts || 0 }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
   for (const p of (lista || await pedidosProducao(env, () => true))) {
-    if (p.cancelado || /^(cancelado|recusado)$/.test(String(p.status || ''))) continue; // v357: serviço cancelado/duplicado não dá ponto (a instalação da Renata contava 2×)
+    if (p.cancelado || /^(cancelado|recusado)$/.test(String(p.status || ''))) continue;
+    if (ajFixo === undefined) { try { ajFixo = JSON.parse((await env.HR_KV.get('cfg:ajudfixo')) || 'null') || {}; } catch (_) { ajFixo = {}; } eqdF = await equipeLer(env).catch(() => ({ funcs: [] })); } // v357: serviço cancelado/duplicado não dá ponto (a instalação da Renata contava 2×)
     const n = nPecasPed(p), cx = pedComplexo(p), log = Array.isArray(p.prodLog) ? p.prodLog.slice() : [], tipos = new Set(log.map(x => x.e));
     if (!tipos.has('corte') && p.corteFeitoPor && p.corteEm) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm });
     else if (tipos.has('corte') && p.corteEm && p.corteFeitoPor && log.filter(x => x.e === 'corte').every(x => x.pecas)) { const feitas = log.filter(x => x.e === 'corte').reduce((t, x) => t + x.pecas, 0); if (n - feitas > 0) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm, pecas: n - feitas }); } // v156: o resto do corte parcial
@@ -10790,8 +10792,9 @@ async function metasPontos(env, de, ate, lista) { globalThis.__envRegua = env; a
       else continue;
       if (!x.dono && !p.fotoProntoEm && x.ts < Date.now() - 24 * 3600000 && (x.e === 'fabricacao' || (x.e === 'acabamento' && !cx))) pts = meio(pts / 2) || 0.5; // v181: sem foto das peças prontas vale metade
       const cada = Math.round(pts / x.por.length * 10) / 10;
-      if (dentro(x.ts) && (x.e === 'instalacao' || x.e === 'entrega') && Array.isArray(p.instAjud)) { // v198: ajudante da instalação ganha metade, sem tirar do instalador
-        const ini = (p.instIniEm || x.ts - 12 * 3600000) - 3 * 3600000, aj = [...new Set(p.instAjud.filter(a => a.ts >= ini && a.ts <= x.ts + 4 * 3600000).map(a => String(a.id)))].filter(id => !x.por.map(String).includes(id));
+      if (dentro(x.ts) && (x.e === 'instalacao' || x.e === 'entrega') && (Array.isArray(p.instAjud) || Object.keys(ajFixo || {}).length)) { // v198: ajudante da instalação ganha metade, sem tirar do instalador
+        const ini = (p.instIniEm || x.ts - 12 * 3600000) - 3 * 3600000, dX = diaDe(x.ts), fixos = x.por.flatMap(id => { const c = (ajFixo || {})[String(id)]; return c && (!c.desde || dX >= c.desde) && (!c.ate || dX <= c.ate) ? (c.ids || []).filter(h => !emFeriasHoje(eqdF || {}, h, dX) && !(c.fora || []).includes(String(p.id))) : []; });
+        const aj = [...new Set([...(p.instAjud || []).filter(a => a.ts >= ini && a.ts <= x.ts + 4 * 3600000).map(a => String(a.id)), ...fixos.map(String)])].filter(id => !x.por.map(String).includes(id));
         for (const id of aj) add(id, meio(pts / 2) || 0.5, (x.e === 'instalacao' ? 'instalação' : 'entrega') + ' (ajudante)', p, x.ts, ex);
       }
       const rotX = (x.itens && x.itens.length ? `${x.itens.length} ${x.itens.length > 1 ? 'itens' : 'item'} · ` : x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : '');
@@ -13979,6 +13982,18 @@ async function fix356Renata(env) { // v356: junta os registros duplicados de um 
   const pags = [...(m.pagamentos || []), ...outros.flatMap(r => r.pagamentos || [])].map(p => p.valor === 2000 && p.obs === 'entrada' ? { ...p, forma: 'Cartão' } : p); // o Sr. Hangel: os 2 mil foram no cartão
   m.pagamentos = pags.filter((p, i, a) => a.findIndex(q => livMesmoPag(q, p)) === i).sort((x, y) => String(x.data).localeCompare(String(y.data)));
   await livSalvar(env, m); for (const r of outros) await env.HR_KV.delete(LIV_PREFIX + r.id);
+}
+async function fix357b(env) { // v357b: pedido do Sr. Hangel — Jefferson ajudou em todas as entregas do Gibson; Fabrício cortou os serviços sem cortador anotado
+  if (await env.HR_KV.get('fix:357b')) return; await env.HR_KV.put('fix:357b', '1', { expirationTtl: 30 * 86400 });
+  const GIB = 'mpj69nyik9ua', JEF = 'mvjqx7v9hfse', FAB = 'mpj69bv2l3zb';
+  await env.HR_KV.put('cfg:ajudfixo', JSON.stringify({ [GIB]: { ids: [JEF], desde: '2026-11-01' } }));
+  const l = await pedidosProducao(env, p => !p.cancelado && !/^(cancelado|recusado)$/.test(String(p.status || '')) && p.corteEm && diaDe(p.corteEm) >= '2026-11-01' && !p.corteFeitoPor && !(p.prodLog || []).some(x => x.e === 'corte' && (x.por || []).length)).catch(() => []), feitos = [];
+  for (const p of l) { p.corteFeitoPor = FAB; p.prodLog = [...(p.prodLog || []), { e: 'corte', por: [FAB], ts: p.corteEm, dono: 1, obs: 'acerto do Sr. Hangel (25/11)' }]; env._aprovando = 1; await salvarPedido(env, p); env._aprovando = 0; feitos.push(p.nome + ' ' + diaDe(p.corteEm)); }
+  const hoje = dataBahia(), sem = await metasPontos(env, semIni(hoje), hoje), cfg = await pontoCfg(env);
+  for (const f of cfg.funcs) { const pn = await metaPainel(env, f.id).catch(() => null); if (pn) await env.HR_KV.put('meta:ult:' + f.id + ':' + pn.semana.ini, String(pn.pts), { expirationTtl: 9 * 86400 }); } // não dispara "+X pontos" do acerto
+  const ant = await metasPontos(env, isoSomaDias(semIni(hoje), -7), isoSomaDias(semIni(hoje), -1)), mes = await metasPontos(env, hoje.slice(0, 7) + '-01', hoje);
+  const res = id => ({ sem: (sem[id] || {}).pts || 0, ant: (ant[id] || {}).pts || 0, mes: (mes[id] || {}).pts || 0, t: ((sem[id] || {}).tarefas || []).map(t => [t.dia, t.tipo, t.nome, t.pts]) });
+  await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357b', JSON.stringify({ cortes: feitos, por: Object.fromEntries(cfg.funcs.map(f => [f.nome, res(f.id)])) })).run().catch(() => {});
 }
 async function fix357Cassio(env) { // v357: a foto do lavatório cinza do Ésio foi anotada como instalação do Cássio (Preto São Gabriel) → desfaz
   if (await env.HR_KV.get('fix:357')) return; await env.HR_KV.put('fix:357', '1', { expirationTtl: 30 * 86400 });
@@ -37029,6 +37044,7 @@ export default {
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
+    if (ctx && ctx.waitUntil && !globalThis.__fix357b) { globalThis.__fix357b = 1; ctx.waitUntil(fix357b(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357berr', String(e && e.stack || e)).run())); } // v357b
     if (ctx && ctx.waitUntil && !globalThis.__fix357) { globalThis.__fix357 = 1; ctx.waitUntil(fix357Cassio(env).catch(e => console.log('[FIX357]', e.message))); } // v357
     if (ctx && ctx.waitUntil && !globalThis.__diag357) { globalThis.__diag357 = 1; ctx.waitUntil(diag357(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357err', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__diag356b) { globalThis.__diag356b = 1; ctx.waitUntil(diag356b(env).catch(() => {})); }
