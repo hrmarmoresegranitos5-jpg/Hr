@@ -10880,7 +10880,7 @@ async function metaChecar(env, funcId) {
     const tel = await respTel(env, funcId), nome = await respNome(env, funcId); if (!tel) return;
     { // v154: avisa cada ponto ganho, na hora
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
-      if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
+      if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = (env._ptsRotulo && env._ptsRotulo[String(funcId)]) || (pn.tarefas && pn.tarefas[0]); // v356: o rótulo é o que acabou de ser aprovado
         const cruzou = FAIXAS.some(x => pctQ(pn) >= x.pct && !ja.includes('|' + x.pct));
         if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome}${t.dia && t.dia !== dataBahia() ? ', conta para ' + dataBR(t.dia).slice(0, 5) : ''})` : ''}\n📅 Hoje: *${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia || 0)}*${(pn.ptsHoje || 0) >= (pn.metaDia || 99) ? ' ✅' : ''}\n📆 Semana: *${vPt(pn.pts)} de ${vPt(pn.meta)}*${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}${pn.ptsMes != null ? `\n🗓️ Mês: *${vPt(pn.ptsMes)} de ${pn.metaMes}*` : ''}`).catch(() => {}); } // v207/v209: simples — hoje, semana e mês
     }
@@ -12876,12 +12876,16 @@ async function fotoDecisaoMarcar(env, mid, status, corr) { try { if (!mid || !(a
 const FOTO_ACAO_TXT = { cti: 'começou o corte', aci: 'começou o acabamento', acf: 'terminou o acabamento', pronto: 'peças prontas / corte feito', ini: 'começou a instalação', fim: 'terminou a instalação / entregou', foto: 'só guardou a foto', reabre: 'reabriu a instalação' };
 // exemplos que o dono corrigiu: vão no pedido da IA da foto para ela não repetir o erro
 async function fotoExemplosCorrigidos(env) { try { if (!(await fotoDecTab(env))) return ''; const r = await env.HR_DB.prepare("SELECT leg, pnome, acao, corr, vejo FROM foto_decisao WHERE status = 'corrigida' ORDER BY ts DESC LIMIT 8").all(); return (r.results || []).map(x => `- legenda "${x.leg || '(sem legenda)'}"${x.vejo ? ', foto: ' + x.vejo : ''}: NÃO era ${FOTO_ACAO_TXT[x.acao] || x.acao} de ${x.pnome}; o certo: ${x.corr}`).join('\n'); } catch (_) { return ''; } }
+// v356: cor da pedra em dois grupos (escura × clara): granito branco pintado parece cinza na foto, mas preto nunca parece cinza
+function corPedraGrupo(t) { t = normaliza(String(t || '')); if (!t) return '';
+  const esc = /\b(preto|preta|negro|absoluto|sao gabriel|gabriel|via lactea|verde|ubatuba|marrom|cafe|imperial|tabaco|escur[oa])\b/.test(t), cla = /\b(branc[oa]|cinza|cinzento|claro|clara|bege|creme|marfim|itaunas|siena|dallas|andorinha|corumba|ocre|travertino|carrara|prime|polar|arabesco)\b/.test(t);
+  return esc && !cla ? 'escura' : cla && !esc ? 'clara' : ''; }
 async function fotoInteligente(env, f, from, m, leg, l, linhas) {
   if (!m || !m.image || !m.image.id) return null;
   let img = null; try { const b = await baixarMidia(env, m.image.id); img = { buf: new Uint8Array(b.buf), mime: b.tipo || 'image/jpeg' }; } catch (_) { return null; }
   const papel = await papelFuncionario(env, f, from).catch(() => '');
   const est = p => [p.corteIniEm && !p.corteEm ? 'corte começou' : '', p.corteEm ? 'corte feito' : 'corte não feito', p.acabIniEm && !p.acabEm ? 'acabamento começou' : '', p.acabEm ? 'acabamento feito' : '', p.fabProntoEm || p.prontoEm ? 'peças prontas na fábrica' : '', p.entregaEnviadaEm ? 'liberado para entrega' : '', p.instIniEm ? 'instalação começou' : '', p.entregueEm ? 'entregue' : ''].filter(Boolean).join(', ');
-  const ctx = l.map(p => `- ${p.nome}: ${resumoPecas(p)}${(p.resumoApp && p.resumoApp.itens || []).length ? ' [' + p.resumoApp.itens.map(it => `${it.ambiente || 'peça'}${it.pedra ? ' em ' + it.pedra : ''}: ${(it.pecas || []).map(x => `${+x.qtd || 1}×${Math.round(+x.comp_cm || 0)}x${Math.round(+x.larg_cm || 0)}`).join(', ')}`).join('; ') + ']' : ''}. Situação: ${est(p) || 'aberto'}.\n  Opções: ${linhas.filter(x => x.id.split('|')[1] === String(p.id)).map(x => `"${x.id}" = ${x.descricao}`).join(' | ')}`).join('\n');
+  const ctx = l.map(p => `- ${p.nome}: ${resumoPecas(p)}${(p.resumoApp && p.resumoApp.itens || []).length ? ' [' + p.resumoApp.itens.map(it => `${it.ambiente || 'peça'}${it.pedra ? ' em ' + it.pedra : ''}: ${(it.pecas || []).map(x => `${+x.qtd || 1}×${Math.round(+x.comp_cm || 0)}x${Math.round(+x.larg_cm || 0)}`).join(', ')}`).join('; ') + ']' : ''}. ${corPedraGrupo((p.resumoApp && p.resumoApp.pedra) || p.cor) ? ' (pedra ' + corPedraGrupo((p.resumoApp && p.resumoApp.pedra) || p.cor).toUpperCase() + ')' : ''}. Situação: ${est(p) || 'aberto'}.\n  Opções: ${linhas.filter(x => x.id.split('|')[1] === String(p.id)).map(x => `"${x.id}" = ${x.descricao}`).join(' | ')}`).join('\n');
   const sis = `Você identifica fotos de serviço que os funcionários de uma marmoraria mandam pelo WhatsApp. Olhe a foto com atenção e decida de qual serviço (cliente) e de qual etapa ela é, ESCOLHENDO UMA das opções listadas (copie o id exato).
 Como ler a foto: chapa inteira na bancada/serra ou sendo riscada/cortada = COMEÇANDO o corte; peças já recortadas, brutas, empilhadas ou encostadas na oficina = corte feito / peças prontas; peças com borda polida, brilho, sainha colada, cuba recortada, na oficina = acabamento feito / peças prontas; local da obra sem a pedra (parede, armário, bancada vazia, piso sujo) = COMEÇANDO a instalação; pedra já assentada/instalada na casa do cliente (pia, bancada, lavatório, soleira no lugar) = instalação terminada / entreguei; peças no carro = entrega.
 Compare o TIPO de peça (cozinha/bancada/pia/balcão/área gourmet, lavatório, soleira, peitoril, escada, nicho) e a COR da pedra (preto, branco, verde, cinza, marrom, bege) com cada serviço. A legenda do funcionário vale muito ("iniciando" = começo, "finalizado/finalizando/pronto/cortado" = fim). Quem manda é ${f.nome} (${papel || 'equipe'}).
@@ -12890,7 +12894,9 @@ certeza "alta" só quando a peça e a cor batem com UM só serviço e a etapa es
   const o = await iaVisaoJSON(env, sis + (exC ? `\nERROS QUE VOCÊ JÁ COMETEU E O SR. HANGEL CORRIGIU (não repita):\n${exC}` : ''), [img], `Legenda: "${String(leg || '').slice(0, 200) || '(sem legenda)'}"\nServiços:\n${ctx}`, 300);
   if (!o || !o.opcao) return null;
   const op = linhas.find(x => x.id === String(o.opcao).trim()); if (!op) return null;
-  return { op, certeza: ['alta', 'media', 'baixa'].includes(o.certeza) ? o.certeza : 'baixa', vejo: String(o.vejo || '').slice(0, 120) };
+  let certeza = ['alta', 'media', 'baixa'].includes(o.certeza) ? o.certeza : 'baixa'; const vejo = String(o.vejo || '').slice(0, 120);
+  { const pd = l.find(p => String(p.id) === op.id.split('|')[1]), gP = pd ? corPedraGrupo((pd.resumoApp && pd.resumoApp.pedra) || pd.cor) : '', gV = corPedraGrupo(vejo); if (gP && gV && gP !== gV) certeza = 'baixa'; } // v356: foto de pedra cinza não é do serviço em Preto São Gabriel
+  return { op, certeza, vejo };
 }
 async function prodFotoEscolha(env, f, from, idB, nome) { if (!env._fotoOrigem) { try { const sg = JSON.parse((await env.HR_KV.get('prod:fotosug:' + ultimos8(from))) || 'null'); if (sg) { await env.HR_KV.delete('prod:fotosug:' + ultimos8(from)); env._fotoOrigem = sg.op === idB ? 'ia+confirmou' : 'escolha (ia sugeriu outro)'; env._fotoCerteza = sg.certeza; env._fotoVejo = sg.vejo; } } catch (_) {} } // v337
   // v176: com várias fotos, a 1ª vai para a etapa escolhida e as outras ficam guardadas no pedido
@@ -12913,7 +12919,8 @@ async function instAjudAnotar(env, ped, f) {
 async function prodFotoEscolha1(env, f, from, idB, nome) {
   let [, pid, ac] = idB.split('|'); await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid, em: Date.now() }), { expirationTtl: 3600 }).catch(() => {}); /* v336: as outras fotos do álbum vão para o mesmo pedido, sem nova ação */ const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
   let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
-  if (!fp || !fp.mid) { await enviar(env, from, 'A foto expirou. Manda de novo, por favor.'); return true; }
+  if (!fp || !fp.mid) { const rec = (ped.prodLog || []).some(x => (x.por || []).map(String).includes(String(f.id)) && Date.now() - (x.ts || 0) < 3 * 3600000) || (ped.entregueEm && Date.now() - ped.entregueEm < 3 * 3600000);
+    await enviar(env, from, rec ? `✅ Já está anotado no serviço de *${ped.nome}*. Se tiver outra foto, pode mandar.` : 'Não achei a foto para esse botão. Manda a foto de novo, por favor.'); return true; } // v356: botão antigo depois de já ter anotado
   await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
   await fotoDecisaoGravar(env, { fid: f.id, fnome: f.nome, tel: from, mid: fp.mid, leg: fp.leg || '', pid: ped.id, pnome: ped.nome, acao: ac, origem: env._fotoOrigem || 'escolha', certeza: env._fotoCerteza || '', vejo: env._fotoVejo || '' }); env._fotoOrigem = ''; env._fotoCerteza = ''; env._fotoVejo = '';
   const img = { type: 'image', image: { id: fp.mid } };
@@ -17968,7 +17975,7 @@ async function aprovMarcar(env, p) {
 async function aprovPtsEst(env, p, x) { // quanto essa etapa vale (para o dono decidir)
   try { const c = JSON.parse(JSON.stringify(p)); delete c.corteFeitoPor; delete c.fabFeitoPor; delete c.entFeitoPor;
     c.prodLog = (c.prodLog || []).map(y => y.apId === x.apId ? { ...y, ap: 1 } : y.ap === 0 ? { ...y, ap: -1 } : y);
-    const d = diaDe(x.ts), m = await metasPontos(env, d, d, [c]), q = (m._ped || {})[c.id] || {}; return Math.round(Object.values(q).reduce((t, v) => t + v, 0) * 10) / 10;
+    const d = diaDe(x.ts), m = await metasPontos(env, d, d, [c]), q = (m._ped || {})[c.id] || {}, quem = new Set((x.por || []).map(String)); return Math.round(Object.entries(q).filter(([k]) => !quem.size || quem.has(String(k))).reduce((t, [, v]) => t + v, 0) * 10) / 10; // v356: só os pontos de quem fez esta etapa
   } catch (_) { return null; }
 }
 async function aprovItemTxt(env, p, x, cfg) {
@@ -17994,7 +18001,7 @@ async function aprovDecidir(env, lista, opc = {}) {
     for (const pid of Object.keys(porPed)) {
       const p = await lerPedido(env, pid).catch(() => null); if (!p) continue; let mud = false;
       for (const it of porPed[pid]) { const x = (p.prodLog || []).find(y => y.apId === it.apId); if (!x || x.ap !== 0) continue;
-        x.ap = it.ok ? 1 : -1; x.apEm = Date.now(); mud = true; if (it.ok) { ok++; (x.por || []).forEach(id => afetados.add(String(id))); } else { no++; recusas.push({ p, x }); } }
+        x.ap = it.ok ? 1 : -1; x.apEm = Date.now(); mud = true; if (it.ok) { ok++; (x.por || []).forEach(id => { afetados.add(String(id)); (env._ptsRotulo = env._ptsRotulo || {})[String(id)] = { tipo: APROV_ET[x.e], nome: p.nome, dia: diaDe(x.ts) }; }); } else { no++; recusas.push({ p, x }); } }
       if (mud) await salvarPedido(env, p);
       if (mud && porPed[pid].some(i => i.ok)) await aprovLiberarEntrega(env, p).catch(e => console.log('[APROV] entrega:', e.message));
     }
@@ -18026,7 +18033,8 @@ async function aprovPosMensagem(env, from) {
 // v349: serviço com nome que não é de cliente ("Peitoril finalizadosn") aberto por engano → pergunta ao dono se apaga (1x por serviço)
 async function prodLixoChecar(env) {
   const ag = agoraBahia(); if (ag.min < 7 * 60 || ag.min > 19 * 60) return;
-  const l = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && p.status !== 'cancelado').catch(() => [])).filter(p => p.nome && !nomeClienteValido(p.nome));
+  const cfgF = await pontoCfg(env).catch(() => ({ funcs: [] })), nomesF = new Set((cfgF.funcs || []).flatMap(f => [normaliza(f.nome || ''), normaliza(String(f.nome || '').split(' ')[0]), normaliza(apelidoFunc(cfgF, f) || '')]).filter(Boolean)); // v356: serviço com o nome de um funcionário ("Fabrício") também é engano
+  const l = (await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && p.status !== 'cancelado').catch(() => [])).filter(p => p.nome && (!nomeClienteValido(p.nome) || nomesF.has(normaliza(String(p.nome).trim()))));
   for (const p of l.slice(0, 3)) {
     const k = 'prodlixo:' + p.id; if (await env.HR_KV.get(k)) continue; if (!(await travaEnvio(env, k))) continue; await env.HR_KV.put(k, '1', { expirationTtl: 30 * 86400 });
     await enviarComBotoes(env, numeroDono(env), `🧹 Na produção tem um serviço com nome estranho: *${p.nome}* (${resumoPecas(p)}). Parece aberto por engano a partir de uma mensagem mal entendida. Apago?`,
