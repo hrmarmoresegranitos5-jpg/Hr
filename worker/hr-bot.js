@@ -5007,6 +5007,7 @@ function promptCliente(env, c, regras) {
     ``,
     `REGRAS:`,
     `- Faça UMA pergunta por vez, exceto na primeira pergunta do orçamento de soleira/peitoril, que pede juntos o que falta (pedra, medidas e acabamento).`,
+    `- NÃO SOBRECARREGUE O CLIENTE (v358e): (1) se a mensagem do cliente tem várias partes (mensagens seguidas juntadas numa só), leia TODAS e responda TODAS as perguntas dele primeiro, em poucas palavras, numa resposta só; se ele corrigiu algo ("ops", "corrigindo", "na verdade"), vale a correção e você confirma em 3 a 6 palavras ("Certo, parede da direita."). (2) Resposta curta: no máximo 3 frases curtas (até ~280 caracteres), sem parágrafo de explicação; opções em no máximo 3 itens de poucas palavras ("Reta, 45° ou slim?"). (3) Pergunte só o que muda o preço ou a produção e ainda falta; NUNCA pergunte o que já está nos dados, na conversa, no projeto do site ou nas orientações do Sr. Hangel; o que dá para ver na visita técnica fica para a visita. (4) Se o cliente acabou de mandar o projeto pelo site ou o orçamento já foi enviado, não reabra o questionário: no máximo UMA pergunta do que falta de verdade. (5) Nunca mande duas perguntas diferentes seguidas sem o cliente ter respondido a anterior.`,
     `- ATENÇÃO TOTAL: antes de cada pergunta, releia toda a conversa e os dados já coletados. NUNCA pergunte algo que o cliente já respondeu, mesmo de passagem, fora de ordem ou junto com outra coisa (nome, pedra, medidas, quantidade, acabamento, entrega ou retirada, forma de pagamento, endereço, ponto de referência, dia e horário). Se ele deu várias informações numa mensagem, registre todas e pergunte só o que falta. Se ele disser que vai retirar, registre \"entrega\": \"retirada\"; se pedir entrega, registre a entrega. Entenda o sentido do que ele escreve, mesmo com erros, gírias e abreviações.`,
     `- PRAZO: soleira ou peitoril simples (sem recortes nem formatos especiais), de até ${_maxPecasSimples} peças no total, fica pronto em 2 dias úteis; pode informar isso se o cliente perguntar. Com mais peças, NÃO prometa prazo: o valor sai na hora pelo sistema e a data de entrega é definida pela equipe depois que o cliente aprovar. Com recortes ou formato especial, NÃO prometa prazo nem valor: diga que a equipe vai revisar o orçamento e retorna em breve. Diga \"entrega\" só se ele escolheu entrega; se vai retirar, fale em \"pronto para retirada\".`,
     `- ESTILO: respostas curtas, de 1 a 2 frases, como uma atendente simpática e profissional no WhatsApp. Sem repetir o que o cliente disse, sem explicar o que vai fazer por trás, sem frases de enchimento. Nunca diga "pedido registrado", "orçamento em PDF" nem "equipe" enquanto ainda falta informação: apenas faça a próxima pergunta.`,
@@ -5869,6 +5870,9 @@ async function atenderClienteIA(env, from, bruto, perfil) {
       resposta = resposta.replace(/(\bcor[^:\n]{0,20}:\s*\**\s*)a definir/gi, (_m, p1) => p1 + corReal).replace(/\bcor a definir\b/gi, () => 'cor ' + corReal);
     }
     resposta = falarMedidas(resposta || '');
+    if (env._raj && env.HR_DB) { try { const nv = await env.HR_DB.prepare('SELECT MAX(id) AS id FROM raj WHERE num = ?').bind(env._raj.num).first(); // v358e: chegou mensagem nova enquanto a Helena pensava: não manda esta resposta; a nova responde tudo junto
+      if (nv && nv.id > env._raj.meu) { console.log('[RAJ] resposta descartada: mensagem nova'); return true; }
+      await env.HR_DB.prepare('UPDATE raj SET resp = 1 WHERE num = ? AND id <= ?').bind(env._raj.num, env._raj.meu).run(); } catch (_) {} }
     resposta = await protegerRespostaCliente(env, from, resposta);
     let pronto = saida.pronto === true;
     { // "sim" ao resumo da visita: o código fecha, mesmo que a IA esqueça de marcar pronto
@@ -22626,19 +22630,20 @@ async function comTrava(env, from, fn, m) {
 //   juntando tudo (áudios são ouvidos e entram como texto). Frase cortada ("oi", "queria saber", termina em vírgula/"e") espera mais.
 //   ESPERA_CLIENTE=0 desliga. Equipe e dono não esperam.
 function esperaRajadaMs(m, txt, r) {
-  if (Date.now() - r.ini > 40000) return 1500; // já esperou muito: responde
-  if (m.type === 'audio') return 4500;
+  if (Date.now() - r.ini > 45000) return 2000; // já esperou muito: responde
+  if (m.type === 'audio') return 7000; // v358e: espera mais (o cliente costuma mandar 2-3 mensagens seguidas)
   const n = normaliza(txt).trim(), raw = String(txt || '').trim();
-  if (/^(oi+e?|ola|opa|oie|bom dia|boa tarde|boa noite|e ai|tudo bem|oi tudo bem|ola tudo bem|boa)\W*$/.test(n)) return 9000;
-  if (/[,:;]$/.test(raw) || /\b(e|mas|tipo|que|porque|pq|entao|ai|com|de|da|do|para|pra|tambem|queria|gostaria|preciso|sobre)$/.test(n) || (n.length < 25 && !/[?.!]$/.test(raw))) return 9000;
-  return 5500;
+  if (/^(oi+e?|ola|opa|oie|bom dia|boa tarde|boa noite|e ai|tudo bem|oi tudo bem|ola tudo bem|boa|ops|opa|corrigindo|na verdade|perai|pera|espera|calma)\W*$/.test(n)) return 11000;
+  if (/[,:;]$/.test(raw) || /\b(e|mas|tipo|que|porque|pq|entao|ai|com|de|da|do|para|pra|tambem|queria|gostaria|preciso|sobre)$/.test(n) || (n.length < 25 && !/[?.!]$/.test(raw))) return 11000;
+  return 7500;
 }
 async function esperarRajada(env, m) {
+  env._raj = null;
   if (String(env.ESPERA_CLIENTE ?? '1') === '0' || !m || !m.from || !m.id || ehDono(env, m.from) || !['text', 'audio'].includes(m.type)) return false;
   const cfg = await pontoCfg(env).catch(() => null); if (cfg && pontoFuncPorFone(cfg, m.from)) return false;
   const k = 'raj:' + ultimos8(m.from), agora = Date.now();
   if (env.HR_DB) try { // v358d: estado da rajada no D1 (a KV devolve leitura velha por até 60 s e a Viviane recebeu 3 respostas para "Ops / Ops, parede da direita / Corrigindo")
-    if (!globalThis.__rajT) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS raj (id INTEGER PRIMARY KEY AUTOINCREMENT, num TEXT, mid TEXT, ts INTEGER, tp TEXT, t TEXT, audio TEXT, usado INTEGER DEFAULT 0)').run(); globalThis.__rajT = 1; }
+    if (!globalThis.__rajT) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS raj (id INTEGER PRIMARY KEY AUTOINCREMENT, num TEXT, mid TEXT, ts INTEGER, tp TEXT, t TEXT, audio TEXT, usado INTEGER DEFAULT 0)').run(); await env.HR_DB.prepare('ALTER TABLE raj ADD COLUMN resp INTEGER DEFAULT 0').run().catch(() => {}); globalThis.__rajT = 1; }
     const num = ultimos8(m.from), txt = m.type === 'text' ? String(m.text?.body || '') : '';
     if (await env.HR_DB.prepare('SELECT 1 FROM raj WHERE num = ? AND mid = ?').bind(num, m.id).first()) return false; // reenvio da Meta
     const ins = await env.HR_DB.prepare('INSERT INTO raj (num, mid, ts, tp, t, audio) VALUES (?, ?, ?, ?, ?, ?)').bind(num, m.id, agora, m.type, txt.slice(0, 2000), m.type === 'audio' ? String((m.audio && m.audio.id) || '') : '').run(), meu = +(ins.meta && ins.meta.last_row_id) || 0;
@@ -22647,7 +22652,8 @@ async function esperarRajada(env, m) {
     const mx = (await env.HR_DB.prepare('SELECT MAX(id) AS id FROM raj WHERE num = ? AND usado = 0').bind(num).first() || {}).id || meu;
     if (mx > meu) { await env.HR_KV.put('m:' + m.id, '1', { expirationTtl: 3600 }).catch(() => {}); return true; } // a mais nova responde por todas
     m._esperou = Date.now() - agora;
-    const ps = ((await env.HR_DB.prepare('SELECT id, mid, tp, t, audio FROM raj WHERE num = ? AND usado = 0 AND id <= ? AND ts > ? ORDER BY id').bind(num, meu, agora - 120000).all()).results) || [];
+    const ps = ((await env.HR_DB.prepare('SELECT id, mid, tp, t, audio FROM raj WHERE num = ? AND resp = 0 AND id <= ? AND ts > ? ORDER BY id').bind(num, meu, agora - 180000).all()).results) || []; // v358e: inclui as que uma resposta anterior descartou (chegou mensagem nova enquanto pensava)
+    env._raj = { num, meu };
     await env.HR_DB.prepare('UPDATE raj SET usado = 1 WHERE num = ? AND id <= ?').bind(num, meu).run();
     if (Math.random() < 0.03) await env.HR_DB.prepare('DELETE FROM raj WHERE ts < ?').bind(agora - 86400000).run().catch(() => {});
     if (ps.length > 1) { const textos = [];
