@@ -1395,23 +1395,24 @@
       });
     }
     function lista() { var l = []; try { if (typeof DB !== 'undefined' && Array.isArray(DB.q)) l = DB.q.slice(); } catch (e) {} return l.filter(function (q) { return q && q.id != null && (q.ambSnap || []).length; }).sort(function (a, b) { return String(b.date || b.createdAt || '').localeCompare(String(a.date || a.createdAt || '')); }); }
+    function logBot(c, qid, msg) { try { fetch(c.url + '/bot/ficha/log', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, c.h), body: JSON.stringify({ qid: qid || '', msg: msg }) }); } catch (e) {} }
     function ciclo() {
       var c = cfgBot(); if (!c || rodando || document.hidden) return; rodando = true;
-      fetch(c.url + '/bot/ficha/hashes', { headers: c.h }).then(function (r) { return r.json(); }).then(function (j) {
+      fetch(c.url + '/bot/ficha/hashes?n=' + lista().length, { headers: c.h }).then(function (r) { return r.json(); }).then(function (j) {
         var feitos = (j && j.hashes) || {}, fila = [];
         lista().forEach(function (q) { try { var t = textoDoOrcamento(q); if (!t) return; var hs = hashTxt([q.cli, q.mat, q.tipo, t].join('|')); if (feitos[String(q.id)] !== hs) fila.push({ q: q, t: t, hs: hs }); } catch (e) {} });
         var n = 0;
         function prox() {
           var it = fila.shift(); if (!it || n >= 8) { rodando = false; return; }
           var d = novo(); d.cliente = it.q.cli || ''; d.material = it.q.mat || ''; d.desc = it.q.tipo || ''; d.texto = it.t; d.pecas = interpretar(it.t);
-          if (!d.pecas.length) return prox();
+          if (!d.pecas.length) { logBot(c, it.q.id, 'sem peças: ' + it.t.slice(0, 120)); return prox(); }
           n++;
           jpgDe(d).then(function (b64) {
             return fetch(c.url + '/bot/ficha/img', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, c.h), body: JSON.stringify({ qid: String(it.q.id), orcNum: it.q.orcNum || '', cliente: it.q.cli || '', projeto: it.q.tipo || '', hash: it.hs, img: b64, mime: 'image/jpeg' }) });
-          }).catch(function (e) { console.warn('[ficha→bot]', e); }).then(function () { setTimeout(prox, 400); });
+          }).then(function (r) { if (r && !r.ok) logBot(c, it.q.id, 'envio HTTP ' + r.status); }).catch(function (e) { console.warn('[ficha→bot]', e); logBot(c, it.q.id, 'erro: ' + (e && e.message || e)); }).then(function () { setTimeout(prox, 400); });
         }
         prox();
-      }).catch(function () { rodando = false; });
+      }).catch(function (e) { rodando = false; logBot(c, '', 'hashes: ' + (e && e.message || e)); });
     }
     setTimeout(ciclo, 15000); setInterval(ciclo, 2 * 60 * 1000);
     window.hrFichasParaBot = ciclo;

@@ -17821,6 +17821,7 @@ function appPecasDoAmb(amb) {
     return { ambiente: limpo(m[1]) || 'Peças', acabTxt: ac.join(' · ').slice(0, 46).replace(/[\s·]+$/, ''), pecas: agruparPecas(pecas) };
   }).filter(x => x && x.pecas.length);
 }
+async function fichaLog(env, tipo, qid, info) { try { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS ficha_log (ts INTEGER, tipo TEXT, qid TEXT, info TEXT)').run(); await env.HR_DB.prepare('INSERT INTO ficha_log VALUES (?,?,?,?)').bind(Date.now(), tipo, qid, String(info || '').slice(0, 300)).run(); await env.HR_DB.prepare('DELETE FROM ficha_log WHERE ts < ?').bind(Date.now() - 7 * 86400000).run(); } catch (_) {} }
 async function fichaTecnicaTool(env, from, a) {
   const h = await lerHistorico(env); if (!h) return { texto: 'O app ainda não mandou o histórico. Peça ao Sr. Hangel para abrir o app uma vez (ele envia sozinho em 1 minuto) e tente de novo.' };
   let l = []; const on = a.orc ? orcNumNorm(a.orc) : '';
@@ -17839,6 +17840,7 @@ async function fichaTecnicaTool(env, from, a) {
     if (fi && fi.img) { const mid = await subirImagemMeta(env, base64ParaBytes(fi.img), `Ficha ${o.cliente}`);
       await postarMsg(env, destF, { type: 'image', image: { id: mid, caption: `📐 Ficha técnica: ${o.cliente}${o.projeto ? ' · ' + o.projeto : ''}${o.material ? ' · ' + o.material : ''}` } });
       return { texto: `FICHA TÉCNICA (desenho do Projeto 2D) JÁ ENVIADA a ${quemF}: ${o.cliente} · ${o.projeto || ''}. Confirme em uma frase curta.` }; } }
+  await fichaLog(env, 'sem-desenho', String(o.id), o.cliente);
   const itens = appPecasDoAmb(o.amb); if (!itens.length) return { texto: `Não consegui ler as peças do orçamento de ${o.cliente}: "${o.amb.slice(0, 200)}". Diga ao Sr. Hangel que a ficha com o desenho 3D está no app (Desenho → Do orçamento).` };
   const hojeF = dataBahia(), [yy, mm, dd] = hojeF.split('-'), nomeArq = `Ficha técnica - ${o.cliente}${o.projeto ? ' - ' + o.projeto : ''}.pdf`.replace(/[\\/:*?"<>|]/g, '');
   const bytes = fichaCortePdf({ titulo: `FICHA TÉCNICA — ${String(o.projeto || 'PROJETO').toUpperCase().slice(0, 40)}`, cliente: o.cliente, pedra: o.material || '', geradoEm: `${DIAS_SEMANA[diaSemanaISO(hojeF)]}, ${dd} de ${NOMES_MES[Number(mm) - 1]} de ${yy}`, itens });
@@ -27340,8 +27342,10 @@ async function rotaBotInterna(req, env, url) {
     if (!qid || img.length < 100 || img.length > 6000000) return jsonR({ error: 'qid/img' }, 400);
     await env.HR_KV.put('fichaimg:' + qid, JSON.stringify({ img, mime: b.mime === 'image/png' ? 'image/png' : 'image/jpeg', cliente: String(b.cliente || '').slice(0, 60), orcNum: String(b.orcNum || '').slice(0, 30), projeto: String(b.projeto || '').slice(0, 70), hash: String(b.hash || '').slice(0, 40), ts: Date.now() }), { expirationTtl: 400 * 86400 });
     const idx = JSON.parse((await env.HR_KV.get('fichaimg:idx')) || '{}'); idx[qid] = String(b.hash || ''); await env.HR_KV.put('fichaimg:idx', JSON.stringify(idx));
+    await fichaLog(env, 'img', qid, String(b.cliente || '') + ' ' + img.length);
     return jsonR({ ok: true }); }
-  if (p === '/bot/ficha/hashes' && req.method === 'GET') return jsonR({ ok: true, hashes: JSON.parse((await env.HR_KV.get('fichaimg:idx')) || '{}') });
+  if (p === '/bot/ficha/hashes' && req.method === 'GET') { await fichaLog(env, 'hashes', '', url.searchParams.get('n') || ''); return jsonR({ ok: true, hashes: JSON.parse((await env.HR_KV.get('fichaimg:idx')) || '{}') }); }
+  if (p === '/bot/ficha/log' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await fichaLog(env, 'app', String(b.qid || ''), String(b.msg || '').slice(0, 300)); return jsonR({ ok: true }); }
   if (p === '/bot/producao/aprovar' && req.method === 'GET') return jsonR({ ok: true, ativo: await aprovAtivo(env), itens: await aprovListar(env, +url.searchParams.get('dias') || 0) }); // v339: tela "Aprovar produção"
   if (p === '/bot/producao/aprovar' && req.method === 'POST') { const b = await req.json().catch(() => ({}));
     if (b.ativo != null) { await env.HR_KV.put('cfg:aprov', b.ativo ? '1' : '0'); return jsonR({ ok: true, ativo: !!b.ativo }); }
