@@ -2288,6 +2288,7 @@ async function tratarBotao(env, from, id, F) {
   if (await tratarBotaoNota(env, from, id)) return true;
   if (id.startsWith('fech_')) return tratarBotaoFechamento(env, from, id);
   if (id === 'resp_ok' || id === 'resp_no') { await decidirRascunho(env, from, id === 'resp_ok'); return true; }
+  if (id.startsWith('det|')) return siteDetBotao(env, from, id); // v359
   if (id.startsWith('pr_ok|') || id.startsWith('pr_no|')) return pontoBotaoRede(env, from, id); // v34: HR Ponto, rede nova
   if (id.startsWith('ppd_ok|') || id.startsWith('ppd_no|')) return pontoPedidoBotao(env, from, id); // v85
   if (id.startsWith('pb_ok|') || id.startsWith('pb_no|')) return pontoBatidaBotao(env, from, id); // v85
@@ -7393,6 +7394,7 @@ async function pedirAvaliacoes(env) {
   await helenaAuditoriaRotina(env).catch(e => console.log('[FALHA] auditoria:', e.message)); // v329
   await aprovLembrete(env).catch(e => console.log('[APROV] lembrete:', e.message)); // v346
   await prodLixoChecar(env).catch(e => console.log('[LIXO]', e.message)); // v349
+  await siteDetRotina(env).catch(e => console.log('[DET] rotina:', e.message)); // v359
   await corridaRotina(env).catch(e => console.log('[CORRIDA]', e.message)); // v355
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
@@ -21632,6 +21634,7 @@ async function tratarAssumir(env, from, bruto, msg) {
   if (await tratarPrazosComando(env, from, msg)) return true;
   if (await tratarEntregue(env, from, msg)) return true;
   if (await tratarHorariosVisitaDono(env, from, bruto, msg)) return true; // resposta do dono com os horários livres para a visita de um cliente
+  if (await siteDetTexto(env, from, bruto, msg).catch(e => { console.log('[DET] texto:', e.message); return false; })) return true; // v359
   if (await tratarLivroComando(env, from, msg)) return true; // "entregas" / "entregas <cliente>": livro de entregas e pagamentos
   if (await tratarPronto(env, from, msg)) return true;
   if (await tratarConciliacao(env, from, msg)) return true;
@@ -22233,6 +22236,7 @@ async function tratarMensagemBase(env, m, ctx) {
     return;
   }
   if (dono && m.type === 'image') await mrGuardar(env, from, m); // v114
+  if (dono && m.type === 'image' && await siteDetImagem(env, from, m).catch(e => { console.log('[DET] imagem:', e.message); return false; })) return; // v359: foto real de detalhe para o site
   if (dono && m.type === 'image' && await cubaTratarImagem(env, from, m).catch(e => { console.log('[CUBA] imagem:', e.message); return false; })) return; // v111
   if (dono && m.type === 'image' && await rtpTratarImagem(env, from, m).catch(e => { console.log('[RTP] imagem:', e.message); return false; })) return; // v93
   if (dono && m.type === 'image' && await confTratarPrint(env, from, m).catch(e => { console.log('[CONF] print:', e.message); return false; })) return; // v72
@@ -25670,13 +25674,25 @@ async function acvNovaObra(env, desc) {
   try { const pedras = [...new Set((await lerPortfolio(env)).filter(i => i.tipo === 'pedra' && i.nome).map(i => i.nome))]; o.pedra = pedras.filter(n => nd.includes(normaliza(n))).sort((a, b) => b.length - a.length)[0] || ''; } catch (_) { o.pedra = ''; }
   return o;
 }
+async function hashBuf(buf) { const d = await crypto.subtle.digest('SHA-1', buf instanceof Uint8Array ? buf : new Uint8Array(buf)); return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 20); }
+async function fix359Obras(env) { // v359: tira do site as fotos de obra repetidas (a mesma foto entrou 2×)
+  if (await env.HR_KV.get('fix:359') || !(await travaEnvio(env, 'fix359'))) return; await env.HR_KV.put('fix:359', '1', { expirationTtl: 30 * 86400 });
+  const l = (await lerPortfolio(env)).filter(i => i && i.tipo === 'trabalho' && i.origem !== 'app'), hs = {}, fora = [];
+  for (const i of l) { if (i.h) { (hs[i.h] = hs[i.h] || []).push(i.id); continue; } const b = await env.HR_KV.get('pf:img:' + i.id, 'arrayBuffer').catch(() => null); if (!b) continue; const h = await hashBuf(b); i.h = h; (hs[h] = hs[h] || []).push(i.id); }
+  for (const ids of Object.values(hs)) fora.push(...ids.slice(1));
+  const mapa = Object.fromEntries(l.filter(i => i.h).map(i => [i.id, i.h]));
+  await alterarPortfolio(env, async x => { for (const i of x) if (mapa[i.id] && !i.h) i.h = mapa[i.id]; for (let k = x.length - 1; k >= 0; k--) if (fora.includes(x[k].id)) x.splice(k, 1); }, x => !x.some(i => fora.includes(i.id)));
+  for (const id of fora) await env.HR_KV.delete('pf:img:' + id).catch(() => {});
+  if (fora.length) await pontoAvisarDono(env, `🧹 Site: tirei ${fora.length} foto(s) de obra repetida(s) do álbum "Obras reais".`).catch(() => {});
+}
 async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de vídeo) no álbum de serviços feitos do site
   const lista = await lerPortfolio(env);
   if (lista.filter(i => i.tipo === 'trabalho' && i.origem !== 'app').length >= 120 || lista.filter(i => i.obraId === o.id).length >= 8) return '';
+  const h = await hashBuf(buf).catch(() => ''); if (h && lista.some(i => i.h === h)) return ''; // v359: a mesma foto não entra duas vezes no site
   const pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 4);
   await env.HR_KV.put('pf:img:' + pid, buf);
   const legenda = [o.desc ? o.desc.charAt(0).toUpperCase() + o.desc.slice(1) : 'Obra', o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? 'em ' + o.pedra : ''].filter(Boolean).join(' ').slice(0, 200);
-  await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: quando || Date.now(), viaBot: 1, obraId: o.id }); }, l => l.some(i => i.id === pid));
+  await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: quando || Date.now(), viaBot: 1, obraId: o.id, h }); }, l => l.some(i => i.id === pid));
   return pid;
 }
 // v121: "edite esses vídeos com frase de bom dia", "monte um vídeo", "faz um vídeo com isso"
@@ -35306,6 +35322,20 @@ section.passo.on{display:block;animation:ent .35s ease}
 .tag{position:absolute;left:10px;top:10px;z-index:2;background:rgba(13,10,5,.82);color:var(--gold2);font-size:10.5px;font-weight:700;padding:5px 9px;border-radius:20px;border:1px solid var(--line2)}
 .tag.rec{background:var(--gold);color:#1a1200;border-color:var(--gold)}
 .semop{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.dets{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:22px}
+@media(min-width:720px){.dets{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}}
+.det{position:relative;background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer;color:var(--tx);text-align:left;padding:0;display:flex;flex-direction:column}
+.det .ft{aspect-ratio:4/3;background:#100d07 center/cover no-repeat;display:grid;place-items:center;font-size:40px;color:#6e624a}
+.det .inf{padding:11px 12px 13px}
+.det b{display:block;font-size:15px}
+.det small{display:block;color:var(--t3);font-size:12px;line-height:1.35;margin-top:3px}
+.det .vf{position:absolute;left:8px;top:8px;background:rgba(13,10,5,.85);color:var(--gold2);font-size:11px;font-weight:700;padding:4px 9px;border-radius:20px;border:1px solid var(--line2)}
+.det.sel{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,168,76,.2)}
+.det .ck{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;background:var(--gold);color:#1a1200;display:none;place-items:center;font-weight:900}
+.det.sel .ck{display:grid}
+.subt{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--gold2);margin:4px 0 10px;font-weight:700}
+.galdet{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory}
+.galdet img{flex:0 0 100%;max-height:62vh;object-fit:contain;scroll-snap-align:center;background:#000;border-radius:10px}
 .semop button{border:1.5px solid var(--line);background:var(--card);color:var(--t2);padding:12px 16px;border-radius:12px;font-size:14px;cursor:pointer}
 .semop button.sel{border-color:var(--gold);color:var(--gold2);background:#2a2210}
 /* layout do último passo */
@@ -35433,6 +35463,12 @@ footer b{color:var(--t2)}
     <div class="trilho" id="destaques"></div>
   </div></div>
 
+  <div class="bloco" id="blocoDet" hidden><div class="wrap">
+    <h2>Detalhes que fazem diferença</h2>
+    <p class="sub">Fotos reais de obras da HR. Toque para ver de perto.</p>
+    <div class="trilho" id="detCapa"></div>
+  </div></div>
+
   <div class="bloco" id="blocoObras" hidden><div class="wrap">
     <h2>Obras reais</h2>
     <p class="sub">Trabalhos entregues pela HR. Toque para ver maior.</p>
@@ -35481,6 +35517,15 @@ footer b{color:var(--t2)}
     <div class="ferr"><div class="chips" id="catPedra" style="flex:1;margin:0"></div>
       <select class="ordem" id="ordem"><option value="">Mais escolhidas</option><option value="menor">Menor preço</option><option value="maior">Maior preço</option><option value="nome">Nome (A–Z)</option></select></div>
     <div class="grade" id="gPedra"><div class="carr">Carregando as pedras…</div></div>
+  </section>
+
+  <section class="passo" id="p-acab">
+    <h2 class="tit">Acabamento</h2>
+    <p class="st">Veja em <b>fotos reais</b> e escolha. Se não souber, pode pular: a gente explica na visita.</p>
+    <div class="subt">Borda da frente (sainha)</div>
+    <div class="dets" id="gBorda"></div>
+    <div class="subt" id="tExtra">Detalhes</div>
+    <div class="dets" id="gExtra"></div>
   </section>
 
   <section class="passo" id="p-cuba">
@@ -35571,12 +35616,15 @@ footer b{color:var(--t2)}
     {k:'piso',ic:'⬜',n:'Piso / Revestimento',d:'Pisos e paredes',larg:100,cena:'piso'},
     {k:'outro',ic:'✨',n:'Outro',d:'Conte pra gente',larg:60,cena:'placa'}
   ];
-  var D=null, S={viuAcess:0,amb:'',pedra:null,cuba:null,cubaOp:'',acess:{},catP:'',buscaP:'',tipoC:'',ordem:'',rec:null,comp:'',larg:''};
+  var D=null, S={viuAcess:0,borda:'',extras:{},viuAcab:0,amb:'',pedra:null,cuba:null,cubaOp:'',acess:{},catP:'',buscaP:'',tipoC:'',ordem:'',rec:null,comp:'',larg:''};
   try{var sv=JSON.parse(localStorage.getItem('hr_site_proj2')||'null');if(sv&&sv.amb!==undefined)S=Object.assign(S,sv);}catch(e){}
   function salvar(){try{localStorage.setItem('hr_site_proj2',JSON.stringify(S));}catch(e){}}
   function amb(){return AMBS.filter(function(a){return a.k===S.amb})[0]||null}
   function temCuba(){var a=amb();return !!(a&&a.cuba)}
-  function etapas(){var e=[['p-amb','Ambiente'],['p-pedra','Pedra']];if(temCuba()){e.push(['p-cuba','Cuba']);e.push(['p-acess','Acessórios']);}e.push(['p-dados','Enviar']);return e}
+  var AMB_ACAB=['cozinha','banheiro','lavabo','area_servico','varanda'];
+  function detsDo(g){var a=amb();return ((D&&D.detalhes)||[]).filter(function(x){return x.g===g&&(!a||!x.amb||x.amb.indexOf(a.k)>=0)})}
+  function temAcab(){var a=amb();return !!(a&&AMB_ACAB.indexOf(a.k)>=0&&D&&(D.detalhes||[]).length)}
+  function etapas(){var e=[['p-amb','Ambiente'],['p-pedra','Pedra']];if(temAcab())e.push(['p-acab','Acabamento']);if(temCuba()){e.push(['p-cuba','Cuba']);e.push(['p-acess','Acessórios']);}e.push(['p-dados','Enviar']);return e}
   function img(g,id){return '/portfolio/img/'+g+'/'+encodeURIComponent(id)}
   var atual='';
   var TOK=(location.search.match(/[?&]c=([a-z0-9]+)/i)||[])[1]||'';
@@ -35654,6 +35702,7 @@ footer b{color:var(--t2)}
     document.querySelectorAll('section.passo').forEach(function(s){s.classList.toggle('on',s.id===id)});
     $('capa').hidden=true;$('prog').hidden=id==='p-fim';$('barra').hidden=id==='p-fim';
     if(id==='p-cuba')desenharCubas();
+    if(id==='p-acab'){desenharAcab();S.viuAcab=1;salvar();}
     if(id==='p-acess'){desenharAcess();S.viuAcess=1;salvar();}
     if(id==='p-pedra')desenharPedras();
     if(id==='p-dados'){desenharResumo();calcEst();}
@@ -35665,6 +35714,7 @@ footer b{color:var(--t2)}
     if(id==='p-pedra')return !!S.pedra;
     if(id==='p-cuba')return !!(S.cuba||S.cubaOp);
     if(id==='p-acess')return !!S.viuAcess;
+    if(id==='p-acab')return !!(S.borda||S.viuAcab);
     return false;
   }
   function desenharEtapas(){
@@ -35683,6 +35733,7 @@ footer b{color:var(--t2)}
     if(atual==='p-amb'){av.disabled=!S.amb;info=S.amb?'<b>'+esc(amb().n)+'</b>':'Escolha um ambiente';}
     else if(atual==='p-pedra'){av.disabled=!S.pedra;info=S.pedra?'<b>'+esc(S.pedra.nm)+'</b>'+(S.pedra.pr&&pr()?' · '+brl(S.pedra.pr)+'/m²':''):'Toque em uma pedra';}
     else if(atual==='p-cuba'){av.disabled=!(S.cuba||S.cubaOp);info=S.cuba?'<b>'+esc(S.cuba.nm)+'</b>'+(S.cuba.pr&&pr()?' · '+brl(S.cuba.pr):''):S.cubaOp?'<b>'+esc(S.cubaOp)+'</b>':'Escolha uma opção';}
+    else if(atual==='p-acab'){var bd=(D.detalhes||[]).filter(function(x){return x.k===S.borda})[0],nx=Object.keys(S.extras||{}).length;av.disabled=false;info=bd||nx?'<b>'+esc([bd?bd.n:''].concat(nx?[nx+' detalhe'+(nx>1?'s':'')]:[]).filter(Boolean).join(' · '))+'</b>':'Pode pular';av.textContent=bd||nx?'Continuar':'Pular';}
     else if(atual==='p-acess'){var a=totalAcess();av.disabled=false;info=a.n?'<b>'+a.n+' acessório'+(a.n>1?'s':'')+'</b>'+(pr()&&a.t?' · '+brl(a.t):''):'Nenhum (pode pular)';av.textContent=a.n?'Continuar':'Pular';}
     else if(atual==='p-dados'){av.disabled=false;info='Tudo certo?';av.textContent='Enviar projeto';}
     $('info').innerHTML=info;
@@ -35693,7 +35744,7 @@ footer b{color:var(--t2)}
   // ═══ ambientes ═══
   function desenharAmbs(){$('ambs').innerHTML=AMBS.map(function(a){return '<button class="amb'+(S.amb===a.k?' sel':'')+'" data-a="'+a.k+'"><div class="ic">'+a.ic+'</div><b>'+a.n+'</b><small>'+a.d+'</small></button>'}).join('');}
   $('ambs').onclick=function(ev){var b=ev.target.closest('[data-a]');if(!b)return;var k=b.getAttribute('data-a');
-    if(S.amb!==k){S.cuba=null;S.cubaOp='';S.tipoC='';S.viuAcess=0;S.larg='';}
+    if(S.amb!==k){S.cuba=null;S.cubaOp='';S.tipoC='';S.viuAcess=0;S.larg='';S.borda='';S.extras={};S.viuAcab=0;}
     S.amb=k;salvar();desenharAmbs();atualizarBarra();desenharEtapas();setTimeout(function(){ir('p-pedra')},200);};
 
   // ═══ pedras ═══
@@ -35820,12 +35871,33 @@ footer b{color:var(--t2)}
   function fechar(){$('fundo').classList.remove('on');}
   $('fundo').onclick=function(ev){if(ev.target===this)fechar();};
 
+  // ═══ acabamento (fotos reais de cada detalhe) ═══
+  function cardDet(x,sel){var f=(x.fotos||[])[0];return '<button class="det'+(sel?' sel':'')+'" data-d="'+esc(x.k)+'"><div class="ft" '+(f?'style="background-image:url(\\''+img('obra',f)+'\\')"':'')+'>'+(f?'':(x.ic||'◆'))+'</div>'+((x.fotos||[]).length>1?'<span class="vf">📷 '+x.fotos.length+' fotos</span>':(f?'<span class="vf">📷 foto real</span>':''))+'<span class="ck">✓</span><div class="inf"><b>'+esc(x.n)+'</b><small>'+esc(x.d||'')+'</small></div></button>'}
+  function desenharAcab(){S.extras=S.extras||{};
+    $('gBorda').innerHTML=detsDo('borda').map(function(x){return cardDet(x,S.borda===x.k)}).join('');
+    var ex=detsDo('extra');$('tExtra').hidden=!ex.length;$('gExtra').innerHTML=ex.map(function(x){return cardDet(x,!!S.extras[x.k])}).join('');}
+  function verDet(x,onEscolher,sel){
+    var fs=x.fotos||[];
+    $('folha').innerHTML=(fs.length?'<div class="vis" style="padding:10px"><div class="galdet">'+fs.map(function(f){return '<img loading="lazy" src="'+img('obra',f)+'" alt="">'}).join('')+'</div><button class="x" id="fx">✕</button></div>':'<div class="vis"><button class="x" id="fx">✕</button></div>')
+      +'<div class="cp"><h3>'+esc(x.n)+'</h3>'+(fs.length>1?'<div class="ct">Arraste para ver as '+fs.length+' fotos</div>':'')+'<p>'+esc(x.d||'')+'</p>'+(onEscolher?'<button class="bt ouro" id="fok" style="margin-top:12px">'+(sel?'✓ Escolhido (tocar para tirar)':'Escolher')+'</button>':'<button class="bt ouro" id="fok" style="margin-top:12px">Montar meu projeto</button>')+'</div>';
+    $('fundo').classList.add('on');$('folha').scrollTop=0;$('fx').onclick=fechar;
+    $('fok').onclick=function(){fechar();if(onEscolher)onEscolher();else ir(S.amb?'p-pedra':'p-amb');};
+  }
+  function clicDet(ev,g){var b=ev.target.closest('[data-d]');if(!b)return;var k=b.getAttribute('data-d'),x=(D.detalhes||[]).filter(function(y){return y.k===k})[0];if(!x)return;
+    var sel=g==='borda'?S.borda===k:!!S.extras[k];
+    verDet(x,function(){if(g==='borda')S.borda=sel?'':k;else{if(sel)delete S.extras[k];else S.extras[k]=1;}salvar();desenharAcab();atualizarBarra();desenharEtapas();},sel);}
+  $('gBorda').onclick=function(ev){clicDet(ev,'borda')};
+  $('gExtra').onclick=function(ev){clicDet(ev,'extra')};
+  $('detCapa').onclick=function(ev){var b=ev.target.closest('[data-d]');if(!b)return;var x=(D.detalhes||[]).filter(function(y){return y.k===b.getAttribute('data-d')})[0];if(x)verDet(x,null,false);};
+
   // ═══ resumo + estimativa ═══
   function desenharResumo(){
     var a=amb(),h='';
     function lin(ic,fot,rot,nm,v,ir){return '<div class="lin"><div class="mini" '+(fot?'style="background-image:url(\\''+fot+'\\')"':'')+'>'+(fot?'':ic)+'</div><div class="tx"><small>'+rot+'</small><b>'+esc(nm)+'</b>'+(v?'<span class="v">'+v+'</span>':'')+'</div>'+(ir?'<button data-ir="'+ir+'">trocar</button>':'')+'</div>'}
     h+=lin(a?a.ic:'✨','','Ambiente',a?a.n:'—','','p-amb');
     if(S.pedra)h+=lin('◆',S.pedra.foto?img('pedra',S.pedra.id):'','Pedra',S.pedra.nm,pr()&&S.pedra.pr?brl(S.pedra.pr)+'/m²':'','p-pedra');
+    if(temAcab()){var bd=(D.detalhes||[]).filter(function(x){return x.k===S.borda})[0],exs=(D.detalhes||[]).filter(function(x){return S.extras&&S.extras[x.k]});
+      h+=lin('▭',bd&&bd.fotos&&bd.fotos[0]?img('obra',bd.fotos[0]):'','Acabamento',[bd?bd.n:'A definir na visita'].concat(exs.map(function(x){return x.n})).join(' · '),'','p-acab');}
     if(temCuba()){
       if(S.cuba)h+=lin('◯',S.cuba.foto?img(S.cuba.g,S.cuba.id):'','Cuba',S.cuba.nm,pr()&&S.cuba.pr?brl(S.cuba.pr):'','p-cuba');
       else h+=lin('◯','','Cuba',S.cubaOp||'—','','p-cuba');
@@ -35856,14 +35928,14 @@ footer b{color:var(--t2)}
     enviando=true;var av=$('avancar');av.disabled=true;av.textContent='Enviando…';
     var m2=area(),med=[S.comp?'comprimento '+S.comp+' m':'',S.larg?'largura '+S.larg+' cm':''].filter(Boolean).join(' × ');
     var corpo={nome:nome,tel:tel,cidade:cid,medidas:med+(m2?' ('+m2.toFixed(2).replace('.',',')+' m²)':''),obs:$('fObs').value.trim(),ambiente:S.amb,
-      pedra:S.pedra?{id:S.pedra.id}:null,cuba:S.cuba?{id:S.cuba.id,g:S.cuba.g}:null,cubaOp:S.cubaOp||'',acessorios:Object.keys(S.acess),c:TOK};
+      pedra:S.pedra?{id:S.pedra.id}:null,cuba:S.cuba?{id:S.cuba.id,g:S.cuba.g}:null,cubaOp:S.cubaOp||'',acessorios:Object.keys(S.acess),borda:S.borda||'',extras:Object.keys(S.extras||{}),c:TOK};
     fetch('/portfolio/pedido',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(corpo)})
       .then(function(r){return r.json()}).then(function(j){
         enviando=false;
         if(!j||!j.ok){av.disabled=false;av.textContent='Enviar projeto';$('erro').textContent=(j&&j.erro)||'Não deu certo. Tente de novo.';return;}
         $('prot').textContent='Protocolo '+j.protocolo;$('abrirZap').href=j.wa||'#';$('abrirZap').hidden=!j.wa;
         if(j.avisado){$('fimTx').textContent='Pronto! Já te respondi no WhatsApp. O orçamento completo chega por lá.';$('abrirZap').textContent='Voltar para o WhatsApp';}
-        S.acess={};S.pedra=null;S.cuba=null;S.cubaOp='';S.viuAcess=0;S.comp='';salvar();
+        S.acess={};S.pedra=null;S.cuba=null;S.cubaOp='';S.viuAcess=0;S.comp='';S.borda='';S.extras={};S.viuAcab=0;salvar();
         ir('p-fim');
         if(j.wa&&!j.avisado)setTimeout(function(){location.href=j.wa},1800);
       }).catch(function(){enviando=false;av.disabled=false;av.textContent='Enviar projeto';$('erro').textContent='Sem conexão. Tente de novo.';});
@@ -35881,6 +35953,8 @@ footer b{color:var(--t2)}
     $('destaques').innerHTML=dst.map(function(p){return '<div class="dest" data-p="'+esc(p.id)+'" style="background-image:url(\\''+img('pedra',p.id)+'\\')"><div class="dd"><b>'+esc(p.nm)+'</b><small>'+esc(p.cat||'')+'</small>'+(pr()&&p.pr?'<div><span class="pp">'+brl(p.pr)+'/m²</span></div>':'')+'</div></div>'}).join('');
     var cats={};D.pedras.forEach(function(p){if(p.cat)cats[p.cat]=1});
     var ob=(D.obras||[]).slice(0,8);
+    var dc=(D.detalhes||[]).filter(function(x){return (x.fotos||[]).length});
+    if(dc.length){$('blocoDet').hidden=false;$('detCapa').innerHTML=dc.map(function(x){return '<div class="dest" data-d="'+esc(x.k)+'" style="background-image:url(\\''+img('obra',x.fotos[0])+'\\')"><div class="dd"><b>'+esc(x.n)+'</b><small>'+x.fotos.length+' foto'+(x.fotos.length>1?'s':'')+' real'+(x.fotos.length>1?'is':'')+'</small></div></div>'}).join('');}
     if(ob.length){$('blocoObras').hidden=false;$('obrasCapa').innerHTML=ob.map(function(o){return '<div class="obra" data-o="'+esc(o.id)+'" style="background-image:url(\\''+img('obra',o.id)+'\\')"><span>'+esc(o.legenda||o.cat||'')+'</span></div>'}).join('');}
     $('numeros').innerHTML='<div><b>'+D.pedras.length+'</b>pedras</div><div><b>'+Object.keys(cats).length+'</b>tipos</div><div><b>10×</b>sem juros</div>';
   }
@@ -36003,6 +36077,70 @@ function siteFoto(it) {
   if (!f) { let l = it.fotos; if (typeof l === 'string') { try { l = JSON.parse(l); } catch (_) { l = []; } } if (Array.isArray(l) && l.length) f = l[0]; }
   return /^data:image\/|^https:\/\//.test(String(f)) ? String(f) : '';
 }
+// v359: DETALHES COM FOTO REAL no site (sainha 45°, reta, slim, rebaixo americano...) — o Sr. Hangel manda as fotos quando a Helena pede
+const SITE_BANC = ['cozinha', 'banheiro', 'lavabo', 'area_servico', 'varanda'];
+const SITE_DET = [
+  { k: 's45', n: 'Sainha 45°', ic: '◢', g: 'borda', amb: SITE_BANC, d: 'A borda é emendada em 45°: parece uma pedra grossa e maciça. É a mais pedida em cozinhas.', rx: /\b(45|meia esquadria|sainha 45)\b/ },
+  { k: 'sreta', n: 'Sainha reta', ic: '▭', g: 'borda', amb: SITE_BANC, d: 'Faixa de pedra colada reta na frente: simples, resistente e mais em conta.', rx: /\b(sainha reta|saia reta|reta)\b/ },
+  { k: 'slim', n: 'Borda slim', ic: '▬', g: 'borda', amb: SITE_BANC, d: 'Sem sainha: só a espessura da pedra, polida. Visual fino e moderno.', rx: /\b(slim|sem sainha|borda fina)\b/ },
+  { k: 'reb_a', n: 'Rebaixo americano', ic: '⌄', g: 'extra', amb: ['cozinha', 'area_servico', 'varanda'], d: 'A parte da pia fica mais baixa, com canaletas que levam a água para a cuba.', rx: /\b(rebaixo|americano)\b/ },
+  { k: 'cook', n: 'Recorte para cooktop', ic: '◎', g: 'extra', amb: ['cozinha', 'varanda'], d: 'Recorte sob medida para o cooktop ficar embutido na pedra.', rx: /\b(cooktop|cook top|fogao)\b/ },
+  { k: 'frontao', n: 'Frontão', ic: '▔', g: 'extra', amb: SITE_BANC, d: 'Faixa de pedra na parede, atrás da bancada: protege da água e da gordura.', rx: /\b(frontao|rodabanca)\b/ },
+  { k: 'esculpida', n: 'Cuba esculpida', ic: '◡', g: 'extra', amb: ['banheiro', 'lavabo'], d: 'A cuba é feita na própria pedra, com o ralo escondido. Fica tudo numa peça só.', rx: /\b(esculpid\w*)\b/ },
+  { k: 'nicho', n: 'Nicho', ic: '▢', g: 'extra', amb: ['banheiro'], d: 'Prateleira embutida na parede do box, na mesma pedra.', rx: /\b(nicho)\b/ },
+];
+async function siteDetLer(env) { try { return JSON.parse((await env.HR_KV.get('site:det')) || '{}') || {}; } catch (_) { return {}; } }
+async function siteDetalhes(env) { const c = await siteDetLer(env); return SITE_DET.map(x => ({ k: x.k, n: x.n, ic: x.ic, g: x.g, amb: x.amb, d: (c[x.k] && c[x.k].d) || x.d, fotos: ((c[x.k] && c[x.k].fotos) || []).slice(-8) })); }
+async function siteDetAddFoto(env, k, buf) {
+  const id = 'dt' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  await env.HR_KV.put('pf:img:' + id, buf);
+  const c = await siteDetLer(env); c[k] = c[k] || {}; c[k].fotos = [...(c[k].fotos || []), id].slice(-8); await env.HR_KV.put('site:det', JSON.stringify(c));
+  return c[k].fotos.length;
+}
+// a Helena pede ao Sr. Hangel, um detalhe por vez, a foto real (e confere o texto)
+async function siteDetPedir(env, from, pular) {
+  const c = await siteDetLer(env), pul = new Set(pular || []);
+  const x = SITE_DET.find(d => !pul.has(d.k) && !((c[d.k] && c[d.k].fotos) || []).length) || SITE_DET.find(d => !pul.has(d.k) && ((c[d.k] && c[d.k].fotos) || []).length < 3);
+  if (!x) { await env.HR_KV.delete('det:pede'); await enviar(env, from, '✅ Todos os detalhes do site já têm foto real. Quando tiver uma foto melhor, mande com a legenda *site: sainha 45* (ou o nome do detalhe).'); return; }
+  const n = ((c[x.k] && c[x.k].fotos) || []).length;
+  await env.HR_KV.put('det:pede', JSON.stringify({ k: x.k, em: Date.now(), pular: [...pul] }), { expirationTtl: 6 * 3600 });
+  await enviarComBotoes(env, from, `📸 *Site · ${x.n}*${n ? ` (já tem ${n} foto${n > 1 ? 's' : ''})` : ''}\nMe mande uma foto REAL de uma obra nossa que mostre bem ${/^(sainha|borda)/i.test(x.n) ? 'a ' : 'o '}*${x.n.toLowerCase()}*. Ela aparece no site para o cliente escolher.`, [{ id: 'det|pul|' + x.k, titulo: 'Não tenho agora' }, { id: 'det|fim|x', titulo: 'Parar' }]);
+}
+async function siteDetImagem(env, from, m) { // foto do dono: pedida pela Helena, ou com legenda "site: <detalhe>"
+  if (m.type !== 'image' || !m.image || !m.image.id) return false;
+  const leg = normaliza(String(m.image.caption || ''));
+  let k = '';
+  const ml = leg.match(/^(site|detalhe|exemplo)\s*:?\s*(.+)$/); if (ml) { const d = SITE_DET.find(x => x.rx.test(ml[2])); if (d) k = d.k; }
+  let pd = null; if (!k) { try { pd = JSON.parse((await env.HR_KV.get('det:pede')) || 'null'); } catch (_) {} if (pd && Date.now() - pd.em < 6 * 3600000 && !leg) k = pd.k; }
+  if (!k) return false;
+  let b; try { b = await baixarMidia(env, m.image.id); } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
+  const n = await siteDetAddFoto(env, k, new Uint8Array(b.buf)), x = SITE_DET.find(d => d.k === k), c = await siteDetLer(env);
+  await env.HR_KV.put('det:ult', JSON.stringify({ k, em: Date.now() }), { expirationTtl: 3600 });
+  const kd = 'det:conf:' + k; if (await env.HR_KV.get(kd)) return true; await env.HR_KV.put(kd, '1', { expirationTtl: 60 }); // álbum: confirma uma vez
+  await enviarComBotoes(env, from, `✅ Guardei como exemplo de *${x.n}* (${n} foto${n > 1 ? 's' : ''} no site).\nTexto que o cliente lê:\n_${(c[k] && c[k].d) || x.d}_`, [{ id: 'det|ok|' + k, titulo: 'Texto bom · próxima' }, { id: 'det|txt|' + k, titulo: 'Mudar o texto' }, { id: 'det|fim|x', titulo: 'Parar' }]);
+  return true;
+}
+async function siteDetBotao(env, from, id) {
+  const [, ac, k] = id.split('|');
+  let pd = null; try { pd = JSON.parse((await env.HR_KV.get('det:pede')) || 'null'); } catch (_) {}
+  if (ac === 'fim') { await env.HR_KV.delete('det:pede'); await enviar(env, from, 'Certo, paro por aqui. Para continuar: *melhorar o site*.'); return true; }
+  if (ac === 'txt') { await env.HR_KV.put('det:txt', k, { expirationTtl: 1800 }); await enviar(env, from, `Escreva como o senhor explicaria *${(SITE_DET.find(d => d.k === k) || {}).n}* para um cliente (uma ou duas frases).`); return true; }
+  await siteDetPedir(env, from, [...((pd && pd.pular) || []), ...(ac === 'pul' || ac === 'ok' ? [k] : [])]);
+  return true;
+}
+async function siteDetTexto(env, from, bruto, msg) { // resposta ao "Mudar o texto"; e o comando "melhorar o site"
+  const k = await env.HR_KV.get('det:txt');
+  if (k && bruto && bruto.length >= 8 && !/^(cancela|deixa|nao|parar)\b/.test(msg)) { await env.HR_KV.delete('det:txt'); const c = await siteDetLer(env); c[k] = c[k] || {}; c[k].d = String(bruto).replace(/\s+/g, ' ').trim().slice(0, 220); await env.HR_KV.put('site:det', JSON.stringify(c)); await enviar(env, from, `✏️ Texto de *${(SITE_DET.find(d => d.k === k) || {}).n}* atualizado no site.`); let pd = null; try { pd = JSON.parse((await env.HR_KV.get('det:pede')) || 'null'); } catch (_) {} await siteDetPedir(env, from, [...((pd && pd.pular) || []), k]); return true; }
+  if (/^(melhorar|aprimorar|arrumar|completar)( o| a)? (site|acervo|catalogo)|^(fotos|detalhes) d[oe] site$|^site (fotos|detalhes)$/.test(msg)) { await siteDetPedir(env, from, []); return true; }
+  return false;
+}
+async function siteDetRotina(env) { // 1 pedido por dia (10h, seg a sáb) enquanto faltar foto de algum detalhe
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 10 * 60 || ag.min > 11 * 60) return;
+  const c = await siteDetLer(env); if (SITE_DET.every(d => ((c[d.k] && c[d.k].fotos) || []).length)) return;
+  if (await env.HR_KV.get('det:dia:' + hoje) || await env.HR_KV.get('det:pede') || !(await travaEnvio(env, 'detdia:' + hoje))) return;
+  await env.HR_KV.put('det:dia:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  await siteDetPedir(env, numeroDono(env), []);
+}
 const SITE_GRUPOS = { pedra: 'pedras', coz: 'cubas_coz', lav: 'cubas_lav', acess: 'acessorios' };
 async function siteLeadsLista(env) {
   const out = [];
@@ -36024,7 +36162,7 @@ async function siteLinkPessoal(env, numero, nome) {
   let t = await env.HR_KV.get('site:tokn:' + tel);
   if (!t) { t = Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3); await env.HR_KV.put('site:tokn:' + tel, t, { expirationTtl: 25 * 86400 }); }
   await env.HR_KV.put('site:tok:' + t, JSON.stringify({ tel, nome: String(nome || '').slice(0, 60) }), { expirationTtl: 30 * 86400 });
-  return base + '/portfolio?c=' + t;
+  return base + '/p?c=' + t; // v359: link mais curto
 }
 async function siteObras(env, pedras) {
   const l = (await lerPortfolio(env)).filter(i => i && i.tipo === 'trabalho' && i.origem !== 'app');
@@ -36067,6 +36205,7 @@ async function siteCatalogo(env, ctx, url) {
     pedras, cubas_coz, cubas_lav, acessorios,
   };
   try { corpo.obras = await siteObras(env, pedras); } catch (_) { corpo.obras = []; }
+  try { corpo.detalhes = await siteDetalhes(env); } catch (_) { corpo.detalhes = []; } // v359
   const tok = url && String(url.searchParams.get('c') || '').replace(/[^a-z0-9]/gi, '');
   if (tok) { try { const x = JSON.parse((await env.HR_KV.get('site:tok:' + tok)) || 'null'); if (x) corpo.cliente = { nome: x.nome || '', tel: String(x.tel).replace(/^55/, '') }; } catch (_) {} }
   return new Response(JSON.stringify(corpo), { headers: cab });
@@ -36138,12 +36277,15 @@ async function sitePedido(req, env, ctx, opc = {}) { // v312: opc.totem = veio d
     pedra: pedra ? { nm: String(pedra.nm).trim(), cat: pedra.cat || '', pr: n(pedra.pr) } : null,
     cuba: cuba ? { nm: String(cuba.nm).trim(), dim: cuba.dim || '', pr: n(cuba.pr) } : null, cubaOp,
     acessorios: acess.map(x => ({ nm: String(x.nm).trim(), pr: n(x.pr) })) };
+  { const bd = SITE_DET.find(x => x.k === String(b.borda || '') && x.g === 'borda'), exs = (Array.isArray(b.extras) ? b.extras : []).slice(0, 8).map(k => SITE_DET.find(x => x.k === String(k) && x.g === 'extra')).filter(Boolean); // v359
+    lead.acab = [bd ? bd.n : '', ...exs.map(x => x.n)].filter(Boolean); lead.borda = bd ? bd.k : ''; lead.extras = exs.map(x => x.k); }
   await env.HR_KV.put('site:lead:' + protocolo, JSON.stringify(lead), { expirationTtl: 60 * 86400 });
   // resumo (o mesmo texto vai para o dono e para a memória da conversa do cliente)
   const linhas = [
     `Ambiente: ${SITE_AMB[amb]}`,
     lead.pedra ? `Pedra: ${lead.pedra.nm}${lead.pedra.pr ? ' (R$ ' + reais(lead.pedra.pr) + '/m²)' : ''}` : '',
     lead.cuba ? `Cuba: ${lead.cuba.nm}${lead.cuba.dim ? ' ' + lead.cuba.dim : ''}${lead.cuba.pr ? ' (R$ ' + reais(lead.cuba.pr) + ')' : ''}` : (cubaOp ? `Cuba: ${cubaOp.toLowerCase()}` : ''),
+    lead.acab && lead.acab.length ? `Acabamento: ${lead.acab.join(' · ')}` : '',
     lead.acessorios.length ? `Acessórios: ${lead.acessorios.map(x => x.nm + (x.pr ? ' (R$ ' + reais(x.pr) + ')' : '')).join(', ')}` : '',
     medidas ? `Medidas: ${medidas}` : '',
     obs ? `Observação: ${obs}` : '', cidade ? `Cidade: ${cidade}` : '',
@@ -37109,6 +37251,7 @@ export default {
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
+    if (ctx && ctx.waitUntil && !globalThis.__fix359) { globalThis.__fix359 = 1; ctx.waitUntil(fix359Obras(env).catch(e => console.log('[FIX359]', e.message))); } // v359
     if (ctx && ctx.waitUntil && !globalThis.__fix358) { globalThis.__fix358 = 1; ctx.waitUntil(fix358Lav(env).catch(e => console.log('[FIX358]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357c) { globalThis.__fix357c = 1; ctx.waitUntil(fix357c(env).catch(e => console.log('[FIX357c]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357b) { globalThis.__fix357b = 1; ctx.waitUntil(fix357b(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357berr', String(e && e.stack || e)).run())); } // v357b
@@ -37123,6 +37266,7 @@ export default {
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
+    if (/^\/(p|projeto|site)\/?$/i.test(url.pathname)) return Response.redirect(url.origin + '/portfolio' + url.search, 302); // v359: link curto do site
     if (url.pathname === '/portfolio' || url.pathname.startsWith('/portfolio/')) return rotaPortfolio(req, env, ctx, url);
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
