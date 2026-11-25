@@ -16,7 +16,7 @@ const BOT='https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev'
 const CENAS=['titulo','pontos','avisar','aprovacao','extra','meta','faixas','premio','dicas','fim'];
 const cv=document.getElementById('cv'),cx=cv.getContext('2d'),st=document.getElementById('st');
 const W=1080,H=1920,OURO='#e8c96a',OURO2='#c9a84c',TXT='#f4efe2',CIN='#9a917e',FUNDO='#0d0b08';
-let AC=null,bufs={},DADOS={premio:150,lider:50,meta:100},rodando=false;
+let AC=null,bufs={},DADOS={premio:150,lider:50,meta:100,folga:130},rodando=false;
 function msg(t){st.textContent=t;}
 const ease=x=>x<0?0:x>1?1:1-Math.pow(1-x,3);
 function fundo(t){const g=cx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#16120b');g.addColorStop(1,FUNDO);cx.fillStyle=g;cx.fillRect(0,0,W,H);
@@ -55,7 +55,8 @@ const CENA={
     F.forEach((x,i)=>{const a=aparece(i,p,5);card(150,420+i*260,780,210,a,i>=2?'rgba(232,201,106,.12)':null);txt(x[0],270,560+i*260,110,null,400,'center',a);txt(x[1],380,530+i*260,60,i>=2?OURO:TXT,800,'left',a);txt(x[2],380,590+i*260,40,CIN,600,'left',a);});},
   premio(p){titulo('Prêmio do mês',p);const a=aparece(0,p,4);txt('🏆',W/2,620,170,null,400,'center',a);txt('R$ '+DADOS.premio,W/2,820,150,OURO,900,'center',a);txt('para quem bate a meta do mês',W/2,900,44,TXT,600,'center',a);
     if(DADOS.lider>0){const b=aparece(1,p,4);card(160,990,760,150,b,'rgba(232,201,106,.12)');txt('👑 Líder do mês: + R$ '+DADOS.lider,W/2,1085,48,OURO,800,'center',b);}
-    const c=aparece(2,p,4);txt('Retrabalho e peça quebrada tiram pontos',W/2,1280,40,TXT,600,'center',c);const d=aparece(3,p,4);txt('Capricho vale ouro ✨',W/2,1380,56,OURO,800,'center',d);},
+    if(DADOS.folga){const f=aparece(2,p,5);card(110,1180,860,190,f,'rgba(232,201,106,.18)');txt('🏖️ 1º do mês: 1 dia de FOLGA',W/2,1255,48,OURO,800,'center',f);txt('só com '+DADOS.folga+'% da meta, sem retrabalho e sem quebra',W/2,1320,34,TXT,500,'center',f);}
+    const c=aparece(DADOS.folga?3:2,p,DADOS.folga?5:4);txt('Retrabalho e peça quebrada tiram pontos',W/2,DADOS.folga?1450:1280,40,TXT,600,'center',c);const d=aparece(DADOS.folga?4:3,p,DADOS.folga?5:4);txt('Capricho vale ouro ✨',W/2,DADOS.folga?1540:1380,56,OURO,800,'center',d);},
   dicas(p){titulo('Quer saber como está?',p);const a=aparece(0,p,3);bolha(300,480,680,'Quantos pontos eu tenho?',true,a);
     const b=aparece(1,p,3);bolha(100,680,760,'Sua semana: ⭐ 12 pontos · hoje 3,5 · faltam 7 para a meta!',false,b);
     const c=aparece(2,p,3);card(110,1020,860,220,c);txt('Algum serviço não contou?',W/2,1100,46,OURO,800,'center',c);txt('Avise: a Helena confere',W/2,1160,40,TXT,500,'center',c);txt('com o Sr. Hangel',W/2,1210,40,TXT,500,'center',c);},

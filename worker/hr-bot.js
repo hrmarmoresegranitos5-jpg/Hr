@@ -2475,6 +2475,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^apv\|/.test(id)) return aprovBotao(env, from, id); // v339
   if (id === 'apv_tudo') return aprovComandoDono(env, from, 'aprovar tudo'); // v346
   if (/^plx\|/.test(id)) return prodLixoBotao(env, from, id); // v349
+  if (/^cor_(env|no)\|/.test(id)) return corridaBotao(env, from, id); // v355
   if (id === 'apv_ver') { await enviar(env, from, 'No app: 🏭 Produção → ✅ Aprovar produção. Lá dá para aprovar um por um ou recusar o que estiver errado.'); return true; }
   if (/^relc[spo]?\|/.test(id)) return relCorrBotao(env, from, id); // v238
   if (id === 'relt_all') { await enviar(env, from, await relMandarTodos(env)); return true; } // v244
@@ -7380,6 +7381,7 @@ async function pedirAvaliacoes(env) {
   await helenaAuditoriaRotina(env).catch(e => console.log('[FALHA] auditoria:', e.message)); // v329
   await aprovLembrete(env).catch(e => console.log('[APROV] lembrete:', e.message)); // v346
   await prodLixoChecar(env).catch(e => console.log('[LIXO]', e.message)); // v349
+  await corridaRotina(env).catch(e => console.log('[CORRIDA]', e.message)); // v355
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
   await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
@@ -10949,7 +10951,21 @@ async function metaDefinirTool(env, a) {
 //   semana se compensar (pontos do mês ≥ soma das metas). Líder do mês = maior % da meta (justo entre funções).
 //   App do funcionário mostra a corrida do mês; bot avisa no sábado; dia 1º: resultado + botão "Pagar prêmios" (RH)
 // ═════════════════════════════════════════════════════════════════════════════
-async function premioCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('premio:cfg')) || '{}') || {}; } catch (_) {} return { valor: 150, lider: 50, liderTexto: '', coringa: true, ...c }; }
+async function premioCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('premio:cfg')) || '{}') || {}; } catch (_) {} return { valor: 150, lider: 50, liderTexto: '', coringa: true, folga: true, folgaPct: 130, folgaDiasPct: 80, folgaVantagem: 10, ...c }; }
+// v355: FOLGA DO CAMPEÃO — 1 dia de folga para o 1º do mês, MUITO difícil: ser o 1º, ganhar o prêmio do mês sem usar o coringa,
+// fazer pelo menos 130% da meta do mês, bater a meta do dia em 80% dos dias, zero retrabalho e zero quebra (nota ≥ 4,8 se tiver),
+// e ficar pelo menos 10 pontos percentuais à frente do 2º. Se o 1º não cumprir tudo, ninguém leva a folga naquele mês.
+function folgaRequisitos(pc, r, segundoPct) {
+  const ex = r.ex || {}, ab = (r.semanas || []).filter(w => !w.futura && !w.atual && !w.bateu).length;
+  const itens = [
+    { ok: r.pct >= pc.folgaPct, txt: `${pc.folgaPct}% da meta do mês (está em ${r.pct}%)` },
+    { ok: ab === 0, txt: 'bater a meta em TODAS as semanas (sem coringa)' },
+    { ok: (ex.uteis || 0) < 3 || (ex.pctDias || 0) >= pc.folgaDiasPct, txt: `meta do dia em ${pc.folgaDiasPct}% dos dias (está em ${ex.pctDias || 0}%)` },
+    { ok: !(ex.retrab > 0) && !(ex.perdas > 0) && (ex.nota == null || ex.nota >= 4.8), txt: 'zero retrabalho, zero quebra' + (ex.nota != null ? ' e nota 4,8+' : '') },
+    { ok: segundoPct == null || r.pct - segundoPct >= pc.folgaVantagem, txt: `${pc.folgaVantagem} pontos % à frente do 2º lugar` },
+  ];
+  return { ok: itens.every(x => x.ok), itens, faltam: itens.filter(x => !x.ok).map(x => x.txt) };
+}
 function semanasDoMes(mes) { // segundas cujas semanas (seg–sáb) terminam no mês
   const out = []; let d = semIni(mes + '-01');
   for (let i = 0; i < 7; i++) { const sab = isoSomaDias(d, 5); if (sab.slice(0, 7) === mes) out.push(d); if (sab.slice(0, 7) > mes) break; d = isoSomaDias(d, 7); }
@@ -10989,18 +11005,24 @@ async function premioMes(env, mes) {
   const fechado = res.length && res[0].fechado;
   const cand = res.filter(r => fechado ? r.ganhou : (r.st === 'caminho' || r.st === 'coringa')).sort((a, b) => b.pct - a.pct || b.somaP - a.somaP);
   const lider = cand[0] && cand[0].pct > 0 ? cand[0].id : '';
-  return { mes, sems, valor: pc.valor, lider: pc.lider, liderTexto: pc.liderTexto, coringa: pc.coringa, fechado, liderId: lider, lista: res };
+  const rank = res.filter(r => r.st !== 'sem').sort((a, b) => b.pct - a.pct || b.somaP - a.somaP); // v355: corrida do mês (todos, não só quem está no prêmio)
+  rank.forEach((r, i) => { r.pos = i + 1; r.folga = pc.folga ? folgaRequisitos(pc, r, i === 0 ? (rank[1] ? rank[1].pct : null) : rank[0].pct) : null; });
+  const campeao = pc.folga && rank[0] && rank[0].folga && rank[0].folga.ok && (!fechado || rank[0].ganhou) ? rank[0].id : '';
+  return { mes, sems, valor: pc.valor, lider: pc.lider, liderTexto: pc.liderTexto, coringa: pc.coringa, fechado, liderId: lider, lista: res, rank: rank.map(r => ({ id: r.id, nome: r.nome, pct: r.pct, pos: r.pos })), folgaCfg: pc.folga ? { pct: pc.folgaPct, dias: pc.folgaDiasPct, vant: pc.folgaVantagem } : null, campeaoId: campeao };
 }
 async function premioPainelFunc(env, funcId) {
   const pm = await premioMes(env), r = pm.lista.find(x => x.id === String(funcId)); if (!r) return null;
-  return { mes: pm.mes, valor: pm.valor, lider: pm.lider, liderTexto: pm.liderTexto, coringa: pm.coringa, semanas: r.semanas.map(w => ({ ini: w.ini, pts: w.pts || 0, meta: w.meta || 0, bateu: !!w.bateu, atual: !!w.atual, futura: !!w.futura })), st: r.st, txt: r.txt, pct: r.pct, ehLider: pm.liderId === String(funcId) };
+  return { mes: pm.mes, pos: r.pos || null, folga: r.folga ? { ok: !!r.folga.ok, faltam: r.folga.faltam } : null, campeao: pm.campeaoId === String(funcId), valor: pm.valor, lider: pm.lider, liderTexto: pm.liderTexto, coringa: pm.coringa, semanas: r.semanas.map(w => ({ ini: w.ini, pts: w.pts || 0, meta: w.meta || 0, bateu: !!w.bateu, atual: !!w.atual, futura: !!w.futura })), st: r.st, txt: r.txt, pct: r.pct, ehLider: pm.liderId === String(funcId) };
 }
 async function premioResultadoMes(env, mes) { // dia 1º: quem ganhou o mês que passou
   const pm = await premioMes(env, mes), cfg = await pontoCfg(env);
   const ganharam = pm.lista.filter(r => r.ganhou), lider = pm.lista.find(r => r.id === pm.liderId && r.ganhou);
   const nomeMes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][+mes.slice(5) - 1];
   const total = ganharam.length * pm.valor + (lider && pm.lider ? pm.lider : 0);
+  const camp = pm.campeaoId ? pm.lista.find(r => r.id === pm.campeaoId) : null; // v355
+  if (camp) await env.HR_KV.put('folga:campeao:' + mes, JSON.stringify({ funcId: camp.id, nome: camp.nome, pct: camp.pct, em: Date.now() }), { expirationTtl: 120 * 86400 });
   const L = [`🏆 *Prêmio do mês · ${nomeMes}*`, '', ...pm.lista.filter(r => r.st !== 'sem').map(r => `${r.ganhou ? '✅' : '❌'} *${r.nome}*: ${r.semanas.map(w => w.bateu ? '🟢' : '🔴').join('')} · ${r.pct}% da meta${r.ganhou ? ' → R$ ' + reais(pm.valor) : ''}${lider && r.id === lider.id ? ` + 🥇 líder${pm.lider ? ' R$ ' + reais(pm.lider) : ''}${pm.liderTexto ? ' (' + pm.liderTexto + ')' : ''}` : ''}`), '', ganharam.length ? `💰 *Total a pagar: R$ ${reais(total)}*` : 'Ninguém fechou o mês com a meta.'];
+  L.push('', camp ? `🏖️ *FOLGA DO CAMPEÃO: ${camp.nome}* (${camp.pct}% da meta, sem retrabalho e sem quebra) — 1 dia de folga remunerada. Combine o dia com ele.` : `🏖️ Folga do campeão: ninguém conquistou em ${nomeMes}${pm.rank[0] ? ` (o 1º, ${pm.rank[0].nome}, ficou com ${pm.rank[0].pct}%; faltou: ${((pm.lista.find(r => r.id === pm.rank[0].id) || {}).folga || { faltam: [] }).faltam.join('; ') || '—'})` : ''}.`);
   if (ganharam.length) {
     await env.HR_KV.put('premio:pend:' + mes, JSON.stringify({ itens: [...ganharam.map(r => ({ funcId: r.id, nome: r.nome, valor: pm.valor, obs: 'Prêmio do mês ' + nomeMes })), ...(lider && pm.lider ? [{ funcId: lider.id, nome: lider.nome, valor: pm.lider, obs: 'Líder do mês ' + nomeMes }] : [])] }), { expirationTtl: 40 * 86400 });
     await enviarComBotoes(env, numeroDono(env), L.join('\n'), [{ id: 'prm_pag|' + mes, titulo: 'Pagar prêmios' }, { id: 'prm_no|' + mes, titulo: 'Depois' }]).catch(() => {});
@@ -11008,7 +11030,29 @@ async function premioResultadoMes(env, mes) { // dia 1º: quem ganhou o mês que
   for (const r of pm.lista.filter(x => x.st !== 'sem')) {
     const tel = await respTel(env, r.id); if (!tel) continue;
     await enviar(env, tel, `${avisoTeste(env)}🏆 ${r.nome}, resultado de ${nomeMes}: ${r.semanas.map(w => w.bateu ? '🟢' : '🔴').join('')} (${r.pct}% da meta). ${r.ganhou ? `*Você ganhou o prêmio do mês: R$ ${reais(pm.valor)}!* 🎉${lider && lider.id === r.id ? ` E foi o *líder do mês*${pm.lider ? ' (+R$ ' + reais(pm.lider) + ')' : ''}${pm.liderTexto ? ' — ' + pm.liderTexto : ''}! 🥇` : ''}` : 'Dessa vez não deu. O mês novo começou zerado: bora! 💪'}`).catch(() => {});
+    if (camp && camp.id === r.id) await enviar(env, tel, `🏖️ E mais: você conquistou a *FOLGA DO CAMPEÃO* — 1 dia de folga remunerada! Pouquíssimos conseguem. Combine o dia com o Sr. Hangel. 🥇`).catch(() => {}); // v355
   }
+}
+// v355: CORRIDA DO MÊS — segunda e quinta de manhã o Sr. Hangel recebe o placar (com a folga do campeão) e decide se manda à equipe
+function corridaTexto(pm, pc, r) {
+  const nomeMes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][+pm.mes.slice(5) - 1], med = ['🥇', '🥈', '🥉'];
+  const L = [`🏁 *Corrida de ${nomeMes}* (parcial)`, '', ...pm.rank.slice(0, 8).map((x, i) => `${med[i] || (i + 1) + 'º'} ${x.nome} · ${x.pct}% da meta`), '',
+    `💰 Prêmio do mês: *R$ ${reais(pc.valor)}* para quem bater a meta.`,
+    pc.folga ? `🏖️ *Folga do campeão:* o 1º do mês ganha *1 dia de folga* — mas é para poucos: ${pc.folgaPct}% da meta do mês, meta do dia em ${pc.folgaDiasPct}% dos dias, todas as semanas batidas, zero retrabalho e zero quebra, e ${pc.folgaVantagem}% à frente do 2º.` : ''];
+  if (r) L.push('', `👉 *Você está em ${r.pos}º* com ${r.pct}%.${r.folga && !r.folga.ok ? ` Para a folga falta: ${r.folga.faltam.slice(0, 3).join('; ')}.` : r.folga && r.folga.ok ? ' Você está *dentro* da folga do campeão. Segura até o fim do mês! 🔥' : ''}`);
+  return L.filter((x, i) => x !== '' || (L[i - 1] !== '' && i > 0)).join('\n').replace(/\n🏖️/, '\n\n🏖️').replace(/\n{3,}/g, '\n\n').trim();
+}
+async function corridaRotina(env) {
+  const ag = agoraBahia(), hoje = dataBahia(), w = diaSemanaISO(hoje); if (!(w === 1 || w === 4) || ag.min < 7 * 60 || ag.min > 9 * 60) return;
+  const k = 'corrida:' + hoje; if (await env.HR_KV.get(k)) return; if (!(await travaEnvio(env, k))) return; await env.HR_KV.put(k, '1', { expirationTtl: 3 * 86400 });
+  const pm = await premioMes(env), pc = await premioCfg(env); if (!pm.rank || !pm.rank.length) return;
+  await enviarComBotoes(env, numeroDono(env), corridaTexto(pm, pc) + '\n\nMando para a equipe (cada um recebe a sua posição e o que falta)?', [{ id: 'cor_env|' + hoje, titulo: '📣 Mandar à equipe' }, { id: 'cor_no|' + hoje, titulo: 'Agora não' }]);
+}
+async function corridaBotao(env, from, id) {
+  const [ac] = id.split('|'); if (ac === 'cor_no') { await enviar(env, from, 'Certo, não mandei.'); return true; }
+  const pm = await premioMes(env), pc = await premioCfg(env); let n = 0;
+  for (const x of pm.rank) { const r = pm.lista.find(y => y.id === x.id), tel = await respTel(env, x.id).catch(() => ''); if (!tel || !r) continue; await eqTexto(env, tel, avisoTeste(env) + corridaTexto(pm, pc, r)).catch(() => {}); n++; }
+  await enviar(env, from, `📣 Mandei a corrida do mês para ${n} pessoa(s) da equipe.`); return true;
 }
 async function premioBotao(env, from, id) {
   const [ac, mes] = id.split('|');
@@ -11036,9 +11080,9 @@ async function premioComandoDono(env, from, msg) {
 }
 async function premioConfigTool(env, a) {
   let c = {}; try { c = JSON.parse((await env.HR_KV.get('premio:cfg')) || '{}') || {}; } catch (_) {}
-  if (+a.valor >= 0 && a.valor != null) c.valor = +a.valor; if (a.lider != null) c.lider = Math.max(0, +a.lider || 0); if (a.lider_texto != null) c.liderTexto = String(a.lider_texto).slice(0, 80); if (typeof a.coringa === 'boolean') c.coringa = a.coringa;
+  if (+a.valor >= 0 && a.valor != null) c.valor = +a.valor; if (a.folga != null) c.folga = !!a.folga; if (+a.folga_pct > 0) c.folgaPct = Math.round(+a.folga_pct); if (+a.folga_dias_pct > 0) c.folgaDiasPct = Math.round(+a.folga_dias_pct); if (a.folga_vantagem != null) c.folgaVantagem = Math.max(0, Math.round(+a.folga_vantagem || 0)); if (a.lider != null) c.lider = Math.max(0, +a.lider || 0); if (a.lider_texto != null) c.liderTexto = String(a.lider_texto).slice(0, 80); if (typeof a.coringa === 'boolean') c.coringa = a.coringa;
   await env.HR_KV.put('premio:cfg', JSON.stringify(c)); const pc = await premioCfg(env);
-  return { texto: `Prêmio do mês: R$ ${reais(pc.valor)} para quem bater a meta em todas as semanas${pc.coringa ? ' (com coringa)' : ''}; líder do mês: ${pc.lider ? 'R$ ' + reais(pc.lider) : ''}${pc.liderTexto ? (pc.lider ? ' + ' : '') + pc.liderTexto : ''}${!pc.lider && !pc.liderTexto ? 'sem extra' : ''}. Já aparece no app da equipe. Confirme em UMA frase.` };
+  return { texto: `Prêmio do mês: R$ ${reais(pc.valor)} para quem bater a meta em todas as semanas${pc.coringa ? ' (com coringa)' : ''}; líder do mês: ${pc.lider ? 'R$ ' + reais(pc.lider) : ''}${pc.liderTexto ? (pc.lider ? ' + ' : '') + pc.liderTexto : ''}${!pc.lider && !pc.liderTexto ? 'sem extra' : ''}${pc.folga ? `; FOLGA DO CAMPEÃO ligada (1º do mês, ${pc.folgaPct}% da meta, meta do dia em ${pc.folgaDiasPct}% dos dias, todas as semanas, zero retrabalho/quebra, ${pc.folgaVantagem}% à frente do 2º)` : '; folga do campeão desligada'}. Já aparece no app da equipe. Confirme em UMA frase.` };
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v149: ETAPAS COM VÁRIAS PESSOAS + ACABAMENTO
@@ -13989,7 +14033,7 @@ async function narr353(env) {
     extra: 'Cortou uma peça que não está no projeto, ou que é de outro serviço do mesmo cliente? Fale a peça e a pedra. A Helena manda para o Sr. Hangel confirmar, e os pontos entram do mesmo jeito. Nada se perde.',
     meta: `A partir de dezembro, a meta é de ${ext(MES100)} pontos no mês. A meta do dia é essa meta dividida pelos dias de trabalho, e o sábado conta meio dia. Você acompanha tudo no seu cartão.`,
     faixas: 'Passou da meta? Você sobe de faixa. Oitenta por cento é bronze. Cem por cento é prata, que é bater a meta. Cento e vinte e cinco é ouro. E cento e cinquenta é diamante!',
-    premio: `Quem bater a meta do mês ganha o prêmio de ${ext(pc.valor)} reais${+pc.lider > 0 ? `, e o líder do mês ganha mais ${ext(pc.lider)} reais` : ''}. Retrabalho e peça quebrada tiram pontos, então capricho vale ouro.`,
+    premio: `Quem bater a meta do mês ganha o prêmio de ${ext(pc.valor)} reais${+pc.lider > 0 ? `, e o líder do mês ganha mais ${ext(pc.lider)} reais` : ''}. ${pc.folga ? ` E o primeiro do mês pode ganhar um dia de folga, mas só se for campeão de verdade: ${ext(pc.folgaPct)} por cento da meta, todas as semanas batidas, sem retrabalho e sem quebra.` : ''} Retrabalho e peça quebrada tiram pontos, então capricho vale ouro.`,
     dicas: 'Quer saber como está? Pergunte à Helena: quantos pontos eu tenho? E se algum serviço não contou, avise: ela confere com o Sr. Hangel.',
     fim: 'Bora bater a meta, equipe!',
   };
@@ -15380,7 +15424,7 @@ const FERRAMENTAS = [
   {
     name: 'premio_mensal',
     description: 'Configura o PRÊMIO DO MÊS da equipe: valor em R$ para quem bater a meta em todas as semanas, extra do LÍDER do mês (R$ e/ou um prêmio em texto, ex.: "folga num sábado") e o coringa (uma semana abaixo compensada no total). Ex.: "prêmio do mês 200 e o líder ganha 80", "o líder ganha uma folga".',
-    input_schema: { type: 'object', properties: { valor: { type: 'number' }, lider: { type: 'number' }, lider_texto: { type: 'string' }, coringa: { type: 'boolean' } } },
+    input_schema: { type: 'object', properties: { valor: { type: 'number' }, lider: { type: 'number' }, lider_texto: { type: 'string' }, coringa: { type: 'boolean' }, folga: { type: 'boolean', description: 'FOLGA DO CAMPEÃO (1 dia de folga para o 1º do mês, muito difícil) ligada/desligada' }, folga_pct: { type: 'number', description: '% da meta do mês exigido para a folga (padrão 130)' }, folga_dias_pct: { type: 'number', description: '% dos dias com a meta do dia batida (padrão 80)' }, folga_vantagem: { type: 'number', description: 'pontos percentuais à frente do 2º (padrão 10)' } } },
   },
   {
     name: 'meta_definir',
@@ -36913,7 +36957,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
     if (req.method === 'GET' && /^\/voz-video2\/[a-z]+$/.test(url.pathname)) return vozVideo2Rota(env, url.pathname.split('/')[2]); // v353
-    if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
+    if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
