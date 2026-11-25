@@ -15261,6 +15261,20 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'o que ele quer no vídeo (frase, tema, estilo), com as palavras dele' }, usar_recentes: { type: 'boolean', description: 'true para usar o que ele acabou de mandar (padrão)' }, vai_mandar: { type: 'boolean', description: 'true quando ele disse que AINDA VAI mandar as fotos/vídeos ("vou te mandar..."): o bot guarda o pedido e monta quando chegarem' } }, required: ['pedido'] },
   },
   {
+    name: 'buscar_no_app',
+    description: 'BUSCA EM TUDO DO APP (todos os orçamentos de todos os tempos, com a seção do Histórico: rascunho, aguardando/pendente, aceito, entregue, concluído, perdido; peças e medidas; agenda/produção; contrato; pagamentos do livro). Use PRIMEIRO para qualquer pergunta sobre serviços, orçamentos, clientes, valores, o que está aceito/entregue/em rascunho, o que tem de cozinha/lavatório/nicho, de uma pedra, de uma cidade, de um período, quanto vendeu, etc. Filtre por texto (nome, telefone, nº ORC, pedra, peça, cidade), seção e período. Devolve a lista com totais.',
+    input_schema: { type: 'object', properties: {
+      texto: { type: 'string', description: 'palavras para procurar (cliente, telefone, ORC, pedra, tipo de peça, cidade). Vazio = todos' },
+      secao: { type: 'string', enum: ['todos', 'rascunho', 'pendente', 'aceito', 'entregue', 'concluido', 'perdido', 'abertos'], description: '"abertos" = aceito + entregue com saldo. Padrão: todos' },
+      de: { type: 'string', description: 'data inicial AAAA-MM-DD (data do orçamento)' }, ate: { type: 'string', description: 'data final AAAA-MM-DD' },
+      ordenar: { type: 'string', enum: ['data', 'valor'] }, limite: { type: 'number', description: 'máx. de itens listados (padrão 15, máx. 40)' } } },
+  },
+  {
+    name: 'detalhe_no_app',
+    description: 'FICHA COMPLETA de um serviço/orçamento do app: todos os dados do orçamento (projeto, pedra, m², valores, forma de pagamento, desconto, obs, endereço), cada ambiente com as peças e medidas, a seção (rascunho/aceito/entregue...), a agenda (etapa, início, entrega, valor pago), o contrato, os pagamentos do livro e a produção (quem cortou/fez/entregou, o que falta, o que espera aprovação). Use quando o Sr. Hangel perguntar detalhes de um serviço, "como está o serviço do fulano", medidas, "o que falta", ou antes de agir num serviço.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome ou telefone do cliente' }, orc: { type: 'string', description: 'nº do orçamento (ORC) ou id, se souber' }, projeto: { type: 'string', description: 'qual projeto, quando o cliente tem mais de um (ex.: cozinha, banheiro)' } } },
+  },
+  {
     name: 'orcamentos_do_cliente',
     description: 'Lista TODOS os orçamentos de um cliente feitos no app (número ORC, projeto, pedra, valor, data, situação, se o PDF está guardado e qual é o ATIVO na conversa do WhatsApp). Use quando o Sr. Hangel perguntar pelos orçamentos de alguém, quiser escolher qual mandar, ou citar o código do cliente (C-0012). O passo a passo (aprovação, Pix, entrega) sempre segue no último orçamento mandado ao cliente.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome, código (C-0012) ou telefone do cliente' } }, required: ['cliente'] },
@@ -15743,6 +15757,8 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     r.j.desc = r.j.desc + '. Pedido do Sr. Hangel para o vídeo: ' + String(a.pedido || '').slice(0, 300); r.j.pedidoDono = String(a.pedido || '').slice(0, 300); await estGravar(env, r.j);
     return { texto: `Vídeo em montagem com ${r.j.mix ? 'uma compilação de ' + r.j.mix.length + ' obras do acervo' : 'a obra ' + r.o.desc}, seguindo: "${a.pedido}". Chega para ele aprovar. Responda em uma frase.` };
   }
+  if (nome === 'buscar_no_app') return appBuscarTool(env, a); // v340
+  if (nome === 'detalhe_no_app') return appDetalheTool(env, a); // v340
   if (nome === 'orcamentos_do_cliente') { // v118
     const r = await orcsDoCliente(env, a.cliente || '');
     if (!r.ok) return { texto: 'O app ainda não mandou o histórico de orçamentos. Peça ao Sr. Hangel para abrir o app.' };
@@ -16011,7 +16027,9 @@ async function responderAgente(env, from, bruto, F, voz) {
     let blocoLinks = ''; // v122
     try { const wu = await urlDoWorker(env), pu = await urlPublica(env);
       blocoLinks = `LINKS DA HR (use quando o Sr. Hangel pedir o site ou um link; nunca diga que não existe): site oficial ${pu || 'https://' + DOMINIO_SITE}; catálogo de pedras ${(pu || wu)}/portfolio; álbum de obras ${(pu || wu)}/obras${wu && wu !== pu ? '; endereço do bot ' + wu : ''}.`; } catch (_) {}
+    const blocoIndice = await appResumoPrompt(env); // v340
     const _regrasL = [
+      blocoIndice,
       blocoMP,
       blocoLinks,
       blocoMidia,
@@ -16075,6 +16093,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- LIVRO DE ENTREGAS E PAGAMENTOS: quando o Sr. Hangel disser que ENTREGOU um serviço, que um cliente PAGOU (valor, forma e data) ou informar o TELEFONE de um cliente, CHAME registrar_entrega_pagamento para ficar salvo de forma permanente (se for dinheiro novo que entrou, chame também lancar_financeiro). Para perguntas sobre datas de entrega, formas de pagamento, quem ainda deve ou saldo, use o LIVRO acima ou consultar_entregas_pagamentos. Nunca diga que não tem onde guardar essas informações. O telefone salvo no livro é usado automaticamente na cobrança; se faltar telefone, peça UMA vez e grave com registrar_entrega_pagamento.`,
       `- QUEM É "ELA", "ELE", "ESSE CLIENTE", "ESSE SERVIÇO": é o cliente da mensagem que ele citou (vem como [O Sr. Hangel respondeu em cima desta mensagem do bot: …]) ou, sem citação, o do assunto MAIS RECENTE do histórico (inclusive [Aviso do bot…] e o que o bot acabou de responder). Nunca use um cliente de assunto mais antigo. Se ficar entre dois, pergunte citando os dois nomes. Valor e serviço que o bot acabou de calcular ("calculei: R$ …") valem para link, Pix, PDF e cobrança sem perguntar de novo. Se ele corrigir o nome do cliente, corrija o MESMO pedido/orçamento (não crie outro com o nome antigo) e diga qual ficou.`,
       `- VALOR/ORÇAMENTO DE UM CLIENTE (v49): antes de perguntar o valor ao Sr. Hangel, e antes de dizer que não encontrou um orçamento, chame consultar_historico_cliente com o nome do cliente (o da mensagem citada ou do assunto). Ela traz o número (ORC-…), o valor À VISTA e o valor A PRAZO. Se ele pedir "a prazo", use o valor a prazo; se a prazo não vier no histórico, diga isso e pergunte. Nunca afirme "não encontrei" sem ter consultado nesta mesma resposta.`,
+      `- O APP INTEIRO (v340): você enxerga TODOS os orçamentos de todos os tempos (rascunho, aguardando, aceito, entregue, concluído, perdido), as peças e medidas de cada ambiente, a agenda, o contrato, os pagamentos do livro e a produção. Para qualquer pergunta sobre serviço/orçamento/cliente/valor/período chame buscar_no_app; para detalhes de um serviço chame detalhe_no_app. Os DADOS DO APP acima podem estar cortados: na dúvida, BUSQUE. Nunca responda "não encontrei" sem ter buscado.`,
       `- NUNCA diga "registrei", "anotei", "marquei", "lancei" ou "a partir de agora não faço X" sem ter chamado uma ferramenta que fez isso. Promessa de mudar o próprio comportamento não vale: diga que vai passar para o ajuste do sistema. Quando ele CORRIGIR um registro de produção (quem fez, qual cliente, se já foi instalado), use as ferramentas de produção para corrigir de fato.`,
       `- APROVAÇÃO DA PRODUÇÃO (v339): o que os funcionários mandam fica PENDENTE (não conta ponto e não manda entrega) até o Sr. Hangel aprovar. "aprovar tudo" aprova; no app: Produção → Aprovar produção. O que ELE mesmo manda registrar entra aprovado.`,
       `- CLIENTE COM MAIS DE UM PROJETO (v338): se o cliente tem 2+ orçamentos/projetos (ex.: banheiro E cozinha), ANTES de gerar Pix, cobrança, link, PDF, ficha ou lançar pagamento, confirme com o Sr. Hangel QUAL projeto (ou se é a soma), listando-os em uma linha com o valor de cada. Só não pergunte quando ele já disse o projeto/valor ou quando a mensagem citada já mostra qual é. Nunca escolha sozinho o mais recente.`,
@@ -16090,7 +16109,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `FORMATO DA RESPOSTA (WhatsApp): *negrito* com um asterisco, _itálico_ com sublinhado; valores como R$ 1.250,00. Uma frase curta de abertura dirigida ao Sr. Hangel; depois cada informação na sua PRÓPRIA LINHA, com o rótulo em negrito; linha em branco entre blocos. Nunca em parágrafo corrido. Listas com no máximo 8 itens (diga quantos ficaram de fora).`,
       `Quando uma ferramenta já enviou a confirmação ao Sr. Hangel, responda apenas OK, sem repetir os detalhes. Nunca escreva colchetes de registro como "[registrado: ...]" nas respostas: eles só existem no histórico.`,
     ];
-    const VIVO = /^(MÍDIAS RECENTES|LANÇAMENTOS FEITOS PELO WHATSAPP|PEDIDOS RECENTES E SITUAÇÃO|LIVRO DE ENTREGAS|ÚLTIMOS LEADS|PERGUNTAS DE CLIENTES)/; // v184: o que muda a toda hora fica fora do cache
+    const VIVO = /^(ÍNDICE DO APP|MÍDIAS RECENTES|LANÇAMENTOS FEITOS PELO WHATSAPP|PEDIDOS RECENTES E SITUAÇÃO|LIVRO DE ENTREGAS|ÚLTIMOS LEADS|PERGUNTAS DE CLIENTES)/; // v184: o que muda a toda hora fica fora do cache
     const blocoRegras = _regrasL.filter(x => !VIVO.test(String(x || ''))).join('\n'), blocoVivo = _regrasL.filter(x => VIVO.test(String(x || ''))).join('\n\n');
 
     let hist = [];
@@ -17775,6 +17794,84 @@ async function aprovComandoDono(env, from, msg) { // "aprovar tudo", "o que falt
   if (/^(desligar|desliga|parar) (a )?aprovacao/.test(msg)) { await env.HR_KV.put('cfg:aprov', '0'); await enviar(env, from, 'Aprovação desligada: o que a equipe mandar volta a contar ponto direto.'); return true; }
   if (/^(ligar|liga|ativar) (a )?aprovacao/.test(msg)) { await env.HR_KV.put('cfg:aprov', '1'); await enviar(env, from, 'Aprovação ligada: tudo da equipe espera o seu ✅.'); return true; }
   return false;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v340: A HELENA ENTENDE O APP INTEIRO — índice de todos os orçamentos (histórico completo mandado pelo app, com seção,
+// peças, agenda e contrato) + livro de entregas/pagamentos + produção do bot. Busca por qualquer palavra e ficha completa.
+// ═════════════════════════════════════════════════════════════════════════════
+const APP_SEC_TXT = { rascunho: '📝 rascunho', pendente: '⏳ aguardando', aceito: '✅ aceito', entregue: '📦 entregue', concluido: '🏆 concluído', perdido: '❌ perdido' };
+function appSecao(o) { const s = String(o.secao || (o.status === 'aprovado' ? 'aceito' : o.status) || 'pendente'); return APP_SEC_TXT[s] ? s : 'pendente'; }
+function appHay(o) { return normaliza([o.cliente, o.projeto, o.material, o.cidade, o.end, o.obs, o.amb, o.orcNum, o.projNum, o.cliCod, o.job && o.job.desc, String(o.tel || '').replace(/\D/g, '')].filter(Boolean).join(' ')).replace(/[^a-z0-9 ]+/g, ' '); }
+function appCasaTexto(o, toks) {
+  if (!toks.length) return true;
+  const hay = appHay(o), ws = hay.split(/\s+/);
+  return toks.every(w => /^\d{6,}$/.test(w) ? hay.replace(/\s/g, '').includes(w) : ws.some(h => h === w || (w.length >= 4 && (h.startsWith(w) || w.startsWith(h) && h.length >= 4)) || (w.length >= 5 && h.startsWith(w.slice(0, -1)))));
+}
+const APP_IGNORA = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'o', 'a', 'os', 'as', 'em', 'no', 'na', 'com', 'para', 'pra', 'pro', 'que', 'servico', 'servicos', 'orcamento', 'orcamentos', 'cliente', 'clientes', 'todos', 'todas', 'tudo', 'qual', 'quais']);
+function appToks(t) { return normaliza(String(t || '')).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(w => w && !APP_IGNORA.has(w)); }
+function appValorAberto(o) { const j = o.job; if (j && j.valor > 0) return Math.max(0, Math.round((j.valor - (j.pago || 0)) * 100) / 100); return null; }
+function appLinha(o) {
+  const sec = appSecao(o), j = o.job, ab = appValorAberto(o);
+  return `${o.orcNum ? orcNumNorm(o.orcNum) || o.orcNum : 'id ' + String(o.id || '').slice(-6)} · *${o.cliente}* · ${[o.projeto, o.material].filter(Boolean).join(' em ') || 'serviço'} · R$ ${reais(o.valor || 0)} · ${o.data ? dataBR(o.data) : 's/ data'} · ${APP_SEC_TXT[sec]}${o.pdf ? '' : sec === 'rascunho' ? ' (sem PDF)' : ''}${j ? ` · agenda: ${j.etapa || (j.feito ? 'concluído' : '—')}${j.fim ? ' p/ ' + dataBR(j.fim) : ''}${ab != null ? (ab > 0 ? ` · falta R$ ${reais(ab)}` : ' · pago') : ''}` : ''}`;
+}
+async function appBuscarTool(env, a) {
+  const h = await lerHistorico(env); if (!h) return { texto: 'O app ainda não mandou o histórico completo. Peça ao Sr. Hangel para abrir o app (ele envia sozinho em até 1 minuto).' };
+  const toks = appToks(a.texto), sec = String(a.secao || 'todos'), de = /^\d{4}-\d{2}-\d{2}$/.test(a.de || '') ? a.de : '', ate = /^\d{4}-\d{2}-\d{2}$/.test(a.ate || '') ? a.ate : '';
+  let l = h.orcamentos.filter(o => !o.arquivado || sec === 'todos' && toks.length);
+  if (sec === 'abertos') l = l.filter(o => ['aceito', 'entregue'].includes(appSecao(o)) && !(appValorAberto(o) === 0 && appSecao(o) === 'entregue'));
+  else if (sec !== 'todos') l = l.filter(o => appSecao(o) === sec);
+  if (de) l = l.filter(o => (o.data || '') >= de); if (ate) l = l.filter(o => (o.data || '') && o.data <= ate);
+  l = l.filter(o => appCasaTexto(o, toks));
+  if (!l.length && toks.length > 1) { const t2 = toks.filter(w => !(PEDRA_PAL && PEDRA_PAL.has && PEDRA_PAL.has(PEDRA_EQ(w)))); if (t2.length && t2.length < toks.length) l = h.orcamentos.filter(o => !o.arquivado && (sec === 'todos' || appSecao(o) === sec) && appCasaTexto(o, t2)); }
+  l.sort(a.ordenar === 'valor' ? (x, y) => (y.valor || 0) - (x.valor || 0) : (x, y) => String(y.data || '').localeCompare(String(x.data || '')));
+  if (!l.length) return { texto: `Nada no app com ${toks.length ? '"' + a.texto + '"' : 'esse filtro'}${sec !== 'todos' ? ' na seção ' + sec : ''}. (O histórico tem ${h.orcamentos.length} orçamentos.) Diga isso ao Sr. Hangel e, se for nome de cliente, pergunte se está escrito de outro jeito.` };
+  const lim = Math.min(40, Math.max(1, +a.limite || 15)), porSec = {};
+  for (const o of l) { const s = appSecao(o); porSec[s] = porSec[s] || { n: 0, v: 0 }; porSec[s].n++; porSec[s].v += +o.valor || 0; }
+  const tot = l.reduce((t, o) => t + (+o.valor || 0), 0), abertoT = l.reduce((t, o) => t + (appValorAberto(o) || 0), 0);
+  return { texto: `${l.length} resultado(s) · total R$ ${reais(tot)}${abertoT > 0 ? ` · a receber (agenda) R$ ${reais(abertoT)}` : ''}\nPor seção: ${Object.entries(porSec).map(([k, v]) => `${APP_SEC_TXT[k]} ${v.n} (R$ ${reais(v.v)})`).join(' · ')}\n${l.slice(0, lim).map(appLinha).join('\n')}${l.length > lim ? `\n…e mais ${l.length - lim}.` : ''}\n[Para detalhes de um, use detalhe_no_app. Responda ao Sr. Hangel organizado e curto.]` };
+}
+async function appDetalheTool(env, a) {
+  const h = await lerHistorico(env); if (!h) return { texto: 'O app ainda não mandou o histórico completo. Peça ao Sr. Hangel para abrir o app.' };
+  let l = [];
+  const on = a.orc ? orcNumNorm(a.orc) : ''; if (on || a.orc) l = h.orcamentos.filter(o => (on && orcNumNorm(o.orcNum || '') === on) || String(o.id) === String(a.orc));
+  if (!l.length && a.cliente) { const d8 = String(a.cliente).replace(/\D/g, ''); l = d8.length >= 8 ? h.orcamentos.filter(o => String(o.tel || '').replace(/\D/g, '').endsWith(d8.slice(-8))) : h.orcamentos.filter(o => appCasaTexto({ cliente: o.cliente }, appToks(a.cliente))); }
+  if (a.projeto && l.length > 1) { const f = l.filter(o => appCasaTexto(o, appToks(a.projeto))); if (f.length) l = f; }
+  l = l.filter(o => !o.arquivado).sort((x, y) => (['aceito', 'entregue'].includes(appSecao(y)) ? 1 : 0) - (['aceito', 'entregue'].includes(appSecao(x)) ? 1 : 0) || String(y.data || '').localeCompare(String(x.data || '')));
+  if (!l.length) return { texto: `Não achei ${a.cliente || a.orc} no app. Use buscar_no_app com outra grafia ou pergunte ao Sr. Hangel.` };
+  const out = [];
+  if (l.length > 1) out.push(`ATENÇÃO: ${l.length} orçamentos encontrados para esse cliente (mostrando ${Math.min(3, l.length)}). Se o pedido do Sr. Hangel depende de UM deles, confirme qual.`);
+  const liv = await livTodos(env).catch(() => []), peds = await pedidosProducao(env, () => true).catch(() => []), cfg = await pontoCfg(env).catch(() => ({ funcs: [] }));
+  const nomeF = id => { const f = (cfg.funcs || []).find(x => String(x.id) === String(id)); return f ? (apelidoFunc(cfg, f) || f.nome.split(' ')[0]) : String(id); };
+  for (const o of l.slice(0, 3)) {
+    const sec = appSecao(o), j = o.job;
+    const L = [`━ ${o.orcNum ? orcNumNorm(o.orcNum) || o.orcNum : 'orçamento'} · ${o.cliente}${o.cliCod ? ' (' + o.cliCod + ')' : ''} · ${APP_SEC_TXT[sec]}`,
+      `Projeto: ${o.projeto || '—'} · Pedra: ${o.material || '—'} · ${o.m2 ? o.m2 + ' m²' : ''}`,
+      `Valor: à vista R$ ${reais(o.valor || 0)}${o.prazo ? ' · a prazo R$ ' + reais(o.prazo) : ''}${o.entrada ? ' · entrada R$ ' + reais(o.entrada) : ''}${o.desconto ? ' · desconto R$ ' + reais(o.desconto) : ''}${o.forma ? ' · forma: ' + o.forma : ''}`,
+      `Data: ${o.data ? dataBR(o.data) : '—'}${o.stDt ? ' · mudou de situação em ' + dataBR(o.stDt) : ''}${o.prazoDias ? ' · prazo ' + o.prazoDias + ' dias úteis' : ''}${sec === 'rascunho' ? ' · PDF ainda não gerado' : ''}`,
+      o.tel || o.cidade || o.end ? `Contato: ${[o.tel, o.cidade, o.end].filter(Boolean).join(' · ')}` : '',
+      o.amb ? `Peças: ${o.amb}` : 'Peças: (o orçamento não tem as peças salvas)',
+      o.obs ? `Obs.: ${o.obs}` : '',
+      j ? `Agenda: ${j.desc || ''} · etapa ${j.etapa || '—'}${j.ini ? ' · início ' + dataBR(j.ini) : ''}${j.fim ? ' · entrega ' + dataBR(j.fim) : ''} · valor R$ ${reais(j.valor || 0)} · pago R$ ${reais(j.pago || 0)}${j.feito ? ' · CONCLUÍDO' : ''}${j.instala ? ' · com instalação' : ''}` : (['aceito', 'entregue', 'concluido'].includes(sec) ? 'Agenda: não está na agenda do app' : ''),
+      o.contrato ? `Contrato: ${o.contrato}` : ''];
+    const lv = livAchar(liv, o.cliente).filter(r => !o.projeto || !r.desc || livTokensCasam(o.projeto, r.desc) || livAchar(liv, o.cliente).length === 1).slice(0, 3);
+    for (const r of lv) L.push(`Livro: ${r.desc || 'serviço'} · R$ ${reais(r.valor || 0)}${r.entregaEm ? ' · entregue ' + dataBR(r.entregaEm) : ''}${Array.isArray(r.pagamentos) && r.pagamentos.length ? ' · pagamentos: ' + r.pagamentos.map(p => `R$ ${reais(p.valor)} ${p.forma || ''} ${p.data ? dataBR(p.data) : ''}`.trim()).join('; ') : ''}${r.falta != null ? ' · falta R$ ' + reais(r.falta) : ''}`);
+    const pd = peds.filter(p => nomeNota(p.nome, tokensPedra(o.cliente)) >= 1 && (!o.projeto || !p.projetoApp || livTokensCasam(o.projeto, p.projetoApp) || peds.filter(q => nomeNota(q.nome, tokensPedra(o.cliente)) >= 1).length === 1)).slice(0, 2);
+    for (const p of pd) {
+      const lg = (p.prodLog || []).filter(x => x.e !== 'anulado').map(x => `${APROV_ET[x.e] || x.e} por ${(x.por || []).map(nomeF).join(' e ') || '—'} ${x.ts ? dataBR(diaDe(x.ts)).slice(0, 5) : ''}${x.ap === 0 ? ' (ESPERANDO APROVAÇÃO)' : x.ap === -1 ? ' (recusado)' : ''}`);
+      L.push(`Produção: ${resumoPecas(p)} · ${p.entregueEm ? 'ENTREGUE ' + dataBR(diaDe(p.entregueEm)) : p.fabProntoEm || p.prontoEm ? 'PRONTO, falta entregar' : p.corteEm ? 'cortado, em acabamento' : 'falta cortar'}${p.fabResp ? ' · fábrica: ' + nomeF(p.fabResp) : ''}${p.entResp ? ' · entrega: ' + nomeF(p.entResp) : ''}${lg.length ? '\n  etapas: ' + lg.join('; ') : ''}`);
+    }
+    out.push(L.filter(Boolean).join('\n'));
+  }
+  return { texto: out.join('\n\n') + '\n[Responda ao Sr. Hangel só o que ele perguntou, organizado.]' };
+}
+async function appResumoPrompt(env) { // visão geral curta que vai em toda conversa com o dono
+  try { const h = await lerHistorico(env); if (!h) return '';
+    const l = h.orcamentos.filter(o => !o.arquivado), por = {}; for (const o of l) { const s = appSecao(o); por[s] = por[s] || { n: 0, v: 0 }; por[s].n++; por[s].v += +o.valor || 0; }
+    const ab = l.filter(o => ['aceito', 'entregue'].includes(appSecao(o)));
+    return `ÍNDICE DO APP (histórico completo, ${l.length} orçamentos; atualizado ${h.ts ? new Date(h.ts).toLocaleString('pt-BR', { timeZone: 'America/Bahia' }) : '?'}): ${Object.entries(por).map(([k, v]) => `${APP_SEC_TXT[k]} ${v.n} (R$ ${reais(v.v)})`).join(' · ')}\nACEITOS/ENTREGUES (mais recentes):\n${ab.sort((x, y) => String(y.data || '').localeCompare(String(x.data || ''))).slice(0, 25).map(appLinha).join('\n')}\nPara QUALQUER outra pergunta sobre serviços/orçamentos/clientes: chame buscar_no_app (lista) ou detalhe_no_app (ficha completa). Não diga que não achou sem buscar.`;
+  } catch (_) { return ''; }
 }
 
 function semInstrucaoIA(t) { return String(t || '').replace(/\s*Confirme em (UMA|uma) frase( curta)?\.?/g, '').replace(/\s*\(?responda em uma frase[^)]*\)?\.?/gi, '').trim(); } // v338
@@ -20765,7 +20862,7 @@ function limparHistorico(b) {
   for (const q of b.orcamentos.slice(0, 50000)) {
     if (!q || !t(q.cliente, 60)) continue;
     const dt = /^\d{4}-\d{2}-\d{2}$/.test(String(q.data || '')) ? String(q.data) : '';
-    const o = { id: t(q.id, 30), orcNum: t(q.orcNum, 30), prazo: n(q.prazo), prazoDias: n(q.prazoDias), custo: n(q.custo), stDt: /^\d{4}-\d{2}-\d{2}$/.test(String(q.stDt || '')) ? String(q.stDt) : '', cliente: t(q.cliente, 60), projeto: t(q.projeto, 70), material: t(q.material, 50), m2: n(q.m2), valor: n(q.valor), entrada: n(q.entrada), status: t(q.status, 15), data: dt, arquivado: q.arquivado ? 1 : 0, cliCod: t(q.cliCod, 12), tel: t(q.tel, 20) };
+    const o = { id: t(q.id, 30), orcNum: t(q.orcNum, 30), prazo: n(q.prazo), prazoDias: n(q.prazoDias), custo: n(q.custo), stDt: /^\d{4}-\d{2}-\d{2}$/.test(String(q.stDt || '')) ? String(q.stDt) : '', cliente: t(q.cliente, 60), projeto: t(q.projeto, 70), material: t(q.material, 50), m2: n(q.m2), valor: n(q.valor), entrada: n(q.entrada), status: t(q.status, 15), data: dt, arquivado: q.arquivado ? 1 : 0, cliCod: t(q.cliCod, 12), tel: t(q.tel, 20) , secao: t(q.secao, 12), pdf: q.pdf ? 1 : 0, cidade: t(q.cidade, 40), end: t(q.end, 90), obs: t(q.obs, 200), forma: t(q.forma, 20), desconto: n(q.desconto), amb: t(q.amb, 900), job: q.job && typeof q.job === 'object' ? { etapa: t(q.job.etapa, 20), ini: t(q.job.ini, 10), fim: t(q.job.fim, 10), valor: n(q.job.valor), pago: n(q.job.pago), feito: q.job.feito ? 1 : 0, instala: q.job.instala ? 1 : 0, desc: t(q.job.desc, 90) } : undefined, contrato: q.contrato ? t(q.contrato, 20) : undefined }; // v340: o app inteiro
     const k = o.id ? 'id:' + o.id : [normaliza(o.cliente), o.data, o.valor, normaliza(o.projeto)].join('|');
     if (vistosO.has(k)) continue;
     vistosO.add(k); orcamentos.push(o);

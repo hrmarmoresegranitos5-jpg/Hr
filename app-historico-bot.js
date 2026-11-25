@@ -56,9 +56,30 @@
     } catch (e) {}
     var vc = {}; clientes = clientes.filter(function (c) { var k = c.nome.toLowerCase() + '|' + c.tel.replace(/\D/g, ''); if (vc[k]) return false; vc[k] = 1; return true; });
     var orcamentos = [];
+    // v4: tudo o que o app sabe de cada orçamento (seção do Histórico, peças, agenda/produção, contrato) — a Helena entende o app inteiro
+    var jobPorQ = {}, ctrPorQ = {};
+    try { ((typeof DB !== 'undefined' && DB.j) || []).forEach(function (j) { if (j && j.qid != null) jobPorQ[String(j.qid)] = j; }); } catch (e) {}
+    try { ((typeof DB !== 'undefined' && DB.c) || []).forEach(function (c) { if (c && c.qid != null) ctrPorQ[String(c.qid)] = c; }); } catch (e) {}
+    function secaoDe(q) { try { if (typeof _orcSecaoDe === 'function') return _orcSecaoDe(q); } catch (e) {} return q.status === 'aprovado' ? 'aceito' : (q.status || 'pendente'); }
+    function ambTxt(q) {
+      try {
+        return (q.ambSnap || []).map(function (a) {
+          var pcs = (a.pecas || []).filter(function (p) { return +p.w > 0 && +p.h > 0; }).map(function (p) {
+            var r = ''; ['n', 'nome', 'label', 'desc', 't'].forEach(function (k) { if (!r && typeof p[k] === 'string' && p[k].trim()) r = p[k].trim(); });
+            return ((+p.q > 1) ? (+p.q) + 'x ' : '') + (+p.w) + 'x' + (+p.h) + (r ? ' ' + r : '');
+          });
+          var sv = Object.keys(a.svState || {}).filter(function (k) { return a.svState[k]; });
+          return txt(a.tipo || 'Ambiente', 40) + (pcs.length ? ': ' + pcs.join(', ') : '') + (sv.length ? ' [' + sv.join(',') + ']' : '') + (a.selCuba && a.selCuba.nm ? ' cuba ' + a.selCuba.nm : '');
+        }).join(' | ').slice(0, 900);
+      } catch (e) { return ''; }
+    }
     ((typeof DB !== 'undefined' && DB.q) || []).forEach(function (q) {
       if (!q || !q.cli) return;
+      var j = jobPorQ[String(q.id)], c = ctrPorQ[String(q.id)];
       orcamentos.push({
+        secao: txt(secaoDe(q), 12), pdf: q.pdfGerado ? 1 : 0, cidade: txt(q.cidade, 40), end: txt(q.end, 90), obs: txt(q.obs, 200), forma: txt(q.formaPag, 20), desconto: num(q.desconto), amb: ambTxt(q),
+        job: j ? { etapa: txt(j.stage, 20), ini: dia(j.start), fim: dia(j.end), valor: num(j.value), pago: num(j.pago), feito: j.done ? 1 : 0, instala: j.instala ? 1 : 0, desc: txt(j.desc, 90) } : undefined,
+        contrato: c ? txt(c.status || 'gerado', 20) : undefined,
         id: txt(q.id, 30), orcNum: txt(q.orcNum, 30), projNum: txt(q.projNum, 30), cliente: txt(q.cli, 60), projeto: txt(q.tipo, 70), material: txt(q.mat, 50),
         m2: num(q.m2), valor: num(q.vista), prazo: num(q.parc), entrada: num(q.ent), status: txt(q.status, 15), prazoDias: num(q.prazoDias), custo: num(q.custoPedra), stDt: dia(q._statusDate || ''),
         data: dia(q.date || q.createdAt), arquivado: q._arquivado ? 1 : 0
