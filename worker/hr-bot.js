@@ -13979,6 +13979,9 @@ async function fix356Renata(env) { // v356: junta os registros duplicados de um 
   m.pagamentos = pags.filter((p, i, a) => a.findIndex(q => livMesmoPag(q, p)) === i).sort((x, y) => String(x.data).localeCompare(String(y.data)));
   await livSalvar(env, m); for (const r of outros) await env.HR_KV.delete(LIV_PREFIX + r.id);
 }
+async function diag356b(env) { if (!env.HR_DB || await env.HR_KV.get('diag:356b') || !(await env.HR_KV.get('fix:356'))) return; await env.HR_KV.put('diag:356b', '1', { expirationTtl: 2 * 86400 });
+  const l = (await livTodos(env)).filter(r => /renata/i.test(r.cliente || '')).map(r => ({ id: r.id, n: (r.pagamentos || []).length, valor: r.valor, pago: livPago(r), saldo: livSaldo(r), formas: (r.pagamentos || []).map(p => p.forma + ' ' + p.valor) }));
+  await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('356b', JSON.stringify(l)).run(); }
 async function diag356(env) { // v356: Renata (extrato errado)
   if (!env.HR_DB || await env.HR_KV.get('diag:356')) return; await env.HR_KV.put('diag:356', '1', { expirationTtl: 2 * 86400 });
   await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
@@ -37001,6 +37004,7 @@ export default {
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
+    if (ctx && ctx.waitUntil && !globalThis.__diag356b) { globalThis.__diag356b = 1; ctx.waitUntil(diag356b(env).catch(() => {})); }
     if (ctx && ctx.waitUntil && !globalThis.__diag356) { globalThis.__diag356 = 1; ctx.waitUntil(diag356(env).catch(e => console.log('[DIAG356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
