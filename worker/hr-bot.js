@@ -12631,7 +12631,7 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
     /* v196: a legenda já diz o cliente e o que foi ("Serviço de Renata finalizando", "Dona Renata serviço finalizado") → não pergunta de novo */
     const achL = leg ? (temNome(l) || []) : [];
     if (achL.length === 1) {
-      if (quer === 'fim' && String(env.CONFIRMA_FIM ?? '1') !== '0' && !(naEntrega(achL[0]) && [achL[0].entResp, achL[0].instIniPor, ...(achL[0].entAjud || [])].map(String).includes(String(f.id)))) { // v326: quem é o entregador do pedido não precisa do dono confirmar // v274: "finalizamos a cozinha de Poliano" → o dono vê a foto e a frase e confirma antes de marcar
+      if (quer === 'fim' && String(env.CONFIRMA_FIM ?? '1') !== '0' && !(naEntrega(achL[0]) && [achL[0].entResp, achL[0].instIniPor, ...(achL[0].entAjud || [])].map(String).includes(String(f.id))) && !((naFabrica(achL[0]) || (achL[0].acabResp && !achL[0].acabEm)) && [achL[0].fabResp, achL[0].fab2Resp, achL[0].acabResp].map(String).includes(String(f.id)))) { // v330: quem faz o serviço na fábrica ("divisórias finalizadas" do acabador) registra direto // v326: quem é o entregador do pedido não precisa do dono confirmar // v274: "finalizamos a cozinha de Poliano" → o dono vê a foto e a frase e confirma antes de marcar
         const pedF = achL[0], mids = [...(fp0 && fp0.mids && Date.now() - (fp0.em || 0) < 15 * 60000 ? fp0.mids : []), m.image.id].filter((x, i, a) => x && a.indexOf(x) === i), cid = estId(8);
         await env.HR_KV.put('fimconf:' + cid, JSON.stringify({ pid: pedF.id, from, fid: String(f.id), nome, mids, leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
         await env.HR_KV.delete('prod:fotopend:' + k8).catch(() => {});
@@ -32724,7 +32724,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   ctx.cliente = false;
   await env.HR_KV.put('ponto:ultzap:' + f.id, String(Date.now()), { expirationTtl: 2 * 86400 }); // v41: conversa aberta (24 h)
   await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {}); // v154: janela de 24 h também para a equipe
-  if (await eqPendente(env, from).catch(() => false)) { const t0 = normaliza(m.type === 'text' ? String(m.text?.body || '') : ''); if (m.type === 'button' || m.type !== 'text' || t0.length < 25) return true; } // v154/v162: manual guardado; "sim"/"ok" só abre o manual
+  if (await eqPendente(env, from).catch(() => false)) { const t0 = normaliza(m.type === 'text' ? String(m.text?.body || '') : ''); if (m.type === 'button' || (m.type === 'text' && /^(ok|okay|sim|ss|oi|ola|opa|bom dia|boa tarde|boa noite|blz|beleza|certo|pode|pode mandar|manda|\W*)$/.test(t0))) return true; } // v154/v162 · v330: foto, áudio e mensagem de verdade seguem para o fluxo (a foto do Lucas "Divisórias do Ezio finalizadas" sumia): manual guardado; "sim"/"ok" só abre o manual
   const nome = apelidoFunc(cfg, f); // v45: como a equipe chama
   { const pend = await env.HR_KV.get('ponto:relpend:' + f.id); if (pend) { await env.HR_KV.delete('ponto:relpend:' + f.id); try { await pontoRelEnviar(env, cfg, f, JSON.parse(pend), { reenvio: true }); } catch (e) { console.log('[PONTO] rel pendente:', e.message); } const tb = normaliza(m.type === 'button' ? String(m.button?.text || '') : m.type === 'text' ? String(m.text?.body || '') : ''); if (/^ver relatorio$/.test(tb)) return true; } } // v220
   let idB = m.type === 'interactive' ? (m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '') : m.type === 'button' ? String(m.button?.payload || '') : '';

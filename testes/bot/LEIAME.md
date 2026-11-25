@@ -20,3 +20,4 @@ Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). 
 - falas/func2.txt: 2ª bateria da equipe (RH, máquina/material, recado de cliente, medidas/ficha/prazo). Rodar: SOF=1 FUNC=./func2.txt OUT=./resultado2.txt node falas/rodar.mjs. v327.
 - t15: diário de erros (helena_falhas) e 'erros da helena'. v329.
 - t16: casos reais do Fabrício 23–24/11 (balcão Ubatuba, 'cozinha do preto' = área gourmet do Cássio, 'já cortado' com corte pela metade). v330.
+- t17: recado guardado não engole a foto; acabador com 'finalizadas' registra direto. v331.
