@@ -5029,6 +5029,7 @@ function promptCliente(env, c, regras) {
     `- PEDIDO: se perguntarem como está o pedido ou o orçamento, responda usando SOMENTE a SITUAÇÃO DO PEDIDO abaixo. Se nenhum pedido foi localizado, diga isso e ofereça encaminhar à equipe. Nunca invente prazo, data ou valor.`,
     `- HORÁRIO: quando algo depender da equipe (retorno, falar com uma pessoa, visita, dúvida sem resposta), diga quando ela retorna, conforme o HORÁRIO DA EQUIPE. Fora do expediente nunca diga "em breve": informe o horário de retorno.`,
     `- ARQUIVOS DO CLIENTE: mensagens entre colchetes, como [O cliente enviou uma foto...], indicam que a equipe já recebeu o arquivo. Agradeça, diga que a equipe vai analisá-lo e siga o atendimento, pedindo só o que faltar (como as medidas).`,
+    `- CATÁLOGO DE CUBAS: para mostrar as cubas (o cliente quer escolher a cuba, ou o Sr. Hangel pediu para mandar o catálogo de cubas), preencha "enviar_fotos" com "cubas banheiro" (lavatório/banheiro/lavabo) ou "cubas cozinha"; o link abre direto nas cubas. Nunca use o nome de pedra para isso.`,
     `- ENVIAR FOTOS: quando o cliente pedir exemplos de trabalhos, ver cores ou pedras, ou não souber escolher a pedra, e houver fotos cadastradas, diga que está enviando e preencha "enviar_fotos" com "trabalhos" (exemplos de obras) ou com o NOME da pedra que o cliente citou (ex.: "preto são gabriel"). Se o cliente quiser ver as pedras em geral ou as cores sem citar uma, preencha "enviar_fotos" com "pedras": o bot envia o link do catálogo, não fotos soltas. As fotos seguem logo depois da sua mensagem.`,
     `- COMO FALAR MEDIDAS: fale as medidas como as pessoas falam, comprimento POR largura, em metros quando passa de um metro e a largura em centímetros: "1,20 por 13", "1,50 por 15", "90 por 13". NUNCA escreva "120x13", "120 x 13 cm" nem "120 cm x 13 cm", e não use o sinal "x" entre medidas. Quantidade: "2 peças de 1,20 por 13".`,
     `- NATURALIDADE: antes de perguntar o próximo ponto, reconheça em poucas palavras o que o cliente acabou de dizer. Varie as aberturas: nunca comece duas respostas seguidas com a mesma palavra e evite repetir \"Agradeço pela confirmação\". Linguagem simples do dia a dia, no máximo 3 frases curtas por resposta.`,
@@ -6452,13 +6453,14 @@ async function resumoGaleria(env) {
   return { trabalhos: l.filter(i => i.tipo === 'trabalho').length, cats, pedras: l.filter(i => i.tipo === 'pedra').map(i => i.nome).filter(Boolean) };
 }
 // Link do catálogo (site /portfolio). Devolve true se enviou. O catálogo substitui as fotos soltas de várias pedras.
-async function enviarLinkCatalogo(env, from, texto) {
+async function enviarLinkCatalogo(env, from, texto, ir) {
   if (String(env.PORTFOLIO_LINK ?? '1') === '0') return false;
   try {
     const base = await urlDoWorker(env);
     if (!/^https:\/\//.test(base)) return false;
     let nomeC = ''; try { const cc = JSON.parse((await env.HR_KV.get('ca:' + from)) || 'null'); nomeC = cc && cc.dados && cc.dados.nome || ''; } catch (_) {}
-    const link = ehDono(env, from) ? base + '/portfolio' : await siteLinkPessoal(env, from, nomeC);
+    let link = ehDono(env, from) ? base + '/portfolio' : await siteLinkPessoal(env, from, nomeC);
+    if (ir && link) link += (link.includes('?') ? '&' : '?') + 'ir=' + ir; // v358c: abre direto nas cubas
     await enviarTextoPuro(env, from, `${texto || 'Monte o seu projeto no nosso site: escolha a pedra, a cuba e os acessórios e veja obras reais.'}\n${link}\n\nQuando terminar, as suas escolhas chegam direto pra gente.`);
     return true;
   } catch (e) { console.log('[BOT] link do catálogo:', e.message); return false; }
@@ -6467,6 +6469,12 @@ async function enviarFotosCliente(env, from, pedido) {
   const lista = await lerPortfolio(env);
   if (!lista.length) return 0;
   const q = normaliza(String(pedido || ''));
+  if (/\b(cuba|cubas|lavatorio|lavatorios|pia|pias)\b/.test(q) && !/\b(trabalho|obra|exemplo)/.test(q)) { // v358c: "catálogo de cubas" não é pedra (a Viviane recebeu "Não achei essa pedra")
+    let banh = /banheir|lavabo|lavatori|lav\b/.test(q);
+    if (!banh && !/cozinh|gourmet/.test(q)) { try { const cc = JSON.parse((await env.HR_KV.get('ca:' + from)) || 'null'); banh = /banheir|lavabo|lavatori/.test(normaliza(JSON.stringify((cc && cc.dados) || {}) + ' ' + ((cc && cc.hist) || []).slice(-6).map(h => h.content).join(' '))); } catch (_) {} }
+    await enviarLinkCatalogo(env, from, banh ? 'Aqui estão as nossas cubas de banheiro, com fotos e preços. Escolha com calma:' : 'Aqui estão as nossas cubas de cozinha, com fotos e preços. Escolha com calma:', banh ? 'cubas_lav' : 'cubas_coz');
+    return 0;
+  }
   let sel = [];
   if (/^(trabalho|portfolio|obra|exemplo)/.test(q)) {
     sel = lista.filter(i => i.tipo === 'trabalho');
@@ -35865,6 +35873,8 @@ footer b{color:var(--t2)}
     if(S.pedra&&!D.pedras.some(function(p){return p.id===S.pedra.id}))S.pedra=null;
     desenharCapa();desenharPedras();
     if(atual){desenharEtapas();atualizarBarra();}
+    var IRP=(location.search.match(/[?&]ir=([a-z_]+)/)||[])[1]||'';
+    if(IRP==='cubas_lav'||IRP==='cubas_coz'){S.amb=IRP==='cubas_lav'?(S.amb==='lavabo'?'lavabo':'banheiro'):'cozinha';S.tipoC=IRP==='cubas_lav'?'lav':'coz';salvar();desenharAmbs();ir('p-cuba');}
   }).catch(function(){$('gPedra').innerHTML='<div class="carr">Não consegui carregar o catálogo. Puxe a tela para atualizar.</div>';});
 })();
 </script>
