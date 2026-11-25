@@ -482,6 +482,7 @@ async function registrarMsgDono(env, para, id, resumo) {
   if (!resumo || !ehDono(env, para)) return;
   resumo = String(resumo).replace(/\s+/g, ' ').trim().slice(0, 600);
   if (id) await env.HR_KV.put('wo:' + id, resumo, { expirationTtl: 4 * 86400 }).catch(() => {});
+  if (!(env && env._ctx && env._ctx.agente)) { try { const ul = JSON.parse((await env.HR_KV.get('dono:ultbot')) || '[]').filter(x => Date.now() - x.t < 3600000).slice(-3); ul.push({ r: resumo.slice(0, 300), t: Date.now() }); await env.HR_KV.put('dono:ultbot', JSON.stringify(ul), { expirationTtl: 3600 }); } catch (_) {} } // v338: avisos que o bot mandou fora da conversa (foto do Hugo) → "desse projeto" sabe de quem é
   const c = env && env._ctx;
   if (c && Array.isArray(c.paraDono)) c.paraDono.push(resumo);
   else await agNota(env, null, '[Aviso do bot ao Sr. Hangel] ' + resumo); // rotina/app/cron: a IA também fica sabendo
@@ -504,6 +505,7 @@ function respondeSoPorVoz(env, para) {
 }
 async function enviar(env, para, texto) {
   try { if (env && env._ctx && ultimos8(para) === ultimos8(env._ctx.de)) (env._ctx.saidas = env._ctx.saidas || []).push(String(texto || '').slice(0, 400)); } catch (_) {} // v329: o que a Helena respondeu nesta mensagem (diário de erros)
+  if (/Confirme em UMA frase/.test(String(texto || ''))) texto = String(texto).replace(/\s*Confirme em UMA frase( curta)?\.?/g, ''); // v338: instrução para a IA nunca vai no WhatsApp
   if (ehDono(env, para)) texto = variarTratamentoDono(env, texto); // só o dono recebe apelidos
   texto = comNomeDono(env, texto);
   if (respondeSoPorVoz(env, para)) { env._ctx.suprimiu = true; registrarFala(env, semEmoji(texto), para); return; }
@@ -2710,6 +2712,7 @@ async function ouvirAudio(env, from, m, dono = true) {
         texto = t2 && !/[\u0400-\u04FF\u0590-\u06FF\u3040-\u30FF\u4E00-\u9FFF]/.test(t2) ? t2 : '';
       } catch (_) { texto = ''; }
     }
+    if (texto && vozEcoPrompt(texto)) { console.log('[BOT] áudio: transcrição devolveu o prompt'); texto = ''; } // v338: áudio mudo/ruído -> o modelo repete o prompt
     if (!texto) {
       await enviar(env, from, dono ? 'Sr. Hangel, não foi possível entender esse áudio. Poderia repetir ou escrever a mensagem?' : 'Não foi possível entender esse áudio. Poderia repetir ou escrever a mensagem?');
       return null;
@@ -2724,6 +2727,17 @@ async function ouvirAudio(env, from, m, dono = true) {
       : 'Não foi possível processar esse áudio agora. Por gentileza, escreva o que precisa.');
     return null;
   }
+}
+
+// v338: quando o áudio é mudo/ruído o modelo devolve o próprio prompt ("Conversa de WhatsApp com uma marmoraria…")
+function vozEcoPrompt(t) {
+  const n = String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/conversa (de whatsapp|em portugues)[^.]{0,40}marmoraria/.test(n)) return true;
+  if (/valores em reais,? medidas em centimetros/.test(n)) return true;
+  const pal = ['soleira', 'peitoril', 'peitoris', 'bancada', 'balcao', 'lavatorio', 'nicho', 'tumulo'];
+  const w = n.split(/[^a-z]+/).filter(Boolean);
+  const hit = pal.filter(x => w.includes(x)).length;
+  return hit >= 5 && w.length < 60; // lista de vocabulário colada, não uma fala
 }
 
 // Tira emojis/markdown e lê valores como "1.250 reais" (usado quando a IA não manda a versão falada)
@@ -8571,7 +8585,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
     if (fp && fp.mid) { const rec = await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000); if (acharPorNome(rec, texto).length) return prodFotoPerguntar(env, f, from, { type: 'image', image: { id: fp.mid } }, nome, texto);
       // v273: respondeu com um nome que não está na lista nem no sistema ("Osmailton") → a foto vai ao dono com o nome, e ele sabe que foi guardada
-      const quem = String(texto).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40);
+      const quem = limpaQuem(String(texto).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40));
       if (quem && tokensPedra(quem).length && !/\?/.test(texto) && nomeClienteValido(quem)) { // v323: "Peitoril finalizadosn" não é nome de cliente
         await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
         await etapaPedirConfirmacao(env, from, nome, quem, fp.mid, fp.leg || '');
@@ -8663,10 +8677,18 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       const ppAll = pedPorItemPedra(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), texto), pFeito = p => (!pedComplexo(p) && (p.fabProntoEm || p.prontoEm) && !(p.acabResp && String(p.acabResp) === String(f.id) && !p.acabEm)) || (/\bcort/.test(msg) && p.corteEm), pp = ppAll.filter(p => !pFeito(p)); // v335: "cortado" não oferece o que já foi cortado // v326: o que já está pronto não vira botão
       if (!pp.length && ppAll.length === 1) { let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {} if (fp && fp.mid) { await fotosNoPedido(env, ppAll[0].id, fp.mids || [fp.mid], String(f.id)).catch(() => {}); await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); }
         await enviar(env, from, `${nome}, *${ppAll[0].nome}* (${resumoPecas(ppAll[0])}) já estava pronto e anotado.${fp && fp.mid ? ' Guardei a foto no pedido.' : ''} Se é de outro cliente, me diga o nome.`); return true; } // v323: pela peça e pela pedra que ele falou → pergunta, nunca marca sozinho
+      { const cq = clienteCitado(texto); // v338: "Balcão em L finalizado! Cliente Osmailton" — ele DISSE o cliente e não há serviço aberto com esse nome → vai ao dono, não oferece botões de outros clientes
+        if (cq && !nomeMelhores(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado').catch(() => []), tokensPedra(cq)).length) {
+          let x = await servicoExtrair(env, f, texto).catch(() => null); x = { ...(x || {}), cliente: limpaQuem((x && x.cliente && nomeClienteValido(x.cliente)) ? x.cliente : cq) || cq };
+          x.etapa = etapaDaLegenda(texto) || (ETAPA_NOME2[x.etapa] ? x.etapa : 'fabricacao'); // a fala dele manda ("terminei" = fabricação)
+          if (['finalizado', 'instalacao'].includes(x.etapa) && papel === 'fabrica') x.etapa = 'acabamento';
+          if (!x.item) x.item = itemDaLegenda(texto);
+          return prodPedirDono(env, f, from, x, texto, nome); } }
+      if (env._qualcliJa && pp.length) { if (await prodServicoForaDaLista(env, f, from, texto, nome)) return true; await enviar(env, from, `${nome}, não achei esse cliente nos serviços abertos. Mandei para o Sr. Hangel conferir.`); await pontoAvisarDono(env, `${f.nome} disse: "${String(texto).slice(0, 200)}" — não achei o serviço aberto. Confira de qual cliente é.`).catch(() => {}); return true; } // v338: nunca pergunta "de qual cliente" duas vezes seguidas
       if (pp.length >= 1 && pp.length <= 3) { await env.HR_KV.put('prod:qualcli:' + ultimos8(from), JSON.stringify({ texto, em: Date.now() }), { expirationTtl: 1200 }); await enviarComBotoes(env, from, `${nome}, ${pp.length === 1 ? `é de *${pp[0].nome}* (${resumoPecas(pp[0])})?` : 'de qual cliente é?'} Se for de outro, me diga o nome do cliente.`, pp.map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
       if (await prodServicoForaDaLista(env, f, from, texto, nome)) return true; // v284: falou de um cliente que não está na produção → o dono confirma
       const lOk = l.filter(p => !pedConflitoTxt(p, texto)), jaNomeado = tokensPedra(texto).some(w => w.length >= 3) && (await pedidosProducao(env, p => Date.now() - (p.entregueEm || p.fabProntoEm || p.prontoEm || Date.now()) < 7 * 86400000 && nomeNota(p.nome, tokensPedra(texto)) > 0).catch(() => [])).length > 0; // v325: não oferece serviço de outra peça/pedra; se ele citou um cliente já feito, diz que já contou
-      if (lOk.length && !jaNomeado) { await env.HR_KV.put('prod:qualcli:' + ultimos8(from), JSON.stringify({ texto, em: Date.now() }), { expirationTtl: 1200 }); await enviarComBotoes(env, from, `${nome}, de qual cliente é?`, lOk.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); } else { // v308: já tinha feito (mensagem repetida) → diz que já contou, em vez de "não achei ficha"
+      if (lOk.length && !jaNomeado && !env._qualcliJa) { await env.HR_KV.put('prod:qualcli:' + ultimos8(from), JSON.stringify({ texto, em: Date.now() }), { expirationTtl: 1200 }); await enviarComBotoes(env, from, `${nome}, de qual cliente é?`, lOk.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); } else { // v308: já tinha feito (mensagem repetida) → diz que já contou, em vez de "não achei ficha"
         const tkR = tokensPedra(texto), feitos = (await pedidosProducao(env, p => Date.now() - (p.entregueEm || p.fabProntoEm || p.prontoEm || Date.now()) < 7 * 86400000 && nomeNota(p.nome, tkR) > 0).catch(() => [])).map(p => ({ p, l: (p.prodLog || []).filter(x => (x.por || []).map(String).includes(String(f.id))).pop() || (String(p.corteFeitoPor) === String(f.id) && p.corteEm ? { e: 'corte', ts: p.corteEm } : String(p.fabFeitoPor) === String(f.id) && p.fabProntoEm ? { e: 'fabricacao', ts: p.fabProntoEm } : null) })).filter(x => x.l)[0];
         if (feitos) await enviar(env, from, `${nome}, o ${ETAPA_NOME2[feitos.l.e] || feitos.l.e} de *${feitos.p.nome}* já está anotado para você (${dataBR(diaDe(feitos.l.ts)).slice(0, 5)}), valendo ${vPt(ptsEtapa(feitos.p, feitos.l.e, feitos.l.ts))} ponto(s). Não precisa mandar de novo.`);
         else if (env._fotoLeg) env._fotoNaoAchou = 1; else await enviar(env, from, `${nome}, não achei esse serviço na produção. Me diga de qual cliente é e o que você fez (ex.: _cortei os peitoris do Jacó_) que eu confiro com o Sr. Hangel.`); } return true; } // v326: com foto, quem pergunta é a lista da foto
@@ -10331,7 +10353,7 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   }
   if (leg && (!pe || /\b(inicio|iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalad[oa]s?|instalamos|entreguei|terminei|pronto|prontos|prontas|finaliz\w*|terminad[oa]s?|acabad[oa]s?)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
-    await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); // v161: a foto espera ele dizer qual é
+    await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, leg: String(leg || '').slice(0, 200), em: Date.now() }), { expirationTtl: 3 * 3600 }); // v338: guarda a legenda (o dono via "Hugo: \"\"") // v161: a foto espera ele dizer qual é
     env._fotoLeg = 1; env._fotoNaoAchou = 0; const tratou = await producaoFuncionario(env, f, from, leg, '', nome).catch(e => { console.log('[FOTO] legenda:', e.message); return false; }); env._fotoLeg = 0;
     await env.HR_KV.delete('prod:fotoja:' + ultimos8(from));
     try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
@@ -12874,7 +12896,7 @@ async function pendFotosRotina(env) {
       const f = telDe(k.name.slice(pref.length)); if (!f) continue;
       if (pref === 'prod:fotopend:' && v.mid) { // v278: ele já respondeu com um nome depois da foto ("Osmailton") → a foto vai ao dono com esse nome; não cobra de novo
         const tx = await txLer(env, f.tel).catch(() => null), resp = ((tx && tx.f) || []).filter(x => x && x.q === 'c' && x.t > v.em && x.t - v.em < 3 * 3600000 && String(x.x).split(/\s+/).length <= 5 && !/^\[/.test(String(x.x))).pop();
-        const quem0 = resp ? String(resp.x).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40) : '';
+        const quem0 = resp ? limpaQuem(String(resp.x).replace(/^(e|eh|é)?\s*(d[aoe]s?|do servico d[aoe]|servico d[aoe])\s+/i, '').trim().slice(0, 40)) : '';
         if (resp && !nomeClienteValido(quem0)) { // v323: respondeu com a peça ("Peitoril finalizado"), não com o cliente → procura pela peça/pedra e pergunta
           const pp = pedPorItemPedra(await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), `${v.leg || ''} ${resp.x}`);
           await env.HR_KV.put(k.name, JSON.stringify({ ...v, lembrado: Date.now() }), { expirationTtl: 6 * 3600 });
@@ -15961,6 +15983,8 @@ async function responderAgente(env, from, bruto, F, voz) {
   { // v48: respondeu citando uma mensagem do bot: a IA recebe qual era
     const cid = env._ctx && env._ctx.citado; const cit = cid ? ((await env.HR_KV.get('wo:' + cid).catch(() => null)) || (await crmTextoCitado(env, cid).catch(() => '')) || null) : null; // v325: também pelo CRM
     if (cit) bruto = `[O Sr. Hangel respondeu em cima desta mensagem do bot: "${cit.slice(0, 500)}"]\n${bruto}`;
+    else if (/\b(desse|deste|dessa|desta|nesse|neste|esse|este|essa|esta|dele|dela)\s+(projeto|servico|serviço|cliente|pedido|orcamento|orçamento|foto|trabalho|balcao|balcão|ficha)\b|\b(dele|dela)\b/i.test(bruto)) { // v338: "quero a ficha técnica desse projeto" logo depois da foto do Hugo
+      try { const ul = JSON.parse((await env.HR_KV.get('dono:ultbot')) || '[]').filter(x => Date.now() - x.t < 20 * 60000); if (ul.length) bruto = `[Avisos que o bot acabou de mandar ao Sr. Hangel (o "desse/dele" provavelmente é o cliente do ÚLTIMO): ${ul.map(x => '"' + x.r + '"').join(' · ')}]\n${bruto}`; } catch (_) {} }
   }
   try {
     const ctx = await contextoIA(env);
@@ -16048,6 +16072,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- LIVRO DE ENTREGAS E PAGAMENTOS: quando o Sr. Hangel disser que ENTREGOU um serviço, que um cliente PAGOU (valor, forma e data) ou informar o TELEFONE de um cliente, CHAME registrar_entrega_pagamento para ficar salvo de forma permanente (se for dinheiro novo que entrou, chame também lancar_financeiro). Para perguntas sobre datas de entrega, formas de pagamento, quem ainda deve ou saldo, use o LIVRO acima ou consultar_entregas_pagamentos. Nunca diga que não tem onde guardar essas informações. O telefone salvo no livro é usado automaticamente na cobrança; se faltar telefone, peça UMA vez e grave com registrar_entrega_pagamento.`,
       `- QUEM É "ELA", "ELE", "ESSE CLIENTE", "ESSE SERVIÇO": é o cliente da mensagem que ele citou (vem como [O Sr. Hangel respondeu em cima desta mensagem do bot: …]) ou, sem citação, o do assunto MAIS RECENTE do histórico (inclusive [Aviso do bot…] e o que o bot acabou de responder). Nunca use um cliente de assunto mais antigo. Se ficar entre dois, pergunte citando os dois nomes. Valor e serviço que o bot acabou de calcular ("calculei: R$ …") valem para link, Pix, PDF e cobrança sem perguntar de novo. Se ele corrigir o nome do cliente, corrija o MESMO pedido/orçamento (não crie outro com o nome antigo) e diga qual ficou.`,
       `- VALOR/ORÇAMENTO DE UM CLIENTE (v49): antes de perguntar o valor ao Sr. Hangel, e antes de dizer que não encontrou um orçamento, chame consultar_historico_cliente com o nome do cliente (o da mensagem citada ou do assunto). Ela traz o número (ORC-…), o valor À VISTA e o valor A PRAZO. Se ele pedir "a prazo", use o valor a prazo; se a prazo não vier no histórico, diga isso e pergunte. Nunca afirme "não encontrei" sem ter consultado nesta mesma resposta.`,
+      `- CLIENTE COM MAIS DE UM PROJETO (v338): se o cliente tem 2+ orçamentos/projetos (ex.: banheiro E cozinha), ANTES de gerar Pix, cobrança, link, PDF, ficha ou lançar pagamento, confirme com o Sr. Hangel QUAL projeto (ou se é a soma), listando-os em uma linha com o valor de cada. Só não pergunte quando ele já disse o projeto/valor ou quando a mensagem citada já mostra qual é. Nunca escolha sozinho o mais recente.`,
       `- COBRANÇA A CLIENTE: quando o Sr. Hangel pedir para cobrar um cliente ("vamos criar a cobrança", "cobra o João", "já entregamos, cobre"), use criar_cobranca, NÃO criar_link_pagamento. O valor e o serviço vêm do LIVRO DE ENTREGAS E PAGAMENTOS (o saldo em aberto do livro é o valor oficial a cobrar; o telefone e o nome do cliente também) ou, se não estiver nele, dos PEDIDOS RECENTES; o bot calcula multa e juros sozinho, mostra a prévia e só envia ao cliente depois do toque em Aprovar e enviar. Nunca diga que já enviou ao cliente nem invente percentuais. Para ver quem está devendo, ele escreve *inadimplência* (a lista mostra o protocolo de cada cobrança); para cancelar, use cancelar_cobranca com os protocolos. Se o cliente tiver MAIS DE UM serviço com saldo em aberto no livro, ANTES de criar a cobrança liste os serviços com valor e data e pergunte se cobra um deles ou a soma; nunca escolha sozinho o primeiro e avise sempre quanto ficou de fora. Para enviar a cobrança só depois ("amanhã às 7h"), use agendar_cobranca. REGRA GERAL: nunca diga que cancelou, criou, enviou, agendou ou registrou algo se a ferramenta correspondente não devolveu sucesso neste mesmo turno; se não há ferramenta, diga que não consegue e oriente o comando de texto. Ao criar cobrança, sempre passe o campo nome com o nome do cliente já citado na conversa; se ele só informar o telefone, o nome é o do cliente de quem se falava.`,
       `- MERCADO PAGO: para saber quanto entrou, recebeu ou vendeu no Mercado Pago, use consultar_mercado_pago (só leitura; mostra apenas o que ENTROU na conta; para saídas e saldo use consultar_extrato_mp, que lê o último extrato diário, não o tempo real). Para gerar só um link ou Pix para o próprio Sr. Hangel repassar, use criar_link_pagamento quando ele pedir e disser o valor (para cobrar um cliente, use criar_cobranca): por padrão ele recebe dois botões (abrir a página de pagamento e copiar o Pix copia e cola). O código e o link vão ao Sr. Hangel; só vão ao cliente se ele pedir para cobrar um cliente (preencha cliente): aí o bot mostra uma prévia com botões Enviar e Cancelar. Nunca diga que já enviou ao cliente: depende do toque dele no botão. Nunca invente valores do Mercado Pago: use só o que a ferramenta devolveu.`,
       `- EXECUÇÃO PROFISSIONAL: quando o pedido estiver claro e os dados já existirem (cliente, valor, serviço), EXECUTE a ferramenta e depois confirme em UMA frase com o essencial (cliente, valor e o que foi feito); não peça permissão para o que ele acabou de pedir. Pergunte só se houver ambiguidade real (dois clientes parecidos, valor diferente do orçamento) e então ofereça as opções objetivas.`,
@@ -17621,17 +17646,32 @@ function etapaDaLegenda(t) {
   if (/\b(comec\w*|inici\w*)\b/.test(n)) return 'inicio';
   return '';
 }
-function itemDaLegenda(t) { const m = normaliza(t || '').match(/\b(balcao|bancada|cozinha|lavatorio|banheiro|soleiras?|peitoris?|peitoril|nicho|escada|degraus?|tampo|mesa|churrasqueira|frontao|rodape|pia)\b/); return m ? m[1] : ''; }
+function itemDaLegenda(t) { const m = normaliza(t || '').match(/\b(balcao|bancada|cozinha|lavatorio|banheiro|soleiras?|peitoris?|peitoril|nicho|escada|degraus?|tampo|mesa|churrasqueira|frontao|rodape|pia)\b/); return m ? ({ balcao: 'balcão', lavatorio: 'lavatório', rodape: 'rodapé', frontao: 'frontão', peitoris: 'peitoris' }[m[1]] || m[1]) : ''; }
 const ETAPA_NOME2 = { inicio: 'início', corte: 'corte', polimento: 'polimento', acabamento: 'acabamento', fabricacao: 'fabricação', finalizado: 'finalização', instalacao: 'instalação' };
+// v338: nome de cliente que o funcionário escreveu ("Cliente Osmailton", "do Osmailton") — só nome de gente, nunca peça/pedra/etapa
+function clienteCitado(t) {
+  const m = String(t || '').match(/\b(?:cliente|cli|d[aoe]|dona|seu|sr\.?|sra\.?)\s*:?\s+([A-Za-zÀ-ÿ]{3,}(?:\s+(?!d[aoe]s?\b|e\b)[A-Za-zÀ-ÿ]{3,})?)/i); if (!m) return '';
+  const forte = /^\s*(cliente|cli|dona|seu|sr|sra)/i.test(String(t).slice(m.index, m.index + 8));
+  let nm = m[1].trim(); const ws = normaliza(nm).split(' ');
+  if (/^(balc|area|lavab|pia|cozin|banh|bancad|soleir|peitor|nicho|escad|preto|branco|verde|cinza|marrom|bege|granit|marmor|servic|mesmo|outro|hoje|ontem|amanha|manha|tarde|noite|semana|lado|meio|fundo|frente|loja|fabrica|obra|casa|chefe|patrao)/.test(ws[0])) return '';
+  if (ws.length > 1 && !nomeClienteValido(ws[1])) nm = nm.split(/\s+/)[0];
+  if (!nomeClienteValido(nm)) return '';
+  if (!forte && !/^[A-ZÀ-Ý]/.test(nm)) return ''; // "do" + minúscula: pode ser qualquer coisa
+  return nm.slice(0, 40);
+}
+function limpaQuem(q) { return String(q || '').replace(/^\s*(e|eh|é)?\s*(o|a)?\s*(servi[cç]o\s+)?(d[aoe]s?\s+)?(cliente|cli|sr\.?|sra\.?|seu|dona)\s*:?\s+/i, '').replace(/^\s*(d[aoe]s?)\s+/i, '').replace(/[.!]+$/, '').trim().slice(0, 40); } // v338
 async function etapaPedirConfirmacao(env, fone, nomeFunc, quem, mid, leg) {
+  quem = limpaQuem(quem) || quem;
+  if (!String(leg || '').trim()) { try { const tx = await txLer(env, fone).catch(() => null); const ul = ((tx && tx.f) || []).filter(x => x && x.q === 'c' && Date.now() - (x.t || 0) < 6 * 3600000 && etapaDaLegenda(String(x.x || '').replace(/^\[[^\]]*\]\s*/, ''))).pop(); if (ul) leg = String(ul.x).replace(/^\[[^\]]*\]\s*/, '').slice(0, 200); } catch (_) {} } // v338: a legenda se perdeu → a última fala dele com etapa
   let etapa = etapaDaLegenda(leg); const item = itemDaLegenda(leg), cid = estId(8);
   if (['finalizado', 'instalacao'].includes(etapa)) { const cfg = await pontoCfg(env).catch(() => null), f = cfg && pontoFuncPorFone(cfg, fone); if (f && await papelFuncionario(env, f, fone).catch(() => '') === 'fabrica') etapa = 'acabamento'; } // v323: "finalizado" na fábrica é acabamento, não entrega (não sai mural de "serviço entregue")
   await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from: fone, func: nomeFunc, cliente: quem, etapa, item, mid, leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
-  if (mid) try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nomeFunc}: "${String(leg || '').slice(0, 160)}" · serviço de *${quem}*` } }); } catch (_) {}
+  if (mid) try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📷 ${nomeFunc}${String(leg || '').trim() ? `: "${String(leg).slice(0, 160)}"` : ''} · serviço de *${quem}*` } }); } catch (_) {}
   const o = etapa ? `o *${ETAPA_NOME2[etapa]}*${item ? ' do ' + item : ''} de *${quem}*` : `a foto do serviço de *${quem}*`;
   await enviarComBotoes(env, numeroDono(env), `${nomeFunc} mandou ${etapa ? 'que fez ' + o : o}. Esse serviço não está aberto na produção.\n\n${etapa ? `Registro ${o} para o ${nomeFunc}?` : 'Registro como andamento desse serviço?'}`,
     [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
 }
+function semInstrucaoIA(t) { return String(t || '').replace(/\s*Confirme em (UMA|uma) frase( curta)?\.?/g, '').replace(/\s*\(?responda em uma frase[^)]*\)?\.?/gi, '').trim(); } // v338
 async function etapaConfBotao(env, from, id) {
   const [, cid, c] = id.split('|'); let x = null; try { x = JSON.parse((await env.HR_KV.get('etpconf:' + cid)) || 'null'); } catch (_) {}
   if (!x) { await enviar(env, from, 'Essa confirmação já foi resolvida ou expirou.'); return true; }
@@ -17639,7 +17679,7 @@ async function etapaConfBotao(env, from, id) {
   if (c !== 's') { await enviar(env, from, 'Certo, não registrei.'); return true; }
   env._agBruto = `${x.func} ${x.leg || ''} ${x.cliente}`;
   const r = await producaoStatusTool(env, { cliente: x.cliente, etapa: x.etapa || 'inicio', funcionarios: [x.func], ...(x.item ? { item: x.item } : {}) }).catch(e => ({ erro: true, texto: e.message }));
-  await enviar(env, from, (r && (r.texto || r.resposta)) ? String(r.texto || r.resposta) : `✅ Registrei ${x.etapa ? ETAPA_NOME2[x.etapa] : 'o andamento'} de ${x.cliente} para o ${x.func}.`);
+  await enviar(env, from, (r && (r.texto || r.resposta)) ? semInstrucaoIA(String(r.texto || r.resposta)) : `✅ Registrei ${x.etapa ? ETAPA_NOME2[x.etapa] : 'o andamento'} de ${x.cliente} para o ${x.func}.`);
   if (!(r && r.erro)) await enviar(env, x.from, `✅ O Sr. Hangel confirmou: ${x.etapa ? ETAPA_NOME2[x.etapa] + (x.item ? ' do ' + x.item : '') : 'andamento'} de *${x.cliente}* registrado para você. Valeu, ${x.func}!`).catch(() => {});
   return true;
 }
@@ -23264,14 +23304,17 @@ async function prodServicoForaDaLista(env, f, from, texto, nome) {
 }
 async function prodPedirDono(env, f, from, x, texto, nome) {
   const chave = 'etpdup:' + f.id + ':' + normaliza(String(x.cliente)).replace(/\s+/g, '') + ':' + (x.etapa || '');
-  const etp = ETAPA_NOME2[x.etapa] ? x.etapa : 'corte', o = `${ETAPA_NOME2[etp]}${x.item ? ' do ' + x.item : ''}${x.pedra ? ' (' + x.pedra + ')' : ''} de *${x.cliente}*`;
-  if (await env.HR_KV.get(chave)) { await enviar(env, from, `${nome}, o ${o.replace(/\*/g, '')} já está com o Sr. Hangel para confirmar. Assim que ele confirmar, os pontos entram e eu te aviso.`); return true; }
+  const etp = ETAPA_NOME2[x.etapa] ? x.etapa : 'corte', art = /ção$/.test(ETAPA_NOME2[etp]) ? 'a' : 'o', o = `${ETAPA_NOME2[etp]}${x.item ? ' do ' + x.item : ''}${x.pedra ? ' (' + x.pedra + ')' : ''} de *${x.cliente}*`;
+  if (await env.HR_KV.get(chave)) { await enviar(env, from, `${nome}, ${art} ${o.replace(/\*/g, '')} já está com o Sr. Hangel para confirmar. Assim que ele confirmar, os pontos entram e eu te aviso.`); return true; }
   await env.HR_KV.put(chave, '1', { expirationTtl: 86400 });
-  const cid = estId(8), leg = `${x.etapa === 'corte' ? 'cortei' : 'fiz'} ${x.item || ''} ${x.pedra || ''}`.trim();
-  await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from, func: nome, cliente: x.cliente, etapa: etp, item: x.item || '', mid: '', leg, em: Date.now() }), { expirationTtl: 3 * 86400 });
-  await enviarComBotoes(env, numeroDono(env), `${f.nome} disse que fez o ${o}: "${String(texto).slice(0, 220)}"\n\nEsse serviço não está aberto na produção. Registro para ele (os pontos entram pelo tamanho do orçamento do app)?`,
+  const cid = estId(8), leg = `${x.etapa === 'corte' ? 'cortei' : x.etapa === 'fabricacao' || x.etapa === 'acabamento' ? 'terminei' : 'fiz'} ${x.item || ''} ${x.pedra || ''}`.trim();
+  let fpD = null; try { fpD = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {} // v338: a foto vai junto para o dono
+  const midD = fpD && fpD.mid && Date.now() - (fpD.em || 0) < 3 * 3600000 ? fpD.mid : '';
+  await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from, func: nome, cliente: x.cliente, etapa: etp, item: x.item || '', mid: midD, leg: String(texto || leg).slice(0, 200), em: Date.now() }), { expirationTtl: 3 * 86400 });
+  if (midD) { await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: midD, caption: `📷 ${f.nome}: "${String(texto).slice(0, 160)}" · serviço de *${x.cliente}*` } }); } catch (_) {} }
+  await enviarComBotoes(env, numeroDono(env), `${f.nome} disse que fez ${art} ${o}: "${String(texto).slice(0, 220)}"\n\nEsse serviço não está aberto na produção. Registro para ele (os pontos entram pelo tamanho do orçamento do app)?`,
     [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
-  await enviar(env, from, `Entendi, ${nome}: ${o.replace(/\*/g, '')}. Esse serviço não estava aberto na produção, por isso não entrou ponto. Já mandei para o Sr. Hangel confirmar; quando ele confirmar, os pontos entram e eu te aviso.`);
+  await enviar(env, from, `Entendi, ${nome}: ${art} ${o.replace(/\*/g, '')}. Esse serviço não estava aberto na produção, por isso não entrou ponto. Já mandei para o Sr. Hangel confirmar; quando ele confirmar, os pontos entram e eu te aviso.`);
   return true;
 }
 // v284: serviço que não passou pelo bot: usa o orçamento do app (m²) para estimar as peças e os pontos (o PDF com as peças substitui depois)
@@ -23346,7 +23389,7 @@ async function prodQualCliResposta(env, f, from, texto, nome) {
   const k = 'prod:qualcli:' + ultimos8(from); let p = null; try { p = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
   if (!p) return false;
   const n = normaliza(texto); if (n.split(' ').length > 6 || /\b(comec\w*|inici\w*|termin\w*|cortei|acabei|acabamento|nao|ainda|quebr\w*|sobr\w*|pontos?|vou|to|estou|instal\w*|entreg\w*|ajud\w*)\b|\?/.test(n)) { await env.HR_KV.delete(k); return false; } // v325: outra mensagem ("ainda não terminei o Cássio") não é resposta de "qual cliente"
-  await env.HR_KV.delete(k);
+  await env.HR_KV.delete(k); env._qualcliJa = 1; // v338
   return producaoFuncionario(env, f, from, `${p.texto} de ${String(texto).replace(/^(e |eh |é |do |da |de |o do |o da |a do |a da )/i, '')}`, '', nome);
 }
 // v286: PAINEL HR NO COMPUTADOR — resumo da empresa em um JSON (cache 90 s) e caixa de comando (o mesmo que escrever ao bot no WhatsApp)

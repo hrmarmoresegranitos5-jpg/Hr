@@ -1,0 +1,23 @@
+// v338: Hugo manda "Balcão em L finalizado! Cliente Osmailton" — Osmailton não está aberto na produção
+import {T,KV,env,msg,sent} from './sim.mjs';
+import {d1} from './d1sqlite.mjs';
+env.HR_DB=d1();
+const now=Date.now(), H='5574900000003', D=String(env.DONO_NUMERO||env.NUMERO_DONO||'');
+KV.set('ponto:cfg',JSON.stringify({funcs:[{id:'3',nome:'Hugo Santos',tel:'74900000003'},{id:'1',nome:'Fabrício Morais',tel:'74900000001'}]})); KV.set('equipe:numeros',JSON.stringify({fabrica:'5574900000001',fab2:H}));
+const P=(id,o)=>T.salvarPedido(env,{id,criado:now-86400000,status:'fechado',fichaEnviadaEm:now-3600e3,...o});
+await P(201,{nome:'Alexandre Alves Santos',fabResp:'1',fab2Resp:'3',resumoApp:{pedra:'Preto São Gabriel',itens:[{ambiente:'Cozinha',pecas:[{tipo:'balcão',qtd:1,comp_cm:200,larg_cm:60}]}]}});
+await P(202,{nome:'Cássio Borges',fabResp:'1',fab2Resp:'3',resumoApp:{pedra:'Branco Itaúnas',itens:[{ambiente:'Área gourmet',pecas:[{tipo:'balcão',qtd:1,comp_cm:180,larg_cm:60}]}]}});
+const ver=(t)=>{ const s=sent.splice(0); console.log('---',t); for(const x of s) console.log(' >',String(x.to||'').slice(-4), JSON.stringify(x.text||x.body||x).slice(0,260)); return s; };
+globalThis.__fotoAlvo=''; globalThis.__fotoCerteza='baixa';
+await msg(H,'',{type:'image',image:{id:'midH',mime_type:'image/jpeg',caption:'Balcão em L finalizado! Cliente Osmailton'}});
+const s1=ver('foto');
+await msg(H,'Osmailton'); const s2=ver('Osmailton');
+await msg(H,'Cliente Osmailton'); const s3=ver('Cliente Osmailton');
+const ek=[...KV.keys()].find(k=>k.startsWith('etpconf:')); console.log('etpconf:',ek, KV.get(ek));
+await msg('5574991484460','',{type:'interactive',interactive:{type:'button_reply',button_reply:{id:'etpc|'+ek.slice(8)+'|s',title:'Sim, registrar'}}}); const s4=ver('dono Sim');
+const vaz=s4.filter(x=>/Confirme em UMA|Cliente Osmailton/.test(JSON.stringify(x))).length; console.log('vazou instrução/nome sujo:',vaz);
+const all=[...s1,...s2,...s3].map(x=>JSON.stringify(x));
+const qual=all.filter(x=>/de qual cliente/i.test(x)).length, dono=all.filter(x=>/Osmailton/.test(x)&&/(n[aã]o est[aá] aberto|confirmar)/i.test(x)).length;
+console.log('perguntas "de qual cliente":',qual,'| foi ao dono:',dono>0);
+console.log('ERROS:', (qual>0?1:0)+(dono>0?0:1)+vaz);
+process.exit(0);
