@@ -8776,6 +8776,9 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       for (const p of ach) await prodMarcarPronto(env, p, from, nome).catch(e => console.log('[PROD] vários:', e.message));
       return true;
     }
+    if (ach.length === 1 && !env._prodNovoOk && pedConflitoTxt(ach[0], texto) && nomeNota(ach[0].nome, tokensPedra(texto)) > 0) { // v352: cliente certo, mas a peça/pedra é de OUTRO projeto dele ("duas soleiras branco Siena" no Cássio dos lavatórios Preto São Gabriel) → serviço separado, o dono confirma (não some o ponto)
+      const pm = normaliza(texto).match(/\b(preto|branco|verde|cinza|marrom|bege|amarelo|vermelho|azul)(\s+(?!ja\b|cortad|pront|feit|finaliz|de\b|do\b|da\b)[a-z]{3,}){1,2}/);
+      return prodPedirDono(env, f, from, { cliente: ach[0].nome, etapa: etapaDaLegenda(texto) || 'corte', item: itemDaLegenda(texto), pedra: pm ? pm[0] : '', novo: true }, texto, nome); }
     if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, qual ficha ficou pronta?`, ach.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
     { const pdQ = ach[0], fe = prodEtapaFeita(pdQ, 'corte'); // v329: "já cortado" num pedido com corte pela metade → pergunta quais itens
       if (/\bcort/.test(msg) && fe.soma > 0.001 && fe.soma < 0.999 && !ITEM_RX.some(rx => rx.test(msg)) && !msg.split(/[^a-z]+/).some(w => PEDRA_PAL.has(PEDRA_EQ(w))) && !/\b(tudo|todos|todas|resto)\b/.test(msg)) {
@@ -11109,11 +11112,13 @@ async function producaoStatusTool(env, a) {
   const tk = tokensPedra(String(a.cliente || '')), item = normaliza(a.item || '');
   let cands = await pedidosProducao(env, p => nomeTodos(p.nome, tk) && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
   if (item && cands.length > 1) { const c2 = cands.filter(p => normaliza([p.projetoApp, p.interesse, resumoPecas(p)].join(' ')).includes(item.split(' ')[0].replace(/s$/, ''))); if (c2.length) cands = c2; }
+  if (a.novo_servico) cands = []; // v352: outro projeto do mesmo cliente (ex.: soleiras além dos lavatórios) → registro separado
   let ped = cands.sort((x, y) => (y.criado || 0) - (x.criado || 0))[0];
   if (!ped) { // serviço que não passou pelo bot: abre um registro para contar a produção
     ped = { id: String(Date.now()), origem: 'manual', nome: String(a.cliente || 'Cliente').slice(0, 60), projetoApp: a.item ? String(a.item).slice(0, 40) : 'Serviço', interesse: /peitor/.test(item) ? 'peitoril' : /soleir/.test(item) ? 'soleira' : '', pecas: [], status: 'enviado', etapa: 'concluido', criado: Date.now(), fichaEnviadaEm: Date.now() };
     if (+a.pecas > 0) ped.pecas = [{ tipo: ped.interesse || 'peça', qtd: Math.round(+a.pecas), comp_cm: 1, larg_cm: 1 }];
-    else await pedEstimarDoOrc(env, ped, a.cliente).catch(() => {}); // v284
+    else await pedEstimarDoOrc(env, ped, a.cliente, [a.item, a.pedra].filter(Boolean).join(' ')).catch(() => {}); // v284 // v352: o orçamento daquela peça/pedra
+    if (a.novo_servico) { if (a.pedra) ped.cor = String(a.pedra).slice(0, 40); ped.projetoApp = [a.item || 'Serviço', a.pedra || ''].join(' ').trim().slice(0, 50); }
   }
   const ts = isoOk(a.data) ? quandoTs(a.data, '17:00') : Date.now();
   ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
@@ -15255,7 +15260,7 @@ const FERRAMENTAS = [
   {
     name: 'producao_status',
     description: 'ATUALIZA A PRODUÇÃO pelo que o Sr. Hangel conta: quem fez qual etapa de qual serviço (soma pontos na meta). Uma chamada por etapa; vários funcionários na mesma etapa dividem os pontos. Ex.: "hoje Fabrício e Lucas começaram a fabricação da Maria" (etapa inicio), "Fabrício terminou a fabricação da Maria" (fabricacao), "Hugo finalizou o serviço da Maria" (finalizado), "Gibson e Jefferson instalaram a bancada da Maria" (instalacao), "Fabrício cortou e Lucas fez os acabamentos dos peitoris da Maria" (duas chamadas: corte com Fabrício; acabamento com Lucas). ATENÇÃO AO TEMPO DO VERBO: só marque como feito o que ele disse no PASSADO ("instalaram", "terminou"). Futuro ou presente ("vão instalar", "hoje instalam", "estão instalando", "amanhã entrega") é vai_fazer=true — marcar antes da hora emite a garantia e dá pontos sem o serviço existir. Para algo que a pessoa VAI fazer use vai_fazer=true: "hoje Gibson vai acabar a cozinha da Maria, que Fabrício terminou de cortar ontem" = duas chamadas: corte com Fabrício e data de ontem; depois etapa fabricacao, funcionarios [Gibson], vai_fazer true, tarefa "acabamento". Etapas: inicio, corte, acabamento, fabricacao, finalizado, instalacao, entrega, retirada.',
-    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'polimento', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, forcar: { type: 'boolean', description: 'true só se o Sr. Hangel confirmar que é OUTRA peça/serviço depois de o bot avisar que já estava registrado' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
+    input_schema: { type: 'object', properties: { novo_servico: { type: 'boolean', description: 'true quando a peça/pedra é de OUTRO projeto do mesmo cliente que não está aberto (ex.: o Cássio tem lavatórios abertos e o Fabrício cortou soleiras Branco Siena dele): abre um registro separado e os pontos entram pelo orçamento dessa peça. Use também quando a ferramenta disser JÁ ESTAVA COMPLETO e o Sr. Hangel explicar que é outra peça.' }, pedra: { type: 'string', description: 'pedra da peça, quando ele disser (ex.: Branco Siena)' }, cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'polimento', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, forcar: { type: 'boolean', description: 'true só se o Sr. Hangel confirmar que é OUTRA peça/serviço depois de o bot avisar que já estava registrado' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
     name: 'acordo_alterar',
@@ -18086,9 +18091,9 @@ async function etapaConfBotao(env, from, id) {
   await env.HR_KV.delete('etpconf:' + cid);
   if (c !== 's') { await enviar(env, from, 'Certo, não registrei.'); return true; }
   env._agBruto = `${x.func} ${x.leg || ''} ${x.cliente}`;
-  const r = await producaoStatusTool(env, { cliente: x.cliente, etapa: x.etapa || 'inicio', funcionarios: [x.func], ...(x.item ? { item: x.item } : {}) }).catch(e => ({ erro: true, texto: e.message }));
+  const r = await producaoStatusTool(env, { cliente: x.cliente, etapa: x.etapa || 'inicio', funcionarios: [x.func], ...(x.item ? { item: x.item } : {}), ...(x.novo ? { novo_servico: true, pedra: x.pedra || '' } : {}) }).catch(e => ({ erro: true, texto: e.message }));
   await enviar(env, from, (r && (r.texto || r.resposta)) ? semInstrucaoIA(String(r.texto || r.resposta)) : `✅ Registrei ${x.etapa ? ETAPA_NOME2[x.etapa] : 'o andamento'} de ${x.cliente} para o ${x.func}.`);
-  if (!(r && r.erro)) await enviar(env, x.from, `✅ O Sr. Hangel confirmou: ${x.etapa ? ETAPA_NOME2[x.etapa] + (x.item ? ' do ' + x.item : '') : 'andamento'} de *${x.cliente}* registrado para você. Valeu, ${x.func}!`).catch(() => {});
+  if (!(r && r.erro)) await enviar(env, x.from, `✅ O Sr. Hangel confirmou: ${x.etapa ? ETAPA_NOME2[x.etapa] + (x.item ? (/^(soleira|bancada|cozinha|pia|escada|mesa|prateleira|cuba)/i.test(x.item) ? ' da ' : ' do ') + x.item : '') : 'andamento'} de *${x.cliente}* registrado para você. Valeu, ${x.func}!`).catch(() => {});
   return true;
 }
 async function fimConfBotao(env, from, id) {
@@ -23721,17 +23726,20 @@ async function prodPedirDono(env, f, from, x, texto, nome) {
   const cid = estId(8), leg = `${x.etapa === 'corte' ? 'cortei' : x.etapa === 'fabricacao' || x.etapa === 'acabamento' ? 'terminei' : 'fiz'} ${x.item || ''} ${x.pedra || ''}`.trim();
   let fpD = null; try { fpD = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {} // v338: a foto vai junto para o dono
   const midD = fpD && fpD.mid && Date.now() - (fpD.em || 0) < 3 * 3600000 ? fpD.mid : '';
-  await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from, func: nome, cliente: x.cliente, etapa: etp, item: x.item || '', mid: midD, leg: String(texto || leg).slice(0, 200), em: Date.now() }), { expirationTtl: 3 * 86400 });
+  await env.HR_KV.put('etpconf:' + cid, JSON.stringify({ from, func: nome, cliente: x.cliente, etapa: etp, item: x.item || '', pedra: x.pedra || '', novo: !!x.novo, mid: midD, leg: String(texto || leg).slice(0, 200), em: Date.now() }), { expirationTtl: 3 * 86400 });
   if (midD) { await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); try { await postarMsg(env, numeroDono(env), { type: 'image', image: { id: midD, caption: `📷 ${f.nome}: "${String(texto).slice(0, 160)}" · serviço de *${x.cliente}*` } }); } catch (_) {} }
-  await enviarComBotoes(env, numeroDono(env), `${f.nome} disse que fez ${art} ${o}: "${String(texto).slice(0, 220)}"\n\nEsse serviço não está aberto na produção. Registro para ele (os pontos entram pelo tamanho do orçamento do app)?`,
+  await enviarComBotoes(env, numeroDono(env), `${f.nome} disse que fez ${art} ${o}: "${String(texto).slice(0, 220)}"\n\n${x.novo ? 'Essa peça/pedra não está no projeto aberto de ' + x.cliente + ' (é outro serviço dele).' : 'Esse serviço não está aberto na produção.'} Registro para ele (os pontos entram pelo tamanho do orçamento do app)?`,
     [{ id: `etpc|${cid}|s`, titulo: 'Sim, registrar' }, { id: `etpc|${cid}|n`, titulo: 'Não' }]);
-  await enviar(env, from, `Entendi, ${nome}: ${art} ${o.replace(/\*/g, '')}. Esse serviço não estava aberto na produção, por isso não entrou ponto. Já mandei para o Sr. Hangel confirmar; quando ele confirmar, os pontos entram e eu te aviso.`);
+  await enviar(env, from, `Entendi, ${nome}: ${art} ${o.replace(/\*/g, '')}. ${x.novo ? 'Essa peça não está no projeto aberto de ' + x.cliente + ', por isso ainda não entrou ponto.' : 'Esse serviço não estava aberto na produção, por isso não entrou ponto.'} Já mandei para o Sr. Hangel confirmar; quando ele confirmar, os pontos entram e eu te aviso.`);
   return true;
 }
 // v284: serviço que não passou pelo bot: usa o orçamento do app (m²) para estimar as peças e os pontos (o PDF com as peças substitui depois)
-async function pedEstimarDoOrc(env, ped, cliente) {
-  const snap = await lerSnapshotCompleto(env).catch(() => null), tkc = tokensPedra(String(cliente || ''));
-  const o = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && nomeNota(x.cliente || '', tkc) > 0).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')))[0];
+async function pedEstimarDoOrc(env, ped, cliente, filtro) { // v352: usa o histórico completo (peças reais quando existem) e prefere o orçamento da peça/pedra citada
+  const tkc = tokensPedra(String(cliente || '')), h = await lerHistorico(env).catch(() => null), snap = h ? null : await lerSnapshotCompleto(env).catch(() => null);
+  let l = ((h && h.orcamentos) || (snap && snap.dados && snap.dados.orcamentos) || []).filter(x => x && !x.arquivado && nomeNota(x.cliente || '', tkc) > 0).sort((x, y) => String(y.data || '').localeCompare(String(x.data || '')));
+  const ft = appToks(filtro || '').filter(w => w.length >= 3); if (ft.length && l.length > 1) { const f2 = l.filter(o => ft.every(w => appCasaTexto({ projeto: o.projeto, material: o.material, amb: o.amb }, [w]))); const f1 = f2.length ? f2 : l.filter(o => ft.some(w => appCasaTexto({ projeto: o.projeto, material: o.material, amb: o.amb }, [w]))); if (f1.length) l = f1; }
+  const o = l[0];
+  if (o && o.amb) { const its = appPecasDoAmb(o.amb); if (its.length) { ped.pecas = []; ped.resumoApp = { pedra: o.material || '', itens: its.map(it => ({ ambiente: it.ambiente, pecas: it.pecas.map(x => ({ qtd: x.qtd, comp_cm: x.comp_cm, larg_cm: x.larg_cm })) })) }; for (const it of its) for (const x of it.pecas) ped.pecas.push({ tipo: normaliza(it.ambiente), qtd: x.qtd, comp_cm: x.comp_cm, larg_cm: x.larg_cm }); ped.projetoApp = ped.projetoApp === 'Serviço' && o.projeto ? String(o.projeto).slice(0, 40) : ped.projetoApp; ped.estimado = { de: 'peças do orçamento', orc: o.orcNum || o.id }; return o; } }
   if (o && +o.m2 > 0) { const q = Math.max(1, Math.min(20, Math.round(+o.m2 / 0.6))); ped.pecas = [{ tipo: 'peça', qtd: q, comp_cm: 100, larg_cm: Math.max(30, Math.round(+o.m2 * 10000 / q / 100)) }]; ped.projetoApp = ped.projetoApp === 'Serviço' && o.projeto ? String(o.projeto).slice(0, 40) : ped.projetoApp; ped.estimado = { m2: +o.m2, de: 'orcamento do app' }; }
   return o || null;
 }
