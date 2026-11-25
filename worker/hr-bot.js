@@ -13984,7 +13984,7 @@ async function fix356Renata(env) { // v356: junta os registros duplicados de um 
   await livSalvar(env, m); for (const r of outros) await env.HR_KV.delete(LIV_PREFIX + r.id);
 }
 async function fix358Lav(env) { // v358: prints da cliente do lavatório chegaram depois do número → processa uma vez (só o Sr. Hangel recebe a prévia)
-  if (!env.HR_DB || await env.HR_KV.get('fix:358')) return; await env.HR_KV.put('fix:358', '1', { expirationTtl: 30 * 86400 });
+  if (!env.HR_DB || await env.HR_KV.get('fix:358') || !(await travaEnvio(env, 'fix358'))) return; await env.HR_KV.put('fix:358', '1', { expirationTtl: 30 * 86400 }); // v358b: trava (rodou em 2 instâncias e a prévia saiu 2×)
   const dono = numeroDono(env), r = await env.HR_DB.prepare("SELECT entrada AS texto, ts FROM dono_log WHERE ts BETWEEN ? AND ? AND entrada LIKE '%cubas%' ORDER BY ts DESC LIMIT 1").bind(1795632600000, 1795634400000).first().catch(() => null);
   const tel = r && rtpTel(r.texto); if (!tel) return;
   const imgs = await env.HR_DB.prepare('SELECT mid FROM midia_rec WHERE em BETWEEN ? AND ? ORDER BY em').bind(r.ts, r.ts + 5 * 60000).all().catch(() => ({ results: [] }));
@@ -24639,7 +24639,8 @@ Responda SÓ JSON: {"nome":"primeiro nome","pedido":"o que ele quer, curto, ex.:
   await env.HR_KV.put('rtp:p:' + id, JSON.stringify(reg), { expirationTtl: 3 * 86400 });
   await env.HR_KV.put('rtp:ultimo:' + from, id, { expirationTtl: 3 * 86400 });
   const tel = rtpFmt(num);
-  await enviar(env, from, cartaoDono(`Retomada: ${reg.nome || tel}`, [`${reg.pedido}${reg.valor ? ' · ' + reg.valor : ''}`, reg.situacao, reg.estrategia ? 'Estratégia: ' + reg.estrategia : null, '', 'Mensagem que vou mandar:']));
+  if (!variar) { const kDup = 'rtpdup:' + from + ':' + num; if (await env.HR_KV.get(kDup)) { await env.HR_KV.delete('rtp:p:' + id); return; } await env.HR_KV.put(kDup, '1', { expirationTtl: 90 }); } // v358b: a mesma prévia não sai duas vezes
+  await enviar(env, from, cartaoDono(`${obs && !/^(SEGUNDO CONTATO|RECONQUISTA)/.test(obs) ? 'Atendimento' : 'Retomada'}: ${reg.nome || tel}`, [`${reg.pedido}${reg.valor ? ' · ' + reg.valor : ''}`, reg.situacao, reg.estrategia ? 'Estratégia: ' + reg.estrategia : null, '', 'Mensagem que vou mandar:']));
   await enviarComBotoes(env, from, reg.mensagem, [{ id: 'rtp|env|' + id, titulo: 'Enviar' }, { id: 'rtp|outra|' + id, titulo: 'Outra versão' }, { id: 'rtp|no|' + id, titulo: 'Cancelar' }]);
   await enviar(env, from, 'Para mudar o texto você mesmo: *mensagem: ...*. Depois que eu mandar, a assistente continua a conversa sabendo de tudo e te avisa quando ele responder.');
 }
