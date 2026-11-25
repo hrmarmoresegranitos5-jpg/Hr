@@ -16096,6 +16096,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- O APP INTEIRO (v340): você enxerga TODOS os orçamentos de todos os tempos (rascunho, aguardando, aceito, entregue, concluído, perdido), as peças e medidas de cada ambiente, a agenda, o contrato, os pagamentos do livro e a produção. Para qualquer pergunta sobre serviço/orçamento/cliente/valor/período chame buscar_no_app; para detalhes de um serviço chame detalhe_no_app. Os DADOS DO APP acima podem estar cortados: na dúvida, BUSQUE. Nunca responda "não encontrei" sem ter buscado.`,
       `- NUNCA diga "registrei", "anotei", "marquei", "lancei" ou "a partir de agora não faço X" sem ter chamado uma ferramenta que fez isso. Promessa de mudar o próprio comportamento não vale: diga que vai passar para o ajuste do sistema. Quando ele CORRIGIR um registro de produção (quem fez, qual cliente, se já foi instalado), use as ferramentas de produção para corrigir de fato.`,
       `- APROVAÇÃO DA PRODUÇÃO (v339): o que os funcionários mandam fica PENDENTE (não conta ponto e não manda entrega) até o Sr. Hangel aprovar. "aprovar tudo" aprova; no app: Produção → Aprovar produção. O que ELE mesmo manda registrar entra aprovado.`,
+      `- DESCONTO / ABATIMENTO / PERMUTA (v341): "desconta 150", "ele vai me dar uma torneira de 150, desconta": PRIMEIRO grave no livro com registrar_entrega_pagamento (pagamento_valor = o valor, pagamento_forma "abatimento", pagamento_obs = o que foi, ex.: "torneira"), DEPOIS gere o PDF com pdf_saldo_cliente. Assim o saldo novo fica guardado; nunca só no PDF.`,
       `- CLIENTE COM MAIS DE UM PROJETO (v338): se o cliente tem 2+ orçamentos/projetos (ex.: banheiro E cozinha), ANTES de gerar Pix, cobrança, link, PDF, ficha ou lançar pagamento, confirme com o Sr. Hangel QUAL projeto (ou se é a soma), listando-os em uma linha com o valor de cada. Só não pergunte quando ele já disse o projeto/valor ou quando a mensagem citada já mostra qual é. Nunca escolha sozinho o mais recente.`,
       `- COBRANÇA A CLIENTE: quando o Sr. Hangel pedir para cobrar um cliente ("vamos criar a cobrança", "cobra o João", "já entregamos, cobre"), use criar_cobranca, NÃO criar_link_pagamento. O valor e o serviço vêm do LIVRO DE ENTREGAS E PAGAMENTOS (o saldo em aberto do livro é o valor oficial a cobrar; o telefone e o nome do cliente também) ou, se não estiver nele, dos PEDIDOS RECENTES; o bot calcula multa e juros sozinho, mostra a prévia e só envia ao cliente depois do toque em Aprovar e enviar. Nunca diga que já enviou ao cliente nem invente percentuais. Para ver quem está devendo, ele escreve *inadimplência* (a lista mostra o protocolo de cada cobrança); para cancelar, use cancelar_cobranca com os protocolos. Se o cliente tiver MAIS DE UM serviço com saldo em aberto no livro, ANTES de criar a cobrança liste os serviços com valor e data e pergunte se cobra um deles ou a soma; nunca escolha sozinho o primeiro e avise sempre quanto ficou de fora. Para enviar a cobrança só depois ("amanhã às 7h"), use agendar_cobranca. REGRA GERAL: nunca diga que cancelou, criou, enviou, agendou ou registrou algo se a ferramenta correspondente não devolveu sucesso neste mesmo turno; se não há ferramenta, diga que não consegue e oriente o comando de texto. Ao criar cobrança, sempre passe o campo nome com o nome do cliente já citado na conversa; se ele só informar o telefone, o nome é o do cliente de quem se falava.`,
       `- MERCADO PAGO: para saber quanto entrou, recebeu ou vendeu no Mercado Pago, use consultar_mercado_pago (só leitura; mostra apenas o que ENTROU na conta; para saídas e saldo use consultar_extrato_mp, que lê o último extrato diário, não o tempo real). Para gerar só um link ou Pix para o próprio Sr. Hangel repassar, use criar_link_pagamento quando ele pedir e disser o valor (para cobrar um cliente, use criar_cobranca): por padrão ele recebe dois botões (abrir a página de pagamento e copiar o Pix copia e cola). O código e o link vão ao Sr. Hangel; só vão ao cliente se ele pedir para cobrar um cliente (preencha cliente): aí o bot mostra uma prévia com botões Enviar e Cancelar. Nunca diga que já enviou ao cliente: depende do toque dele no botão. Nunca invente valores do Mercado Pago: use só o que a ferramenta devolveu.`,
@@ -17816,30 +17817,47 @@ function appLinha(o) {
   const sec = appSecao(o), j = o.job, ab = appValorAberto(o);
   return `${o.orcNum ? orcNumNorm(o.orcNum) || o.orcNum : 'id ' + String(o.id || '').slice(-6)} · *${o.cliente}* · ${[o.projeto, o.material].filter(Boolean).join(' em ') || 'serviço'} · R$ ${reais(o.valor || 0)} · ${o.data ? dataBR(o.data) : 's/ data'} · ${APP_SEC_TXT[sec]}${o.pdf ? '' : sec === 'rascunho' ? ' (sem PDF)' : ''}${j ? ` · agenda: ${j.etapa || (j.feito ? 'concluído' : '—')}${j.fim ? ' p/ ' + dataBR(j.fim) : ''}${ab != null ? (ab > 0 ? ` · falta R$ ${reais(ab)}` : ' · pago') : ''}` : ''}`;
 }
+// v341: a mesma busca no LIVRO de entregas/pagamentos e na PRODUÇÃO do bot (o serviço pode estar entregue lá e não no Histórico do app)
+async function appOutrasFontes(env, toks, sec, de, ate) {
+  const nomeOk = nm => toks.length && appCasaTexto({ cliente: nm }, toks.filter(w => !/^(entreg|aceit|rascun|pend|conclu|perd|projet)/.test(w)));
+  const liv = (await livTodos(env).catch(() => [])).filter(r => (!toks.length || nomeOk(r.cliente) || appCasaTexto({ cliente: r.cliente, projeto: r.desc }, toks)) && (!de || (r.entregaEm || '') >= de) && (!ate || !r.entregaEm || r.entregaEm <= ate));
+  const ped = (await pedidosProducao(env, p => p.status !== 'recusado').catch(() => [])).filter(p => !toks.length ? false : nomeOk(p.nome) || appCasaTexto({ cliente: p.nome, projeto: p.projetoApp, material: p.resumoApp && p.resumoApp.pedra }, toks));
+  const lv = liv.filter(r => sec === 'todos' || (sec === 'entregue' && r.entregaEm) || (sec === 'abertos' && livTemSaldo(r)) || (sec === 'aceito' && !r.entregaEm)).slice(0, 15);
+  const pd = ped.filter(p => sec === 'todos' || (sec === 'entregue' && p.entregueEm) || ((sec === 'aceito' || sec === 'abertos') && !p.entregueEm)).slice(0, 10);
+  return { lv, pd };
+}
+function appLivLinha(r) { const sd = livSaldo(r); return `📒 *${r.cliente}* · ${r.desc || 'serviço'}${Number(r.valor) > 0 ? ' · R$ ' + reais(r.valor) : ''} · ${r.entregaEm ? 'ENTREGUE ' + dataBR(r.entregaEm) : 'ainda não entregue'} · pago R$ ${reais(livPago(r))}${sd != null ? (sd > 0.009 ? ' · falta R$ ' + reais(sd) : ' · quitado') : ''}`; }
+function appPedLinha(p) { return `🏭 *${p.nome}* · ${resumoPecas(p)} · ${p.entregueEm ? 'ENTREGUE ' + dataBR(diaDe(p.entregueEm)) : p.fabProntoEm || p.prontoEm ? 'pronto, falta entregar' : p.corteEm ? 'cortado, em acabamento' : 'falta cortar'}`; }
 async function appBuscarTool(env, a) {
-  const h = await lerHistorico(env); if (!h) return { texto: 'O app ainda não mandou o histórico completo. Peça ao Sr. Hangel para abrir o app (ele envia sozinho em até 1 minuto).' };
+  const h = await lerHistorico(env) || { orcamentos: [], clientes: [] };
   const toks = appToks(a.texto), sec = String(a.secao || 'todos'), de = /^\d{4}-\d{2}-\d{2}$/.test(a.de || '') ? a.de : '', ate = /^\d{4}-\d{2}-\d{2}$/.test(a.ate || '') ? a.ate : '';
   let l = h.orcamentos.filter(o => !o.arquivado || sec === 'todos' && toks.length);
   if (sec === 'abertos') l = l.filter(o => ['aceito', 'entregue'].includes(appSecao(o)) && !(appValorAberto(o) === 0 && appSecao(o) === 'entregue'));
   else if (sec !== 'todos') l = l.filter(o => appSecao(o) === sec);
   if (de) l = l.filter(o => (o.data || '') >= de); if (ate) l = l.filter(o => (o.data || '') && o.data <= ate);
-  l = l.filter(o => appCasaTexto(o, toks));
+  l = l.filter(o => appCasaTexto(o, toks.filter(w => !/^(entregue|entregues|aceito|aceitos|rascunho|rascunhos|pendente|concluido|perdido|projeto|projetos)$/.test(w))));
   if (!l.length && toks.length > 1) { const t2 = toks.filter(w => !(PEDRA_PAL && PEDRA_PAL.has && PEDRA_PAL.has(PEDRA_EQ(w)))); if (t2.length && t2.length < toks.length) l = h.orcamentos.filter(o => !o.arquivado && (sec === 'todos' || appSecao(o) === sec) && appCasaTexto(o, t2)); }
   l.sort(a.ordenar === 'valor' ? (x, y) => (y.valor || 0) - (x.valor || 0) : (x, y) => String(y.data || '').localeCompare(String(x.data || '')));
-  if (!l.length) return { texto: `Nada no app com ${toks.length ? '"' + a.texto + '"' : 'esse filtro'}${sec !== 'todos' ? ' na seção ' + sec : ''}. (O histórico tem ${h.orcamentos.length} orçamentos.) Diga isso ao Sr. Hangel e, se for nome de cliente, pergunte se está escrito de outro jeito.` };
+  const of = await appOutrasFontes(env, toks, sec, de, ate);
+  const extra = (of.lv.length ? `\nLIVRO DE ENTREGAS E PAGAMENTOS (vale como prova de entrega/pagamento):\n${of.lv.map(appLivLinha).join('\n')}` : '') + (of.pd.length ? `\nPRODUÇÃO (bot):\n${of.pd.map(appPedLinha).join('\n')}` : '');
+  if (!l.length && !extra) { const cl = toks.length ? (h.clientes || []).filter(c => appCasaTexto({ cliente: c.nome }, toks)).slice(0, 5) : [];
+    return { texto: `Nada com ${toks.length ? '"' + a.texto + '"' : 'esse filtro'}${sec !== 'todos' ? ' na seção ' + sec : ''} no Histórico (${h.orcamentos.length} orçamentos), no livro de entregas nem na produção.${cl.length ? ' Clientes cadastrados com nome parecido: ' + cl.map(c => c.nome).join(', ') + '.' : ''} Antes de dizer que não achou, tente de novo SEM a seção (secao "todos") e só com o primeiro nome.` }; }
+  if (!l.length) return { texto: `No Histórico do app não há orçamento nessa seção, mas achei em outras fontes:${extra}\n[O livro e a produção valem como prova: responda com isso ao Sr. Hangel.]` };
   const lim = Math.min(40, Math.max(1, +a.limite || 15)), porSec = {};
   for (const o of l) { const s = appSecao(o); porSec[s] = porSec[s] || { n: 0, v: 0 }; porSec[s].n++; porSec[s].v += +o.valor || 0; }
   const tot = l.reduce((t, o) => t + (+o.valor || 0), 0), abertoT = l.reduce((t, o) => t + (appValorAberto(o) || 0), 0);
-  return { texto: `${l.length} resultado(s) · total R$ ${reais(tot)}${abertoT > 0 ? ` · a receber (agenda) R$ ${reais(abertoT)}` : ''}\nPor seção: ${Object.entries(porSec).map(([k, v]) => `${APP_SEC_TXT[k]} ${v.n} (R$ ${reais(v.v)})`).join(' · ')}\n${l.slice(0, lim).map(appLinha).join('\n')}${l.length > lim ? `\n…e mais ${l.length - lim}.` : ''}\n[Para detalhes de um, use detalhe_no_app. Responda ao Sr. Hangel organizado e curto.]` };
+  return { texto: `${l.length} resultado(s) · total R$ ${reais(tot)}${abertoT > 0 ? ` · a receber (agenda) R$ ${reais(abertoT)}` : ''}\nPor seção: ${Object.entries(porSec).map(([k, v]) => `${APP_SEC_TXT[k]} ${v.n} (R$ ${reais(v.v)})`).join(' · ')}\n${l.slice(0, lim).map(appLinha).join('\n')}${l.length > lim ? `\n…e mais ${l.length - lim}.` : ''}${extra}\n[Para detalhes de um, use detalhe_no_app. Responda ao Sr. Hangel organizado e curto.]` };
 }
 async function appDetalheTool(env, a) {
-  const h = await lerHistorico(env); if (!h) return { texto: 'O app ainda não mandou o histórico completo. Peça ao Sr. Hangel para abrir o app.' };
+  const h = await lerHistorico(env) || { orcamentos: [], clientes: [] };
   let l = [];
   const on = a.orc ? orcNumNorm(a.orc) : ''; if (on || a.orc) l = h.orcamentos.filter(o => (on && orcNumNorm(o.orcNum || '') === on) || String(o.id) === String(a.orc));
   if (!l.length && a.cliente) { const d8 = String(a.cliente).replace(/\D/g, ''); l = d8.length >= 8 ? h.orcamentos.filter(o => String(o.tel || '').replace(/\D/g, '').endsWith(d8.slice(-8))) : h.orcamentos.filter(o => appCasaTexto({ cliente: o.cliente }, appToks(a.cliente))); }
   if (a.projeto && l.length > 1) { const f = l.filter(o => appCasaTexto(o, appToks(a.projeto))); if (f.length) l = f; }
   l = l.filter(o => !o.arquivado).sort((x, y) => (['aceito', 'entregue'].includes(appSecao(y)) ? 1 : 0) - (['aceito', 'entregue'].includes(appSecao(x)) ? 1 : 0) || String(y.data || '').localeCompare(String(x.data || '')));
-  if (!l.length) return { texto: `Não achei ${a.cliente || a.orc} no app. Use buscar_no_app com outra grafia ou pergunte ao Sr. Hangel.` };
+  if (!l.length) { const of = await appOutrasFontes(env, appToks(a.cliente || ''), 'todos', '', '');
+    if (of.lv.length || of.pd.length) return { texto: `Sem orçamento no Histórico do app para ${a.cliente}, mas tem:\n${of.lv.map(appLivLinha).join('\n')}${of.pd.length ? '\n' + of.pd.map(appPedLinha).join('\n') : ''}\n[Responda com isso ao Sr. Hangel.]` };
+    return { texto: `Não achei ${a.cliente || a.orc} no app, no livro nem na produção. Use buscar_no_app com outra grafia ou pergunte ao Sr. Hangel.` }; }
   const out = [];
   if (l.length > 1) out.push(`ATENÇÃO: ${l.length} orçamentos encontrados para esse cliente (mostrando ${Math.min(3, l.length)}). Se o pedido do Sr. Hangel depende de UM deles, confirme qual.`);
   const liv = await livTodos(env).catch(() => []), peds = await pedidosProducao(env, () => true).catch(() => []), cfg = await pontoCfg(env).catch(() => ({ funcs: [] }));
@@ -20573,6 +20591,7 @@ function livForma(f) {
   if (/boleto/.test(n)) return 'Boleto';
   if (/transf|\bted\b|\bdoc\b/.test(n)) return 'Transferência';
   if (/cheque/.test(n)) return 'Cheque';
+  if (/abat|descont|permuta|troca/.test(n)) return 'Abatimento'; // v341
   return n ? String(f).trim().slice(0, 20) : 'Outro';
 }
 const livPago = r => livR2((r.pagamentos || []).reduce((t, p) => t + (Number(p.valor) || 0), 0));
@@ -20822,7 +20841,7 @@ const FERRAMENTAS_LIVRO = [
         data_entrega: { type: 'string', description: 'AAAA-MM-DD, só se ele disser o dia da entrega' },
         telefone: { type: 'string', description: 'telefone do cliente com DDD, só se ele informar' },
         pagamento_valor: { type: 'number', description: 'valor DESTE pagamento em reais' },
-        pagamento_forma: { type: 'string', description: 'pix, dinheiro, cartão, boleto, transferência ou cheque' },
+        pagamento_forma: { type: 'string', description: 'pix, dinheiro, cartão, boleto, transferência, cheque ou "abatimento" (desconto/permuta: o cliente dá um produto ou o Sr. Hangel desconta um valor)' },
         pagamento_data: { type: 'string', description: 'AAAA-MM-DD, só se ele disser o dia (sem data = hoje)' },
         pagamento_obs: { type: 'string', description: 'detalhe curto (ex.: sinal, restante, parcela 2/3)' },
         observacao: { type: 'string', description: 'observação geral curta sobre a entrega, se ele disser' },

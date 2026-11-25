@@ -18,5 +18,8 @@ ok(/falta R\$ 1\.400/.test(await show('b',{secao:'abertos'})),'abertos com saldo
 ok(/ATENÇÃO: 2/.test(await show('d',{cliente:'Poliano'})),'avisa 2 projetos');
 ok(/250x60/.test(await show('d',{cliente:'Poliano',projeto:'cozinha'})),'peças da cozinha');
 ok(/47x14/.test(await show('d',{cliente:'tontoi'})),'nicho tontoi');
+KV.set('liv:jail1',JSON.stringify({id:'jail1',cliente:'Jailton (papinha)',desc:'Cozinha+Cozinha',valor:4675.4,entregaEm:'2026-11-24',pagamentos:[{valor:2000,forma:'dinheiro',data:'2026-11-24'}]}));
+ok(/Jailton \(papinha\).*ENTREGUE.*falta R\$ 2\.675/.test(await show('b',{texto:'Jailton',secao:'entregue'})),'entregue no livro');
+ok(/Jailton/.test(await show('d',{cliente:'Jailton'})),'ficha pelo livro');
 console.log((await T.appResumoPrompt(env)).slice(0,400));
 console.log('ERROS:',E); process.exit(0);
