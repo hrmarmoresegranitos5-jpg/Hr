@@ -13983,6 +13983,13 @@ async function fix356Renata(env) { // v356: junta os registros duplicados de um 
   m.pagamentos = pags.filter((p, i, a) => a.findIndex(q => livMesmoPag(q, p)) === i).sort((x, y) => String(x.data).localeCompare(String(y.data)));
   await livSalvar(env, m); for (const r of outros) await env.HR_KV.delete(LIV_PREFIX + r.id);
 }
+async function fix357c(env) { // v357c: corte do lavatório Branco Prime do Poliano (foto do Fabrício 19/11 09:17) não estava registrado
+  if (await env.HR_KV.get('fix:357c')) return; await env.HR_KV.put('fix:357c', '1', { expirationTtl: 30 * 86400 });
+  const p = await lerPedido(env, '1795171124318').catch(() => null); if (!p || (p.prodLog || []).some(x => x.e === 'corte')) return;
+  p.prodLog = [...(p.prodLog || []), { e: 'corte', por: ['mpj69bv2l3zb'], ts: 1795090624431, dono: 1, obs: 'lavatório Branco Prime (foto do Fabrício 19/11)' }]; p.corteFeitoPor = p.corteFeitoPor || 'mpj69bv2l3zb'; p.corteEm = p.corteEm || 1795090624431;
+  env._aprovando = 1; await salvarPedido(env, p); env._aprovando = 0;
+  const cfg = await pontoCfg(env); for (const f of cfg.funcs) { const pn = await metaPainel(env, f.id).catch(() => null); if (pn) await env.HR_KV.put('meta:ult:' + f.id + ':' + pn.semana.ini, String(pn.pts), { expirationTtl: 9 * 86400 }); }
+}
 async function fix357b(env) { // v357b: pedido do Sr. Hangel — Jefferson ajudou em todas as entregas do Gibson; Fabrício cortou os serviços sem cortador anotado
   if (await env.HR_KV.get('fix:357b')) return; await env.HR_KV.put('fix:357b', '1', { expirationTtl: 30 * 86400 });
   const GIB = 'mpj69nyik9ua', JEF = 'mvjqx7v9hfse', FAB = 'mpj69bv2l3zb';
@@ -37044,6 +37051,7 @@ export default {
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
+    if (ctx && ctx.waitUntil && !globalThis.__fix357c) { globalThis.__fix357c = 1; ctx.waitUntil(fix357c(env).catch(e => console.log('[FIX357c]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357b) { globalThis.__fix357b = 1; ctx.waitUntil(fix357b(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357berr', String(e && e.stack || e)).run())); } // v357b
     if (ctx && ctx.waitUntil && !globalThis.__fix357) { globalThis.__fix357 = 1; ctx.waitUntil(fix357Cassio(env).catch(e => console.log('[FIX357]', e.message))); } // v357
     if (ctx && ctx.waitUntil && !globalThis.__diag357) { globalThis.__diag357 = 1; ctx.waitUntil(diag357(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357err', String(e && e.stack || e)).run())); }
