@@ -22637,6 +22637,24 @@ async function esperarRajada(env, m) {
   if (String(env.ESPERA_CLIENTE ?? '1') === '0' || !m || !m.from || !m.id || ehDono(env, m.from) || !['text', 'audio'].includes(m.type)) return false;
   const cfg = await pontoCfg(env).catch(() => null); if (cfg && pontoFuncPorFone(cfg, m.from)) return false;
   const k = 'raj:' + ultimos8(m.from), agora = Date.now();
+  if (env.HR_DB) try { // v358d: estado da rajada no D1 (a KV devolve leitura velha por até 60 s e a Viviane recebeu 3 respostas para "Ops / Ops, parede da direita / Corrigindo")
+    if (!globalThis.__rajT) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS raj (id INTEGER PRIMARY KEY AUTOINCREMENT, num TEXT, mid TEXT, ts INTEGER, tp TEXT, t TEXT, audio TEXT, usado INTEGER DEFAULT 0)').run(); globalThis.__rajT = 1; }
+    const num = ultimos8(m.from), txt = m.type === 'text' ? String(m.text?.body || '') : '';
+    if (await env.HR_DB.prepare('SELECT 1 FROM raj WHERE num = ? AND mid = ?').bind(num, m.id).first()) return false; // reenvio da Meta
+    const ins = await env.HR_DB.prepare('INSERT INTO raj (num, mid, ts, tp, t, audio) VALUES (?, ?, ?, ?, ?, ?)').bind(num, m.id, agora, m.type, txt.slice(0, 2000), m.type === 'audio' ? String((m.audio && m.audio.id) || '') : '').run(), meu = +(ins.meta && ins.meta.last_row_id) || 0;
+    const ini = (await env.HR_DB.prepare('SELECT MIN(ts) AS t FROM raj WHERE num = ? AND usado = 0 AND ts > ?').bind(num, agora - 60000).first() || {}).t || agora;
+    await new Promise(res => setTimeout(res, esperaRajadaMs(m, txt, { ini })));
+    const mx = (await env.HR_DB.prepare('SELECT MAX(id) AS id FROM raj WHERE num = ? AND usado = 0').bind(num).first() || {}).id || meu;
+    if (mx > meu) { await env.HR_KV.put('m:' + m.id, '1', { expirationTtl: 3600 }).catch(() => {}); return true; } // a mais nova responde por todas
+    m._esperou = Date.now() - agora;
+    const ps = ((await env.HR_DB.prepare('SELECT id, mid, tp, t, audio FROM raj WHERE num = ? AND usado = 0 AND id <= ? AND ts > ? ORDER BY id').bind(num, meu, agora - 120000).all()).results) || [];
+    await env.HR_DB.prepare('UPDATE raj SET usado = 1 WHERE num = ? AND id <= ?').bind(num, meu).run();
+    if (Math.random() < 0.03) await env.HR_DB.prepare('DELETE FROM raj WHERE ts < ?').bind(agora - 86400000).run().catch(() => {});
+    if (ps.length > 1) { const textos = [];
+      for (const p of ps) { if (p.tp === 'text' && String(p.t || '').trim()) textos.push(String(p.t).trim()); else if (p.tp === 'audio' && p.audio) { const t = await ouvirAudio(env, m.from, p.mid === m.id ? m : { type: 'audio', audio: { id: p.audio } }, false).catch(() => ''); if (t) textos.push(String(t).trim()); } }
+      if (textos.length) { if (m.type === 'audio') m._eraAudio = true; m.type = 'text'; m.text = { body: textos.join('\n') }; delete m.audio; } }
+    return false;
+  } catch (e) { console.log('[RAJ] d1:', e.message); }
   let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
   if (!r || agora - r.ult > 60000) r = { ini: agora, partes: [] };
   if (r.partes.some(p => p.id === m.id)) return false; // reenvio da Meta
