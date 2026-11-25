@@ -13869,6 +13869,28 @@ const NARR199 = {
   fim: 'Bora bater a meta, equipe!',
 };
 // v205: levantamento (uma vez) de quanto tempo cada tipo de tarefa levou x pontos, para calibrar
+// v353 (autorizado pelo Sr. Hangel: "dê os pontos merecidos"): cortes do Fabrício que não contaram ponto nesta semana
+//  • o corte de 68% do Cássio (cozinha/lavatórios) tinha ficado com a data da semana passada (20/11) — ele cortou em 23/11
+//  • 2 soleiras Branco Siena e 2 prateleiras do Cássio (25/11) caíram no projeto dos lavatórios, que já estava cortado
+async function fix353Fabricio(env) {
+  if (await env.HR_KV.get('fix:353')) return; if (!(await travaEnvio(env, 'fix:353'))) return; await env.HR_KV.put('fix:353', '1', { expirationTtl: 90 * 86400 });
+  const cfg = await pontoCfg(env), fab = cfg.funcs.find(f => /fabr/i.test(f.nome || '')); if (!fab) return;
+  const ini = semIni(dataBahia()), ptsDe = async () => ((await metasPontos(env, ini, isoSomaDias(ini, 6)))[fab.id] || {}).pts || 0, antes = await ptsDe(), feito = [];
+  env._aprovando = 1;
+  try {
+    const c = await lerPedido(env, '1795087427799').catch(() => null);
+    if (c && Array.isArray(c.prodLog)) { const x = c.prodLog.find(y => y.e === 'corte' && y.rec && y.ts === 1795093663177); if (x) { x.ts = Date.UTC(2026, 10, 23, 19, 47); x.dataCorrigida = 'fix353'; await salvarPedido(env, c); feito.push('corte da cozinha/lavatórios do Cássio passou para 23/11 (o dia em que ele cortou)'); } }
+    const r1 = await producaoStatusTool(env, { cliente: 'Cássio Borges', etapa: 'corte', funcionarios: [fab.nome], item: 'soleira', pedra: 'Branco Siena', novo_servico: true, data: '2026-11-25' }).catch(e => ({ texto: 'erro ' + e.message }));
+    feito.push('2 soleiras Branco Siena do Cássio (serviço separado)'); console.log('[FIX353] soleiras:', r1 && r1.texto);
+    const r2 = await producaoStatusTool(env, { cliente: 'Cássio Borges', etapa: 'corte', funcionarios: [fab.nome], item: 'prateleira', novo_servico: true, pecas: 2, data: '2026-11-25' }).catch(e => ({ texto: 'erro ' + e.message }));
+    const pr = (await pedidosProducao(env, p => /c[aá]ssio/i.test(p.nome || '') && /pratel/i.test(p.projetoApp || '') && Date.now() - (p.criado || +p.id || 0) < 3600000).catch(() => []))[0];
+    if (pr) { pr.resumoApp = { pedra: pr.cor || '', itens: [{ ambiente: 'Prateleira', pecas: [{ qtd: 2, comp_cm: 100, larg_cm: 30 }] }] }; pr.pecas = [{ tipo: 'prateleira', qtd: 2, comp_cm: 100, larg_cm: 30 }]; pr.estimado = { de: 'fix353: 2 prateleiras ~100×30' }; await salvarPedido(env, pr); }
+    feito.push('2 prateleiras do Cássio (serviço separado, medida estimada 100×30)'); console.log('[FIX353] prateleiras:', r2 && r2.texto);
+  } finally { env._aprovando = 0; }
+  const depois = await ptsDe();
+  await pontoAvisarDono(env, `🛠️ *Pontos do Fabrício acertados* (como o senhor pediu):\n${feito.map(x => '• ' + x).join('\n')}\n*Semana do Fabrício: ${vPt(antes)} → ${vPt(depois)} pontos.*\nObs.: pela régua do tempo, o corte vale pouco por peça (1 ponto ≈ 2 h de trabalho). Se as prateleiras tiverem outra medida, me diga que eu ajusto.`).catch(() => {});
+  // sem mensagem extra ao Fabrício: só o aviso normal de pontos do sistema; o Sr. Hangel decide se fala com ele
+}
 // v353: conferência dos pontos do Fabrício (semana) e dos pedidos do Cássio — só leitura, vai para tmp_diag
 async function diag353(env) {
   if (!env.HR_DB || await env.HR_KV.get('diag:353')) return; await env.HR_KV.put('diag:353', '1', { expirationTtl: 2 * 86400 });
@@ -36848,6 +36870,7 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
+    if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
     if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).then(() => mig206(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
