@@ -10301,6 +10301,7 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   let pe = null; try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
   let leg = String((m.image && m.image.caption) || '').trim();
   if (leg && /^(?:o |a )?(acabamento|corte|polimento|instala[cç][aã]o|montagem|entrega)\b/i.test(leg) && !/\b(inici|come[cç]|vou|ainda|n[aã]o)\w*/i.test(leg)) leg = (/^(?:o |a )?(instala|montagem|entrega)/i.test(leg) ? 'terminei a ' : 'terminei o ') + leg.replace(/^(o|a)\s+/i, ''); // v326: "acabamento do Cássio" na foto = terminei o acabamento do Cássio
+  if (leg && /\b(finaliz\w*|conclu\w*|terminand\w*)\b/i.test(leg) && !/\b(instal\w*|entreg\w*|terminei|acabei)\b/i.test(leg)) { const pf = await papelFuncionario(env, f, from).catch(() => ''); if (pf === 'entrega') leg = leg.replace(/\b(finaliz\w*|conclu\w*|terminand\w*)\b/i, 'instalei'); else if (pf === 'fabrica') leg = leg.replace(/\b(finaliz\w*|conclu\w*|terminand\w*)\b/i, 'terminei'); } // v331: "Finalizando o serviço de poliano" (Gibson) = instalei
   if (leg) await env.HR_KV.put('prod:ultleg:' + ultimos8(from), JSON.stringify({ leg, mid: m.image.id, em: Date.now() }), { expirationTtl: 24 * 3600 }).catch(() => {}); // v302: "não contou meus pontos" / "." respondendo a foto → usa a legenda
   if (pe && pe.tipo === 'inicio' && leg && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei|instalamos|instalad[oa]s?|terminamos a instalacao|terminei a instalacao|finalizamos a instalacao|finalizei a instalacao|montamos|assentamos|assentei)\b/.test(normaliza(leg))) { await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)); pe = null; await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 3 * 3600 }); } // segue como foto com legenda de fim // v214: "poliana instalada" não é foto do início
   if (leg && !pe && await prodItensFuncionario(env, f, from, leg, nome, { mid: m.image.id }).catch(e => { console.log('[ITENS] foto:', e.message); return false; })) return true; // v182: "frontões do Papinha finalizados"
@@ -21393,6 +21394,7 @@ async function tratarMensagemBase(env, m, ctx) {
       if (m.type === 'video' || m.type === 'document') { const cap = String((m[m.type] && m[m.type].caption) || '').trim(); if (cap) { m._texto = cap; m._midia = m.type; } }
       let ok = false;
       if (['text', 'interactive', 'audio', 'button', 'image'].includes(m.type) || m._texto) ok = await rhAtenderFuncionario(env, from, m, ctx).catch(e => { console.log('[RH] funcionário:', e.message); return 'erro'; });
+      if (ok !== true && m.type === 'text' && /^(ok|okay|okk+|blz|beleza|certo|ta certo|ta bom|ta|show|top|entendi|combinado|fechou|tranquilo|de boa|joia|positivo|valeu|vlw|obrigad[oa]|\W*)[!. ]*$/.test(normaliza(String(m.text && m.text.body || '')))) return; // v331: "Ok" não recebe "não entendi"
       if (ok !== true && !['reaction', 'sticker', 'unsupported'].includes(m.type)) {
         const nm = apelidoFunc(cfgEq, fEq) || String(fEq.nome || '').split(' ')[0];
         await enviar(env, from, m.type === 'video' || m.type === 'document' ? `Recebi, ${nm}. Se for de um serviço, me escreva de qual cliente e o que foi feito (ex.: _iniciei os lavatórios do Ésio_ ou _terminei o da Maria_).` : `Recebi, ${nm}. Não entendi direito: me diga de qual cliente e o que foi feito (ex.: _iniciei o da Maria_, _terminei o da Maria_).`).catch(() => {});
@@ -32557,6 +32559,9 @@ async function helenaFalhaChecar(env, m, ctx) {
   else { const cfg = await pontoCfg(env).catch(() => null), f = cfg && pontoFuncPorFone(cfg, m.from); if (!f) return; quem = f.nome; papel = 'equipe'; }
   const entrada = String(ctx.bruto || extrairTexto(m) || (m.image && m.image.caption ? '[foto] ' + m.image.caption : m.type ? '[' + m.type + ']' : '')).trim();
   const resp = (ctx.saidas || []).join(' | '), nE = normaliza(entrada), nR = normaliza(resp);
+  if (dono && entrada) try { await falhaTab(env); if (!globalThis.__donoLogTab) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS dono_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, entrada TEXT, resposta TEXT, citado TEXT)').run(); globalThis.__donoLogTab = 1; }
+    await env.HR_DB.prepare('INSERT INTO dono_log (ts, entrada, resposta, citado) VALUES (?, ?, ?, ?)').bind(Date.now(), entrada.slice(0, 800), resp.slice(0, 1500), String(ctx.citado ? ((await env.HR_KV.get('wo:' + ctx.citado).catch(() => '')) || '') : '').slice(0, 300)).run();
+    if (Math.random() < 0.02) await env.HR_DB.prepare('DELETE FROM dono_log WHERE ts < ?').bind(Date.now() - 45 * 86400000).run(); } catch (_) {} // v331: conversa do dono com a Helena (45 dias) para conferir onde ela erra
   if (/^(ok|okay|blz|beleza|valeu|vlw|obrigad[oa]|show|top|certo|sim|nao|kk+|rs+|\W*)$/.test(nE) || m.type === 'reaction' || m.type === 'sticker') return;
   const tipos = [];
   if (FALHA_RESP.test(nR)) tipos.push('nao_entendeu');
@@ -32748,7 +32753,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
     return true;
   }
   let texto = m.type === 'text' ? String(m.text?.body || '').trim() : (m._texto || '');
-  const citado = m.context && m.context.id ? await crmTextoCitado(env, m.context.id) : ''; // v303: respondeu citando uma mensagem ("Ss" à pergunta do Sr. Hangel)
+  let citado = m.context && m.context.id ? await crmTextoCitado(env, m.context.id) : ''; // v303: respondeu citando uma mensagem ("Ss" à pergunta do Sr. Hangel)
   if (!texto && m.type === 'audio') { try { texto = (await ouvirAudio(env, from, m, false)) || ''; m._texto = texto; } catch (_) {} }
   if (m.type === 'audio' && texto && env._ctx && String(env.VOZ_FUNC ?? '1') !== '0') { env._ctx.voz = true; env._ctx.func = true; } // v284: respondeu por áudio → a resposta vai em áudio
   if (texto && !idB && await prodQualCliResposta(env, f, from, texto, nome).catch(e => { console.log('[PROD] qualcli:', e.message); return false; })) return true; // v284
@@ -32767,6 +32772,9 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   if (await rhPedidoAusencia(env, cfg, f, from, texto, nome).catch(e => { console.log('[RH] ausência:', e.message); return false; })) return true; // v328
   // v44: resposta a um recado do dono (até 24 h depois): repassa ao dono
   const rp = +(await env.HR_KV.get('ponto:recpend:' + f.id)) || 0;
+  let pergUlt = ''; if (!rp && !citado && /^(sim|s|ss|sss|nao|n|isso|foi|ja|claro|com certeza|estava|tava|estava sim|nao estava|conferiu|ainda nao|positivo|negativo|uhum|aham)[.! ]*$/.test(normaliza(texto))) { // v331: "Ss" à pergunta que a Helena fez em nome do dono ("o Poliano estava presente?") → vai ao dono
+    const cv = await crmConversa(env, from, 4, 12).catch(() => []), ub = cv.filter(x => x.q !== 'c').pop(); if (ub && /\?\s*$/.test(String(ub.texto || '').trim()) && !/\b(de qual cliente|qual item|data de nascimento|cpf|chave pix|banco|nome completo|funcao|quantas)\b/.test(normaliza(ub.texto))) pergUlt = String(ub.texto).trim(); }
+  if (pergUlt) citado = pergUlt;
   if ((rp && Date.now() - rp < 24 * 3600000) || (citado && /\?\s*$/.test(citado) && String(texto).length < 80)) { // v303: respondeu citando uma pergunta → repassa ao dono
     await env.HR_KV.delete('ponto:recpend:' + f.id);
     await pontoAvisarDono(env, `💬 *${f.nome}* respondeu ao seu recado${citado ? ' ("' + citado.slice(0, 120) + '")' : ''}: "${texto.slice(0, 500)}"`);

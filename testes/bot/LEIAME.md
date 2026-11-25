@@ -21,3 +21,4 @@ Cada linha `→1234:` é uma mensagem enviada (últimos 4 dígitos do número). 
 - t15: diário de erros (helena_falhas) e 'erros da helena'. v329.
 - t16: casos reais do Fabrício 23–24/11 (balcão Ubatuba, 'cozinha do preto' = área gourmet do Cássio, 'já cortado' com corte pela metade). v330.
 - t17: recado guardado não engole a foto; acabador com 'finalizadas' registra direto. v331.
+- t18: Gibson real — 'Finalizando o serviço de poliano' (foto) dá baixa; 'Ok' sem 'não entendi'. v332.
