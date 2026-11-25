@@ -36131,6 +36131,9 @@ async function siteDetBotao(env, from, id) {
 async function siteDetTexto(env, from, bruto, msg) { // resposta ao "Mudar o texto"; e o comando "melhorar o site"
   const k = await env.HR_KV.get('det:txt');
   if (k && bruto && bruto.length >= 8 && !/^(cancela|deixa|nao|parar)\b/.test(msg)) { await env.HR_KV.delete('det:txt'); const c = await siteDetLer(env); c[k] = c[k] || {}; c[k].d = String(bruto).replace(/\s+/g, ' ').trim().slice(0, 220); await env.HR_KV.put('site:det', JSON.stringify(c)); await enviar(env, from, `✏️ Texto de *${(SITE_DET.find(d => d.k === k) || {}).n}* atualizado no site.`); let pd = null; try { pd = JSON.parse((await env.HR_KV.get('det:pede')) || 'null'); } catch (_) {} await siteDetPedir(env, from, [...((pd && pd.pular) || []), k]); return true; }
+  if (/^(quero |queria |me )?(ver|abrir|olhar|mostr\w*|mand\w*|link)( como (esta|ta|ficou))?( o| do)? site\b|^(link do |o )?site$/.test(msg)) { // v359c: "quero ver como está o site"
+    const b = await urlPublica(env), c = await siteDetLer(env), falta = SITE_DET.filter(d => !((c[d.k] && c[d.k].fotos) || []).length).map(d => d.n);
+    await enviar(env, from, `🌐 O site: ${b}/portfolio\n(link curto para clientes: ${b}/p)${falta.length ? `\n\nAinda sem foto real: ${falta.join(', ')}. Para eu ir pedindo: *melhorar o site*.` : ''}`); return true; }
   if (/^(melhorar|aprimorar|arrumar|completar)( o| a)? (site|acervo|catalogo)|^(fotos|detalhes) d[oe] site$|^site (fotos|detalhes)$/.test(msg)) { await siteDetPedir(env, from, []); return true; }
   return false;
 }
@@ -36155,7 +36158,7 @@ async function siteLeadsLista(env) {
 }
 // link pessoal do site: /portfolio?c=<token> já sabe quem é o cliente (o bot manda esse link na conversa)
 async function siteLinkPessoal(env, numero, nome) {
-  const base = await urlDoWorker(env).catch(() => '');
+  const base = await urlPublica(env).catch(() => ''); // v359c: domínio próprio quando estiver no ar
   if (!/^https:/.test(base)) return '';
   const tel = normalizarBR(String(numero || '').replace(/\D/g, ''));
   if (!tel) return base + '/portfolio';
