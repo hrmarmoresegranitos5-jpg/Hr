@@ -13979,6 +13979,20 @@ async function fix356Renata(env) { // v356: junta os registros duplicados de um 
   m.pagamentos = pags.filter((p, i, a) => a.findIndex(q => livMesmoPag(q, p)) === i).sort((x, y) => String(x.data).localeCompare(String(y.data)));
   await livSalvar(env, m); for (const r of outros) await env.HR_KV.delete(LIV_PREFIX + r.id);
 }
+async function diag357(env) { // v357: auditoria dos pontos (pedido do Sr. Hangel)
+  if (!env.HR_DB || await env.HR_KV.get('diag:357')) return; await env.HR_KV.put('diag:357', '1', { expirationTtl: 2 * 86400 });
+  const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 1900000)).run();
+  const cfg = await pontoCfg(env), hoje = dataBahia(), ini = semIni(hoje), iniAnt = isoSomaDias(ini, -7), lim = Date.now() - 16 * 86400000, todos = await pedidosProducao(env, () => true);
+  await put('357funcs', cfg.funcs.map(f => ({ id: f.id, nome: f.nome, inativo: f.inativo })));
+  const mx = p => Math.max(p.corteEm || 0, p.fabProntoEm || 0, p.acabEm || 0, p.entregueEm || 0, p.corteIniEm || 0, p.instIniEm || 0, ...((p.prodLog || []).map(x => x.ts || 0)), p.criado || 0);
+  const rel = todos.filter(p => mx(p) > lim);
+  await put('357peds', rel.map(p => ({ id: p.id, nome: p.nome, st: p.status, cancel: p.cancelado ? 1 : 0, cx: pedComplexo(p), n: nPecasPed(p), resumo: resumoPecas(p), itens: ((p.resumoApp || {}).itens || []).map(i => [i.ambiente, (i.pecas || []).map(x => [x.qtd, x.comp_cm, x.larg_cm, x.nome || '']).slice(0, 12)]),
+    corte: [p.corteFeitoPor, p.corteEm], fab: [p.fabFeitoPor, p.fabProntoEm], acab: p.acabEm, ent: [p.entFeitoPor, p.entregueEm, p.entAjud, p.instAjud], instIni: p.instIniEm, fotoPronto: !!p.fotoProntoEm, fotoEnt: !!p.fotoEntregaEm,
+    log: (p.prodLog || []).map(x => ({ e: x.e, por: x.por, ts: x.ts, d: diaDe(x.ts), ap: x.ap, frac: x.frac, pecas: x.pecas, itens: x.itens, dono: x.dono, pts: x.pts })), pts: { corte: ptsEtapa(p, 'corte'), fab: ptsEtapa(p, 'fabricacao'), acab: ptsEtapa(p, 'acabamento'), inst: ptsEtapa(p, 'instalacao'), ent: ptsEtapa(p, 'entrega') } })));
+  const sem = await metasPontos(env, ini, hoje, todos), ant = await metasPontos(env, iniAnt, isoSomaDias(ini, -1), todos);
+  await put('357sem', { ini, por: Object.fromEntries(Object.entries(sem).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
+  await put('357ant', { ini: iniAnt, por: Object.fromEntries(Object.entries(ant).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
+}
 async function diag356b(env) { if (!env.HR_DB || await env.HR_KV.get('diag:356b') || !(await env.HR_KV.get('fix:356'))) return; await env.HR_KV.put('diag:356b', '1', { expirationTtl: 2 * 86400 });
   const l = (await livTodos(env)).filter(r => /renata/i.test(r.cliente || '')).map(r => ({ id: r.id, n: (r.pagamentos || []).length, valor: r.valor, pago: livPago(r), saldo: livSaldo(r), formas: (r.pagamentos || []).map(p => p.forma + ' ' + p.valor) }));
   await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('356b', JSON.stringify(l)).run(); }
@@ -37004,6 +37018,7 @@ export default {
     if (req.method === 'GET' && url.pathname === '/voz-video2-dados') { const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })); return new Response(JSON.stringify({ premio: +pc.valor || 0, lider: +pc.lider || 0, meta: MES100, folga: pc.folga ? +pc.folgaPct || 130 : 0 }), { headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }); }
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
+    if (ctx && ctx.waitUntil && !globalThis.__diag357) { globalThis.__diag357 = 1; ctx.waitUntil(diag357(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357err', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__diag356b) { globalThis.__diag356b = 1; ctx.waitUntil(diag356b(env).catch(() => {})); }
     if (ctx && ctx.waitUntil && !globalThis.__diag356) { globalThis.__diag356 = 1; ctx.waitUntil(diag356(env).catch(e => console.log('[DIAG356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__diag353) { globalThis.__diag353 = 1; ctx.waitUntil(diag353(env).catch(e => console.log('[DIAG353]', e.message))); } // v353
