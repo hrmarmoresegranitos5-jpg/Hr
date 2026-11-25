@@ -10,9 +10,9 @@ await P(103,{nome:'Osmailton Souza',numero:'5574988880003',fabResp:'1',entResp:'
 await P(104,{nome:'Poliana Reis',entResp:'2',fabProntoEm:now-7200e3,resumoApp:{pedra:'Branco Siena',itens:[{ambiente:'Cozinha',pecas:[{qtd:1,comp_cm:250,larg_cm:60}]}]}});
 KV.set('liv:1',JSON.stringify({id:'1',cliente:'Jailton Santos',valor:5000,pagamentos:[{data:'2026-11-20',valor:2000,forma:'pix'}]}));
 const DONO='5574991484460', NUM={F:'5574999990011',G:'5574999990022'};
-const out=[];
-const run=async(from,t)=>{ const n0=ai.length; const r=await msg(from,t); const ia=ai.slice(n0).map(s=>s.slice(0,30)); out.push({t,from:from===DONO?'D':from.slice(-4),ia:ia.length?ia.join(' | '):'',r:r.replace(/\n/g,' ⏎ ').slice(0,260)}); await new Promise(r=>setTimeout(r,5)); };
+const out=[]; const OUTF=process.env.OUT||'./resultado.txt';
+const run=async(from,t)=>{ const n0=ai.length; const r=await msg(from,t); const ia=ai.slice(n0).map(s=>s.slice(0,30)); out.push({t,from:from===DONO?'D':from.slice(-4),ia:ia.length?ia.join(' | '):'',r:r.replace(/\n/g,' ⏎ ').slice(0,1400)}); await new Promise(r=>setTimeout(r,5)); };
 for (const l of fs.readFileSync(new URL('./dono.txt',import.meta.url),'utf8').split('\n')) { if(!l.trim()||l.startsWith('#')) continue; await run(DONO,l); }
-for (const l of fs.readFileSync(new URL('./func.txt',import.meta.url),'utf8').split('\n')) { if(!l.trim()) continue; const [k,t]=l.split('|'); await run(NUM[k],t); }
-fs.writeFileSync(new URL('./resultado.txt',import.meta.url).pathname, out.map(o=>`[${o.from}] ${o.t}\n   IA: ${o.ia||'—'}\n   → ${o.r||'(sem resposta)'}`).join('\n'));
+for (const l of fs.readFileSync(new URL(process.env.FUNC||"./func.txt",import.meta.url),"utf8").split("\n")) { if(!l.trim()) continue; const [k,t]=l.split('|'); await run(NUM[k],t); }
+fs.writeFileSync(new URL(OUTF,import.meta.url).pathname, out.map(o=>`[${o.from}] ${o.t}\n   IA: ${o.ia||'—'}\n   → ${o.r||'(sem resposta)'}`).join('\n'));
 console.log('ok',out.length); process.exit(0);

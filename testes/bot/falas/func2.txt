@@ -1,0 +1,35 @@
+F|vou faltar amanhã, tenho médico
+F|posso sair mais cedo hoje?
+F|preciso de um vale de 200
+F|quanto eu vou receber esse mês?
+F|cadê meu pagamento?
+F|qual minha meta?
+F|esqueci de bater o ponto hoje cedo, cheguei 7:30
+F|bati o ponto errado
+F|terminei o Jacó e o Cássio
+F|terminei o jaco
+F|Terminei o corte das peças do cassio borges e já comecei o acabamento
+F|o cliente do Osmailton ligou perguntando quando fica pronto
+F|a máquina de corte quebrou
+F|acabou o disco da serra
+F|precisa comprar cola
+F|qual o próximo serviço?
+F|tem serviço pra mim?
+F|o Jacó vai buscar ou é pra entregar?
+F|quando é pra entregar o Cássio?
+F|o Hugo não veio hoje
+F|kkkkk
+F|bom dia Helena, tudo bem?
+F|obrigado Helena
+F|me manda a ficha do Cássio
+F|qual a medida do peitoril do Jacó?
+G|cliente não estava em casa
+G|cliente pediu pra entregar amanhã
+G|o Osmailton vai pagar no pix
+G|recebi 300 e ele vai pagar o resto semana que vem
+G|cheguei no Osmailton
+G|preciso de ajuda na instalação, é muito pesada
+G|qual a próxima entrega?
+G|já terminei tudo
+G|o carro tá sem gasolina
+G|abasteci 100 reais
