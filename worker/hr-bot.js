@@ -2852,6 +2852,7 @@ function falaCasual(t) { // v160: complemento do textoParaFala para áudio de co
 }
 const VOZ_INSTR = 'O nome do dono é Rangel (escrito Hangel): pronuncie sempre RAN-JÉU, com o R forte do começo de rato. Fale como uma moça baiana de verdade mandando um áudio no WhatsApp para alguém conhecido: português do Brasil com sotaque nordestino leve, jeito descontraído e próximo, ritmo de conversa solto e corrido (um pouco rápido, como quem fala no dia a dia), entonação viva que sobe e desce. VÍRGULA NÃO É PAUSA: passe pelas vírgulas emendando as palavras, sem parar; só respire de leve no fim das frases. Junte as palavras como na fala real ("tá", "pra", "né"). Nunca leia pausadamente, nunca separe palavra por palavra. Nada de voz de locutora, de atendimento eletrônico ou de leitura. Se o texto for brincalhão, fale com alegria e leveza; se for sério, com calma e firmeza.';
 async function gerarVoz(env, fala, escolha) {
+  fala = String(fala || '').replace(/\bSr\.? Hangel\b/g, 'seu Rangel').replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL'); // v362: escreve Hangel, fala Rangel
   const op = VOZ_OPCOES.find(x => x.k === escolha) || null;
   const elId = op && op.prov === 'el' ? op.id : (!op && env.ELEVENLABS_KEY ? (env.ELEVENLABS_VOICE || 'RGymW84CSmfVugnA5tvA') : '');
   if (env.ELEVENLABS_KEY && elId) {
@@ -14168,22 +14169,22 @@ async function diag201(env) {
 async function narr353(env) {
   const pc = await premioCfg(env).catch(() => ({ valor: 150, lider: 50 })), ext = v => { const n = Math.round(+v || 0); const U = ['zero', 'um', 'dois', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove'], D = { 10: 'dez', 20: 'vinte', 30: 'trinta', 40: 'quarenta', 50: 'cinquenta', 60: 'sessenta', 70: 'setenta', 80: 'oitenta', 90: 'noventa' }, C = { 100: 'cem', 200: 'duzentos', 300: 'trezentos', 400: 'quatrocentos', 500: 'quinhentos' }; if (C[n]) return C[n]; if (n > 100 && n < 200) return 'cento e ' + ext(n - 100); if (n > 200 && n < 600 && C[Math.floor(n / 100) * 100]) return C[Math.floor(n / 100) * 100] + ' e ' + ext(n % 100); if (D[n]) return D[n]; if (n > 20 && n < 100) return D[Math.floor(n / 10) * 10] + ' e ' + U[n % 10]; return String(n); };
   return {
-    titulo: 'Oi, equipe! Os pontos ficaram mais justos e mais fáceis de acompanhar. Neste vídeo eu explico tudo, rapidinho.',
-    pontos: 'Cada etapa que você termina vale pontos: corte, acabamento, fabricação, instalação e entrega. A conta é pelo tempo de trabalho: peça maior e serviço mais difícil valem mais. Foto do serviço e entrega no prazo dão ponto extra.',
-    avisar: 'Para os pontos caírem certinho, avise a Helena falando três coisas: a peça, a pedra e o nome do cliente. Por exemplo: cortei duas soleiras branco Siena do Cássio. E mande a foto junto. No áudio, fale perto do celular, longe da máquina.',
-    aprovacao: 'Novidade: agora tudo passa pelo Sr. Hangel. A Helena anota na hora e avisa que os pontos entram quando ele aprovar. Ele confere, aprova, e aí chega a sua mensagem com os pontos.',
-    extra: 'Cortou uma peça que não está no projeto, ou que é de outro serviço do mesmo cliente? Fale a peça e a pedra. A Helena manda para o Sr. Hangel confirmar, e os pontos entram do mesmo jeito. Nada se perde.',
-    meta: `A partir de dezembro, a meta é de ${ext(MES100)} pontos no mês. A meta do dia é essa meta dividida pelos dias de trabalho, e o sábado conta meio dia. Você acompanha tudo no seu cartão.`,
-    faixas: 'Passou da meta? Você sobe de faixa. Oitenta por cento é bronze. Cem por cento é prata, que é bater a meta. Cento e vinte e cinco é ouro. E cento e cinquenta é diamante!',
-    premio: `Quem bater a meta do mês ganha o prêmio de ${ext(pc.valor)} reais${+pc.lider > 0 ? `, e o líder do mês ganha mais ${ext(pc.lider)} reais` : ''}. ${pc.folga ? ` E o primeiro do mês pode ganhar um dia de folga, mas só se for campeão de verdade: ${ext(pc.folgaPct)} por cento da meta, todas as semanas batidas, sem retrabalho e sem quebra.` : ''} Retrabalho e peça quebrada tiram pontos, então capricho vale ouro.`,
-    dicas: 'Quer saber como está? Pergunte à Helena: quantos pontos eu tenho? E se algum serviço não contou, avise: ela confere com o Sr. Hangel.',
+    titulo: 'Oi, equipe! Em um minuto eu explico como os pontos funcionam agora.',
+    pontos: 'Cada etapa vale pontos: corte, acabamento, fabricação, instalação e entrega. Peça maior e serviço mais difícil valem mais. Foto e prazo cumprido dão ponto extra.',
+    avisar: 'Avise a Helena com três coisas: a peça, a pedra e o cliente. Tipo: cortei duas soleiras branco Siena do Cássio. Manda a foto junto.',
+    aprovacao: 'A Helena anota na hora, o seu Rangel confere e aprova, e aí os pontos caem pra você.',
+    extra: 'Peça fora do projeto? Fala a peça e a pedra, que vai pro seu Rangel confirmar. Nada se perde.',
+    meta: `A partir de dezembro, a meta é de ${ext(MES100)} pontos no mês. Você acompanha tudo no seu cartão.`,
+    faixas: 'Oitenta por cento é bronze, cem é prata, cento e vinte e cinco é ouro, e cento e cinquenta é diamante!',
+    premio: `Bateu a meta do mês? Prêmio de ${ext(pc.valor)} reais${+pc.lider > 0 ? `, e o líder do mês ganha mais ${ext(pc.lider)} reais` : ''}. ${pc.folga ? ` E o primeiro do mês pode ganhar um dia de folga, mas só se for campeão de verdade: ${ext(pc.folgaPct)} por cento da meta, todas as semanas batidas, sem retrabalho e sem quebra.` : ''} Retrabalho e peça quebrada tiram pontos, então capricho vale ouro.`,
+    dicas: 'Quer saber como está? Pergunta pra Helena: quantos pontos eu tenho?',
     fim: 'Bora bater a meta, equipe!',
   };
 }
 async function vozVideo2Rota(env, k) {
   const H = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=3600' }, N = await narr353(env);
   if (!N[k] || !env.HR_DB) return new Response('não', { status: 404, headers: H });
-  let h = 5381; for (const ch of N[k]) h = ((h << 5) + h + ch.charCodeAt(0)) | 0; const key = 'v353:' + k + ':' + (h >>> 0);
+  let h = 5381; for (const ch of N[k]) h = ((h << 5) + h + ch.charCodeAt(0)) | 0; const key = 'v362:' + k + ':' + (h >>> 0);
   await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_voz (k TEXT PRIMARY KEY, b64 TEXT, via TEXT, n INTEGER)').run();
   let r = await env.HR_DB.prepare('SELECT b64 FROM tmp_voz WHERE k = ?').bind(key).first();
   if (!r || !r.b64) { await vozEscolhaCarregar(env).catch(() => {}); const g = await gerarVoz(env, N[k], globalThis.__voz || ''); const b = new Uint8Array(g.audio); await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_voz (k, b64, via, n) VALUES (?, ?, ?, ?)').bind(key, bytesParaBase64(b), g.via, b.length).run(); r = { b64: bytesParaBase64(b) }; }
