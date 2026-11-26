@@ -17658,6 +17658,13 @@ async function diag362(env) { // v362: estado do livro/finanças depois das corr
   await put('362cor', (await dump('cor:')).filter(x => (x.ts || 0) > t0 - 3600000 * 6));
   await put('362cmd', (await dump('cmd:')).filter(x => Math.floor((x.id || 0) / 10) > t0 - 3600000 * 6));
 }
+async function fix362Fab2(env) { // v362e: o total do aviso anterior saiu antes do serviço novo do Poliano aparecer na lista; manda o número certo
+  if (!(await env.HR_KV.get('fix:362f')) || await env.HR_KV.get('fix:362f2')) return; await env.HR_KV.put('fix:362f2', '1', { expirationTtl: 30 * 86400 });
+  const FAB = 'mpj69bv2l3zb', sem = (await metasPontos(env, '2026-11-23', dataBahia()))[FAB] || { pts: 0, tarefas: [] }, ant = (await metasPontos(env, '2026-11-16', '2026-11-22'))[FAB] || { pts: 0 };
+  const l = sem.tarefas.map(t => `${dataBR(t.dia).slice(0, 5)} ${t.tipo} · ${t.nome} (${t.pts})`);
+  if (env.HR_DB) await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362fab2', JSON.stringify({ sem: sem.pts, ant: ant.pts, l })).run();
+  await enviar(env, numeroDono(env), `🔧 *Fabrício — total atualizado* (o aviso anterior saiu antes de o lavatório do Poliano entrar na conta)\n\n*Semana atual:* *${sem.pts}* pts\n*Semana passada:* *${ant.pts}* pts\n\n${l.join('\n')}`).catch(() => {});
+}
 async function fix362Fab(env) { // v362: pontos do Fabrício — o que ele cortou (pelas fotos que mandou) e não estava certo
   if (await env.HR_KV.get('fix:362f')) return; await env.HR_KV.put('fix:362f', '1', { expirationTtl: 30 * 86400 });
   const FAB = 'mpj69bv2l3zb', LUC = 'mpj6bjhsh98c', HUGO = 'mpj68ypwxaiv', feito = [], ts = d => Date.parse(d);
@@ -37598,6 +37605,7 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix358) { globalThis.__fix358 = 1; ctx.waitUntil(fix358Lav(env).catch(e => console.log('[FIX358]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__diag362) { globalThis.__diag362 = 1; ctx.waitUntil(diag362(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362err', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__diag362f) { globalThis.__diag362f = 1; ctx.waitUntil(diag362f(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362ferr', String(e && e.stack || e)).run())); }
+    if (ctx && ctx.waitUntil && !globalThis.__fix362f2) { globalThis.__fix362f2 = 1; ctx.waitUntil(travaEnvio(env, 'fix362f2').then(ok => ok !== false && fix362Fab2(env)).catch(() => {})); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362f) { globalThis.__fix362f = 1; ctx.waitUntil(travaEnvio(env, 'fix362f').then(ok => ok !== false && fix362Fab(env)).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362faberr', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362r) { globalThis.__fix362r = 1; ctx.waitUntil(travaEnvio(env, 'fix362r').then(ok => ok !== false && fix362Renata(env)).catch(e => console.log('[FIX362r]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362v) { globalThis.__fix362v = 1; ctx.waitUntil(fix362Visita(env).catch(e => console.log('[FIX362v]', e.message))); }
