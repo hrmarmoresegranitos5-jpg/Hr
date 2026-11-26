@@ -183,6 +183,57 @@
     '.crm-prev .ok{background:#00a884;color:#111b21;}',
     '.crm-prev .no{background:none;color:#8696a0;}',
     '.crm-prev .orig{background:none;color:#53bdeb;margin-right:auto;padding-left:0;}',
+    /* v4: CRM — abas, funil, ficha, painel */
+    '.crm-abas{display:flex;gap:4px;margin:10px 12px 0;padding:4px;background:rgba(255,255,255,.04);border:1px solid rgba(201,168,76,.18);border-radius:14px;}',
+    '.crm-aba{flex:1;border:none;background:none;color:#b9ad92;font-family:inherit;font-weight:700;font-size:.84rem;padding:9px 4px;border-radius:10px;cursor:pointer;}',
+    '.crm-aba.on{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;box-shadow:0 3px 12px rgba(201,168,76,.3);}',
+    '.crm-funil{flex:1;display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding:12px 12px 24px;}',
+    '.crm-col{flex:none;width:min(84vw,330px);scroll-snap-align:start;display:flex;flex-direction:column;background:rgba(255,255,255,.025);border:1px solid rgba(201,168,76,.14);border-radius:18px;max-height:100%;}',
+    '.crm-colh{padding:12px 14px 10px;border-bottom:1px solid rgba(201,168,76,.14);}',
+    '.crm-colh b{display:flex;justify-content:space-between;font-size:.9rem;color:#f0d78c;}',
+    '.crm-colh b span{font-size:.72rem;background:rgba(201,168,76,.18);color:#e8c96a;border-radius:10px;padding:1px 8px;}',
+    '.crm-colh small{font-size:.74rem;color:#9a917e;}',
+    '.crm-cols{flex:1;overflow-y:auto;padding:8px;}',
+    '.crm-card{background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:11px 12px;margin-bottom:8px;cursor:pointer;}',
+    '.crm-card:active{transform:scale(.98);}',
+    '.crm-card .n{font-weight:700;font-size:.92rem;display:flex;justify-content:space-between;gap:6px;}',
+    '.crm-card .v{color:#e8c96a;font-weight:800;font-size:.86rem;white-space:nowrap;}',
+    '.crm-card .s{font-size:.76rem;color:#9a917e;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.crm-pills{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}',
+    '.crm-pill{font-size:.66rem;font-weight:700;border-radius:8px;padding:2px 7px;background:rgba(255,255,255,.06);color:#c9bfa6;}',
+    '.crm-pill.al{background:rgba(241,92,109,.16);color:#ff8a96;}',
+    '.crm-pill.ok{background:rgba(52,211,153,.14);color:#5ee0aa;}',
+    '.crm-pill.ou{background:rgba(201,168,76,.18);color:#f0d78c;}',
+    '.crm-sheet *{box-sizing:border-box;}',
+    '.crm-sheet{position:fixed;inset:0;z-index:9993;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;animation:crmEntra .2s ease;}',
+    '.crm-sh{width:100%;max-height:92vh;overflow-y:auto;background:#12100c;border-top:1px solid rgba(201,168,76,.35);border-radius:22px 22px 0 0;padding:8px 16px max(20px,env(safe-area-inset-bottom));color:#efe9dc;font-family:Outfit,inherit;}',
+    '.crm-sh .gr{width:44px;height:5px;border-radius:3px;background:#4a3f28;margin:4px auto 12px;}',
+    '.crm-sh h3{margin:0;font-size:1.2rem;color:#f4eee2;}',
+    '.crm-sh .sub{font-size:.8rem;color:#9a917e;margin-top:2px;}',
+    '.crm-acts{display:flex;gap:8px;margin:14px 0 6px;}',
+    '.crm-act{flex:1;text-align:center;text-decoration:none;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.28);color:#f0d78c;border-radius:12px;padding:10px 4px;font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;}',
+    '.crm-lb{font-size:.66rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#c9a84c;margin:16px 0 7px;}',
+    '.crm-ets{display:flex;flex-wrap:wrap;gap:6px;}',
+    '.crm-et{border:1px solid rgba(201,168,76,.25);background:rgba(255,255,255,.03);color:#c9bfa6;border-radius:18px;padding:7px 11px;font-size:.76rem;font-weight:700;cursor:pointer;font-family:inherit;}',
+    '.crm-et.on{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;border-color:transparent;}',
+    '.crm-in{width:100%;background:rgba(255,255,255,.05)!important;border:1px solid rgba(201,168,76,.22)!important;color:#efe9dc!important;border-radius:12px;padding:11px 12px;font-size:.92rem;font-family:inherit;outline:none;box-shadow:none!important;margin:0;}',
+    '.crm-row2{display:flex;gap:8px;align-items:center;}',
+    '.crm-qk{flex:none;border:1px solid rgba(201,168,76,.25);background:none;color:#e8c96a;border-radius:10px;padding:8px 10px;font-size:.74rem;font-weight:700;cursor:pointer;font-family:inherit;}',
+    '.crm-sv{width:100%;margin-top:18px;border:none;border-radius:14px;padding:14px;font-weight:800;font-size:.95rem;font-family:inherit;background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;cursor:pointer;}',
+    '.crm-li{display:flex;justify-content:space-between;gap:10px;font-size:.82rem;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);}',
+    '.crm-li span:last-child{color:#e8c96a;font-weight:700;white-space:nowrap;}',
+    '.crm-nota{font-size:.82rem;color:#d8ccb0;white-space:pre-wrap;background:rgba(255,255,255,.03);border-radius:10px;padding:9px 11px;line-height:1.45;}',
+    '.crm-pn{flex:1;overflow-y:auto;padding:12px 12px 30px;}',
+    '.crm-kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px;}',
+    '.crm-kpi{background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.015));border:1px solid rgba(201,168,76,.16);border-radius:16px;padding:12px 13px;}',
+    '.crm-kpi small{display:block;font-size:.68rem;color:#9a917e;font-weight:600;text-transform:uppercase;letter-spacing:.06em;}',
+    '.crm-kpi b{display:block;font-size:1.3rem;color:#f0d78c;margin-top:4px;}',
+    '.crm-kpi i{font-style:normal;font-size:.72rem;color:#b9ad92;}',
+    '.crm-bar{display:flex;align-items:center;gap:8px;margin:7px 0;font-size:.8rem;}',
+    '.crm-bar .t{width:118px;flex:none;color:#c9bfa6;}',
+    '.crm-bar .b{flex:1;height:22px;background:rgba(255,255,255,.04);border-radius:7px;overflow:hidden;}',
+    '.crm-bar .b i{display:block;height:100%;background:linear-gradient(90deg,#c9a84c,#e8c96a);border-radius:7px;min-width:3px;}',
+    '.crm-bar .q{width:34px;text-align:right;font-weight:700;color:#f0d78c;}',
     '@keyframes crmRoda{to{transform:rotate(360deg)}}',
     '#hrCrmZoom{position:fixed;inset:0;z-index:9995;background:#000e;display:flex;align-items:center;justify-content:center;animation:crmEntra .2s ease;}',
     '#hrCrmZoom img{max-width:100%;max-height:100%;object-fit:contain;}',
@@ -194,7 +245,7 @@
     '@keyframes crmBrilho{to{background-position:-200% 0}}'
   ].join('\n');
 
-  var st = { contatos: [], aberto: null, msgs: [], mais: false, timer: null, blobs: {}, obs: null, sig: '', filtro: 'clientes', vistosIds: {} };
+  var st = { aba: 'conversas', funil: null, contatos: [], aberto: null, msgs: [], mais: false, timer: null, blobs: {}, obs: null, sig: '', filtro: 'clientes', vistosIds: {} };
 
   function css() { if (document.getElementById('hrCrmCss')) return; var s = document.createElement('style'); s.id = 'hrCrmCss'; s.textContent = CSS; document.head.appendChild(s); }
   function api(cam) {
@@ -231,24 +282,28 @@
   // ── lista de clientes ──
   function telaLista() {
     var d = document.getElementById('hrCrm'); if (!d) return; d.classList.remove('wa');
-    d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="sair">←</button><div style="flex:1;"><b>Conversas</b><div class="crm-info" id="crmSub">Clientes atendidos pelo bot</div></div>' +
+    d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="sair">←</button><div style="flex:1;"><b>Clientes</b><div class="crm-info" id="crmSub">Conversas, funil de vendas e painel</div></div>' +
       '<button class="crm-ic" data-a="exportar" title="Exportar">⤓</button><button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
-      '<div class="crm-busca"><span style="color:#c9a84c;">🔍</span><input id="crmQ" placeholder="Pesquisar nome ou número" autocomplete="off"></div>' +
+      '<div class="crm-abas">' + [['conversas', '💬 Conversas'], ['funil', '📊 Funil'], ['painel', '📈 Painel']].map(function (a) { return '<button class="crm-aba' + (st.aba === a[0] ? ' on' : '') + '" data-aba="' + a[0] + '">' + a[1] + '</button>'; }).join('') + '</div>' +
+      (st.aba === 'conversas' ? '<div class="crm-busca"><span style="color:#c9a84c;">🔍</span><input id="crmQ" placeholder="Pesquisar nome ou número" autocomplete="off"></div>' +
       '<div class="crm-chips" id="crmChips"></div>' +
-      '<div class="crm-lista" id="crmLista">' + (st.contatos.length ? '' : '<div class="crm-skel"></div><div class="crm-skel"></div><div class="crm-skel"></div><div class="crm-skel"></div>') + '</div>';
+      '<div class="crm-lista" id="crmLista">' + (st.contatos.length ? '' : '<div class="crm-skel"></div><div class="crm-skel"></div><div class="crm-skel"></div><div class="crm-skel"></div>') + '</div>'
+      : st.aba === 'funil' ? '<div class="crm-funil" id="crmFunil"><div class="crm-vazio" style="width:100%"><span class="ic">📊</span>Montando o funil…</div></div>' : '<div class="crm-pn" id="crmPainel"><div class="crm-vazio"><span class="ic">📈</span>Calculando…</div></div>');
     d.onclick = function (ev) {
       var a = ev.target.closest('[data-a]'); if (a) {
         var x = a.getAttribute('data-a');
         if (x === 'sair') { try { history.back(); } catch (e) { fechar(); } }
-        else if (x === 'recarregar') carregarLista();
+        else if (x === 'recarregar') { if (st.aba === 'conversas') carregarLista(); else carregarFunil(); }
         else if (x === 'exportar') { if (window.exportarConversasClientes) window.exportarConversasClientes(); }
         return;
       }
+      var ab = ev.target.closest('[data-aba]'); if (ab) { st.aba = ab.getAttribute('data-aba'); telaLista(); if (st.aba !== 'conversas') carregarFunil(); return; }
+      var ld = ev.target.closest('[data-lead]'); if (ld) { abrirFicha(ld.getAttribute('data-lead')); return; }
       var fc = ev.target.closest('[data-f]'); if (fc) { st.filtro = fc.getAttribute('data-f'); desenharLista(); return; }
       var c = ev.target.closest('[data-num]'); if (c) abrirConversa(c.getAttribute('data-num'));
     };
-    var q = document.getElementById('crmQ'); q.oninput = function () { desenharLista(); };
-    desenharLista();
+    var q = document.getElementById('crmQ'); if (q) q.oninput = function () { desenharLista(); };
+    if (st.aba === 'conversas') desenharLista(); else desenharFunil();
   }
   function carregarLista() {
     return api('/bot/crm/contatos').then(function (j) { st.contatos = j.contatos || []; desenharLista(); })
@@ -289,6 +344,99 @@
     }).join('') || '<div class="crm-vazio"><span class="ic">🔎</span>Nada encontrado' + (st.filtro !== 'todos' ? ' neste filtro.' : '.') + '</div>';
   }
 
+
+  // ── v4: CRM — funil, painel e ficha ──
+  function brl(v) { return 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+  function dataCurta(ms) { return new Date(ms).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); }
+  function carregarFunil() {
+    return api('/bot/crm/funil').then(function (j) { st.funil = j; desenharFunil(); })
+      .catch(function (e) { var l = document.getElementById('crmFunil') || document.getElementById('crmPainel'); if (l) l.innerHTML = '<div class="crm-vazio" style="width:100%">⚠️ ' + esc(e.message) + '</div>'; });
+  }
+  function pillsDe(l) {
+    var p = [], hj = new Date(); hj.setHours(0, 0, 0, 0);
+    if (l.prox) p.push('<span class="crm-pill ' + (l.prox < hj.getTime() ? 'al' : l.prox < hj.getTime() + 86400000 ? 'ou' : '') + '">📅 ' + (l.prox < hj.getTime() + 86400000 && l.prox >= hj.getTime() ? 'hoje' : dataCurta(l.prox)) + (l.proxTxt ? ' · ' + esc(l.proxTxt.slice(0, 22)) : '') + '</span>');
+    if (l.parado >= 3 && ['orcamento', 'negociacao', 'atendimento'].indexOf(l.etapa) >= 0) p.push('<span class="crm-pill al">⏳ ' + l.parado + ' dias parado</span>');
+    if (l.ultq === 'c' && l.parado < 2 && l.etapa !== 'fechado') p.push('<span class="crm-pill ok">💬 respondeu</span>');
+    (l.tags || []).forEach(function (t) { p.push('<span class="crm-pill">#' + esc(t) + '</span>'); });
+    return p.length ? '<div class="crm-pills">' + p.join('') + '</div>' : '';
+  }
+  function desenharFunil() {
+    var j = st.funil;
+    if (st.aba === 'funil') {
+      var f = document.getElementById('crmFunil'); if (!f) return; if (!j) { carregarFunil(); return; }
+      f.innerHTML = j.etapas.map(function (e) {
+        var ls = j.leads.filter(function (l) { return l.etapa === e.k; }), tot = ls.reduce(function (t, l) { return t + (l.valor || 0); }, 0);
+        if (e.k === 'perdido' || e.k === 'fechado') ls = ls.slice(0, 40);
+        return '<div class="crm-col"><div class="crm-colh"><b>' + esc(e.n) + '<span>' + ls.length + '</span></b><small>' + (tot ? brl(tot) : '—') + '</small></div><div class="crm-cols">' +
+          (ls.map(function (l) { return '<div class="crm-card" data-lead="' + esc(l.k) + '"><div class="n"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(l.nome) + '</span>' + (l.valor ? '<span class="v">' + brl(l.valor) + '</span>' : '') + '</div>' +
+            '<div class="s">' + esc(l.interesse || l.ultx || '') + '</div>' + pillsDe(l) + '</div>'; }).join('') || '<div class="crm-vazio" style="padding:24px 8px;font-size:.8rem;">Ninguém aqui</div>') + '</div></div>';
+      }).join('');
+    } else if (st.aba === 'painel') {
+      var pn = document.getElementById('crmPainel'); if (!pn) return; if (!j) { carregarFunil(); return; }
+      var r = j.resumo, max = Math.max.apply(null, j.etapas.map(function (e) { return (r.porEtapa[e.k] || {}).n || 0; }).concat([1]));
+      var hj = new Date(); hj.setHours(23, 59, 59, 999);
+      var acoes = j.leads.filter(function (l) { return l.prox && l.prox <= hj.getTime() && ['fechado', 'perdido'].indexOf(l.etapa) < 0; }).sort(function (a, b) { return a.prox - b.prox; });
+      var parados = j.leads.filter(function (l) { return ['orcamento', 'negociacao'].indexOf(l.etapa) >= 0 && l.parado >= 3; }).sort(function (a, b) { return (b.valor || 0) - (a.valor || 0); }).slice(0, 12);
+      var item = function (l, extra) { return '<div class="crm-card" data-lead="' + esc(l.k) + '"><div class="n"><span>' + esc(l.nome) + '</span>' + (l.valor ? '<span class="v">' + brl(l.valor) + '</span>' : '') + '</div><div class="s">' + extra + '</div></div>'; };
+      pn.innerHTML = '<div class="crm-kpis">' +
+        '<div class="crm-kpi"><small>Em negociação</small><b>' + brl(r.valorAberto) + '</b><i>' + r.aberto + ' cliente(s) no funil</i></div>' +
+        '<div class="crm-kpi"><small>Fechado em 30 dias</small><b>' + brl(r.valorGanho30) + '</b><i>' + r.ganhos30 + ' venda(s)</i></div>' +
+        '<div class="crm-kpi"><small>Conversão (30 dias)</small><b>' + r.conversao + '%</b><i>' + r.ganhos30 + ' ganhos · ' + r.perdidos30 + ' perdidos</i></div>' +
+        '<div class="crm-kpi"><small>Novos (7 dias)</small><b>' + r.novos7 + '</b><i>contatos novos</i></div>' +
+        '<div class="crm-kpi"><small>Retornos hoje</small><b>' + (r.acoesHoje + r.atrasadas) + '</b><i>' + (r.atrasadas ? r.atrasadas + ' atrasado(s)' : 'em dia') + '</i></div>' +
+        '<div class="crm-kpi"><small>Orçamentos parados</small><b>' + r.parados + '</b><i>sem resposta há 3+ dias</i></div></div>' +
+        '<div class="crm-lb">Funil</div>' + j.etapas.map(function (e) { var x = r.porEtapa[e.k] || { n: 0, valor: 0 }; return '<div class="crm-bar"><span class="t">' + esc(e.n) + '</span><span class="b"><i style="width:' + Math.round(x.n / max * 100) + '%"></i></span><span class="q">' + x.n + '</span></div>'; }).join('') +
+        '<div class="crm-lb">Retornos de hoje</div>' + (acoes.map(function (l) { return item(l, '📅 ' + (l.proxTxt ? esc(l.proxTxt) : 'retornar') + (l.prox < new Date().setHours(0, 0, 0, 0) ? ' · <b style="color:#ff8a96">atrasado</b>' : '')); }).join('') || '<div class="crm-sem">Nenhum retorno marcado para hoje.</div>') +
+        '<div class="crm-lb">Orçamentos esperando resposta</div>' + (parados.map(function (l) { return item(l, '⏳ ' + l.parado + ' dias sem resposta · ' + esc(l.interesse || '')); }).join('') || '<div class="crm-sem">Nenhum orçamento parado. 👏</div>');
+    }
+  }
+  function fecharFicha() { var e = document.getElementById('crmSheet'); if (e) e.remove(); }
+  function abrirFicha(k) {
+    fecharFicha(); var d = document.createElement('div'); d.className = 'crm-sheet'; d.id = 'crmSheet';
+    d.innerHTML = '<div class="crm-sh"><div class="gr"></div><div class="crm-vazio">Abrindo a ficha…</div></div>'; document.body.appendChild(d);
+    d.onclick = function (ev) { if (ev.target === d) fecharFicha(); };
+    var key = k; if (/^\d+$/.test(k) && st.funil) { var f = st.funil.leads.find(function (l) { return l.num && so8(l.num) === so8(k); }); if (f) key = f.k; }
+    api('/bot/crm/ficha?k=' + encodeURIComponent(key)).then(function (j) { desenharFicha(j); }).catch(function (e) { d.querySelector('.crm-sh').innerHTML = '<div class="gr"></div><div class="crm-vazio">⚠️ ' + esc(e.message) + '<br><small>Ficha só existe para clientes (equipe não entra no funil).</small></div>'; });
+  }
+  function desenharFicha(j) {
+    var d = document.getElementById('crmSheet'); if (!d) return; var l = j.lead, at = j.atendimento || {}, ed = { etapa: l.etapa, tags: (l.tags || []).slice() };
+    var dIso = l.prox ? new Date(l.prox - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : '';
+    var orcs = (l.orcs || []).map(function (o) { return '<div class="crm-li"><span>' + esc((o.num ? o.num + ' · ' : '') + (o.proj || 'Orçamento')) + '<br><small style="color:#9a917e">' + esc(o.data.split('-').reverse().join('/')) + ' · ' + esc(o.status || '') + '</small></span><span>' + brl(o.valor) + '</span></div>'; }).join('');
+    var liv = (j.livro || []).map(function (r) { return '<div class="crm-li"><span>' + esc(r.desc || 'Serviço') + (r.entrega ? '<br><small style="color:#9a917e">entrega ' + esc(r.entrega.split('-').reverse().join('/')) + '</small>' : '') + '</span><span>pago ' + brl(r.pago) + (r.saldo > 0.009 ? '<br><small style="color:#ff8a96">falta ' + brl(r.saldo) + '</small>' : ' ✅') + '</span></div>'; }).join('');
+    var atd = [['Interesse', at.interesse || l.interesse], ['Pedra', at.pedra], ['Medidas', at.medidas], ['Endereço', at.endereco || l.local], ['Visita', at.visita]].filter(function (x) { return x[1]; }).map(function (x) { return '<div class="crm-li"><span style="color:#9a917e">' + x[0] + '</span><span style="color:#efe9dc;font-weight:500;text-align:right">' + esc(x[1]) + '</span></div>'; }).join('');
+    var tel = String(l.num || '').replace(/\D/g, '');
+    d.querySelector('.crm-sh').innerHTML = '<div class="gr"></div><h3>' + esc(l.nome) + '</h3><div class="sub">' + (tel ? esc(fmtNum(tel)) + ' · ' : '') + (l.manual ? 'etapa marcada pelo senhor' : 'etapa automática') + '</div>' +
+      '<div class="crm-acts">' + (tel ? '<button class="crm-act" data-fa="conversa">💬 Conversa</button><a class="crm-act" href="https://wa.me/' + tel + '" target="_blank" rel="noopener">🟢 WhatsApp</a><a class="crm-act" href="tel:+' + tel + '">📞 Ligar</a>' : '<span class="crm-sem">Sem telefone (veio de um orçamento do app).</span>') + '</div>' +
+      '<div class="crm-lb">Etapa</div><div class="crm-ets">' + j.etapas.map(function (e) { return '<button class="crm-et' + (e.k === l.etapa ? ' on' : '') + '" data-et="' + e.k + '">' + esc(e.n) + '</button>'; }).join('') + '</div>' +
+      '<div id="crmMot" style="' + (l.etapa === 'perdido' ? '' : 'display:none') + '"><div class="crm-lb">Por que perdeu?</div><input class="crm-in" id="fMot" placeholder="preço, prazo, desistiu, fechou com outro…" value="' + esc(l.motivo || '') + '"></div>' +
+      '<div class="crm-lb">Valor do negócio</div><input class="crm-in" id="fVal" inputmode="decimal" placeholder="0,00" value="' + (l.valor ? String(l.valor).replace('.', ',') : '') + '">' +
+      '<div class="crm-lb">Próximo retorno</div><div class="crm-row2"><input class="crm-in" type="date" id="fData" value="' + dIso + '" style="flex:1"><button class="crm-qk" data-qd="1">Amanhã</button><button class="crm-qk" data-qd="3">3 dias</button><button class="crm-qk" data-qd="7">1 sem.</button></div>' +
+      '<input class="crm-in" id="fProx" style="margin-top:8px" placeholder="O que fazer (ex.: ligar para fechar o orçamento)" value="' + esc(l.proxTxt || '') + '">' +
+      '<div class="crm-lb">Etiquetas</div><div class="crm-ets" id="fTags"></div><div class="crm-row2" style="margin-top:8px"><input class="crm-in" id="fTag" placeholder="nova etiqueta (ex.: indicação, urgente, construtora)"><button class="crm-qk" data-a2="tag">＋</button></div>' +
+      '<div class="crm-lb">Anotação</div><textarea class="crm-in" id="fNota" rows="2" placeholder="Escreva o que conversou ou combinou…"></textarea>' + (l.notas ? '<div class="crm-nota" style="margin-top:8px">' + esc(l.notas) + '</div>' : '') +
+      '<button class="crm-sv" data-a2="salvar">Salvar ficha</button>' +
+      (atd ? '<div class="crm-lb">Atendimento da Helena</div>' + atd : '') +
+      (orcs ? '<div class="crm-lb">Orçamentos</div>' + orcs : '') +
+      (liv ? '<div class="crm-lb">Pagamentos</div>' + liv : '');
+    var tagsEl = function () { document.getElementById('fTags').innerHTML = ed.tags.map(function (t, i) { return '<button class="crm-et on" data-rt="' + i + '">#' + esc(t) + ' ✕</button>'; }).join('') || '<span class="crm-sem">Sem etiquetas.</span>'; }; tagsEl();
+    d.querySelector('.crm-sh').onclick = function (ev) {
+      var e = ev.target.closest('[data-et]'); if (e) { ed.etapa = e.getAttribute('data-et'); [].forEach.call(d.querySelectorAll('[data-et]'), function (b) { b.classList.toggle('on', b === e); }); document.getElementById('crmMot').style.display = ed.etapa === 'perdido' ? '' : 'none'; return; }
+      var q = ev.target.closest('[data-qd]'); if (q) { var t = new Date(); t.setDate(t.getDate() + Number(q.getAttribute('data-qd'))); document.getElementById('fData').value = new Date(t - t.getTimezoneOffset() * 60000).toISOString().slice(0, 10); return; }
+      var rt = ev.target.closest('[data-rt]'); if (rt) { ed.tags.splice(Number(rt.getAttribute('data-rt')), 1); tagsEl(); return; }
+      var fa = ev.target.closest('[data-fa]'); if (fa) { fecharFicha(); abrirConversa(l.num); return; }
+      var a2 = ev.target.closest('[data-a2]'); if (!a2) return; var x = a2.getAttribute('data-a2');
+      if (x === 'tag') { var v = document.getElementById('fTag').value.trim().replace(/^#/, ''); if (v && ed.tags.indexOf(v) < 0) ed.tags.push(v); document.getElementById('fTag').value = ''; tagsEl(); return; }
+      if (x === 'salvar') {
+        var dv = document.getElementById('fData').value, corpo = { k: l.k, tags: ed.tags, valor: parseFloat(String(document.getElementById('fVal').value || '0').replace(/\./g, '').replace(',', '.')) || 0,
+          prox: dv ? new Date(dv + 'T09:00:00').getTime() : 0, proxTxt: document.getElementById('fProx').value.trim(), nota: document.getElementById('fNota').value.trim(), motivo: (document.getElementById('fMot') || {}).value || '' };
+        if (ed.etapa !== l.etapa) corpo.etapa = ed.etapa;
+        a2.disabled = true; a2.textContent = 'Salvando…';
+        apiPost('/bot/crm/lead', corpo).then(function () { try { toast('Ficha salva ✅'); } catch (e) {} fecharFicha(); if (st.aba !== 'conversas') carregarFunil(); else st.funil = null; })
+          .catch(function (e) { a2.disabled = false; a2.textContent = 'Salvar ficha'; try { toast('Não salvou: ' + e.message); } catch (x) {} });
+      }
+    };
+  }
+
   // ── conversa ──
   function abrirConversa(num) {
     st.aberto = num; st.msgs = []; st.sig = ''; st.vistosIds = {}; delete st.sig0;
@@ -296,7 +444,7 @@
     var d = document.getElementById('hrCrm'); if (!d) return; d.classList.add('wa');
     d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="voltar" aria-label="Voltar">←</button><div class="crm-av" style="width:40px;height:40px;font-size:.85rem;background:' + cor(num) + ';">' + esc(iniciais(nm)) + '</div>' +
       '<div style="flex:1;min-width:0;"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nm) + '</b><div class="crm-info" id="crmJanela">' + esc(fmtNum(num)) + (cli && appConflita(c, cli) ? ' · ⚠️ no app está como "' + esc(cli.nome) + '"' : '') + '</div></div>' +
-      '<a class="crm-ic" href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.3.4c.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.2.2.1.4.1.5-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.7-.1 1.3z"/></svg></a><button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
+      '<a class="crm-ic" href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.3.4c.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.2.2.1.4.1.5-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.7-.1 1.3z"/></svg></a><button class="crm-ic" data-a="ficha" title="Ficha do cliente">📋</button><button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
       '<div class="crm-chat" id="crmChat"><div class="crm-vazio"><span class="ic">💬</span>Carregando conversa…</div></div>' +
       '<div id="crmPrev"></div>' +
       '<div class="crm-comp"><div class="crm-campo"><textarea id="crmTxt" rows="1" placeholder="Mensagem"></textarea></div><button class="crm-env" id="crmEnv" data-a="revisar" aria-label="Enviar"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M1.1 21.8 23 12 1.1 2.2 1.1 9.8 16.8 12 1.1 14.2z"/></svg></button></div>';
@@ -307,6 +455,7 @@
         var x = a.getAttribute('data-a');
         if (x === 'voltar') { try { history.back(); } catch (e) { st.aberto = null; telaLista(); } }
         else if (x === 'recarregar') carregarConversa(false);
+        else if (x === 'ficha') abrirFicha(num);
         else if (x === 'mais') carregarMais();
         else if (x === 'revisar') revisar();
         else if (x === 'enviar') enviarRevisado();

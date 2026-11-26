@@ -826,6 +826,9 @@ Responda só com JSON: {"texto":"..."}`;
 async function rotaCrm(req, env, url, p) {
   if (!crmAtivo(env)) return jsonR({ error: 'O CRM precisa do banco D1 (HR_DB) ligado no Worker.' }, 400);
   await crmTabela(env);
+  if (p === '/bot/crm/funil') { const L = await crmFunil(env); return jsonR({ leads: L, resumo: crmResumo(L), etapas: CRM_ETAPAS, agora: Date.now() }); } // v363
+  if (p === '/bot/crm/ficha') { const r = await crmFicha(env, String(url.searchParams.get('k') || '')); return jsonR(r, r.error ? 404 : 200); }
+  if (p === '/bot/crm/lead' && req.method === 'POST') { let b = {}; try { b = await req.json(); } catch (_) {} const r = await crmLeadSalvar(env, b); return jsonR(r, r.error ? 400 : 200); }
   if (p === '/bot/crm/contatos') {
     await crmMigrar(env).catch(e => console.log('[CRM] migrar:', e.message));
     const rs = await env.HR_DB.prepare('SELECT num, nome, perfil, ult, ultx, ultq, total FROM crm_ct ORDER BY ult DESC LIMIT 500').all();
@@ -7417,6 +7420,7 @@ async function pedirAvaliacoes(env) {
   await aprovLembrete(env).catch(e => console.log('[APROV] lembrete:', e.message)); // v346
   await prodLixoChecar(env).catch(e => console.log('[LIXO]', e.message)); // v349
   await siteDetRotina(env).catch(e => console.log('[DET] rotina:', e.message)); // v359
+  await crmRotina(env).catch(e => console.log('[CRM] rotina:', e.message)); // v363
   await gpixProcessar(env).catch(e => console.log('[GPIX] rotina:', e.message)); // v361
   await corridaRotina(env).catch(e => console.log('[CORRIDA]', e.message)); // v355
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
@@ -26002,6 +26006,99 @@ async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de 
 const RE_EDITAR_VID = /\b(edit[ae]|editar|edita|monte|montar|monta|mont[ae] um video|fa[cz]a? (um |o )?video|faz (um |o )?video|cri[ae] (um |o )?video|criar (um |o )?video|transform[ae] em video|com (a |uma )?frase|vinheta|reels? com)\b/;
 // v362: o Sr. Hangel manda uma foto/vídeo "pra equipe" → vai para cada funcionário (com botão de confirmação), não para o acervo de obras
 const RE_PRA_EQUIPE = /\b(mand\w*|envi\w*|repass\w*|encaminh\w*|compartilh\w*|manda)\b[^.?!]{0,40}\b(equipe|funcionarios?|cada um|pessoal|galera|todo mundo|todos eles|meninos)\b/;
+// ══ v363: CRM PROFISSIONAL — funil de vendas (WhatsApp + orçamentos do app), ficha do cliente, próximas ações e lembrete diário ══
+const CRM_ETAPAS = [
+  { k: 'novo', n: 'Novo contato' }, { k: 'atendimento', n: 'Em atendimento' }, { k: 'visita', n: 'Visita / medição' },
+  { k: 'orcamento', n: 'Orçamento enviado' }, { k: 'negociacao', n: 'Negociação' }, { k: 'fechado', n: 'Fechado' }, { k: 'perdido', n: 'Perdido' },
+];
+async function crmLeadTab(env) { if (globalThis.__crmLeadTab) return; await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS crm_lead (k TEXT PRIMARY KEY, etapa TEXT, etapaEm INTEGER, valor REAL, tags TEXT, prox INTEGER, proxTxt TEXT, notas TEXT, motivo TEXT, atualizado INTEGER)').run(); globalThis.__crmLeadTab = 1; }
+function crmOrcEtapa(st) { st = normaliza(st || ''); return /aceit|aprov|entreg|conclu|produ|fechad/.test(st) ? 'fechado' : /perd|recus|cancel/.test(st) ? 'perdido' : /negoc/.test(st) ? 'negociacao' : 'orcamento'; }
+async function crmFunil(env) {
+  if (globalThis.__crmFunil && Date.now() - globalThis.__crmFunil.em < 60000) return globalThis.__crmFunil.v;
+  await crmLeadTab(env);
+  const eqN = await crmNomesEquipe(env).catch(() => ({})), agora = Date.now(), lim = agora - 120 * 86400000;
+  const cts = ((await env.HR_DB.prepare('SELECT num, nome, perfil, ult, ultx, ultq, total FROM crm_ct WHERE ult > ? ORDER BY ult DESC LIMIT 600').bind(lim).all()).results || []).filter(c => !eqN[ultimos8(c.num)] && !ehDono(env, c.num));
+  const man = {}; for (const r of ((await env.HR_DB.prepare('SELECT * FROM crm_lead').all()).results || [])) man[r.k] = r;
+  const h = await lerHistorico(env).catch(() => null), orcs = ((h && h.orcamentos) || []).filter(o => !o.arquivado && String(o.data || '') >= new Date(lim).toISOString().slice(0, 10));
+  const leads = {}, porTel = {}, porNome = {};
+  for (const c of cts) { const k = c.num; leads[k] = { k, num: c.num, nome: c.nome || nomeDoPerfil(c.perfil) || '', ult: c.ult, ultx: c.ultx, ultq: c.ultq, msgs: c.total || 0, orcs: [] }; porTel[ultimos8(c.num)] = leads[k]; }
+  for (const o of orcs) {
+    const t8 = String(o.tel || '').replace(/\D/g, '').slice(-8), nk = normaliza(o.cliente || '').split(' ').slice(0, 2).join(' ');
+    let L = (t8.length === 8 && porTel[t8]) || (nk && porNome[nk]) || Object.values(leads).find(x => nk && normaliza(x.nome).split(' ').slice(0, 2).join(' ') === nk && nk.split(' ').length > 1);
+    if (!L) { const k = t8.length === 8 ? '55' + String(o.tel).replace(/\D/g, '').replace(/^55/, '') : 'c:' + (o.cliCod || nk.replace(/\s/g, '-')); L = leads[k] = leads[k] || { k, num: t8.length === 8 ? k : '', nome: o.cliente || '', ult: Math.min(Date.now(), Date.parse((o.stDt || o.data) + 'T08:00:00-03:00') || 0), ultx: '', ultq: '', msgs: 0, orcs: [] }; if (t8.length === 8) porTel[t8] = L; }
+    if (nk) porNome[nk] = L; if (!L.nome) L.nome = o.cliente || '';
+    L.orcs.push({ id: o.id, num: o.orcNum || '', data: o.data || '', valor: +o.valor || 0, status: o.status || '', proj: [o.projeto, o.material].filter(Boolean).join(' · ').slice(0, 80) });
+    const tsO = Math.min(Date.now(), Date.parse((o.stDt || o.data || '') + 'T08:00:00-03:00') || 0); if (tsO > L.ult) L.ult = tsO;
+  }
+  const out = [];
+  for (const L of Object.values(leads)) {
+    let auto = 'novo', valor = 0, autoTs = L.ult || 0;
+    if (L.orcs.length) { const et = L.orcs.map(o => crmOrcEtapa(o.status)); auto = et.includes('fechado') ? 'fechado' : et.includes('negociacao') ? 'negociacao' : et.includes('orcamento') ? 'orcamento' : 'perdido';
+      const rel = L.orcs.filter(o => crmOrcEtapa(o.status) === auto); valor = rel.reduce((t, o) => t + o.valor, 0) || Math.max(...L.orcs.map(o => o.valor)); }
+    else if (L.msgs >= 3) auto = 'atendimento';
+    if (auto === 'novo' || auto === 'atendimento') { let ca = null; try { ca = L.num ? JSON.parse((await env.HR_KV.get('ca:' + L.num)) || 'null') : null; } catch (_) {} const d = (ca && ca.dados) || {}; if (d.visita_dia) auto = 'visita'; if (d.interesse) L.interesse = INTERESSES[d.interesse] || d.interesse; if (d.cidade || d.endereco) L.local = String(d.cidade || d.endereco).slice(0, 60); }
+    const m = man[L.k] || {}, manual = m.etapa && (m.etapaEm || 0) >= autoTs - 60000 && !(auto === 'fechado' && m.etapa !== 'perdido' && m.etapa !== 'fechado');
+    const etapa = manual ? m.etapa : auto;
+    const dias = Math.floor((agora - (Math.max(L.ult || 0, m.atualizado || 0))) / 86400000);
+    out.push({ k: L.k, num: L.num, nome: L.nome || (L.num ? '+' + L.num : 'Cliente'), etapa, auto, manual: !!manual, valor: m.valor > 0 ? m.valor : valor, ult: L.ult, ultx: L.ultx, ultq: L.ultq, msgs: L.msgs, orcs: L.orcs.sort((a, b) => String(b.data).localeCompare(String(a.data))).slice(0, 6),
+      interesse: L.interesse || (L.orcs[0] && L.orcs[0].proj) || '', local: L.local || '', tags: m.tags ? String(m.tags).split(',').filter(Boolean) : [], prox: m.prox || 0, proxTxt: m.proxTxt || '', notas: m.notas || '', motivo: m.motivo || '', parado: dias });
+  }
+  out.sort((a, b) => (b.ult || 0) - (a.ult || 0));
+  globalThis.__crmFunil = { em: Date.now(), v: out };
+  return out;
+}
+function crmResumo(leads) {
+  const r = { porEtapa: {}, aberto: 0, valorAberto: 0, ganhos30: 0, valorGanho30: 0, perdidos30: 0, novos7: 0, acoesHoje: 0, atrasadas: 0, parados: 0 };
+  const d30 = Date.now() - 30 * 86400000, d7 = Date.now() - 7 * 86400000, fimHoje = Date.parse(dataBahia() + 'T23:59:59-03:00');
+  for (const e of CRM_ETAPAS) r.porEtapa[e.k] = { n: 0, valor: 0 };
+  for (const l of leads) {
+    const pe = r.porEtapa[l.etapa] || (r.porEtapa[l.etapa] = { n: 0, valor: 0 }); pe.n++; pe.valor += l.valor || 0;
+    if (!['fechado', 'perdido'].includes(l.etapa)) { r.aberto++; r.valorAberto += l.valor || 0; if (l.parado >= 3 && ['orcamento', 'negociacao'].includes(l.etapa)) r.parados++; }
+    if (l.etapa === 'fechado' && l.ult >= d30) { r.ganhos30++; r.valorGanho30 += l.valor || 0; }
+    if (l.etapa === 'perdido' && l.ult >= d30) r.perdidos30++;
+    if (l.etapa === 'novo' && l.ult >= d7) r.novos7++;
+    if (l.prox && l.prox <= fimHoje) { if (l.prox < Date.parse(dataBahia() + 'T00:00:00-03:00')) r.atrasadas++; else r.acoesHoje++; }
+  }
+  r.conversao = r.ganhos30 + r.perdidos30 ? Math.round(r.ganhos30 / (r.ganhos30 + r.perdidos30) * 100) : 0;
+  return r;
+}
+async function crmLeadSalvar(env, b) {
+  await crmLeadTab(env);
+  const k = String(b.k || '').slice(0, 60); if (!k) return { error: 'Falta o contato.' };
+  const a = (await env.HR_DB.prepare('SELECT * FROM crm_lead WHERE k = ?').bind(k).first()) || {};
+  const n = { etapa: a.etapa || null, etapaEm: a.etapaEm || 0, valor: a.valor || 0, tags: a.tags || '', prox: a.prox || 0, proxTxt: a.proxTxt || '', notas: a.notas || '', motivo: a.motivo || '' };
+  if (b.etapa && CRM_ETAPAS.some(e => e.k === b.etapa)) { n.etapa = b.etapa; n.etapaEm = Date.now(); }
+  if (b.valor != null) n.valor = Math.max(0, Number(b.valor) || 0);
+  if (Array.isArray(b.tags)) n.tags = b.tags.map(t => String(t).replace(/,/g, ' ').trim().slice(0, 24)).filter(Boolean).slice(0, 8).join(',');
+  if (b.prox !== undefined) { n.prox = Number(b.prox) || 0; n.proxTxt = String(b.proxTxt || '').slice(0, 140); }
+  if (b.nota) n.notas = (`${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Bahia' })}: ${String(b.nota).slice(0, 400)}\n` + n.notas).slice(0, 4000);
+  if (b.notas != null && !b.nota) n.notas = String(b.notas).slice(0, 4000);
+  if (b.motivo != null) n.motivo = String(b.motivo).slice(0, 120);
+  await env.HR_DB.prepare('INSERT OR REPLACE INTO crm_lead (k, etapa, etapaEm, valor, tags, prox, proxTxt, notas, motivo, atualizado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(k, n.etapa, n.etapaEm, n.valor, n.tags, n.prox, n.proxTxt, n.notas, n.motivo, Date.now()).run();
+  globalThis.__crmFunil = null;
+  return { ok: true };
+}
+async function crmFicha(env, k) {
+  const l = (await crmFunil(env)).find(x => x.k === k); if (!l) return { error: 'Contato não encontrado.' };
+  let liv = []; try { const t = await livTodos(env); liv = t.filter(r => (l.num && r.tel && ultimos8(r.tel) === ultimos8(l.num)) || (l.nome && livNomeCompat(r.cliente, l.nome))).map(r => ({ desc: r.desc, valor: r.valor, pago: livPago(r), saldo: livSaldo(r), entrega: r.entregaEm, pagamentos: (r.pagamentos || []).map(p => ({ data: p.data, valor: p.valor, forma: p.forma })) })); } catch (_) {}
+  let ca = null; try { ca = l.num ? JSON.parse((await env.HR_KV.get('ca:' + l.num)) || 'null') : null; } catch (_) {}
+  const d = (ca && ca.dados) || {};
+  return { lead: l, livro: liv, atendimento: { interesse: INTERESSES[d.interesse] || d.interesse || '', pedra: d.cor || d.pedra || '', medidas: d.medidas || d.medidas_texto || '', endereco: d.endereco && !/^Localiza/i.test(String(d.endereco)) ? String(d.endereco).slice(0, 140) : '', visita: d.visita_dia ? `${dataBR(d.visita_dia)}${d.horario ? ' às ' + d.horario : ''}` : '' }, etapas: CRM_ETAPAS };
+}
+async function crmRotina(env) { // 8h (seg a sáb): só para o Sr. Hangel — retornos marcados para hoje e orçamentos parados
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 9 * 60 + 30) return;
+  if (await env.HR_KV.get('crm:dia:' + hoje) || !(await travaEnvio(env, 'crmdia:' + hoje))) return;
+  await env.HR_KV.put('crm:dia:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const L = await crmFunil(env), fim = Date.parse(hoje + 'T23:59:59-03:00');
+  const ret = L.filter(l => l.prox && l.prox <= fim && !['fechado', 'perdido'].includes(l.etapa)).sort((a, b) => a.prox - b.prox).slice(0, 10);
+  const par = L.filter(l => ['orcamento', 'negociacao'].includes(l.etapa) && l.parado >= 3 && !(l.prox && l.prox > fim)).sort((a, b) => (b.valor || 0) - (a.valor || 0)).slice(0, 8);
+  if (!ret.length && !par.length) return;
+  const linhas = ['📋 *Vendas de hoje*'];
+  if (ret.length) linhas.push('', '*Retornos marcados:*', ...ret.map(l => `• ${l.nome}${l.proxTxt ? ' — ' + l.proxTxt : ''}${l.prox < Date.parse(hoje + 'T00:00:00-03:00') ? ' _(atrasado)_' : ''}`));
+  if (par.length) linhas.push('', '*Orçamentos sem resposta há 3+ dias:*', ...par.map(l => `• ${l.nome}${l.valor ? ' · R$ ' + reais(l.valor) : ''} · ${l.parado} dias`));
+  linhas.push('', '_Abra Conversas → Funil no app para ver e marcar._');
+  await enviar(env, numeroDono(env), linhas.join('\n')).catch(() => {});
+}
 async function crmNomesEquipe(env) { const cfg = await pontoCfg(env), m = {}; for (const f of cfg.funcs || []) { const d = String(f.tel || '').replace(/\D/g, ''); if (d.length >= 8 && f.nome) m[d.slice(-8)] = f.nome; } return m; }
 async function eqMidiaListaFuncs(env) { const cfg = await pontoCfg(env); const out = []; for (const f of cfg.funcs || []) { if (f.inativo) continue; const tel = await respTel(env, f.id); if (tel) out.push({ id: f.id, nome: String(f.nome || '').split(' ')[0], tel }); } return out; }
 async function eqMidiaPerguntar(env, from, mi, leg) {
@@ -27673,7 +27770,7 @@ async function rotaBotInterna(req, env, url) {
   // Conversas do bot com os clientes (somente leitura). Guardadas no KV por CLIENTE_TTL (24 h após a última mensagem), até 14 mensagens.
   //   GET /bot/conversas            → lista (mais recentes primeiro): numero, nome, ultimaEm, total, ultima
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
-  if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
+  if (p.startsWith('/bot/crm/') && (req.method === 'GET' || p === '/bot/crm/lead')) return await rotaCrm(req, env, url, p); // v75 (v363: + POST /bot/crm/lead)
   if ((p === '/bot/crm/revisar' || p === '/bot/crm/enviar') && req.method === 'POST') return await crmEscrever(req, env, p); // v271
   if (p === '/bot/imprimir/fila' && req.method === 'GET') { if (Date.now() - +((await env.HR_KV.get('imp:visto')) || 0) > 3600000) await env.HR_KV.put('imp:visto', String(Date.now())); let l = []; // v301: grava no máximo 1×/hora (limite de escrita do KV)
     try { l = JSON.parse((await env.HR_KV.get('imp:fila')) || '[]'); } catch (_) {} return jsonR({ fila: l.filter(x => Date.now() - x.em < 24 * 3600000), cfg: await impCfg(env) }); } // v301

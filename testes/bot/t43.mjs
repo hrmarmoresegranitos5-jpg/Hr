@@ -1,0 +1,20 @@
+// v363: CRM — funil junta WhatsApp + orçamentos do app; etapa manual; ficha
+import {T,env} from './sim.mjs';
+import {d1} from './d1sqlite.mjs';
+let e=0; const ok=(c,m)=>{ if(!c){e++;console.log('ERRO',m);} };
+const db=d1(), e2={...env,HR_DB:db}, N=Date.now();
+await db.prepare('CREATE TABLE IF NOT EXISTS crm_ct (num TEXT PRIMARY KEY, nome TEXT, perfil TEXT, ult INTEGER, ultx TEXT, ultq TEXT, total INTEGER)').run();
+for (const [n,nm,t] of [['5511900000001','Cliente A',5],['5511900000002','Cliente B',1],['5511900000003','',4]]) await db.prepare('INSERT INTO crm_ct VALUES (?,?,?,?,?,?,?)').bind(n,nm,'',N-3600e3,'oi','c',t).run();
+const hoje=new Date().toISOString().slice(0,10);
+await env.HR_KV.put('cfg:historico', JSON.stringify({clientes:[],orcamentos:[{id:'q1',cliente:'Cliente A',tel:'11900000001',valor:2500,status:'aguardando',data:hoje},{id:'q2',cliente:'Balcão Sem Zap',tel:'',valor:900,status:'aceito',data:hoje}]}));
+globalThis.__crmFunil=null;
+let L=await T.crmFunil(e2); console.log(L.map(l=>[l.k,l.nome,l.etapa,l.valor]));
+const a=L.find(l=>l.nome==='Cliente A'); ok(a&&a.etapa==='orcamento'&&a.valor===2500,'orçamento do app vira etapa');
+ok(L.find(l=>l.nome==='Cliente B').etapa==='novo','novo');
+ok(L.find(l=>l.num==='5511900000003').etapa==='atendimento','atendimento');
+ok(L.find(l=>l.nome==='Balcão Sem Zap').etapa==='fechado','orçamento sem zap entra fechado');
+await T.crmLeadSalvar(e2,{k:a.k,etapa:'negociacao',prox:N+86400e3,proxTxt:'ligar',tags:['urgente'],nota:'pediu desconto'});
+L=await T.crmFunil(e2); const a2=L.find(l=>l.k===a.k); ok(a2.etapa==='negociacao'&&a2.manual&&a2.tags[0]==='urgente'&&/desconto/.test(a2.notas),'manual');
+const f=await T.crmFicha(e2,a.k); ok(f.lead&&f.etapas.length===7,'ficha');
+const r=T.crmResumo(L); console.log(r); ok(r.aberto===3,'resumo');
+console.log('ERROS:',e); process.exit(e?1:0);
