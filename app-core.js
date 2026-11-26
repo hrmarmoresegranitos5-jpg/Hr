@@ -2580,9 +2580,9 @@ function openApp(pg){
   var a=document.getElementById('sApp');
   a.classList.add('on');
   a.style.display='block';
-  setLayout();
+  if(typeof window.setLayout==='function') window.setLayout(); // v362: o app pode abrir uma tela antes de o motor de layout carregar
   requestAnimationFrame(function(){
-    setLayout();
+    if(typeof window.setLayout==='function') window.setLayout();
     go(pg);
   });
   window._pendingPg=null;

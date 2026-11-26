@@ -14055,6 +14055,20 @@ async function fix357Cassio(env) { // v357: a foto do lavatório cinza do Ésio 
   const gib = 'mpj69nyik9ua', pn = await metaPainel(env, gib).catch(() => null); if (pn) await env.HR_KV.put('meta:ult:' + gib + ':' + pn.semana.ini, String(pn.pts), { expirationTtl: 9 * 86400 });
   await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357fix', JSON.stringify({ antes, depois: p.prodLog.length, ent: p.entregueEm, gibSemana: pn && pn.pts })).run().catch(() => {});
 }
+async function diag362f(env) { // v357: auditoria dos pontos (pedido do Sr. Hangel)
+  if (!env.HR_DB || await env.HR_KV.get('diag:362f')) return; await env.HR_KV.put('diag:362f', '1', { expirationTtl: 2 * 86400 });
+  const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 1900000)).run();
+  const cfg = await pontoCfg(env), hoje = dataBahia(), ini = semIni(hoje), iniAnt = isoSomaDias(ini, -7), lim = Date.now() - 16 * 86400000, todos = await pedidosProducao(env, () => true);
+  await put('362funcs', cfg.funcs.map(f => ({ id: f.id, nome: f.nome, inativo: f.inativo })));
+  const mx = p => Math.max(p.corteEm || 0, p.fabProntoEm || 0, p.acabEm || 0, p.entregueEm || 0, p.corteIniEm || 0, p.instIniEm || 0, ...((p.prodLog || []).map(x => x.ts || 0)), p.criado || 0);
+  const rel = todos.filter(p => mx(p) > lim);
+  await put('362peds', rel.map(p => ({ id: p.id, nome: p.nome, st: p.status, cancel: p.cancelado ? 1 : 0, cx: pedComplexo(p), n: nPecasPed(p), resumo: resumoPecas(p), itens: ((p.resumoApp || {}).itens || []).map(i => [i.ambiente, (i.pecas || []).map(x => [x.qtd, x.comp_cm, x.larg_cm, x.nome || '']).slice(0, 12)]),
+    corte: [p.corteFeitoPor, p.corteEm], fab: [p.fabFeitoPor, p.fabProntoEm], acab: p.acabEm, ent: [p.entFeitoPor, p.entregueEm, p.entAjud, p.instAjud], instIni: p.instIniEm, fotoPronto: !!p.fotoProntoEm, fotoEnt: !!p.fotoEntregaEm,
+    log: (p.prodLog || []).map(x => ({ e: x.e, por: x.por, ts: x.ts, d: diaDe(x.ts), ap: x.ap, frac: x.frac, pecas: x.pecas, itens: x.itens, dono: x.dono, pts: x.pts })), pts: { corte: ptsEtapa(p, 'corte'), fab: ptsEtapa(p, 'fabricacao'), acab: ptsEtapa(p, 'acabamento'), inst: ptsEtapa(p, 'instalacao'), ent: ptsEtapa(p, 'entrega') } })));
+  const sem = await metasPontos(env, ini, hoje, todos), ant = await metasPontos(env, iniAnt, isoSomaDias(ini, -1), todos);
+  await put('362sem', { ini, por: Object.fromEntries(Object.entries(sem).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
+  await put('362ant', { ini: iniAnt, por: Object.fromEntries(Object.entries(ant).map(([k, v]) => [k, { pts: v.pts, t: v.tarefas.map(t => [t.dia, t.tipo, t.nome, t.pts]) }])) });
+}
 async function diag357(env) { // v357: auditoria dos pontos (pedido do Sr. Hangel)
   if (!env.HR_DB || await env.HR_KV.get('diag:357b')) return; await env.HR_KV.put('diag:357b', '1', { expirationTtl: 2 * 86400 });
   const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 1900000)).run();
@@ -17643,6 +17657,21 @@ async function diag362(env) { // v362: estado do livro/finanças depois das corr
   await put('362fin', (await dump('fin:17956')).filter(x => (x.id || 0) > t0 - 3600000 * 6));
   await put('362cor', (await dump('cor:')).filter(x => (x.ts || 0) > t0 - 3600000 * 6));
   await put('362cmd', (await dump('cmd:')).filter(x => Math.floor((x.id || 0) / 10) > t0 - 3600000 * 6));
+}
+async function fix362Renata(env) { // v362: pedido do Sr. Hangel — só a DATA do cartão de 2 mil vai para 18/10; o "gasto" de 500 lançado por engano sai das Finanças; o Pix de 500 do dia 22 ganha descrição certa
+  if (await env.HR_KV.get('fix:362r')) return; await env.HR_KV.put('fix:362r', '1', { expirationTtl: 30 * 86400 });
+  const r = await livLer(env, 'q1790858149776'); if (!r) return;
+  const out = [];
+  const pc = (r.pagamentos || []).find(x => Math.abs(x.valor - 2000) < 0.01 && /cart/i.test(x.forma || ''));
+  if (pc && pc.data !== '2026-10-18') { pc.data = '2026-10-18'; r.pagamentos.sort((x, y) => String(x.data).localeCompare(String(y.data))); await livSalvar(env, r); out.push('cartão de R$ 2.000,00 agora com data 18/10/2026'); }
+  const nm = String(r.cliente || '').split(' '), curto = nm[0] + (nm[1] ? ' ' + nm[1][0] + '.' : '');
+  const gasto = JSON.parse((await env.HR_KV.get('fin:1795654476949-172')) || 'null');
+  if (gasto && gasto.type === 'out') { if (gasto.importado && gasto.waId) await pedirCorrecao(env, 'fin:1795654476949-172', gasto, 'apagar', ''); else await env.HR_KV.delete('fin:1795654476949-172'); out.push('o "gasto" de R$ 500,00 ("Coloque mais no Pix") sai de Finanças'); }
+  const ent = JSON.parse((await env.HR_KV.get('fin:1795654410006-869')) || 'null');
+  if (ent && ent.type === 'in') { const d = 'Recebido de ' + curto + ' (Pix)'; if (ent.importado && ent.waId) await pedirCorrecao(env, 'fin:1795654410006-869', ent, 'desc', d); else { ent.desc = d; await env.HR_KV.put('fin:1795654410006-869', JSON.stringify(ent), { expirationTtl: FIN_TTL }); } out.push('a entrada de R$ 500,00 do dia 22 agora se chama "' + d + '"'); }
+  const dono = numeroDono(env);
+  await enviar(env, dono, `✅ Corrigi o extrato de *${r.cliente}* do jeito que o senhor pediu:\n• ${out.join('\n• ')}\n\nPagamentos: cartão R$ 2.000,00 (18/10) + Pix R$ 500,00 (21/11) + Pix R$ 500,00 (22/11) = *R$ 3.000,00*. Falta R$ ${reais(Math.max(0, livSaldo(r) || 0))}.\n\nAs mudanças em Finanças entram quando o app for aberto. Segue o PDF:`).catch(() => {});
+  await pdfSaldoCliente(env, dono, { cliente: r.cliente }).catch(e => console.log('[FIX362r] pdf', e.message));
 }
 async function fix362Visita(env) { // v362: opções de visita que o bot mandou por engano com data do ano que vem → cancela as opções (sem mandar nada ao cliente) e devolve o pedido de horários ao Sr. Hangel
   if (await env.HR_KV.get('fix:362v')) return; await env.HR_KV.put('fix:362v', '1', { expirationTtl: 7 * 86400 });
@@ -37540,6 +37569,8 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix359) { globalThis.__fix359 = 1; ctx.waitUntil(fix359Obras(env).catch(e => console.log('[FIX359]', e.message))); } // v359
     if (ctx && ctx.waitUntil && !globalThis.__fix358) { globalThis.__fix358 = 1; ctx.waitUntil(fix358Lav(env).catch(e => console.log('[FIX358]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__diag362) { globalThis.__diag362 = 1; ctx.waitUntil(diag362(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362err', String(e && e.stack || e)).run())); }
+    if (ctx && ctx.waitUntil && !globalThis.__diag362f) { globalThis.__diag362f = 1; ctx.waitUntil(diag362f(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362ferr', String(e && e.stack || e)).run())); }
+    if (ctx && ctx.waitUntil && !globalThis.__fix362r) { globalThis.__fix362r = 1; ctx.waitUntil(travaEnvio(env, 'fix362r').then(ok => ok !== false && fix362Renata(env)).catch(e => console.log('[FIX362r]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362v) { globalThis.__fix362v = 1; ctx.waitUntil(fix362Visita(env).catch(e => console.log('[FIX362v]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357c) { globalThis.__fix357c = 1; ctx.waitUntil(fix357c(env).catch(e => console.log('[FIX357c]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357b) { globalThis.__fix357b = 1; ctx.waitUntil(fix357b(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357berr', String(e && e.stack || e)).run())); } // v357b
