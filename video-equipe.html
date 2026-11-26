@@ -42,7 +42,7 @@ const CENA={
     const d=ease((p-.7)*4);card(110,1330,860,180,d);txt('🎙️ No áudio:',W/2,1400,42,OURO,800,'center',d);txt('fale perto do celular, longe da máquina',W/2,1460,38,TXT,500,'center',d);},
   aprovacao(p){titulo('Tudo passa pelo Sr. Hangel',p);const P=[['📱','Você avisa','peça, pedra, cliente + foto'],['🤖','A Helena anota','na hora, sem perder nada'],['✅','O Sr. Hangel aprova','confere no app ou no WhatsApp'],['⭐','Os pontos entram','e chega a sua mensagem']];
     P.forEach((x,i)=>{const a=aparece(i,p,5);card(140,420+i*290,800,230,a,i===3?'rgba(232,201,106,.14)':null);txt(x[0],250,560+i*290,90,null,400,'center',a);txt(x[1],340,530+i*290,52,i===3?OURO:TXT,800,'left',a);txt(x[2],340,590+i*290,36,CIN,500,'left',a);
-      if(i<3){cx.globalAlpha=aparece(i+1,p,5);txt('↓',W/2,690+i*290,60,OURO,800);cx.globalAlpha=1;}});},
+      if(i<3)txt('↓',W/2,690+i*290,60,OURO,800,'center',aparece(i+1,p,5));});},
   extra(p){titulo('Peça fora do projeto?',p);const a=aparece(0,p,4);txt('🧩',W/2,600,170,null,400,'center',a);
     const b=aparece(1,p,4);bloco('Ou de outro serviço do mesmo cliente (ex.: as soleiras além dos lavatórios)',W/2,770,860,44,TXT,500,'center',b);
     const c=aparece(2,p,4);card(110,960,860,200,c,'rgba(232,201,106,.12)');txt('Fale a peça e a pedra',W/2,1040,52,OURO,800,'center',c);txt('“2 prateleiras branco Siena do Cássio”',W/2,1110,38,TXT,500,'center',c);
