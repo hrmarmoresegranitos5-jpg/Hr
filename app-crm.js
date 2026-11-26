@@ -63,19 +63,24 @@
     '.crm-chip b{margin-left:5px;font-size:.7rem;color:#e8c96a;}',
     '.crm-chip.on{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;border-color:transparent;box-shadow:0 4px 14px rgba(201,168,76,.35);}',
     '.crm-chip.on b{color:#1a1408;}',
-    '.crm-lista{flex:1;overflow-y:auto;padding:2px 10px 20px;}',
-    '.crm-ct{display:flex;align-items:center;gap:12px;padding:11px 12px;margin:0 0 8px;cursor:pointer;border-radius:16px;background:linear-gradient(135deg,rgba(255,255,255,.035),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.05);opacity:0;animation:crmSobe .45s cubic-bezier(.2,.9,.25,1) forwards;transition:transform .15s,border-color .2s,background .2s;}',
-    '.crm-ct:active{transform:scale(.985);background:rgba(201,168,76,.08);}',
-    '.crm-ct.nv{border-color:rgba(201,168,76,.45);background:linear-gradient(135deg,rgba(201,168,76,.13),rgba(201,168,76,.03));}',
-    '.crm-av{width:50px;height:50px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;color:#fff;box-shadow:inset 0 0 0 2px rgba(255,255,255,.08),0 4px 12px rgba(0,0,0,.4);position:relative;}',
+    '.crm-lista{flex:1;overflow-y:auto;padding:0 0 24px;}',
+    '.crm-sec{font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#c9a84c;padding:14px 18px 6px;}',
+    '.crm-fim{font-size:.62rem;color:#7d7462;font-weight:500;margin-left:6px;}',
+    '.crm-eq{font-size:.56rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#e8c96a;border:1px solid rgba(232,201,106,.5);border-radius:6px;padding:1px 5px;margin-left:7px;vertical-align:middle;}',
+    '.crm-ct{display:flex;align-items:center;gap:13px;padding:10px 16px;cursor:pointer;position:relative;opacity:0;animation:crmSobe .35s cubic-bezier(.2,.9,.25,1) forwards;transition:background .15s;}',
+    '.crm-ct::after{content:"";position:absolute;left:75px;right:0;bottom:0;height:1px;background:rgba(255,255,255,.05);}',
+    '.crm-ct:active{background:rgba(201,168,76,.08);}',
+    '.crm-ct.nv{background:linear-gradient(90deg,rgba(201,168,76,.10),transparent 70%);}',
+    '.crm-ct.nv .crm-nm{color:#fff;}',
+    '.crm-av{width:46px;height:46px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;color:#fff;box-shadow:inset 0 0 0 2px rgba(255,255,255,.08),0 4px 12px rgba(0,0,0,.4);position:relative;}',
     '.crm-ct.nv .crm-av{box-shadow:0 0 0 2px #0a0908,0 0 0 4px #c9a84c,0 0 18px rgba(201,168,76,.45);}',
     '.crm-ct-c{flex:1;min-width:0;}',
     '.crm-l1{display:flex;justify-content:space-between;gap:8px;align-items:baseline;}',
-    '.crm-nm{font-weight:700;font-size:.98rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#f4eee2;}',
+    '.crm-nm{font-weight:600;font-size:.97rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#f4eee2;}',
     '.crm-hr{font-size:.7rem;color:#857b66;flex:none;}',
     '.crm-hr.nv{color:#e8c96a;font-weight:700;}',
     '.crm-l2{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px;}',
-    '.crm-pv{font-size:.8rem;color:#9a917e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.crm-pv{font-size:.83rem;color:#9a917e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     '.crm-ct.nv .crm-pv{color:#d8ccb0;}',
     '.crm-bd{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;border-radius:11px;font-size:.7rem;font-weight:800;padding:2px 8px;flex:none;box-shadow:0 2px 8px rgba(201,168,76,.4);animation:crmPulsa 2s ease-in-out infinite;}',
     '.crm-tag{font-size:.58rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1a1408;background:#c9a84c;border-radius:6px;padding:1px 6px;margin-left:7px;vertical-align:middle;}',
@@ -115,7 +120,7 @@
     '.crm-mais{display:block;margin:6px auto 12px;background:rgba(201,168,76,.1);color:#e8c96a;border:1px solid rgba(201,168,76,.3);border-radius:16px;padding:7px 16px;font-size:.78rem;cursor:pointer;font-family:inherit;}',
     '.crm-vazio{text-align:center;color:#9a917e;padding:50px 20px;font-size:.9rem;line-height:1.6;}',
     '.crm-vazio .ic{font-size:2.6rem;display:block;margin-bottom:10px;animation:crmFlut 3s ease-in-out infinite;}',
-    '.crm-skel{height:72px;border-radius:16px;margin:0 0 8px;background:linear-gradient(90deg,rgba(255,255,255,.03) 0%,rgba(201,168,76,.09) 50%,rgba(255,255,255,.03) 100%);background-size:200% 100%;animation:crmBrilho 1.2s linear infinite;}',
+    '.crm-skel{height:62px;border-radius:14px;margin:8px 14px;background:linear-gradient(90deg,rgba(255,255,255,.03) 0%,rgba(201,168,76,.09) 50%,rgba(255,255,255,.03) 100%);background-size:200% 100%;animation:crmBrilho 1.2s linear infinite;}',
     '.crm-rod{background:linear-gradient(0deg,rgba(14,12,9,.98),rgba(26,22,14,.94));border-top:1px solid rgba(201,168,76,.25);padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:.76rem;color:#b9ad92;}',
     '.crm-jan{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:6px 11px;}',
     '.crm-jan i{width:8px;height:8px;border-radius:50%;background:#7d7462;display:inline-block;}',
@@ -189,7 +194,7 @@
     '@keyframes crmBrilho{to{background-position:-200% 0}}'
   ].join('\n');
 
-  var st = { contatos: [], aberto: null, msgs: [], mais: false, timer: null, blobs: {}, obs: null, sig: '', filtro: 'todos', vistosIds: {} };
+  var st = { contatos: [], aberto: null, msgs: [], mais: false, timer: null, blobs: {}, obs: null, sig: '', filtro: 'clientes', vistosIds: {} };
 
   function css() { if (document.getElementById('hrCrmCss')) return; var s = document.createElement('style'); s.id = 'hrCrmCss'; s.textContent = CSS; document.head.appendChild(s); }
   function api(cam) {
@@ -206,7 +211,7 @@
     var bot = tokens(c.nome).concat(tokens(c.perfil)); if (!bot.length) return false;
     var ap = tokens(a.nome); return !ap.some(function (t) { return bot.indexOf(t) >= 0; });
   }
-  function nomeDe(c, app) { var a = app[so8(c.num)]; if (appConflita(c, a)) return c.nome || c.perfil; return (a && a.nome) || c.nome || c.perfil || fmtNum(c.num); }
+  function nomeDe(c, app) { if (c.eq && c.nome) return c.nome; var a = app[so8(c.num)]; if (appConflita(c, a)) return c.nome || c.perfil; return (a && a.nome) || c.nome || c.perfil || fmtNum(c.num); }
 
   function fechar() {
     pararAuto(); var e = document.getElementById('hrCrm'); if (e) e.remove();
@@ -254,24 +259,32 @@
     if (!st.contatos.length) { if (!l.querySelector('.crm-skel')) l.innerHTML = '<div class="crm-vazio"><span class="ic">💬</span>Nenhuma conversa ainda.<br>As próximas mensagens dos clientes aparecem aqui.</div>'; return; }
     var app = nomesApp(), v = vistos(), q = String((document.getElementById('crmQ') || {}).value || '').toLowerCase().trim(), qd = q.replace(/\D/g, '');
     var novasDe = function (c) { var n = c.ultq === 'c' ? Math.max(0, (c.total || 0) - (v[c.num] || 0)) : 0; if (!(c.num in v) && c.ultq === 'c') n = Math.min(n, 9); return n; };
-    var nNao = st.contatos.filter(function (c) { return novasDe(c) > 0; }).length, nNovo = st.contatos.filter(function (c) { return !app[so8(c.num)]; }).length;
+    var cli = st.contatos.filter(function (c) { return !c.eq; }), eqp = st.contatos.filter(function (c) { return c.eq; });
+    var hojeS = new Date().toDateString(), ehHoje = function (c) { return new Date(c.ult).toDateString() === hojeS; };
+    var nNao = st.contatos.filter(function (c) { return novasDe(c) > 0; }).length, nNovo = cli.filter(function (c) { return !app[so8(c.num)]; }).length;
     var ch = document.getElementById('crmChips');
-    if (ch) ch.innerHTML = [['todos', 'Todas', st.contatos.length], ['nao', 'Não lidas', nNao], ['novos', 'Clientes novos', nNovo], ['hoje', 'Hoje', st.contatos.filter(function (c) { return new Date(c.ult).toDateString() === new Date().toDateString(); }).length]]
+    if (ch) ch.innerHTML = [['clientes', 'Clientes', cli.length], ['nao', 'Não lidas', nNao], ['novos', 'Novos', nNovo], ['hoje', 'Hoje', cli.filter(ehHoje).length], ['equipe', 'Equipe', eqp.length], ['todos', 'Todas', st.contatos.length]]
       .map(function (x) { return '<button class="crm-chip' + (st.filtro === x[0] ? ' on' : '') + '" data-f="' + x[0] + '">' + x[1] + (x[2] ? '<b>' + x[2] + '</b>' : '') + '</button>'; }).join('');
     var lista = st.contatos.filter(function (c) {
+      if (st.filtro === 'clientes' && c.eq) return false;
+      if (st.filtro === 'equipe' && !c.eq) return false;
       if (st.filtro === 'nao' && !novasDe(c)) return false;
-      if (st.filtro === 'novos' && app[so8(c.num)]) return false;
-      if (st.filtro === 'hoje' && new Date(c.ult).toDateString() !== new Date().toDateString()) return false;
+      if (st.filtro === 'novos' && (c.eq || app[so8(c.num)])) return false;
+      if (st.filtro === 'hoje' && (c.eq || !ehHoje(c))) return false;
       if (!q) return true;
       var n = nomeDe(c, app).toLowerCase();
       return n.indexOf(q) >= 0 || String(c.perfil || '').toLowerCase().indexOf(q) >= 0 || (qd.length >= 3 && String(c.num).indexOf(qd) >= 0);
     });
-    var sub = document.getElementById('crmSub'); if (sub) sub.textContent = st.contatos.length + ' cliente(s)';
+    var sub = document.getElementById('crmSub'); if (sub) sub.textContent = cli.length + ' cliente(s) · ' + eqp.length + ' da equipe';
+    var nomes = {}; st.contatos.forEach(function (c) { var k = nomeDe(c, app).toLowerCase(); nomes[k] = (nomes[k] || 0) + 1; });
+    var secao = function (c) { var d = new Date(c.ult), o = new Date(); o.setDate(o.getDate() - 1); return d.toDateString() === hojeS ? 'Hoje' : d.toDateString() === o.toDateString() ? 'Ontem' : (Date.now() - c.ult < 7 * 86400000 ? 'Esta semana' : 'Antes'); };
+    var ult = '';
     l.innerHTML = lista.map(function (c, i) {
-      var nm = nomeDe(c, app), novas = novasDe(c);
-      var noApp = !!app[so8(c.num)];
-      return '<div class="crm-ct' + (novas ? ' nv' : '') + '" style="animation-delay:' + Math.min(i, 12) * 0.04 + 's" data-num="' + esc(c.num) + '"><div class="crm-av" style="background:' + cor(c.num) + ';">' + esc(iniciais(nm)) + '</div>' +
-        '<div class="crm-ct-c"><div class="crm-l1"><span class="crm-nm">' + esc(nm) + (noApp ? '' : '<span class="crm-tag">novo</span>') + '</span><span class="crm-hr' + (novas ? ' nv' : '') + '">' + esc(quando(c.ult)) + '</span></div>' +
+      var nm = nomeDe(c, app), novas = novasDe(c), noApp = !!app[so8(c.num)], sc = secao(c), cab = sc !== ult ? '<div class="crm-sec">' + sc + '</div>' : ''; ult = sc;
+      var dup = nomes[nm.toLowerCase()] > 1 ? '<span class="crm-fim">· final ' + esc(String(c.num).slice(-4)) + '</span>' : '';
+      var tag = c.eq ? '<span class="crm-eq">equipe</span>' : (noApp ? '' : '<span class="crm-tag">novo</span>');
+      return cab + '<div class="crm-ct' + (novas ? ' nv' : '') + '" style="animation-delay:' + Math.min(i, 12) * 0.03 + 's" data-num="' + esc(c.num) + '"><div class="crm-av" style="background:' + cor(c.num) + ';">' + esc(iniciais(nm)) + '</div>' +
+        '<div class="crm-ct-c"><div class="crm-l1"><span class="crm-nm">' + esc(nm) + dup + tag + '</span><span class="crm-hr' + (novas ? ' nv' : '') + '">' + esc(quando(c.ult)) + '</span></div>' +
         '<div class="crm-l2"><span class="crm-pv">' + (c.ultq === 'b' ? '<span class="crm-bot">🤖</span>' : '') + esc(c.ultx || '') + '</span>' + (novas ? '<span class="crm-bd">' + novas + '</span>' : '') + '</div></div></div>';
     }).join('') || '<div class="crm-vazio"><span class="ic">🔎</span>Nada encontrado' + (st.filtro !== 'todos' ? ' neste filtro.' : '.') + '</div>';
   }
