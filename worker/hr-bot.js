@@ -17658,6 +17658,34 @@ async function diag362(env) { // v362: estado do livro/finanças depois das corr
   await put('362cor', (await dump('cor:')).filter(x => (x.ts || 0) > t0 - 3600000 * 6));
   await put('362cmd', (await dump('cmd:')).filter(x => Math.floor((x.id || 0) / 10) > t0 - 3600000 * 6));
 }
+async function fix362Fab(env) { // v362: pontos do Fabrício — o que ele cortou (pelas fotos que mandou) e não estava certo
+  if (await env.HR_KV.get('fix:362f')) return; await env.HR_KV.put('fix:362f', '1', { expirationTtl: 30 * 86400 });
+  const FAB = 'mpj69bv2l3zb', LUC = 'mpj6bjhsh98c', HUGO = 'mpj68ypwxaiv', feito = [], ts = d => Date.parse(d);
+  const antes = { sem: ((await metasPontos(env, '2026-11-23', dataBahia()))[FAB] || {}).pts || 0, ant: ((await metasPontos(env, '2026-11-16', '2026-11-22'))[FAB] || {}).pts || 0 };
+  // 1) pedido com o nome dele mesmo (foto sem cliente virou "serviço do Fabrício")
+  let p = await lerPedido(env, '1795600655432'); if (p && !p.cancelado) { p.cancelado = true; p.status = 'cancelado'; p.motivoCancel = 'v362: serviço criado com o nome do funcionário'; await salvarPedido(env, p); feito.push('apaguei o serviço "Fabrício" (era foto sem cliente; os 0,4 dele e do Lucas saem)'); }
+  // 2) Joel: todo o corte foi dele no dia 19/11 (o registro do dia 24 punha o Lucas como quem cortou)
+  p = await lerPedido(env, '1795104237467'); if (p) { const n0 = (p.prodLog || []).length; p.prodLog = (p.prodLog || []).filter(x => !(x.e === 'corte' && (x.por || []).includes(LUC))); p.corteFeitoPor = FAB; if (p.prodLog.length !== n0) { await salvarPedido(env, p); feito.push('Joel: o corte fica todo com o Fabrício (19/11)'); } }
+  // 3) Ésio: ele mandou a foto dos 2 lavatórios de cinza andorinha cortados (20/11) — corte em dupla com o Hugo
+  p = await lerPedido(env, '1795171038192'); if (p) { const c = (p.prodLog || []).find(x => x.e === 'corte'); if (c && !(c.por || []).includes(FAB)) { c.por = [...new Set([...(c.por || []), FAB])]; await salvarPedido(env, p); feito.push('Ésio: corte em dupla Hugo + Fabrício (foto dos lavatórios de cinza andorinha cortados, 20/11)'); } }
+  // 4) Poliano: lavatório de Branco Prime (19/11) e as peças da cuba (25/11) — o corte do dia 19 tinha ido para a cozinha
+  p = await lerPedido(env, '1795171124318'); if (p) { const n0 = (p.prodLog || []).length; p.prodLog = (p.prodLog || []).filter(x => !(x.e === 'corte' && (x.por || []).includes(FAB) && Math.abs(x.ts - 1795090624431) < 60000)); if (p.prodLog.length !== n0) { if (p.corteFeitoPor === FAB) { delete p.corteFeitoPor; delete p.corteEm; } await salvarPedido(env, p); } }
+  if (!(await env.HR_KV.get('fix:362f:pol'))) { await env.HR_KV.put('fix:362f:pol', '1', { expirationTtl: 30 * 86400 });
+    const t1 = 1795090624431, t2 = ts('2026-11-25T19:29:00Z');
+    const np = { id: String(t1 + 7), origem: 'manual', nome: 'Poliano dos anjos', projetoApp: 'Lavatório com cuba — Branco Prime', cor: 'Branco Prime', pecas: [], status: 'enviado', etapa: 'concluido', criado: t1, fichaEnviadaEm: t1,
+      prodLog: [{ e: 'corte', por: [FAB], ts: t1, frac: 0.6, dono: 1 }, { e: 'corte', por: [FAB], ts: t2, frac: 0.4, dono: 1 }], corteFeitoPor: FAB, corteEm: t2 };
+    await pedEstimarDoOrc(env, np, 'Poliano dos anjos', 'branco prime').catch(() => null);
+    if (!np.resumoApp || !((np.resumoApp.itens || []).length)) np.resumoApp = { pedra: 'Branco Prime', itens: [{ ambiente: 'Lavatório', pecas: [{ qtd: 1, comp_cm: 100, larg_cm: 50 }, { qtd: 2, comp_cm: 100, larg_cm: 10 }] }, { ambiente: 'Cuba esculpida', pecas: [{ qtd: 1, comp_cm: 60, larg_cm: 40 }, { qtd: 2, comp_cm: 60, larg_cm: 15 }, { qtd: 2, comp_cm: 40, larg_cm: 15 }] }] };
+    if (!(np.pecas || []).length) np.pecas = pecasDoResumo(np.resumoApp);
+    await salvarPedido(env, np); feito.push('Poliano: lavatório de Branco Prime (19/11) e as peças da cuba (25/11) agora contam no serviço certo (antes o dia 19 estava na cozinha e a cuba não contou)'); }
+  // 5) serviços sem as peças (contavam o mínimo): balcão do Osmailton e as 2 prateleiras do Cássio
+  p = await lerPedido(env, '1795464345442'); if (p && !((p.resumoApp || {}).itens || []).length) { const o = await pedEstimarDoOrc(env, p, p.nome, 'balcao').catch(() => null); if (!((p.resumoApp || {}).itens || []).length) { p.resumoApp = { pedra: 'Verde Ubatuba', itens: [{ ambiente: 'Balcão', pecas: [{ qtd: 1, comp_cm: 150, larg_cm: 60 }, { qtd: 2, comp_cm: 150, larg_cm: 10 }] }] }; p.pecas = pecasDoResumo(p.resumoApp); } await salvarPedido(env, p); feito.push('Osmailton: o balcão passou a ter as peças' + (o ? ' do orçamento' : ' (estimadas: tampo + 2 saias)')); }
+  p = await lerPedido(env, '1795630457138'); if (p && !((p.resumoApp || {}).itens || []).length) { p.resumoApp = { pedra: p.cor || '', itens: [{ ambiente: 'Prateleira', pecas: [{ qtd: 2, comp_cm: 100, larg_cm: 30 }] }] }; p.pecas = pecasDoResumo(p.resumoApp); await salvarPedido(env, p); feito.push('Cássio: as 2 prateleiras passaram a ter as peças'); }
+  const depois = { sem: ((await metasPontos(env, '2026-11-23', dataBahia()))[FAB] || {}).pts || 0, ant: ((await metasPontos(env, '2026-11-16', '2026-11-22'))[FAB] || {}).pts || 0 };
+  const semT = ((await metasPontos(env, '2026-11-23', dataBahia()))[FAB] || { tarefas: [] }).tarefas.map(t => `${dataBR(t.dia).slice(0, 5)} ${t.tipo} · ${t.nome} (${t.pts})`);
+  if (env.HR_DB) await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362fab', JSON.stringify({ antes, depois, feito, semT })).run();
+  await enviar(env, numeroDono(env), `🔧 *Pontos do Fabrício — revisei foto por foto*\n\n• ${feito.join('\n• ')}\n\n*Semana atual:* ${antes.sem} → *${depois.sem}* pts\n*Semana passada:* ${antes.ant} → *${depois.ant}* pts\n\n*O que conta nesta semana:*\n${semT.join('\n')}\n\n_Nada foi enviado ao Fabrício._`).catch(() => {});
+}
 async function fix362Renata(env) { // v362: pedido do Sr. Hangel — só a DATA do cartão de 2 mil vai para 18/10; o "gasto" de 500 lançado por engano sai das Finanças; o Pix de 500 do dia 22 ganha descrição certa
   if (await env.HR_KV.get('fix:362r')) return; await env.HR_KV.put('fix:362r', '1', { expirationTtl: 30 * 86400 });
   const r = await livLer(env, 'q1790858149776'); if (!r) return;
@@ -37570,6 +37598,7 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix358) { globalThis.__fix358 = 1; ctx.waitUntil(fix358Lav(env).catch(e => console.log('[FIX358]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__diag362) { globalThis.__diag362 = 1; ctx.waitUntil(diag362(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362err', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__diag362f) { globalThis.__diag362f = 1; ctx.waitUntil(diag362f(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362ferr', String(e && e.stack || e)).run())); }
+    if (ctx && ctx.waitUntil && !globalThis.__fix362f) { globalThis.__fix362f = 1; ctx.waitUntil(travaEnvio(env, 'fix362f').then(ok => ok !== false && fix362Fab(env)).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362faberr', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362r) { globalThis.__fix362r = 1; ctx.waitUntil(travaEnvio(env, 'fix362r').then(ok => ok !== false && fix362Renata(env)).catch(e => console.log('[FIX362r]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362v) { globalThis.__fix362v = 1; ctx.waitUntil(fix362Visita(env).catch(e => console.log('[FIX362v]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357c) { globalThis.__fix357c = 1; ctx.waitUntil(fix357c(env).catch(e => console.log('[FIX357c]', e.message))); }
