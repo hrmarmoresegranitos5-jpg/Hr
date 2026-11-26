@@ -1,16 +1,17 @@
 name: Baixar narração do vídeo da equipe
 on: workflow_dispatch
+permissions: { contents: write }
 jobs:
   voz:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          mkdir voz
+          mkdir voz && cd voz
           B=https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev
-          curl -sf "$B/voz-video2-dados" -o voz/dados.json || echo '{}' > voz/dados.json
+          curl -sf "$B/voz-video2-dados" -o dados.json || echo '{}' > dados.json
           for k in titulo pontos avisar aprovacao extra meta faixas premio dicas fim; do
-            for t in 1 2 3; do curl -sf --max-time 90 "$B/voz-video2/$k" -o voz/$k.ogg && break; sleep 5; done
+            for t in 1 2 3; do curl -sf --max-time 90 "$B/voz-video2/$k" -o $k.ogg && break; sleep 5; done
           done
-          ls -la voz
-      - uses: actions/upload-artifact@v4
-        with: { name: voz, path: voz }
+          ls -la
+          git init -q -b voz-video && git add . && git -c user.name=bot -c user.email=bot@users.noreply.github.com commit -qm "narração"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" voz-video
