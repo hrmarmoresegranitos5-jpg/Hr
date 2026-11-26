@@ -7395,6 +7395,7 @@ async function pedirAvaliacoes(env) {
   await aprovLembrete(env).catch(e => console.log('[APROV] lembrete:', e.message)); // v346
   await prodLixoChecar(env).catch(e => console.log('[LIXO]', e.message)); // v349
   await siteDetRotina(env).catch(e => console.log('[DET] rotina:', e.message)); // v359
+  await gpixProcessar(env).catch(e => console.log('[GPIX] rotina:', e.message)); // v361
   await corridaRotina(env).catch(e => console.log('[CORRIDA]', e.message)); // v355
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
@@ -18384,6 +18385,7 @@ async function mpqBotao(env, from, id) { // mpq|h|cat  ·  mpq|h|nl (não lembro
 }
 // v58: pergunta, em texto livre, sobre gasto com favorecido desconhecido (até 3 por vez; o resto fica no app)
 async function perguntarDesconhecidosMPX(env, hs) {
+  if (!env._gpixRod) await gpixProcessar(env, { semPerguntar: true }).catch(() => {}); // v361: o e-mail do Pix já pode ter trazido o nome
   const lista = [];
   for (const h of hs) { const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null'); if (r && !(await env.HR_KV.get('mpx:pq:' + h))) lista.push(r); }
   if (!lista.length) return;
@@ -18465,25 +18467,102 @@ async function lerPrintExtratoMPIA(env, buf, mime) {
   } finally { clearTimeout(timer); }
 }
 const minutosHM = h => { const m = /^(\d{2}):(\d{2})$/.exec(h || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
-async function tratarPrintExtratoMP(env, from, m) {
-  if (!mpAtivo(env) || String(env.MPX_PRINT || '1') === '0') return false;
-  const pend = [];
-  { let cursor; for (let i = 0; i < 3; i++) { const l = await env.HR_KV.list({ prefix: 'mpx:p:', cursor, limit: 1000 }).catch(() => null); if (!l) break; for (const k of l.keys) pend.push(k.name.slice(6)); if (l.list_complete || !l.cursor) break; cursor = l.cursor; } }
-  if (!pend.length) return false; // nada esperando nome: segue o fluxo normal das imagens
-  let mid;
-  try { mid = await baixarMidia(env, m.image.id); } catch (_) { return false; }
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mid.tipo)) return false;
-  let lido; try { lido = await lerPrintExtratoMPIA(env, mid.buf, mid.tipo); } catch (e) { console.log('[MPX] print:', e.message); return false; }
-  if (!lido || !lido.eh) return false; // não é print do extrato: segue o fluxo normal
+// ═════════════════════════════════════════════════════════════════════════════
+// v361: PIX DO GMAIL — um Apps Script na conta Google do Sr. Hangel manda a cada 5 min os e-mails do Mercado Pago
+//   ("Seu Pix foi enviado": valor, hora e NOME de quem recebeu) para POST /gpix. O bot casa com o Pix do Mercado Pago
+//   que estava sem nome e lança sozinho (quem já é conhecido), manda para o RH (equipe) ou pergunta só a categoria.
+// ═════════════════════════════════════════════════════════════════════════════
+function gpixLer(it) {
+  const tx = String(it.txt || ''), assunto = String(it.assunto || '');
+  const mv = (it.valor != null ? String(it.valor) : '') || (tx.match(/R\$\s*([\d.]+(?:,\d{1,2})?)/) || [])[1] || '';
+  const valor = Number(String(mv).replace(/\./g, '').replace(',', '.'));
+  const linhas = tx.split(/\n/).map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let nome = String(it.nome || '').trim();
+  if (!nome) { const k = linhas.findIndex(l => /^CPF\s*\/?\s*CNPJ/i.test(l)); if (k > 0) nome = linhas[k - 1]; }
+  if (!nome) nome = ((tx.match(/(?:para|de)\s+([A-ZÀ-Ú][A-Za-zÀ-ú.'\- ]{3,60})\n/) || [])[1] || '').trim();
+  nome = nome.replace(/^(para|de)\s+/i, '').slice(0, 80);
+  const sentido = /receb/i.test(assunto + ' ' + tx.slice(0, 200)) ? 'in' : 'out';
+  const ts = Number(it.ts) || Date.now(), d = new Date(ts - 3 * 3600000);
+  return { valor: Math.round(valor * 100) / 100, nome, sentido, data: d.toISOString().slice(0, 10), hora: d.toISOString().slice(11, 16), banco: String(it.banco || '').slice(0, 60), tipo: 'pix' };
+}
+async function gpixChave(env) { let k = await env.HR_KV.get('cfg:gpixkey'); if (!k) { k = estId(10) + estId(10); await env.HR_KV.put('cfg:gpixkey', k); } return k; }
+async function gpixRota(req, env, url) {
+  if (url.pathname === '/gpix/script') { // página com o código pronto para colar (link de uso único mandado ao Sr. Hangel)
+    const t = String(url.searchParams.get('t') || '').replace(/[^a-z0-9]/gi, ''); if (!t || !(await env.HR_KV.get('gpix:tok:' + t))) return new Response('Link expirado. Peça de novo à Helena: "ligar o gmail".', { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    const base = await urlDoWorker(env), k = await gpixChave(env);
+    const cod = GPIX_SCRIPT.replace('__URL__', base + '/gpix').replace('__CHAVE__', k);
+    const e = x => String(x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+    return new Response(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pix do Gmail → HR</title><style>body{font-family:system-ui;background:#111;color:#eee;margin:0;padding:18px}pre{background:#000;border:1px solid #444;border-radius:10px;padding:12px;white-space:pre-wrap;word-break:break-all;font-size:12px;max-height:45vh;overflow:auto}button{background:#c9a84c;border:0;border-radius:10px;padding:14px 18px;font-size:16px;font-weight:700;width:100%;margin:10px 0}ol li{margin:8px 0;line-height:1.4}a{color:#e6cc7e}</style></head><body><h2>Pix do Gmail → bot da HR</h2><ol><li>Toque em <b>Copiar o código</b>.</li><li>Abra <a href="https://script.google.com/home/projects/create" target="_blank">script.google.com</a> (com a conta do Gmail que recebe os Pix).</li><li>Apague o que estiver escrito, cole o código e toque no disquete (<b>Salvar</b>).</li><li>No menu de cima escolha a função <b>instalar</b> e toque em <b>Executar</b>.</li><li>Ele pede permissão: <b>Revisar permissões</b> → sua conta → <b>Avançado</b> → <b>Acessar projeto (não seguro)</b> → <b>Permitir</b>. (É o seu próprio programa; só lê os e-mails do Mercado Pago.)</li><li>Pronto: a Helena avisa no WhatsApp quando chegar o primeiro Pix.</li></ol><button onclick="navigator.clipboard.writeText(document.getElementById('c').textContent).then(()=>this.textContent='✅ Copiado')">Copiar o código</button><pre id="c">${e(cod)}</pre></body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
+  if (req.method !== 'POST') return new Response('ok');
+  const b = await req.json().catch(() => null); if (!b || b.chave !== (await env.HR_KV.get('cfg:gpixkey'))) return jsonR({ ok: false, erro: 'chave' }, 401);
+  let novos = 0;
+  for (const it of (Array.isArray(b.itens) ? b.itens : []).slice(0, 60)) {
+    const id = String(it.id || '').replace(/[^a-z0-9]/gi, '').slice(0, 40); if (!id || await env.HR_KV.get('gpix:' + id)) continue;
+    const x = gpixLer(it); if (!(x.valor > 0)) continue;
+    await env.HR_KV.put('gpix:' + id, JSON.stringify({ id, ...x, st: 'p', em: Date.now(), txt: String(it.txt || '').slice(0, 600) }), { expirationTtl: 10 * 86400 }); novos++;
+  }
+  if (novos && !(await env.HR_KV.get('gpix:ligado'))) { await env.HR_KV.put('gpix:ligado', '1'); await pontoAvisarDono(env, '📧 *Gmail ligado!* Os Pix do Mercado Pago que chegam no seu e-mail já vêm para mim com o nome de quem recebeu. Eu lanço sozinho os que já conheço e pergunto só a categoria dos novos.').catch(() => {}); }
+  if (novos) await gpixProcessar(env).catch(e => console.log('[GPIX]', e.message));
+  return jsonR({ ok: true, novos });
+}
+async function gpixProcessar(env, opc = {}) {
+  if (env._gpixRod) return []; env._gpixRod = 1;
+  try {
+    const its = []; let cursor;
+    for (let i = 0; i < 3; i++) { const l = await env.HR_KV.list({ prefix: 'gpix:', cursor, limit: 1000 }).catch(() => null); if (!l) break; for (const k of l.keys) if (!/^gpix:(tok|ligado)/.test(k.name)) { try { const x = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (x && x.st === 'p' && x.nome) its.push(x); } catch (_) {} } if (l.list_complete || !l.cursor) break; cursor = l.cursor; }
+    if (!its.length) return [];
+    const pend = await mpxPendentes(env); if (!pend.length) return [];
+    const r = await mpxAplicarItens(env, its, pend);
+    for (const x of its) if (x._h) { x.st = 'ok'; x.h = x._h; delete x._h; await env.HR_KV.put('gpix:' + x.id, JSON.stringify(x), { expirationTtl: 10 * 86400 }); }
+    const dono = numeroDono(env);
+    if (r.lancados.length) await enviar(env, dono, ['📧 *Pix do Gmail — lancei sozinho* (já conheço quem recebeu):', ...r.lancados.slice(0, 10).map(x => `• R$ ${reais(x.valor)} ${x.desc} → ${x.cat === 'nao' ? 'não é gasto' : (CATS[x.cat] || x.cat)}`)].join('\n')).catch(() => {});
+    for (const x of r.paraRH.slice(0, 6)) await enviarComBotoes(env, dono, `📧 *${x.f.nome}${x.f.socio ? ' (sócio)' : ''}:* Pix de R$ ${reais(x.valor)} em ${dataBR(x.data).slice(0, 5)}${x.hora ? ' às ' + x.hora : ''}. O que foi?`, [{ id: `mprh|${x.h}|vale`, titulo: 'Vale' }, { id: `mprh|${x.h}|decendio`, titulo: 'Decêndio' }, { id: `mprh|${x.h}|adiantamento`, titulo: 'Adiantamento' }]).catch(() => {});
+    if (r.comNome.length && !opc.semPerguntar) await perguntarDesconhecidosMPX(env, r.comNome.map(x => x.h)).catch(() => {});
+    return r.comNome.map(x => x.h);
+  } finally { env._gpixRod = 0; }
+}
+async function gpixComando(env, from, msg) { // "ligar o gmail" / "pix do gmail"
+  if (!/^(ligar|conectar|ativar|configurar)( o)? (gmail|e-?mail)|^(pix|gastos) (do|pelo) (gmail|e-?mail)$|^gmail( pix)?$/.test(msg)) return false;
+  const t = estId(12); await env.HR_KV.put('gpix:tok:' + t, '1', { expirationTtl: 2 * 86400 }); await gpixChave(env);
+  const base = await urlDoWorker(env);
+  await enviar(env, from, `📧 *Ligar os Pix do Gmail ao bot* (uns 5 minutos, pelo celular):\n\n1. Abra este link (vale 2 dias, só para o senhor): ${base}/gpix/script?t=${t}\n2. Toque em *Copiar o código* e siga os passos da página.\n\nSe travar em alguma tela, me mande o print.`);
+  return true;
+}
+const GPIX_SCRIPT = `// HR Mármores — manda ao bot os e-mails de Pix do Mercado Pago (valor, hora e nome de quem recebeu).
+// Só lê e-mails do Mercado Pago. Marca os já enviados com a etiqueta "HR-bot".
+const URL_BOT = '__URL__', CHAVE = '__CHAVE__';
+function pixParaHR() {
+  const lbl = GmailApp.getUserLabelByName('HR-bot') || GmailApp.createLabel('HR-bot');
+  const th = GmailApp.search('from:mercadopago (subject:pix OR subject:pagamento OR subject:transferencia) -label:HR-bot newer_than:3d', 0, 40);
+  const itens = [];
+  th.forEach(function (t) { t.getMessages().forEach(function (m) {
+    const tx = (m.getPlainBody() || '').slice(0, 3000);
+    if (!/R\\$/.test(tx)) return;
+    itens.push({ id: m.getId(), ts: m.getDate().getTime(), assunto: m.getSubject(), txt: tx });
+  }); });
+  if (!itens.length) return;
+  const r = UrlFetchApp.fetch(URL_BOT, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ chave: CHAVE, itens: itens }), muteHttpExceptions: true });
+  if (r.getResponseCode() === 200) th.forEach(function (t) { t.addLabel(lbl); });
+}
+function instalar() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('pixParaHR').timeBased().everyMinutes(5).create();
+  pixParaHR();
+}
+`;
+// v361: casa itens com nome (linhas do print do extrato, ou e-mails "Seu Pix foi enviado" do Gmail) com os Pix do Mercado Pago que estão sem nome
+async function mpxPendentes(env) { const pend = []; let cursor; for (let i = 0; i < 3; i++) { const l = await env.HR_KV.list({ prefix: 'mpx:p:', cursor, limit: 1000 }).catch(() => null); if (!l) break; for (const k of l.keys) pend.push(k.name.slice(6)); if (l.list_complete || !l.cursor) break; cursor = l.cursor; } return pend; }
+async function mpxAplicarItens(env, itens, pend) {
   const regs = []; for (const h of pend) { try { const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null'); if (r) regs.push({ ...r, h }); } catch (_) {} }
   const usados = new Set(), lancados = [], comNome = [], semPar = [], paraRH = [];
-  for (const it of lido.itens) {
+  for (const it of itens) {
     const cands = regs.filter(r => !usados.has(r.h) && r.sentido === it.sentido && Math.abs(r.valor - it.valor) < 0.01 && (!it.data || r.data === it.data));
     let r = null;
     if (cands.length === 1) r = cands[0];
     else if (cands.length > 1 && it.hora) { const mi = minutosHM(it.hora); const perto = cands.filter(c => c.hora && Math.abs(minutosHM(c.hora) - mi) <= 3); if (perto.length === 1) r = perto[0]; }
     if (!r) { if (it.sentido === 'out') semPar.push(it); continue; }
-    usados.add(r.h);
+    usados.add(r.h); it._h = r.h;
     const novo = { ...r, desc: it.nome, semNome: false, tipoPrint: it.tipo };
     delete novo.h;
     // v63p: Pix para alguém da EQUIPE → vai para o RH (vale/decêndio/adiantamento), não só como gasto
@@ -18512,6 +18591,18 @@ async function tratarPrintExtratoMP(env, from, m) {
     await env.HR_KV.delete('mpx:pq:' + r.h).catch(() => {}); // pergunta de novo, agora com o nome
     comNome.push({ ...novo, h: r.h });
   }
+  return { lancados, comNome, semPar, paraRH };
+}
+async function tratarPrintExtratoMP(env, from, m) {
+  if (!mpAtivo(env) || String(env.MPX_PRINT || '1') === '0') return false;
+  const pend = await mpxPendentes(env);
+  if (!pend.length) return false; // nada esperando nome: segue o fluxo normal das imagens
+  let mid;
+  try { mid = await baixarMidia(env, m.image.id); } catch (_) { return false; }
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mid.tipo)) return false;
+  let lido; try { lido = await lerPrintExtratoMPIA(env, mid.buf, mid.tipo); } catch (e) { console.log('[MPX] print:', e.message); return false; }
+  if (!lido || !lido.eh) return false; // não é print do extrato: segue o fluxo normal
+  const { lancados, comNome, semPar, paraRH } = await mpxAplicarItens(env, lido.itens, pend);
   const linhas = [`*Li o print do Mercado Pago:* ${lido.itens.length} linha(s).`];
   if (lancados.length) linhas.push('', `*Lancei sozinho* (já conheço quem recebeu):`, ...lancados.slice(0, 12).map(x => `• R$ ${reais(x.valor)} ${x.desc} → ${x.cat === 'nao' ? 'não é gasto' : (CATS[x.cat] || x.cat)}`));
   if (comNome.length) linhas.push('', `*Agora com nome, falta a categoria* (${comNome.length}): pergunto logo abaixo.`);
@@ -21635,6 +21726,7 @@ async function tratarAssumir(env, from, bruto, msg) {
   if (await tratarPrazosComando(env, from, msg)) return true;
   if (await tratarEntregue(env, from, msg)) return true;
   if (await tratarHorariosVisitaDono(env, from, bruto, msg)) return true; // resposta do dono com os horários livres para a visita de um cliente
+  if (await gpixComando(env, from, msg).catch(e => { console.log('[GPIX] cmd:', e.message); return false; })) return true; // v361
   if (await siteDetTexto(env, from, bruto, msg).catch(e => { console.log('[DET] texto:', e.message); return false; })) return true; // v359
   if (await tratarLivroComando(env, from, msg)) return true; // "entregas" / "entregas <cliente>": livro de entregas e pagamentos
   if (await tratarPronto(env, from, msg)) return true;
@@ -37317,6 +37409,7 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).then(() => mig206(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
+    if (url.pathname === '/gpix' || url.pathname === '/gpix/script') return gpixRota(req, env, url); // v361
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
     if (/^\/(p|projeto|site)\/?$/i.test(url.pathname)) return Response.redirect(url.origin + '/portfolio' + url.search, 302); // v359: link curto do site
