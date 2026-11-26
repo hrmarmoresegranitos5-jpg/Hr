@@ -186,6 +186,21 @@
     try { if (typeof _bRerender === 'function') _bRerender(); if (typeof bUpdDot === 'function') bUpdDot(); } catch (e) {}
     return { ok: true, mensagem: 'Boleto ' + (b.desc || b.cli || '') + ' (R$ ' + fm(+p.valorPago || b.valor) + ') marcado como pago e lançado em Finanças.' };
   }
+  function exBoletoNovo(p) { // v362: cobrança que chegou no Gmail → conta a pagar
+    var valor = +p.valor || 0; if (!(valor > 0)) return { ok: false, mensagem: 'boleto sem valor.' };
+    var venc = /^\d{4}-\d{2}-\d{2}$/.test(String(p.venc || '')) ? p.venc : '';
+    var linha = String(p.linhaDig || '').replace(/\D/g, '');
+    if (!DB.b) DB.b = [];
+    var ja = DB.b.find(function (x) { if (!x || x.status === 'cancelado') return false; var l = String(x.linhaDig || '').replace(/\D/g, ''); if (linha && l && l === linha) return true; return Math.abs((+x.valor || 0) - valor) < 0.01 && String(x.venc || '') === venc && norm(x.cli || '') === norm(p.cli || ''); });
+    if (ja) return { ok: true, mensagem: 'Esse boleto de ' + (ja.cli || ja.desc || '') + ' (R$ ' + fm(valor) + ') já estava cadastrado.' };
+    var cli = String(p.cli || 'Fornecedor').slice(0, 60);
+    var hoje = typeof td === 'function' ? td() : new Date().toISOString().slice(0, 10);
+    var obj = { id: Date.now() + Math.random(), tipo: 'pagar', cat: (typeof bGuessCategoria === 'function' ? bGuessCategoria(cli) : '') || 'outros', cli: cli, titular: '', desc: String(p.desc || cli).slice(0, 80), valor: valor, venc: venc, parc: '', fpag: 'pix', status: 'pendente', obs: 'Veio do Gmail (bot)', dtCriado: hoje };
+    if (linha) obj.linhaDig = linha;
+    DB.b.unshift(obj); DB.sv();
+    try { if (typeof _bRerender === 'function') _bRerender(); if (typeof bUpdDot === 'function') bUpdDot(); } catch (e) {}
+    return { ok: true, mensagem: 'Boleto cadastrado: ' + cli + ' R$ ' + fm(valor) + (venc ? ' · vence ' + venc.split('-').reverse().join('/') : '') + '.' };
+  }
   function exEstoque(p, sinal) {
     if (typeof estAdicionar !== 'function') return { ok: false, mensagem: 'o módulo de estoque não está carregado.' };
     var m2 = Math.abs(parseFloat(String(p.m2 || '').replace(',', '.'))); if (!(m2 > 0) || !p.material) return { ok: false, mensagem: 'informe a pedra e os m².' };
@@ -273,6 +288,7 @@
       if (c.acao === 'boletos_revisao') return Promise.resolve(exBoletosRevisao(p));
       if (c.acao === 'cp_pagamento') return Promise.resolve(exCompraProg(p));
       if (c.acao === 'cadastrar_cuba') return exCadastrarCuba(p);
+      if (c.acao === 'boleto_novo') return Promise.resolve(exBoletoNovo(p));
       if (c.acao === 'marcar_boleto_pago') return Promise.resolve(exBoleto(p));
       if (c.acao === 'estoque_entrada') return Promise.resolve(exEstoque(p, 1));
       if (c.acao === 'estoque_baixa') return Promise.resolve(exEstoque(p, -1));
