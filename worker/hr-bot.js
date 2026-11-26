@@ -2222,6 +2222,15 @@ async function registrarLancamento(env, l) {
   return rec;
 }
 
+async function ehPagamentoDeCliente(env, msg) { // v362
+  const cit = env._ctx && env._ctx.citado ? String((await env.HR_KV.get('wo:' + env._ctx.citado).catch(() => '')) || '') : '';
+  if (/extrato de|saldo|falta r\$|pago r\$/i.test(cit)) return true; // citou um extrato/saldo de cliente
+  if (!/\b(pix|pagou|pago|paga|pagamento|parcela|cartao|passou|deu|entrada|sinal|abat\w*|baixa|deduz\w*|desconta\w*)\b/.test(msg)) return false;
+  if (/\b(gastei|paguei|comprei|abasteci|gasto|despesa)\b/.test(msg)) return false;
+  let todos = []; try { todos = await livTodos(env); } catch (_) { return false; }
+  const ws = new Set(msg.split(/[^a-z]+/).filter(w => w.length >= 4));
+  return todos.some(r => { const pn = normaliza(String(r.cliente || '').split(' ')[0]); return pn.length >= 4 && ws.has(pn) && (livTemSaldo(r) || (r.pagamentos || []).length); });
+}
 async function desfazerUltimo(env) {
   const k = await env.HR_KV.get('ultimo:fin');
   if (!k) return null;
@@ -2585,6 +2594,7 @@ async function tratarFinancas(env, from, bruto, msg, F, voz) {
   }
   const l = interpretarLancamento(bruto);
   if (!l) return false;
+  if (await ehPagamentoDeCliente(env, msg)) return false; // v362: "Renata fez um Pix de 500" / "coloque mais 500 pago" citando o extrato → é baixa no saldo da cliente (o agente cuida), não gasto/entrada solta
   if (l.type === 'out' && l.desc === 'Despesa sem descrição') {
     await env.HR_KV.put('await:desc', JSON.stringify(l), { expirationTtl: 600 });
     await enviar(env, from, fala(F, 'donoPerguntaDesc', { valor: reais(l.value) }));
@@ -4600,6 +4610,12 @@ function lerHorariosDono(texto) {
   let prox = ''; for (let i = itens.length - 1; i >= 0; i--) { if (itens[i].dia) prox = itens[i].dia; else itens[i].dia = prox; }
   return itens.filter(x => x.dia);
 }
+function soHorarios(msg) { // v362: a mensagem tem só dias/horas (e palavras de ligação)? "corrija a data do cartão pra 18/10" NÃO é
+  const t = normaliza(msg).replace(/\d{1,2}\s*(?:h|:|hs|horas?)\s*\d{0,2}/g, ' ').replace(/\d{1,2}\/\d{1,2}(\/\d{2,4})?/g, ' ').replace(/\d+/g, ' ');
+  const liga = new Set('a as ao aos o os e ou de do da das dos dia dias hoje amanha depois segunda terca quarta quinta sexta sabado domingo feira manha tarde noite cedo meio partir pode ser pela pelo na no em livre livres estou to tou fico posso ir vou horario horarios hora horas qualquer tambem so ate entre proxima proximo semana que vem'.split(' '));
+  const sobra = t.split(/[^a-z]+/).filter(w => w && !liga.has(w));
+  return sobra.length <= 1 && t.split(/\s+/).filter(Boolean).length <= 20;
+}
 async function tratarHorariosVisitaDono(env, from, bruto, msg) {
   let vl; try { vl = await env.HR_KV.list({ prefix: 'vh:' }); } catch (_) { return false; }
   const pend = [];
@@ -4610,10 +4626,11 @@ async function tratarHorariosVisitaDono(env, from, bruto, msg) {
   const mN = texto.match(/^\s*hor[aá]rios?(?:\s+livres?)?(?:\s+(?:d[oae]s?\s+)?([^:]{2,40}?))?\s*:\s*([\s\S]+)$/i);
   if (mN) { explicito = true; texto = mN[2]; alvo = mN[1] ? pend.find(v => normaliza(v.nome || '').includes(normaliza(mN[1]))) : (pend.length === 1 ? pend[0] : null); }
   else if (citado) alvo = pend.find(v => ultimos8(v.numero) === ultimos8(citado)) || null;
-  else if (pend.length === 1 && texto.split(/\s+/).length <= 20 && !texto.includes('?') && !/\b(marc\w*|visita|cobr\w*|orcamento|pedido|pago|pagou|entreg\w*)\b/.test(msg)
+  else if (pend.length === 1 && !(env._ctx && env._ctx.citado) && soHorarios(msg) // v362: sem citar o aviso, só vale se a mensagem for SÓ dias e horas (ex.: "amanhã 14h ou 16h")
     && /(\d\s*(h|:|hs|horas?)\b|\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)\b|\d{1,2}\/\d{1,2})/.test(msg)) alvo = pend[0];
   if (!alvo) { if (explicito) { await enviar(env, from, 'Sr. Hangel, não achei esse cliente esperando horários. Deslize o aviso do cliente e escreva os horários.'); return true; } return false; }
   const itens = lerHorariosDono(texto);
+  if (!explicito && itens.some(x => x.dia > isoSomaDias(dataBahia(), 45))) return false; // v362: "18/10" já passou → viraria o ano que vem; não é resposta de horário
   if (!itens.length) { if (explicito || citado) { await enviar(env, from, 'Sr. Hangel, não entendi os horários. Escreva por exemplo: _amanhã 14h ou 16h, sexta 9h_.'); return true; } return false; }
   const res = await responderHorariosVisita(env, alvo, itens);
   await enviar(env, from, res.texto);
@@ -15385,6 +15402,7 @@ const FERRAMENTAS = [
         valor_errado: { type: 'number', description: 'valor que está lançado hoje (se souber; ajuda a achar o lançamento certo)' },
         valor_certo: { type: 'number', description: 'valor correto' },
         apagar: { type: 'boolean', description: 'true para apagar o lançamento (pagamento que não existiu / duplicado)' },
+        data_certa: { type: 'string', description: 'AAAA-MM-DD. Use para corrigir SÓ A DATA ("o cartão de 2 mil foi dia 18/10"): passe valor_errado = o valor desse pagamento (ex.: 2000) e NÃO passe valor_certo. Data já passada fica no ano em que aconteceu (18/10 dito em novembro = este ano).' },
       },
       required: ['cliente'],
     },
@@ -16479,7 +16497,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       const usos = blocos.filter(b => b.type === 'tool_use'); usouFerr += usos.length;
       if (r.stop_reason !== 'tool_use' || !usos.length) {
         resposta = blocos.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-        if (!usouFerr && !cobrouFerr && volta + 1 < AGENTE_MAX_VOLTAS && /\b(registr(ei|ado|ada|ados|adas)|anotei|anotado|lancei|lan[cç]ado|marquei|atualizei|atualizado|salvei|corrigi|apaguei|enviei|mandei)\b/i.test(resposta)) { // v339: disse que fez sem chamar ferramenta nenhuma
+        if (!usouFerr && !cobrouFerr && volta + 1 < AGENTE_MAX_VOLTAS && /\b(registr(ei|ado|ada|ados|adas)|anotei|anotado|lancei|lan[cç]ado|marquei|atualizei|atualizado|salvei|corrigi|apaguei|enviei|mandei|alterei|mudei|ajustei|cancelei|desfiz|enviad[oa]|est[aá] com o senhor|vou (cancelar|corrigir|desfazer|ajustar|atualizar|apagar|voltar))\b/i.test(resposta)) { // v339: disse que fez sem chamar ferramenta nenhuma
           cobrouFerr = 1; msgs.push({ role: 'assistant', content: blocos }); msgs.push({ role: 'user', content: '[SISTEMA] Você escreveu que registrou/anotou/enviou algo, mas NÃO chamou nenhuma ferramenta: nada mudou no sistema. Se o Sr. Hangel pediu uma mudança, chame AGORA a ferramenta certa. Se não há ferramenta para isso, ou se ele só estava informando, responda dizendo com honestidade o que ficou (ou não) no sistema, sem dizer "registrei".' }); continue; }
         terminou = true;
         break;
@@ -17590,6 +17608,8 @@ const COR_TTL = 3 * 86400, COR_EXPIRA_MS = 24 * 3600 * 1000;
 async function corrigirPagamentoCliente(env, a) {
   const q = tokensPedra(String(a.cliente || '')); if (!q.length) return { erro: true, texto: 'Falta o nome do cliente.' };
   const errado = Number(a.valor_errado) > 0 ? Math.round(Number(a.valor_errado) * 100) / 100 : 0, certo = Number(a.valor_certo) > 0 ? Math.round(Number(a.valor_certo) * 100) / 100 : 0, apagar = !!a.apagar;
+  const dataCerta = /^\d{4}-\d{2}-\d{2}$/.test(String(a.data_certa || '')) ? (a.data_certa > dataBahia() ? String(+a.data_certa.slice(0, 4) - 1) + a.data_certa.slice(4) : a.data_certa) : ''; // v362: data no futuro = ano passado
+  if (dataCerta && !apagar && !certo) return await corrigirDataPagamentoCliente(env, a, errado, dataCerta);
   if (!apagar && !certo) return { erro: true, texto: 'Falta o valor certo. Pergunte ao Sr. Hangel em uma frase.' };
   const casa = d => { const t = tokensPedra(d || ''); return q.some(w => w.length >= 3 && t.some(x => x === w || tkCasa(x, w) > 0)); };
   // lançamentos dos últimos 60 dias
@@ -17612,6 +17632,39 @@ async function corrigirPagamentoCliente(env, a) {
     await livSalvar(env, r); out.push(`Livro de ${r.cliente}: pagamento de R$ ${reais(antes)} ${apagar ? 'apagado' : 'agora é R$ ' + reais(certo)}${livSaldo(r) !== null ? ` (saldo: R$ ${reais(Math.max(0, livSaldo(r)))})` : ''}`); break; }
   if (!out.length) return { erro: true, texto: `Não achei pagamento de ${a.cliente}${errado ? ' de R$ ' + reais(errado) : ''} nas finanças do bot nem no livro (pode ter sido lançado direto no app). Diga isso e pergunte o valor que está lançado.` };
   return { texto: out.join('\n') + '\nResponda ao Sr. Hangel em 1 ou 2 frases com isso.', nota: `corrigiu pagamento de ${a.cliente}` };
+}
+async function diag362(env) { // v362: estado do livro/finanças depois das correções da noite de 25/11 (sem dados pessoais no código)
+  if (!env.HR_DB || await env.HR_KV.get('diag:362')) return; await env.HR_KV.put('diag:362', '1', { expirationTtl: 2 * 86400 });
+  const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 1900000)).run();
+  const t0 = Date.parse('2026-11-25T23:00:00Z');
+  const liv = (await livTodos(env)).filter(r => (r.atualizadoEm || 0) > t0 - 86400000 * 2);
+  await put('362liv', liv);
+  const dump = async pre => { const out = []; const l = await listarTodas(env, pre); for (const k of l.keys) { let v = null; try { v = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (v) out.push({ k: k.name, ...v }); } return out; };
+  await put('362fin', (await dump('fin:17956')).filter(x => (x.id || 0) > t0 - 3600000 * 6));
+  await put('362cor', (await dump('cor:')).filter(x => (x.ts || 0) > t0 - 3600000 * 6));
+  await put('362cmd', (await dump('cmd:')).filter(x => Math.floor((x.id || 0) / 10) > t0 - 3600000 * 6));
+}
+async function fix362Visita(env) { // v362: opções de visita que o bot mandou por engano com data do ano que vem → cancela as opções (sem mandar nada ao cliente) e devolve o pedido de horários ao Sr. Hangel
+  if (await env.HR_KV.get('fix:362v')) return; await env.HR_KV.put('fix:362v', '1', { expirationTtl: 7 * 86400 });
+  const lim = isoSomaDias(dataBahia(), 60), l = await listarTodas(env, 'ca:'), feitos = [];
+  for (const k of l.keys) { let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+    if (!c || !c.opcoesDoDono || !(c.opcoesVisita || []).some(o => o.dia > lim)) continue;
+    delete c.opcoesVisita; delete c.opcoesDoDono; c.dados = c.dados || {}; c.dados.aguarda_horarios = true;
+    await env.HR_KV.put(k.name, JSON.stringify(c), { expirationTtl: CLIENTE_TTL });
+    const num = k.name.slice(3); await env.HR_KV.put('vh:' + ultimos8(num), JSON.stringify({ numero: num, nome: c.dados.nome || '', dados: c.dados, pedidoEm: Date.now() }), { expirationTtl: 3 * 86400 });
+    feitos.push(c.dados.nome || 'cliente'); }
+  if (env.HR_DB) await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362v', JSON.stringify(feitos)).run();
+}
+async function corrigirDataPagamentoCliente(env, a, valor, data) { // v362: muda só a data de um pagamento do cliente (livro + Finanças), sem mexer em valor
+  const livs = livAchar(await livTodos(env), a.cliente), out = [];
+  for (const r of livs) {
+    const pgs = (r.pagamentos || []).filter(x => !valor || Math.abs(x.valor - valor) < 0.01);
+    if (pgs.length !== 1) { if (pgs.length > 1) return { erro: true, texto: `${r.cliente} tem ${pgs.length} pagamentos${valor ? ' de R$ ' + reais(valor) : ''}: ${pgs.map(x => `${dataBR(x.data)} R$ ${reais(x.valor)} (${x.forma})`).join('; ')}. Pergunte qual.` }; continue; }
+    const antes = pgs[0].data; pgs[0].data = data; r.pagamentos.sort((x, y) => String(x.data).localeCompare(String(y.data)));
+    await livSalvar(env, r); out.push(`Livro de ${r.cliente}: pagamento de R$ ${reais(pgs[0].valor)} (${pgs[0].forma}) passou de ${dataBR(antes)} para ${dataBR(data)}. Valores e saldo não mudaram (saldo R$ ${reais(Math.max(0, livSaldo(r) || 0))}).`); break;
+  }
+  if (!out.length) return { erro: true, texto: `Não achei pagamento${valor ? ' de R$ ' + reais(valor) : ''} de ${a.cliente} no livro. Pergunte o valor do pagamento.` };
+  return { texto: out.join('\n') + '\nNada mais foi alterado. Responda em 1 frase e ofereça o PDF (pdf_saldo_cliente).', nota: `corrigiu data do pagamento de ${a.cliente}` };
 }
 async function pedirCorrecao(env, k, rec, campo, novo) {
   const id = 'cor:' + rec.waId + ':' + campo;
@@ -21434,7 +21487,7 @@ async function livFerramentaConsultar(env, a) {
 const FERRAMENTAS_LIVRO = [
   {
     name: 'pdf_saldo_cliente',
-    description: 'GERA E MANDA o PDF do SALDO / EXTRATO de um cliente (total do serviço, quanto já pagou, quanto falta, serviços e pagamentos), igual ao "PDF do saldo para o cliente" do app. Use quando o Sr. Hangel pedir "PDF do restante", "PDF do saldo", "extrato do cliente", "quanto falta em PDF". Os valores vêm do livro de pagamentos e do histórico do app; se ele disse nesta conversa quanto o cliente pagou (ex.: "só deu 2 mil de entrada dia 6/10"), passe ja_pago e data_pago. Por padrão manda para o Sr. Hangel (ele encaminha); para_cliente=true manda direto ao cliente se a conversa dele estiver aberta. NUNCA diga que não consegue gerar o PDF: use esta ferramenta.',
+    description: 'Se o Sr. Hangel pedir o PDF de novo ("quero", "eu quero", "preciso do PDF", "manda o extrato"), CHAME esta ferramenta de novo: nunca responda que já foi enviado. GERA E MANDA o PDF do SALDO / EXTRATO de um cliente (total do serviço, quanto já pagou, quanto falta, serviços e pagamentos), igual ao "PDF do saldo para o cliente" do app. Use quando o Sr. Hangel pedir "PDF do restante", "PDF do saldo", "extrato do cliente", "quanto falta em PDF". Os valores vêm do livro de pagamentos e do histórico do app; se ele disse nesta conversa quanto o cliente pagou (ex.: "só deu 2 mil de entrada dia 6/10"), passe ja_pago e data_pago. Por padrão manda para o Sr. Hangel (ele encaminha); para_cliente=true manda direto ao cliente se a conversa dele estiver aberta. NUNCA diga que não consegue gerar o PDF: use esta ferramenta.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, ja_pago: { type: 'number', description: 'total já pago, se ele disse' }, data_pago: { type: 'string', description: 'AAAA-MM-DD do pagamento que ele citou' }, total: { type: 'number', description: 'valor total, só se ele disser' }, para_cliente: { type: 'boolean' } }, required: ['cliente'] },
   },
   {
@@ -37486,6 +37539,8 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__det359) { globalThis.__det359 = 1; ctx.waitUntil((async () => { if (await env.HR_KV.get('fix:det359') || !(await travaEnvio(env, 'det359'))) return; await env.HR_KV.put('fix:det359', '1', { expirationTtl: 30 * 86400 }); await siteDetPedir(env, numeroDono(env), []); })().catch(e => console.log('[DET359]', e.message))); } // v359: começa a pedir as fotos ao Sr. Hangel agora
     if (ctx && ctx.waitUntil && !globalThis.__fix359) { globalThis.__fix359 = 1; ctx.waitUntil(fix359Obras(env).catch(e => console.log('[FIX359]', e.message))); } // v359
     if (ctx && ctx.waitUntil && !globalThis.__fix358) { globalThis.__fix358 = 1; ctx.waitUntil(fix358Lav(env).catch(e => console.log('[FIX358]', e.message))); }
+    if (ctx && ctx.waitUntil && !globalThis.__diag362) { globalThis.__diag362 = 1; ctx.waitUntil(diag362(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362err', String(e && e.stack || e)).run())); }
+    if (ctx && ctx.waitUntil && !globalThis.__fix362v) { globalThis.__fix362v = 1; ctx.waitUntil(fix362Visita(env).catch(e => console.log('[FIX362v]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357c) { globalThis.__fix357c = 1; ctx.waitUntil(fix357c(env).catch(e => console.log('[FIX357c]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix357b) { globalThis.__fix357b = 1; ctx.waitUntil(fix357b(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('357berr', String(e && e.stack || e)).run())); } // v357b
     if (ctx && ctx.waitUntil && !globalThis.__fix357) { globalThis.__fix357 = 1; ctx.waitUntil(fix357Cassio(env).catch(e => console.log('[FIX357]', e.message))); } // v357
