@@ -829,7 +829,8 @@ async function rotaCrm(req, env, url, p) {
   if (p === '/bot/crm/contatos') {
     await crmMigrar(env).catch(e => console.log('[CRM] migrar:', e.message));
     const rs = await env.HR_DB.prepare('SELECT num, nome, perfil, ult, ultx, ultq, total FROM crm_ct ORDER BY ult DESC LIMIT 500').all();
-    return jsonR({ contatos: rs.results || [], agora: Date.now() });
+    const eqN = await crmNomesEquipe(env).catch(() => ({})); // v362: funcionário aparece com o nome da equipe (sem cadastro de cliente)
+    return jsonR({ contatos: (rs.results || []).map(c => eqN[ultimos8(c.num)] ? { ...c, nome: eqN[ultimos8(c.num)] } : c), agora: Date.now() });
   }
   if (p === '/bot/crm/conversa') {
     const alvo = String(url.searchParams.get('num') || '').replace(/\D/g, '');
@@ -840,7 +841,8 @@ async function rotaCrm(req, env, url, p) {
     const ct = await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(n).first();
     const ms = (rs.results || []).reverse().map(r => { let ex = null; try { ex = r.extra ? JSON.parse(r.extra) : null; } catch (_) {} const mid = String(r.midia || ''); return { ...r, extra: ex, midia: /^[dmu]:/.test(mid) ? mid : '', expirado: /^x:/.test(mid), grande: /^g:/.test(mid) }; });
     const ultCliente = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(n).first();
-    return jsonR({ num: n, nome: (ct && ct.nome) || '', perfil: (ct && ct.perfil) || '', mensagens: ms, mais: ms.length === lim, janelaAte: ultCliente && ultCliente.t ? ultCliente.t + 86400000 : 0 });
+    const eqN2 = await crmNomesEquipe(env).catch(() => ({}));
+    return jsonR({ num: n, nome: eqN2[ultimos8(n)] || (ct && ct.nome) || '', perfil: (ct && ct.perfil) || '', mensagens: ms, mais: ms.length === lim, janelaAte: ultCliente && ultCliente.t ? ultCliente.t + 86400000 : 0 });
   }
   if (p === '/bot/crm/midia') {
     const r = String(url.searchParams.get('r') || '');
@@ -26000,6 +26002,7 @@ async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de 
 const RE_EDITAR_VID = /\b(edit[ae]|editar|edita|monte|montar|monta|mont[ae] um video|fa[cz]a? (um |o )?video|faz (um |o )?video|cri[ae] (um |o )?video|criar (um |o )?video|transform[ae] em video|com (a |uma )?frase|vinheta|reels? com)\b/;
 // v362: o Sr. Hangel manda uma foto/vídeo "pra equipe" → vai para cada funcionário (com botão de confirmação), não para o acervo de obras
 const RE_PRA_EQUIPE = /\b(mand\w*|envi\w*|repass\w*|encaminh\w*|compartilh\w*|manda)\b[^.?!]{0,40}\b(equipe|funcionarios?|cada um|pessoal|galera|todo mundo|todos eles|meninos)\b/;
+async function crmNomesEquipe(env) { const cfg = await pontoCfg(env), m = {}; for (const f of cfg.funcs || []) { const d = String(f.tel || '').replace(/\D/g, ''); if (d.length >= 8 && f.nome) m[d.slice(-8)] = f.nome + ' (equipe)'; } return m; }
 async function eqMidiaListaFuncs(env) { const cfg = await pontoCfg(env); const out = []; for (const f of cfg.funcs || []) { if (f.inativo) continue; const tel = await respTel(env, f.id); if (tel) out.push({ id: f.id, nome: String(f.nome || '').split(' ')[0], tel }); } return out; }
 async function eqMidiaPerguntar(env, from, mi, leg) {
   const fs = await eqMidiaListaFuncs(env); if (!fs.length) { await enviar(env, from, 'Não achei funcionários com telefone cadastrado.'); return true; }
