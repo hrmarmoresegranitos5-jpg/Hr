@@ -2299,6 +2299,7 @@ async function tratarBotao(env, from, id, F) {
   if (id === 'resp_ok' || id === 'resp_no') { await decidirRascunho(env, from, id === 'resp_ok'); return true; }
   if (id.startsWith('det|')) return siteDetBotao(env, from, id); // v359
   if (/^(grec|gml|gcta)\|/.test(id)) return gmailBotao(env, from, id); // v362
+  if (id.startsWith('eqm|')) return eqMidiaBotao(env, from, id); // v362
   if (id.startsWith('pr_ok|') || id.startsWith('pr_no|')) return pontoBotaoRede(env, from, id); // v34: HR Ponto, rede nova
   if (id.startsWith('ppd_ok|') || id.startsWith('ppd_no|')) return pontoPedidoBotao(env, from, id); // v85
   if (id.startsWith('pb_ok|') || id.startsWith('pb_no|')) return pontoBatidaBotao(env, from, id); // v85
@@ -21934,6 +21935,7 @@ async function tratarAssumir(env, from, bruto, msg) {
   if (await tratarHorariosVisitaDono(env, from, bruto, msg)) return true; // resposta do dono com os horários livres para a visita de um cliente
   if (await gpixComando(env, from, msg).catch(e => { console.log('[GPIX] cmd:', e.message); return false; })) return true; // v361
   if (await siteDetTexto(env, from, bruto, msg).catch(e => { console.log('[DET] texto:', e.message); return false; })) return true; // v359
+  if (await eqMidiaTexto(env, from, msg).catch(e => { console.log('[EQMID] texto:', e.message); return false; })) return true; // v362
   if (await tratarLivroComando(env, from, msg)) return true; // "entregas" / "entregas <cliente>": livro de entregas e pagamentos
   if (await tratarPronto(env, from, msg)) return true;
   if (await tratarConciliacao(env, from, msg)) return true;
@@ -25996,6 +25998,48 @@ async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de 
 }
 // v121: "edite esses vídeos com frase de bom dia", "monte um vídeo", "faz um vídeo com isso"
 const RE_EDITAR_VID = /\b(edit[ae]|editar|edita|monte|montar|monta|mont[ae] um video|fa[cz]a? (um |o )?video|faz (um |o )?video|cri[ae] (um |o )?video|criar (um |o )?video|transform[ae] em video|com (a |uma )?frase|vinheta|reels? com)\b/;
+// v362: o Sr. Hangel manda uma foto/vídeo "pra equipe" → vai para cada funcionário (com botão de confirmação), não para o acervo de obras
+const RE_PRA_EQUIPE = /\b(mand\w*|envi\w*|repass\w*|encaminh\w*|compartilh\w*|manda)\b[^.?!]{0,40}\b(equipe|funcionarios?|cada um|pessoal|galera|todo mundo|todos eles|meninos)\b/;
+async function eqMidiaListaFuncs(env) { const cfg = await pontoCfg(env); const out = []; for (const f of cfg.funcs || []) { if (f.inativo) continue; const tel = await respTel(env, f.id); if (tel) out.push({ id: f.id, nome: String(f.nome || '').split(' ')[0], tel }); } return out; }
+async function eqMidiaPerguntar(env, from, mi, leg) {
+  const fs = await eqMidiaListaFuncs(env); if (!fs.length) { await enviar(env, from, 'Não achei funcionários com telefone cadastrado.'); return true; }
+  await env.HR_KV.put('eqmid:pend', JSON.stringify({ ...mi, leg: String(leg || '').slice(0, 300), em: Date.now() }), { expirationTtl: 6 * 3600 });
+  await enviarComBotoes(env, from, `📤 Mando ${mi.tipo === 'video' ? 'este vídeo' : 'esta foto'} para cada um da equipe?\n${fs.map(f => '• ' + f.nome).join('\n')}`, [{ id: 'eqm|s', titulo: 'Mandar para todos' }, { id: 'eqm|n', titulo: 'Não mandar' }]);
+  return true;
+}
+async function eqMidiaEnviar(env, mi, legenda) {
+  const fs = await eqMidiaListaFuncs(env), link = await mdUrl(env, mi.md, mi.mime), ok = [], guard = [];
+  for (const f of fs) {
+    if (!(await travaEnvio(env, 'eqmid:' + mi.md + ':' + f.id))) continue;
+    try { if (await janela24h(env, f.tel)) { await postarMsg(env, f.tel, mi.tipo === 'video' ? { type: 'video', video: { link, ...(legenda ? { caption: legenda } : {}) } } : { type: 'image', image: { link, ...(legenda ? { caption: legenda } : {}) } }); ok.push(f.nome); }
+      else { await eqPendAdd(env, f.tel, { texto: `🎬 ${legenda || 'Recado do Sr. Hangel'}: ${link}` }); guard.push(f.nome); } } catch (e) { console.log('[EQMID]', f.nome, e.message); }
+  }
+  return { ok, guard };
+}
+async function eqMidiaBotao(env, from, id) {
+  let mi = null; try { mi = JSON.parse((await env.HR_KV.get('eqmid:pend')) || 'null'); } catch (_) {}
+  if (!mi) { await enviar(env, from, 'Esse pedido expirou. Mande de novo o vídeo com "mande pra equipe".'); return true; }
+  await env.HR_KV.delete('eqmid:pend');
+  if (id !== 'eqm|s') { await enviar(env, from, 'Certo, não mandei para ninguém.'); return true; }
+  const r = await eqMidiaEnviar(env, mi, mi.legenda || '');
+  await enviar(env, from, `✅ ${mi.tipo === 'video' ? 'Vídeo' : 'Foto'} enviado para: ${r.ok.join(', ') || 'ninguém agora'}.${r.guard.length ? `\n⏳ Para ${r.guard.join(', ')} vai quando falarem com a Helena (o WhatsApp só deixa mandar depois que a pessoa fala).` : ''}`);
+  return true;
+}
+async function eqMidiaTexto(env, from, msg) { // "mande pra cada um da equipe" citando o vídeo ou logo depois de mandá-lo
+  if (!RE_PRA_EQUIPE.test(msg) || /\b(extrato|pdf|saldo|orcamento|cliente)\b/.test(msg)) return false;
+  let mu = null; try { mu = JSON.parse((await env.HR_KV.get('dono:midiault')) || 'null'); } catch (_) {}
+  if (!mu || !mu.md || Date.now() - mu.em > 45 * 60000) return false;
+  return eqMidiaPerguntar(env, from, { md: mu.md, mime: mu.mime, tipo: mu.tipo }, '');
+}
+async function fix362Video(env) { // o Sr. Hangel pediu duas vezes ("Mande pra a equipe" / "Eu quero que mande pra cada um da equipe"): o vídeo virou obra do acervo por engano
+  if (await env.HR_KV.get('fix:362vid')) return; await env.HR_KV.put('fix:362vid', '1', { expirationTtl: 30 * 86400 });
+  let u = null; try { u = JSON.parse((await env.HR_KV.get('acv:ultimaRec')) || 'null'); } catch (_) {}
+  const o = u && await acvLer(env, u.id); if (!o || !/equipe/i.test(o.desc || '')) return;
+  const v = (o.midias || []).filter(x => x.tipo === 'video').pop(); if (!v) return;
+  await env.HR_KV.delete('acv:o:' + o.id); await env.HR_KV.put('acv:lista', JSON.stringify((await acvLista(env)).filter(x => x !== o.id)));
+  const r = await eqMidiaEnviar(env, { md: v.md, mime: v.mime, tipo: 'video' }, 'Pontos da equipe — como funciona agora 🎬');
+  await enviar(env, numeroDono(env), `✅ Mandei o vídeo *Pontos da equipe* para: ${r.ok.join(', ') || 'ninguém agora'}.${r.guard.length ? `\n⏳ Para ${r.guard.join(', ')} vai quando falarem com a Helena (o WhatsApp só deixa mandar depois que a pessoa fala).` : ''}\n\nTirei o vídeo do acervo de obras (tinha entrado lá por engano). Nada foi mandado sobre a Renata.\nDaqui pra frente: mande foto/vídeo com "mande pra equipe" na legenda que eu pergunto e mando para cada um.`).catch(() => {});
+}
 async function acvTratarMidia(env, from, m) {
   let tipo = m.type, media = m[m.type] || {}, leg = String(media.caption || '').trim();
   if (m.type === 'document') {
@@ -26007,6 +26051,11 @@ async function acvTratarMidia(env, from, m) {
   const aberto = alb && Date.now() < alb.ate;
   let o = null;
   if (leg && RE_POSTAR.test(leg)) return false; // "postar ..." continua sendo post na hora (estúdio)
+  if (leg && RE_PRA_EQUIPE.test(normaliza(leg))) { // v362: "mande pra equipe" na legenda: vai para os funcionários, não é obra
+    let md0; try { const b = await baixarMidia(env, media.id); md0 = { md: await mdSalvar(env, b.buf, tipo === 'video' ? 'video/mp4' : (/png/.test(b.tipo) ? 'image/png' : 'image/jpeg')), tipo: tipo === 'video' ? 'video' : 'foto' }; md0.mime = tipo === 'video' ? 'video/mp4' : 'image/jpeg'; } catch (e) { await enviar(env, from, 'Não consegui baixar o arquivo. Pode mandar de novo?'); return true; }
+    await env.HR_KV.put('dono:midiault', JSON.stringify({ ...md0, em: Date.now() }), { expirationTtl: 3600 }).catch(() => {});
+    return eqMidiaPerguntar(env, from, md0, leg);
+  }
   let pedEd = leg && RE_EDITAR_VID.test(normaliza(leg)) ? leg.slice(0, 300) : ''; // v121
   if (!pedEd && !aberto) { try { const pp = JSON.parse((await env.HR_KV.get('acv:pedidoPend')) || 'null'); if (pp && Date.now() - pp.em < 60 * 60000) { pedEd = pp.pedido; await env.HR_KV.delete('acv:pedidoPend'); } } catch (_) {} } // v122: pediu o reels antes de mandar
   if (pedEd && aberto) { o = await acvLer(env, alb.id); if (o) { o.pedidoEdicao = pedEd; } }
@@ -37606,6 +37655,7 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix358) { globalThis.__fix358 = 1; ctx.waitUntil(fix358Lav(env).catch(e => console.log('[FIX358]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__diag362) { globalThis.__diag362 = 1; ctx.waitUntil(diag362(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362err', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__diag362f) { globalThis.__diag362f = 1; ctx.waitUntil(diag362f(env).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362ferr', String(e && e.stack || e)).run())); }
+    if (ctx && ctx.waitUntil && !globalThis.__fix362vid) { globalThis.__fix362vid = 1; ctx.waitUntil(travaEnvio(env, 'fix362vid').then(ok => ok !== false && fix362Video(env)).catch(e => console.log('[FIX362vid]', e.message))); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362f2) { globalThis.__fix362f2 = 1; ctx.waitUntil(travaEnvio(env, 'fix362f2').then(ok => ok !== false && fix362Fab2(env)).catch(() => {})); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362f) { globalThis.__fix362f = 1; ctx.waitUntil(travaEnvio(env, 'fix362f').then(ok => ok !== false && fix362Fab(env)).catch(e => env.HR_DB && env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('362faberr', String(e && e.stack || e)).run())); }
     if (ctx && ctx.waitUntil && !globalThis.__fix362r) { globalThis.__fix362r = 1; ctx.waitUntil(travaEnvio(env, 'fix362r').then(ok => ok !== false && fix362Renata(env)).catch(e => console.log('[FIX362r]', e.message))); }
