@@ -1038,6 +1038,21 @@ async function fix365Renata2(env) { // o Sr. Hangel avisou em 27/11 10:05: "Rena
   r.pagamentos.push({ data: '2026-11-26', valor: 500, forma: 'Pix', obs: 'Pix (Sr. Hangel, 27/11)', ref: '', origem: 'dono', em: Date.now() }); await livSalvar(env, r);
   await notificarDono(env, Date.now(), `Renata: lancei o Pix de R$ 500,00 de 26/11 (desculpe ter recusado).\nPago R$ ${reais(livPago(r))} · falta R$ ${reais(livSaldo(r) || 0)}`).catch(() => {});
 }
+async function fix365Fabricio(env) { // pela conversa do Fabrício (27/11): cortes que ele avisou e não pontuaram
+  const cfg = await pontoCfg(env), fab = (cfg.funcs || []).find(x => /^fabr/.test(normaliza(x.nome || ''))); if (!fab) return; const F = String(fab.id), L = [];
+  const peds = await pedidosProducao(env, p => p.status !== 'recusado').catch(() => []);
+  const temCorte = p => (p.prodLog || []).some(x => x.e === 'corte' && (x.por || []).map(String).includes(F) && x.ap !== -1);
+  const addCorte = async (p, ts, txt) => { p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : []; p.prodLog.push({ e: 'corte', por: [F], ts, ap: 1, apEm: Date.now(), dono: 1, obs: 'conversa do Fabrício' }); if (!p.corteEm) { p.corteEm = ts; p.corteFeitoPor = F; } await salvarPedido(env, p); L.push(`${txt}: ${vPt(ptsEtapa(p, 'corte', ts))} pts`); };
+  const joels = peds.filter(p => /^joel\b/.test(normaliza(p.nome || '')));
+  const jNovo = joels.find(p => (p.pecas || []).some(x => +x.comp_cm === 133 && +x.larg_cm === 14)) || joels.find(p => /0589/.test(String(p.projetoDe || p.orcNum || '')));
+  if (jNovo && !temCorte(jNovo)) await addCorte(jNovo, quandoTs('2026-11-26', '14:31'), 'Joel · peitoril 133×14 Preto São Gabriel (26/11)');
+  const jVelho = joels.find(p => p !== jNovo && /ubatuba/.test(normaliza(JSON.stringify(p.resumoApp || {}) + ' ' + (p.cor || '') + ' ' + (p.pedra || ''))));
+  if (jVelho && !jVelho.entregueEm) { jVelho.prontoEm = jVelho.prontoEm || quandoTs('2026-11-24', '08:00'); jVelho.entregueEm = quandoTs('2026-11-24', '08:15'); jVelho.entregaAntesDoBot = 1; await salvarPedido(env, jVelho); L.push('Joel · peitoris e soleiras Verde Ubatuba: marcado como entregue (24/11) — a Helena estava cobrando esse corte dele de novo'); }
+  const pratel = peds.find(p => /^cassio\b/.test(normaliza(p.nome || '')) && /prateleir/.test(normaliza(JSON.stringify(p.pecas || []) + ' ' + JSON.stringify(p.resumoApp || {}) + ' ' + (p.projetoApp || '') + ' ' + (p.interesse || ''))));
+  if (pratel && !temCorte(pratel)) await addCorte(pratel, quandoTs('2026-11-25', '13:44'), 'Cássio · 2 prateleiras (25/11)');
+  await metaChecar(env, F).catch(() => {});
+  await notificarDono(env, Date.now(), ['Pontos do Fabrício conferidos pela conversa dele', ...(L.length ? L : ['Nada a lançar (já estava tudo certo).']), 'Ficaram para o senhor decidir: (1) 19/11 "lavatório do bege bahia de Cássio cortado" contou como corte do Douglas (+7); (2) 25/11 "peças da cuba do lavatório branco prime de Poliano" — a Helena disse que já estava no corte de 19/11. Se quiser, mande: auditar pontos do Fabrício.'].join('\n')).catch(() => {});
+}
 async function fix365Limpa2(env) { // segunda passada: o que sobrou (registro repetido) + o peitoril de consulta que entrou como "Zenilda"
   const abertos = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado').catch(() => []), L = [];
   for (const p of abertos) { const n = normaliza(String(p.nome || '')).replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -13646,7 +13661,7 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   if (!ach.length) { const mine = l.filter(p => [p.fabResp, p.fab2Resp, p.acabResp, p.poliResp].map(String).includes(id) && unidadesPed(p).length > 1);
     const outroNome = (msg.match(/\b(?:de|do|da|dos|das)\s+([a-z]{3,})/g) || []).map(x => x.split(/\s+/).pop()).filter(w => !/^(preto|branco|verde|cinza|marrom|sao|gabriel|absoluto|granito|marmore|quartzo|pedra|cozinha|banheiro|lavatorio|lavatorios|peitoril|peitoris|soleira|soleiras|bancada|corte|acabamento|hoje|ontem|manha|tarde|novo|nova|servico|item|itens|pecas|peca|area|gourmet|frontao|saia|sainha)$/.test(w));
     const nounM = nm ? nm[1] : '', casaItem = !nounM || /^(pecas?|itens|item)$/.test(normaliza(nounM)) || unidadesPed(mine[0] || {}).some(u => casaNoun(u, nounM));
-    if (mine.length === 1 && casaItem && !(outroNome.length && !outroNome.some(w => nomeParecido(mine[0], w)))) ach = mine; } // v306: "peitoril cortado" não cai num serviço que não tem peitoril // v305: "peitoril de Jacó cortado" não vira pergunta sobre o Cássio
+    if (mine.length === 1 && casaItem && !pedConflitoTxt(mine[0], texto) && !(outroNome.length && !outroNome.some(w => nomeParecido(mine[0], w)))) ach = mine; } // v306: "peitoril cortado" não cai num serviço que não tem peitoril // v305: "peitoril de Jacó cortado" não vira pergunta sobre o Cássio
   ach = ach.filter(p => !pedConflitoTxt(p, texto)); // v326: "soleira itaúnas cortada" não vira pergunta sobre os peitoris do Jacó
   if (ach.length !== 1) return false;
   const ped = ach[0];
@@ -34428,6 +34443,7 @@ ENTENDA TUDO o que ele disser (a mensagem pode ser áudio transcrito com erros: 
 - Problema (pedra trincou, faltou material, máquina quebrou), recado, pedido ou qualquer outra coisa: responda com naturalidade e "escalar": true com um resumo claro para o Sr. Hangel.
 Nunca pergunte data de nascimento, dia ou horário se ele está falando de serviço ou pontos. Quando ele fala de um serviço sem dizer o cliente ("a cozinha do preto são gabriel", "o balcão do verde ubatuba"), ache o cliente em SERVIÇOS ABERTOS pela peça e pela pedra; se só um bate, use esse cliente (acao registrar); se mais de um, pergunte qual, citando os nomes. O texto pode ser áudio mal transcrito: "Acunento", "Priton Gabriel", "Osmarilto" são palavras erradas — nunca as trate como nome de cliente; use só nomes da lista. NUNCA responda "não achei ficha pendente", "vou passar seu recado ao responsável" ou "avisei o Sr. Hangel sobre o serviço de <algo que não é cliente da lista>". Nunca responda só "Avisei o Sr. Hangel": diga o que você entendeu.
 POSTURA PROFISSIONAL (obrigatório): você é uma secretária experiente. Leia o HISTÓRICO antes de responder. Resposta curta ("sim", "ss", "não", "foi", "já") é resposta à última pergunta do histórico: entenda assim e siga (nunca responda "Olá, como posso ajudar?"). NÃO cumprimente de novo se já houve conversa hoje. NÃO repita uma pergunta que já foi feita ou respondida no histórico; NÃO peça de novo o que ele já disse. Uma pergunta por vez, só quando faltar algo de verdade. Sem frases genéricas.
+NÚMEROS DE PONTOS (v365): para dizer quanto ele tem na SEMANA ou HOJE, use SÓ o "Semana: X de Y" / "Hoje" dos dados de PONTOS. Nunca use média de 30 dias como se fosse a semana (ele tinha 8 e você disse 33). Se não tiver o número, não invente.
 PONTOS MERECIDOS: se pelo histórico ele fez um serviço (foto "finalizando/finalizei/instalei/terminei o de X", "já foi entregue") e ainda não aparece nos PONTOS dele, use "acao":"registrar" com o cliente e a etapa certa (instalacao para quem instala), em vez de pedir para ele repetir.
 ${eqCtx}
 RELATÓRIO ENVIADO${rel ? ` (${rel.label}, ${rel.di} a ${rel.df}, situação: ${rel.status})` : ''}:
@@ -38027,13 +38043,14 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__det359) { globalThis.__det359 = 1; ctx.waitUntil((async () => { if (await env.HR_KV.get('fix:det359') || !(await travaEnvio(env, 'det359'))) return; await env.HR_KV.put('fix:det359', '1', { expirationTtl: 30 * 86400 }); await siteDetPedir(env, numeroDono(env), []); })().catch(e => console.log('[DET359]', e.message))); } // v359: começa a pedir as fotos ao Sr. Hangel agora
-    if (ctx && ctx.waitUntil && globalThis.__fix365 !== 5) { globalThis.__fix365 = 5; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
+    if (ctx && ctx.waitUntil && globalThis.__fix365 !== 6) { globalThis.__fix365 = 6; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
       if (!(await env.HR_KV.get('fix:v365limpa')) && await travaEnvio(env, 'fix:v365limpa')) { await env.HR_KV.put('fix:v365limpa', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa(env).catch(e => console.log('[FIX365]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365osm')) && await travaEnvio(env, 'fix:v365osm')) { await env.HR_KV.put('fix:v365osm', '1', { expirationTtl: 60 * 86400 }); await fix365Osmailton(env).catch(e => console.log('[FIX365O]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365limpa2')) && await travaEnvio(env, 'fix:v365limpa2')) { await env.HR_KV.put('fix:v365limpa2', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa2(env).catch(e => console.log('[FIX365b]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365ren')) && await travaEnvio(env, 'fix:v365ren')) { await env.HR_KV.put('fix:v365ren', '1', { expirationTtl: 60 * 86400 }); await fix365Renata(env).catch(e => console.log('[FIX365R]', e.message)); }
       if (await env.HR_KV.get('fix:v365ren') && !(await env.HR_KV.get('fix:v365ren2')) && await travaEnvio(env, 'fix:v365ren2')) { await env.HR_KV.put('fix:v365ren2', '1', { expirationTtl: 60 * 86400 }); await fix365Renata2(env).catch(e => console.log('[FIX365R2]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365site2')) && await travaEnvio(env, 'fix:v365site2')) { await env.HR_KV.put('fix:v365site2', '1', { expirationTtl: 60 * 86400 }); await fix365Site2(env).catch(e => console.log('[FIX365S2]', e.message)); }
+      if (!(await env.HR_KV.get('fix:v365fab')) && await travaEnvio(env, 'fix:v365fab')) { await env.HR_KV.put('fix:v365fab', '1', { expirationTtl: 60 * 86400 }); await fix365Fabricio(env).catch(e => console.log('[FIX365F]', e.message)); }
       if (!(await env.HR_KV.get('fix:v364proj')) && await travaEnvio(env, 'fix:v364proj')) { await env.HR_KV.put('fix:v364proj', '1', { expirationTtl: 60 * 86400 }); await fix364Projetos(env).catch(e => console.log('[FIX364P]', e.message)); }
       await env.HR_KV.delete('painel:cache').catch(() => {}); })()); }
     if (ctx && ctx.waitUntil && !globalThis.__fix364s) { globalThis.__fix364s = 1; ctx.waitUntil(fix364Site(env).catch(e => console.log('[FIX364S]', e.message))); } // v364
