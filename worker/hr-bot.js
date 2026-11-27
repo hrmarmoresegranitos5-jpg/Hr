@@ -1013,6 +1013,15 @@ async function orcPdfIndiceMontar(env) { // uma vez: monta o índice com os PDFs
   for (let i = 0; i < keys.length; i += 25) { const rs = await Promise.all(keys.slice(i, i + 25).map(k => env.HR_KV.get(k).then(v => [k, v]).catch(() => [k, null]))); for (const [k, v] of rs) { try { const r = JSON.parse(v || 'null'); if (r && r.resumo && r.cliente) idx.push({ k, cliente: r.cliente, em: r.em || 0, n: (r.resumo.itens || []).reduce((t, it) => t + it.pecas.length, 0) }); } catch (_) {} } }
   idx.sort((a, b) => b.em - a.em); await env.HR_KV.put('orcpdf:idx', JSON.stringify(idx.slice(0, 600))); await env.HR_KV.put('orcpdf:idxok', '1');
 }
+async function fix365Limpa2(env) { // segunda passada: o que sobrou (registro repetido) + o peitoril de consulta que entrou como "Zenilda"
+  const abertos = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado').catch(() => []), L = [];
+  for (const p of abertos) { const n = normaliza(String(p.nome || '')).replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/^(cliente )?(eliane|osmailt)/.test(n) || /^douglas$/.test(n)) { p.prontoEm = p.prontoEm || Date.now(); p.entregueEm = Date.now(); p.entregaAntesDoBot = 1; await salvarPedido(env, p); L.push(`${p.nome}: entregue`); }
+    else if (/^batim/.test(n)) { p.status = 'recusado'; p.recusadoEm = Date.now(); p.motivo = 'não fechou'; await salvarPedido(env, p); L.push(`${p.nome}: fora da produção`); }
+    else if (/^zenilda/.test(n) && /peitor/.test(normaliza(JSON.stringify(p.pecas || []) + ' ' + (p.projetoApp || '') + ' ' + (p.interesse || ''))) && (/0588/.test(String(p.orcNum || p.projetoDe || '')) || (p.pecas || []).some(x => +x.comp_cm === 129 && +x.larg_cm === 17))) { p.status = 'recusado'; p.recusadoEm = Date.now(); p.motivo = 'era só consulta de preço (ORC-0588), não é da Zenilda'; await salvarPedido(env, p); L.push('Peitoril 129×17 (ORC-0588): era só consulta de preço, saiu da produção e não está mais no nome da Zenilda'); }
+  }
+  if (L.length) await notificarDono(env, Date.now(), ['Produção limpa (2ª passada)', ...L].join('\n')).catch(() => {});
+}
 async function fix365Osmailton(env) { // as fotos do "Gibson entregou Cássio Borges" (26/11 12:39) eram do balcão do Osmailton, montado por Gibson e Jefferson
   const cfg = await pontoCfg(env), fP = re => (cfg.funcs || []).find(x => re.test(normaliza(x.nome || ''))), gib = fP(/^gibs/), jef = fP(/^jeff/); if (!gib) return;
   const todos = await pedidosProducao(env, p => p.status !== 'recusado').catch(() => []), L = [];
@@ -37902,9 +37911,10 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__det359) { globalThis.__det359 = 1; ctx.waitUntil((async () => { if (await env.HR_KV.get('fix:det359') || !(await travaEnvio(env, 'det359'))) return; await env.HR_KV.put('fix:det359', '1', { expirationTtl: 30 * 86400 }); await siteDetPedir(env, numeroDono(env), []); })().catch(e => console.log('[DET359]', e.message))); } // v359: começa a pedir as fotos ao Sr. Hangel agora
-    if (ctx && ctx.waitUntil && !globalThis.__fix365) { globalThis.__fix365 = 1; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
+    if (ctx && ctx.waitUntil && globalThis.__fix365 !== 2) { globalThis.__fix365 = 2; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
       if (!(await env.HR_KV.get('fix:v365limpa')) && await travaEnvio(env, 'fix:v365limpa')) { await env.HR_KV.put('fix:v365limpa', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa(env).catch(e => console.log('[FIX365]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365osm')) && await travaEnvio(env, 'fix:v365osm')) { await env.HR_KV.put('fix:v365osm', '1', { expirationTtl: 60 * 86400 }); await fix365Osmailton(env).catch(e => console.log('[FIX365O]', e.message)); }
+      if (!(await env.HR_KV.get('fix:v365limpa2')) && await travaEnvio(env, 'fix:v365limpa2')) { await env.HR_KV.put('fix:v365limpa2', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa2(env).catch(e => console.log('[FIX365b]', e.message)); }
       if (!(await env.HR_KV.get('fix:v364proj')) && await travaEnvio(env, 'fix:v364proj')) { await env.HR_KV.put('fix:v364proj', '1', { expirationTtl: 60 * 86400 }); await fix364Projetos(env).catch(e => console.log('[FIX364P]', e.message)); }
       await env.HR_KV.delete('painel:cache').catch(() => {}); })()); }
     if (ctx && ctx.waitUntil && !globalThis.__fix364s) { globalThis.__fix364s = 1; ctx.waitUntil(fix364Site(env).catch(e => console.log('[FIX364S]', e.message))); } // v364
