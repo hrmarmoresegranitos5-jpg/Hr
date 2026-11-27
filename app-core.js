@@ -1992,6 +1992,32 @@ function _migRebBalcao(){
 }
 var REB_A_TAMPO={c:126,l:54}; // tampo do rebaixo americano: recorte padrão 120×48 + 6 cm
 function _rebATampoM2(){return REB_A_TAMPO.c*REB_A_TAMPO.l/10000;}
+// v369: tipos de ambiente que vêm do app (os criados nas Configurações têm editor próprio)
+function _svTiposBase(){
+  var cust=(CFG.customTipos||[]).map(function(c){return c.tipo;});
+  return (typeof TIPOS_AMBIENTE!=='undefined'?TIPOS_AMBIENTE:Object.keys(SV_DEFS)).filter(function(t){return SV_DEFS[t]&&cust.indexOf(t)<0;});
+}
+// Itens com sv.amb (lista de ambientes) entram só nesses ambientes; serviços removidos (CFG.svRemovidos) somem de todos
+function _svPorAmbiente(){
+  var rem=CFG.svRemovidos||[], tipos=_svTiposBase();
+  tipos.forEach(function(t){
+    var def=SV_DEFS[t];
+    (CFG.svList||[]).forEach(function(sv){
+      if(!Array.isArray(sv.amb))return;
+      var quer=sv.amb.indexOf(t)>=0, onde=null;
+      def.forEach(function(g){g.its.forEach(function(it){if(it.k===sv.k)onde=g;});});
+      if(quer&&!onde){
+        var partes=String(sv.grp||'Serviços').split('/').map(function(x){return x.trim();});
+        var g=def.find(function(g){return partes.indexOf(g.g)>=0||g.g===sv.grp;});
+        if(!g){g={g:partes[0]||'Serviços',its:[]};var pos=def.findIndex(function(x){return x.g==='Deslocamento';});if(pos<0)def.push(g);else def.splice(pos,0,g);}
+        g.its.push({k:sv.k,l:sv.l,u:sv.u||'un',fx:sv.fx||0});
+      }else if(!quer&&onde){onde.its=onde.its.filter(function(it){return it.k!==sv.k;});}
+      else if(onde){onde.its.forEach(function(it){if(it.k===sv.k){it.l=sv.l;it.u=sv.u||it.u;if(sv.hasOwnProperty('fx'))it.fx=sv.fx;}});}
+    });
+    if(rem.length)def.forEach(function(g){g.its=g.its.filter(function(it){return rem.indexOf(it.k)<0;});});
+    for(var i=def.length-1;i>=0;i--)if(!def[i].its.length&&def[i]._novo)def.splice(i,1);
+  });
+}
 function syncSVDefsFromList(){
   if(!CFG.svList)return;
   // Update CFG.sv prices and labels
@@ -2001,6 +2027,7 @@ function syncSVDefsFromList(){
   // Group svList items by grp
   var grpMap={};
   CFG.svList.forEach(function(sv){
+    if(Array.isArray(sv.amb))return; // v369: item com "Aparece em" escolhido é posto por _svPorAmbiente
     if(!grpMap[sv.grp])grpMap[sv.grp]=[];
     grpMap[sv.grp].push({k:sv.k,l:sv.l,u:sv.u||'un',fx:sv.fx||0});
   });
@@ -2031,7 +2058,7 @@ function syncSVDefsFromList(){
       // Update existing items labels/unit
       grp.its.forEach(function(it){
         var sv=CFG.svList.find(function(x){return x.k===it.k;});
-        if(sv){it.l=sv.l;it.u=sv.u||it.u;}
+        if(sv){it.l=sv.l;it.u=sv.u||it.u;if(sv.hasOwnProperty('fx'))it.fx=sv.fx;}
       });
       // Add new items that are in svList but not in grp.its
       svItems.forEach(function(svIt){
@@ -2041,6 +2068,7 @@ function syncSVDefsFromList(){
     });
   });
   // Refresh dynamic borda arrays so new sainha/frontão services appear in picker
+  try{_svPorAmbiente();}catch(e){console.warn('[sv] amb',e);}
   _refreshBordaArrays();
 }
 
@@ -12161,9 +12189,50 @@ function _cfgFiltrar(tipo, arr){
 var _SV_UNIDADES = [
   ['sf', 'ml + m² de pedra'],
   ['ml', 'por metro linear (ml)'],
-  ['un', 'por unidade'],
+  ['un', 'por unidade (com quantidade)'],
+  ['fx', 'valor fixo (Sim / Não)'],
+  ['ml_auto', 'por ml, automático pelas peças'],
   ['km', 'por km']
 ];
+var _SV_ORDEM = ['Sainha/Frontão','Sainha','Frontão','Furos & Recortes','Furos','Rebaixo','Área Molhada','Cuba','Fixação','Instalação','Soleira/Peitoril','Acabamento','Tipo','Rodapé de Box','Rodapé de Armário','Túmulo / Capela','Ajustes & Garantias','Deslocamento'];
+var _SV_ICONE = {'Sainha/Frontão':'📐','Sainha':'📐','Frontão':'🧱','Furos & Recortes':'🕳️','Furos':'🕳️','Rebaixo':'⬇️','Área Molhada':'💧','Fixação':'🔩','Instalação':'🛠️','Soleira/Peitoril':'🚪','Rodapé de Box':'🚿','Rodapé de Armário':'🗄️','Túmulo / Capela':'⛪','Ajustes & Garantias':'🛡️','Deslocamento':'🚚'};
+function _svUVal(sv){ return sv.fx === 1 ? 'fx' : (sv.u || 'un'); }
+function _svUTexto(sv){ var v = _svUVal(sv), f = _SV_UNIDADES.find(function (u) { return u[0] === v; }); return f ? f[1] : v; }
+// onde o serviço aparece hoje no Orçamento
+function _svOnde(k){
+  var o = [];
+  _svTiposBase().forEach(function (t) { if ((SV_DEFS[t] || []).some(function (g) { return (g.its || []).some(function (it) { return it.k === k; }); })) o.push(t); });
+  return o;
+}
+// traz para a lista os serviços que existem no Orçamento mas não tinham onde editar o preço
+function _svImportarDefs(){
+  if (!CFG.svList) CFG.svList = [];
+  var rem = CFG.svRemovidos || [], tem = {}, novos = 0;
+  CFG.svList.forEach(function (x) { tem[x.k] = 1; });
+  _svTiposBase().forEach(function (t) {
+    (SV_DEFS[t] || []).forEach(function (g) {
+      (g.its || []).forEach(function (it) {
+        if (!it.k || tem[it.k] || rem.indexOf(it.k) >= 0 || /^(cuba|livre|acb_auto)$/.test(it.u || '')) return;
+        tem[it.k] = 1; novos++;
+        var pr = getPr(it.k) || 0;
+        var n = { k: it.k, l: it.l || it.k, preco: pr, grp: g.g, u: it.u || 'un', amb: _svOnde(it.k) };
+        if (it.fx === 1) n.fx = 1;
+        CFG.svList.push(n);
+        if (CFG.sv[it.k] == null) CFG.sv[it.k] = pr;
+      });
+    });
+  });
+  if (novos) { try { svCFG(); } catch (e) {} }
+  return novos;
+}
+function _svAmbToggle(k, t){
+  var it = _svFind(k); if (!it) return;
+  var a = Array.isArray(it.amb) ? it.amb.slice() : _svOnde(k);
+  var i = a.indexOf(t); if (i >= 0) a.splice(i, 1); else a.push(t);
+  it.amb = a;
+  _svAplicar(); buildCfg();
+}
+window._svAmbToggle = _svAmbToggle;
 if (!_cfgQ.sv) _cfgQ.sv = '';
 
 function _svCss() {
@@ -12203,7 +12272,8 @@ function _svGrupos() {
     var g = x.grp || 'Sem grupo';
     if (!seen[g]) { seen[g] = 1; o.push(g); }
   });
-  return o;
+  var pos = function (g) { var i = _SV_ORDEM.indexOf(g); return i < 0 ? 900 : i; };
+  return o.map(function (g, i) { return [g, i]; }).sort(function (a, b) { return (pos(a[0]) - pos(b[0])) || (a[1] - b[1]); }).map(function (x) { return x[0]; });
 }
 
 // Salva e propaga pro Orçamento imediatamente (antes só valia após recarregar
@@ -12221,7 +12291,8 @@ function _svFind(k) {
 function _svSet(k, campo, valor, rerender) {
   var it = _svFind(k);
   if (!it) return;
-  it[campo] = valor;
+  if (campo === 'u') { if (valor === 'fx') { it.u = 'un'; it.fx = 1; } else { it.u = valor; it.fx = 0; } }
+  else it[campo] = valor;
   if (campo === 'preco') CFG.sv[k] = valor;
   _svAplicar();
   if (rerender) buildCfg();
@@ -12290,6 +12361,8 @@ function _svRemover(k) {
   if (!it) return;
   if (!confirm('Remover "' + it.l + '"?\n\nEle some do Orçamento também.')) return;
   CFG.svList.splice(CFG.svList.indexOf(it), 1);
+  if (!CFG.svRemovidos) CFG.svRemovidos = [];
+  if (CFG.svRemovidos.indexOf(k) < 0) CFG.svRemovidos.push(k);
   delete CFG.sv[k];
   _svTirarDoOrcamento(k);
   _svAplicar();
@@ -12322,6 +12395,9 @@ function _svNovoItem(gi) {
   grupos.forEach(function (g) { h += '<option value="' + escH(g) + '"' + (g === pre ? ' selected' : '') + '>' + escH(g) + '</option>'; });
   h += '<option value="__novo__"' + (!pre && !grupos.length ? ' selected' : '') + '>➕ Criar novo grupo…</option></select>';
   h += '<input id="svN_gn" class="cfginp cfginp-xl" placeholder="Nome do novo grupo" style="display:' + (!grupos.length ? 'block' : 'none') + ';">';
+  h += '<label>Aparece em quais ambientes</label><div id="svN_amb" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">';
+  _svTiposBase().forEach(function (t) { var on = t === 'Cozinha'; h += '<button type="button" data-t="' + escH(t) + '" data-on="' + (on ? 1 : 0) + '" onclick="this.dataset.on=this.dataset.on===\'1\'?\'0\':\'1\';this.style.borderColor=this.dataset.on===\'1\'?\'var(--gold)\':\'var(--bd2)\';this.style.color=this.dataset.on===\'1\'?\'var(--gold)\':\'var(--t3)\';" style="padding:6px 10px;border-radius:20px;background:var(--s1);font-size:.7rem;font-family:Outfit,sans-serif;border:1px solid ' + (on ? 'var(--gold)' : 'var(--bd2)') + ';color:' + (on ? 'var(--gold)' : 'var(--t3)') + ';">' + escH(t) + '</button>'; });
+  h += '</div>';
   h += '<div class="bt"><button onclick="document.getElementById(\'svModal\').remove()" style="background:transparent;border:1px solid var(--bd2);color:var(--t2);">Cancelar</button>';
   h += '<button onclick="_svNovoSalvar()" style="background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;color:#000;">Adicionar</button></div>';
   h += '</div>';
@@ -12339,7 +12415,11 @@ function _svNovoSalvar() {
   if (!nm) { toast('Digite o nome do serviço'); return; }
   if (!g) { toast('Escolha ou crie um grupo'); return; }
   var k = 'sv_' + Date.now();
-  CFG.svList.push({ k: k, l: nm, preco: pr, grp: g, u: u });
+  var amb = [].slice.call(document.querySelectorAll('#svN_amb button')).filter(function (b) { return b.dataset.on === '1'; }).map(function (b) { return b.dataset.t; });
+  if (!amb.length) { toast('Escolha pelo menos um ambiente'); return; }
+  var novo = { k: k, l: nm, preco: pr, grp: g, u: u === 'fx' ? 'un' : u, amb: amb };
+  if (u === 'fx') novo.fx = 1;
+  CFG.svList.push(novo);
   CFG.sv[k] = pr;
   _cfgOpen['svg_' + g] = true;
   _svAplicar();
@@ -12352,6 +12432,7 @@ function _svNovoSalvar() {
 // ── Renderização da aba ─────────────────────────────────────────────────────
 function _svRenderLista() {
   _svCss();
+  try { if (_svImportarDefs()) syncSVDefsFromList(); } catch (e) { console.warn('[sv] importar', e); }
   var lista = CFG.svList || [];
   var q = (_cfgQ.sv || '').trim().toLowerCase();
   var grupos = _svGrupos();
@@ -12366,7 +12447,7 @@ function _svRenderLista() {
     var aberto = q ? true : !!_cfgOpen['svg_' + g];
     corpo += '<div class="cfgsec">';
     corpo += '<div class="sv-gh" onclick="_svGrpToggle(' + gi + ')">';
-    corpo += '<span class="n">' + escH(g) + '</span><span class="c">' + itens.length + '</span>';
+    corpo += '<span class="n">' + (_SV_ICONE[g] ? _SV_ICONE[g] + ' ' : '') + escH(g) + '</span><span class="c">' + itens.length + '</span>';
     corpo += '<button class="ad" onclick="event.stopPropagation();_svNovoItem(' + gi + ')">+</button>';
     corpo += '<span class="ch" style="transform:rotate(' + (aberto ? '180' : '0') + 'deg);">▾</span></div>';
     if (aberto) {
@@ -12377,13 +12458,18 @@ function _svRenderLista() {
         corpo += '<input class="cfginp nm" value="' + escH(sv.l || '') + '" placeholder="Nome do serviço" onchange="_svSet(\'' + k + '\',\'l\',this.value)">';
         corpo += '<div class="sv-l2"><div class="sv-pr"><span>R$</span><input type="number" inputmode="decimal" step="any" value="' + (sv.preco || 0) + '" onchange="_svSet(\'' + k + '\',\'preco\',parseFloat(this.value)||0,true)"></div>';
         corpo += '<select class="cfginp" onchange="_svSet(\'' + k + '\',\'u\',this.value,true)">';
-        var temU = false;
-        _SV_UNIDADES.forEach(function (u) { if (u[0] === sv.u) temU = true; corpo += '<option value="' + u[0] + '"' + (u[0] === sv.u ? ' selected' : '') + '>' + u[1] + '</option>'; });
+        var temU = false, uv = _svUVal(sv);
+        _SV_UNIDADES.forEach(function (u) { if (u[0] === uv) temU = true; corpo += '<option value="' + u[0] + '"' + (u[0] === uv ? ' selected' : '') + '>' + u[1] + '</option>'; });
         if (!temU && sv.u) corpo += '<option value="' + escH(sv.u) + '" selected>' + escH(sv.u) + '</option>';
         corpo += '</select>';
         corpo += '<button class="cfgbtn" onclick="_svItToggle(\'' + k + '\')" aria-label="Mais opções">' + (ab ? '▴' : '⋯') + '</button></div>';
         if (sv.u === 'sf') corpo += '<div class="sv-hint">Cobra R$ ' + (sv.preco || 0) + ' por ml, mais a m² da pedra da borda.</div>';
+        var onde = _svOnde(sv.k);
+        corpo += '<div class="sv-hint">' + (onde.length ? '📍 Aparece em: ' + escH(onde.join(', ')) : '⚠️ Não aparece em nenhum ambiente do Orçamento') + '</div>';
         if (ab) {
+          corpo += '<div style="font-size:.6rem;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-top:10px;">Aparece em (toque para ligar/desligar)</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">';
+          _svTiposBase().forEach(function (t) { var on = onde.indexOf(t) >= 0; corpo += '<button type="button" onclick="_svAmbToggle(\'' + k + '\',\'' + _svJs(t) + '\')" style="padding:5px 10px;border-radius:20px;background:var(--s1);font-size:.68rem;font-family:Outfit,sans-serif;border:1px solid ' + (on ? 'var(--gold)' : 'var(--bd2)') + ';color:' + (on ? 'var(--gold)' : 'var(--t4)') + ';">' + (on ? '✓ ' : '') + escH(t) + '</button>'; });
+          corpo += '</div>';
           corpo += '<div class="sv-act">';
           corpo += '<button class="cfgbtn" onclick="_svMover(\'' + k + '\',-1)">↑</button>';
           corpo += '<button class="cfgbtn" onclick="_svMover(\'' + k + '\',1)">↓</button>';
