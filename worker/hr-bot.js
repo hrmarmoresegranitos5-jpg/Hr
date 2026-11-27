@@ -26412,6 +26412,7 @@ function acvDisponiveis(o) { // índices das mídias que o computador tem (ou qu
   const vivo = o.origem === 'instagram' || Date.now() - (o.atualizado || o.criado) < 6.5 * 86400000;
   const F = globalThis.__vdFiltro; // v365: no vídeo do dia só entra filmagem/foto de obra (nada de vídeo de aviso, arte amarela, texto grande por cima)
   if (F && (legInstrucao(o.desc) || RE_NAO_OBRA.test(normaliza(o.desc || '')))) return [];
+  if (F && o.origem === 'instagram' && !F.ig) return []; // v365: post antigo baixado do Instagram vem comprimido (qualidade ruim); o vídeo do dia usa os originais
   return (o.midias || []).map((x, i) => i).filter(i => (i < (o.noPC || 0) || vivo) && (!F || (o.midias[i].pf ? F.ok.has(o.midias[i].pf) : o.origem !== 'instagram')));
 }
 async function vdEscolher(env) {
@@ -26451,7 +26452,7 @@ async function vdEscolherObra(env, evitar) {
 async function vdCriar(env, avisarSemObra) {
   if (!(await estEditorPareado(env))) { if (avisarSemObra) await enviar(env, numeroDono(env), 'Para o vídeo do dia, o editor do computador precisa estar conectado. Mande *editor* e siga os passos.'); return null; }
   { const pf = await lerPortfolio(env).catch(() => []); globalThis.__vdFiltro = { ok: new Set(pf.filter(pfNoSite).map(i => i.id)) }; } // v365: só filmagem/foto de obra
-  let esc; try { esc = await vdEscolher(env); } finally { globalThis.__vdFiltro = null; }
+  let esc; try { esc = await vdEscolher(env); if (!esc) { globalThis.__vdFiltro.ig = true; esc = await vdEscolher(env); } } finally { globalThis.__vdFiltro = null; } // só usa post do Instagram se não houver nenhum original
   const o = esc && (esc.tipo === 'obra' ? esc.o : { id: 'mix', desc: 'compilação de ' + esc.partes.length + ' obras', midias: esc.partes.flatMap(p => p.sel.map(i => p.o.midias[i])) });
   if (!o) { if (avisarSemObra) await enviar(env, numeroDono(env), cartaoDono('Vídeo do dia', ['Ainda não há obra no acervo com fotos suficientes (mínimo 2 fotos ou 1 vídeo).', 'Mande as fotos e vídeos de um projeto com a legenda: *obra cozinha da Maria em granito preto*.'])); return null; }
   const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: esc.tipo === 'mix' ? 'Alguns dos nossos trabalhos: ' + esc.partes.map(p => p.o.desc).join('; ') : o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, estado: 'na_fila', original: true };
