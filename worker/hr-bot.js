@@ -1014,6 +1014,24 @@ async function orcPdfIndiceMontar(env) { // uma vez: monta o índice com os PDFs
   for (let i = 0; i < keys.length; i += 25) { const rs = await Promise.all(keys.slice(i, i + 25).map(k => env.HR_KV.get(k).then(v => [k, v]).catch(() => [k, null]))); for (const [k, v] of rs) { try { const r = JSON.parse(v || 'null'); if (r && r.resumo && r.cliente) idx.push({ k, cliente: r.cliente, em: r.em || 0, n: (r.resumo.itens || []).reduce((t, it) => t + it.pecas.length, 0) }); } catch (_) {} } }
   idx.sort((a, b) => b.em - a.em); await env.HR_KV.put('orcpdf:idx', JSON.stringify(idx.slice(0, 600))); await env.HR_KV.put('orcpdf:idxok', '1');
 }
+async function fix365Renata(env) { // v365: "Renata B." e "Renata Brito Café Neres" são a mesma cliente — um registro só, com os pagamentos certos
+  const todos = (await livTodos(env)).filter(r => /^renata\b/.test(normaliza(r.cliente || ''))); if (!todos.length) return;
+  const can = todos.find(r => Math.abs(Number(r.valor) - 6751.84) < 0.02) || todos.slice().sort((a, b) => livPago(b) - livPago(a) || (Number(b.valor) || 0) - (Number(a.valor) || 0))[0];
+  const tel = todos.map(r => r.tel).find(Boolean) || can.tel || '';
+  const pags = [], visto = new Set();
+  for (const r of todos) for (const p of (r.pagamentos || [])) {
+    const v = livR2(p.valor); if (!(v > 0) || Math.abs(v - 15) < 0.01) continue; // os R$ 15 que nunca existiram
+    const q = { ...p, valor: v }; if (Math.abs(v - 2000) < 0.01 && /cart/i.test(String(p.forma || ''))) q.data = '2026-10-18'; // o cartão foi em 18/10
+    const k = v.toFixed(2) + '|' + String(q.data || '').slice(0, 10); if (visto.has(k)) continue; visto.add(k); pags.push(q);
+  }
+  if (!pags.some(p => Math.abs(p.valor - 2000) < 0.01)) pags.push({ valor: 2000, forma: 'Cartão', data: '2026-10-18', obs: 'cartão (Sr. Hangel)' });
+  for (const d of ['2026-11-21', '2026-11-22']) if (!pags.some(p => Math.abs(p.valor - 500) < 0.01 && String(p.data || '').slice(0, 10) === d)) { const solto = pags.find(p => Math.abs(p.valor - 500) < 0.01 && !/^2026-11-2[12]/.test(String(p.data || ''))); if (solto) solto.data = d; else pags.push({ valor: 500, forma: 'Pix', data: d, obs: 'Pix (Sr. Hangel)' }); }
+  pags.sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')));
+  can.cliente = 'Renata Brito Café Neres'; can.valorFixo = 1; if (tel) can.tel = tel; can.pagamentos = pags; await livSalvar(env, can);
+  const fora = [];
+  for (const r of todos) if (r.id !== can.id) { await env.HR_KV.put('livdel:' + r.id, JSON.stringify(r), { expirationTtl: 180 * 86400 }); await env.HR_KV.delete(LIV_PREFIX + r.id); fora.push(`${r.cliente} · ${r.desc || 'serviço'} · R$ ${reais(Number(r.valor) || 0)}`); }
+  await notificarDono(env, Date.now(), ['Renata: um cadastro só', `Ficou: Renata Brito Café Neres · ${can.desc || 'Cozinha'} · R$ ${reais(Number(can.valor) || 0)}`, 'Pagamentos: ' + pags.map(p => `R$ ${reais(p.valor)} ${p.forma || ''} ${p.data ? dataBR(String(p.data).slice(0, 10)).slice(0, 5) : ''}`.trim()).join(' + '), `Pago R$ ${reais(livPago(can))} · falta R$ ${reais(livSaldo(can) || 0)}`, fora.length ? 'Juntei/apaguei os registros repetidos:\n' + fora.join('\n') : '', 'Atenção: a cobrança HR-2026-0025 que foi para ela (R$ 4.251,84) é de antes do Pix de 22/11. Se quiser, peça "cobrança da Renata" que eu refaço com o saldo certo — nada vai para ela sem o seu toque.'].filter(Boolean).join('\n')).catch(() => {});
+}
 async function fix365Limpa2(env) { // segunda passada: o que sobrou (registro repetido) + o peitoril de consulta que entrou como "Zenilda"
   const abertos = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado').catch(() => []), L = [];
   for (const p of abertos) { const n = normaliza(String(p.nome || '')).replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -37918,10 +37936,11 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__det359) { globalThis.__det359 = 1; ctx.waitUntil((async () => { if (await env.HR_KV.get('fix:det359') || !(await travaEnvio(env, 'det359'))) return; await env.HR_KV.put('fix:det359', '1', { expirationTtl: 30 * 86400 }); await siteDetPedir(env, numeroDono(env), []); })().catch(e => console.log('[DET359]', e.message))); } // v359: começa a pedir as fotos ao Sr. Hangel agora
-    if (ctx && ctx.waitUntil && globalThis.__fix365 !== 2) { globalThis.__fix365 = 2; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
+    if (ctx && ctx.waitUntil && globalThis.__fix365 !== 3) { globalThis.__fix365 = 3; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
       if (!(await env.HR_KV.get('fix:v365limpa')) && await travaEnvio(env, 'fix:v365limpa')) { await env.HR_KV.put('fix:v365limpa', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa(env).catch(e => console.log('[FIX365]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365osm')) && await travaEnvio(env, 'fix:v365osm')) { await env.HR_KV.put('fix:v365osm', '1', { expirationTtl: 60 * 86400 }); await fix365Osmailton(env).catch(e => console.log('[FIX365O]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365limpa2')) && await travaEnvio(env, 'fix:v365limpa2')) { await env.HR_KV.put('fix:v365limpa2', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa2(env).catch(e => console.log('[FIX365b]', e.message)); }
+      if (!(await env.HR_KV.get('fix:v365ren')) && await travaEnvio(env, 'fix:v365ren')) { await env.HR_KV.put('fix:v365ren', '1', { expirationTtl: 60 * 86400 }); await fix365Renata(env).catch(e => console.log('[FIX365R]', e.message)); }
       if (!(await env.HR_KV.get('fix:v364proj')) && await travaEnvio(env, 'fix:v364proj')) { await env.HR_KV.put('fix:v364proj', '1', { expirationTtl: 60 * 86400 }); await fix364Projetos(env).catch(e => console.log('[FIX364P]', e.message)); }
       await env.HR_KV.delete('painel:cache').catch(() => {}); })()); }
     if (ctx && ctx.waitUntil && !globalThis.__fix364s) { globalThis.__fix364s = 1; ctx.waitUntil(fix364Site(env).catch(e => console.log('[FIX364S]', e.message))); } // v364
