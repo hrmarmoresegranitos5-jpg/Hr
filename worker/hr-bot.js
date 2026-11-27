@@ -504,6 +504,7 @@ function respondeSoPorVoz(env, para) {
   return !!(c && c.voz && (c.cliente || c.func) && c.de && normalizarBR(para) === c.de); // v284: funcionário que mandou áudio também recebe áudio
 }
 async function enviar(env, para, texto) {
+  texto = String(texto == null ? '' : texto).replace(/(?:data:image\/\w+;base64,)?(?:\/9j\/|iVBORw0K)[A-Za-z0-9+/=]{60,}/g, '').replace(/[A-Za-z0-9+/]{300,}={0,2}/g, '').trim(); if (!texto) return; // v365: imagem em base64 nunca vai como texto (o QR do Pix saiu como "/9j/4AAQ...")
   try { if (env && env._ctx && ultimos8(para) === ultimos8(env._ctx.de)) (env._ctx.saidas = env._ctx.saidas || []).push(String(texto || '').slice(0, 400)); } catch (_) {} // v329: o que a Helena respondeu nesta mensagem (diário de erros)
   if (/Confirme em UMA frase/.test(String(texto || ''))) texto = String(texto).replace(/\s*Confirme em UMA frase( curta)?\.?/g, ''); // v338: instrução para a IA nunca vai no WhatsApp
   if (ehDono(env, para)) texto = variarTratamentoDono(env, texto); // só o dono recebe apelidos
@@ -2232,6 +2233,9 @@ function interpretarLancamento(bruto) {
   // v321: pedido sobre um serviço que já existe não é lançamento novo ("ele só deu 2 mil de entrada, prepare o PDF do restante" virava entrada de hoje)
   if (/\b(prepar[ae]r?|pdf|restante|saldo|falta(m|ndo)?|orcamento|ger[ae]r?|busc[ae]r?|procur[ae]r?|confer[ei]r?)\b/i.test(normaliza(original))) return null;
   if (/^(ele|ela|eles|elas|o cliente|a cliente)\b/i.test(normaliza(original)) && /\b(so|somente|apenas)\b/.test(normaliza(original))) return null; // (v258: é promessa de cliente, não gasto)
+  { const n0 = normaliza(original); // v365: pagamento DE CLIENTE ("Dia 22 Renata fez um Pix de 500", "coloque mais 500 pago no Pix dia 22") não é gasto nem entrada solta: vai para o livro do cliente (a IA resolve)
+    if (/\b(coloqu?e|coloca|adicion[ae]|acrescent[ae]|inclu[ai]|lanc[ae] no (livro|extrato)|no extrato|parcela)\b/.test(n0) && /\b(pago|pagou|pix|cartao|entrada)\b/.test(n0)) return null;
+    if (/\b(pagou|fez (um |o )?pix|mandou (um |o )?pix|passou o cartao|deu (de )?entrada)\b/.test(n0) && !/\b(me pagou|recebi|recebemos|eu)\b/.test(n0)) return null; }
   const ent = original.match(RE_ENTRADA);
   const sai = original.match(RE_SAIDA);
   if (!ent && !sai) return null;
@@ -2837,6 +2841,7 @@ async function ouvirAudio(env, from, m, dono = true) {
   try {
     const id = m.audio?.id;
     if (!id) throw new Error('áudio sem identificador');
+    if (await env.HR_KV.get('aud:' + id).catch(() => null)) return null; await env.HR_KV.put('aud:' + id, '1', { expirationTtl: 86400 }).catch(() => {}); // v365: o WhatsApp reenviou o mesmo áudio (respondia "Mensagem entendida" duas vezes)
     const { buf } = await baixarMidia(env, id);
     if (buf.byteLength > VOZ_MAX_BYTES) {
       await enviar(env, from, dono ? 'Sr. Hangel, esse áudio é grande demais. Poderia enviar um mais curto?' : 'Esse áudio é grande demais. Poderia enviar um mais curto?');
@@ -14532,7 +14537,7 @@ const aguardandoPix = ped => ped.forma_pagto === 'pix' && !!ped.mp && !ped.pago;
 const DOMINIO_SITE = 'hrmarmoresegranitos.com.br';
 const SITE_ORIGEM = 'https://hrmarmoresegranitos5-jpg.github.io/Hr/site';
 async function urlPublica(env) { // links para clientes: domínio próprio quando já estiver no ar
-  let d = env.DOMINIO_SITE || ''; if (!d) { try { d = (await env.HR_KV.get('cfg:dominio')) || ''; } catch (_) {} }
+  let d = env.DOMINIO_SITE || ''; if (!d) { try { d = (await env.HR_KV.get('cfg:dominio')) || ''; } catch (_) {} } if (!d && String(env.SITE_NO_AR ?? '1') !== '0') d = DOMINIO_SITE; // v365: o domínio já está no ar (o senhor reclamou do link workers.dev)
   return d ? 'https://' + d : urlDoWorker(env);
 }
 async function siteDominio(req, env, ctx, url) {
@@ -22599,7 +22604,7 @@ async function tratarMensagemBase(env, m, ctx) {
       if (ok !== true && !['reaction', 'sticker', 'unsupported'].includes(m.type)) {
         const nm = apelidoFunc(cfgEq, fEq) || String(fEq.nome || '').split(' ')[0];
         await enviar(env, from, m.type === 'video' || m.type === 'document' ? `Recebi, ${nm}. Se for de um serviço, me escreva de qual cliente e o que foi feito (ex.: _iniciei os lavatórios do Ésio_ ou _terminei o da Maria_).` : `Recebi, ${nm}. Não entendi direito: me diga de qual cliente e o que foi feito (ex.: _iniciei o da Maria_, _terminei o da Maria_).`).catch(() => {});
-        if (ok === 'erro') await pontoAvisarDono(env, `⚠️ Mensagem de *${fEq.nome}* que o bot não conseguiu tratar (${m.type}${m._texto || m.text?.body ? ': "' + String(m._texto || m.text?.body).slice(0, 200) + '"' : ''}).`).catch(() => {});
+        if (ok === 'erro' && !/^\s*(ok+|blz|beleza|certo|sim|t[aá]|ta bom|valeu|obrigad[oa]|show|top|👍|✅|\.)\s*[!.]*\s*$/i.test(String(m._texto || m.text?.body || '')) && m.type !== 'reaction') await pontoAvisarDono(env, `⚠️ Mensagem de *${fEq.nome}* que o bot não conseguiu tratar (${m.type}${m._texto || m.text?.body ? ': "' + String(m._texto || m.text?.body).slice(0, 200) + '"' : ''}).`).catch(() => {});
       }
       return;
     }
