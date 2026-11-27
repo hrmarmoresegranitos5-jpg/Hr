@@ -26500,6 +26500,18 @@ function vdGanchos(o) {
   const amb = o.cat || 'projeto', p = o.pedra ? o.pedra.toUpperCase() : '';
   return [`OLHA COMO FICOU ESSA ${amb.toUpperCase()}`, p ? `${p}: VALE A PENA?` : 'ANTES E DEPOIS QUE IMPRESSIONA', `ESSA ${amb.toUpperCase()} FICOU DE OUTRO NÍVEL`, 'DETALHE QUE FAZ A DIFERENÇA', p ? `${p} INSTALADO` : 'DO CORTE À INSTALAÇÃO', 'VOCÊ COLOCARIA NA SUA CASA?'];
 }
+// v365: VÍDEO DO DIA COM VOZ — a Helena escreve uma narração curta (como quem mostra a obra) e grava com a voz dela; o editor mistura com a música
+async function vdNarracao(env, j, pl) {
+  const o = j.mix ? { desc: 'compilação de obras recentes', cat: '', pedra: '' } : (await acvLer(env, j.obraId).catch(() => null)) || { desc: j.desc || '' };
+  const seg = Math.max(10, Math.min(40, Number(pl.duracao) || 20)), pal = Math.round((seg - 3.5) * 2.4);
+  const sis = 'Você escreve a narração falada de um Reels de uma marmoraria do interior da Bahia (HR Mármores e Granitos). Tom: uma moça mostrando a obra para o seguidor, animada mas natural, frases curtas, português do Brasil falado. Sem emoji, sem hashtag, sem número de telefone, sem preço. Comece com um gancho forte (pergunta ou "olha isso"), fale do detalhe da pedra/acabamento e termine chamando para pedir orçamento pelo WhatsApp. Responda SÓ o texto da fala.';
+  let txt = String(await chamarIA(env, sis, [], `Obra: ${o.desc || ''}${o.pedra ? ' · pedra: ' + o.pedra : ''}${o.cat ? ' · ambiente: ' + o.cat : ''}\nGancho na tela: ${pl.gancho || ''}\nTamanho: no máximo ${pal} palavras (o vídeo tem ${seg} segundos).`, { maxTokens: 300, timeoutMs: 20000, cat: 'voz' }) || '').replace(/["“”*#]/g, '').replace(/\s+/g, ' ').trim();
+  if (txt.split(' ').length < 6) return null;
+  txt = txt.split(' ').slice(0, pal + 6).join(' ');
+  await vozEscolhaCarregar(env).catch(() => {}); const g = await gerarVoz(env, txt, globalThis.__voz || ''); if (!g || !g.audio) return null;
+  await env.HR_KV.put('vdnarr:' + j.id, g.audio, { expirationTtl: 3 * 86400 });
+  return { texto: txt, url: '/editor/narr/' + j.id };
+}
 async function vdPlano(env, j) {
   const o = (j.mix ? { desc: 'compilação', cat: '', pedra: '', midias: [] } : await acvLer(env, j.obraId)) || { desc: j.desc, midias: [] };
   if (j.mix && !j.gancho) { const gm = [`${j.mix.length} PROJETOS QUE SAÍRAM DA NOSSA OFICINA`, 'QUAL DESSES VOCÊ COLOCARIA NA SUA CASA?', 'TRABALHOS RECENTES DA HR', 'DE PERTO É AINDA MAIS BONITO', 'ACABAMENTO QUE FALA POR SI']; j.gancho = gm[Math.floor(Math.random() * gm.length)]; await estGravar(env, j); }
@@ -26738,11 +26750,12 @@ async function rotaEditor(req, env, url) {
     }
     return J({ ok: true, post: null });
   }
-  const mm = p.match(/^\/editor\/(plano|pronto|erro)\/([a-z0-9]{10})$/);
+  const mm = p.match(/^\/editor\/(plano|pronto|erro|narr)\/([a-z0-9]{10})$/);
   if (!mm) return J({ ok: false, erro: 'rota' }, 404);
   const j = await estLer(env, mm[2]); if (!j) return J({ ok: false, erro: 'post não existe' }, 404);
   if (mm[1] === 'plano' && j.montagem && j.cartao) { let logo = /^https:\/\//.test(String(env.LOGO_VIDEO_URL || env.LOGO_URL || '')) ? (env.LOGO_VIDEO_URL || env.LOGO_URL) : ''; return J({ ok: true, cartao: j.cartao, whats: await igWhatsFormatado(env).catch(() => ''), cidade: env.CIDADE || 'Pilão Arcado - BA', logo }); } // v91
-  if (mm[1] === 'plano' && j.montagem) return J(Object.assign({ ok: true }, await vdPlano(env, j))); // v88: roteiro do vídeo do dia
+  if (mm[1] === 'narr') { const b = await env.HR_KV.get('vdnarr:' + j.id, 'arrayBuffer'); return b ? new Response(b, { headers: { 'Content-Type': 'audio/ogg' } }) : J({ ok: false, erro: 'sem narração' }, 404); } // v365
+  if (mm[1] === 'plano' && j.montagem) { const pl = await vdPlano(env, j); if (!j.mix || String(env.VD_NARRAR ?? '1') !== '0') { const nr = await vdNarracao(env, j, pl).catch(e => { console.log('[VD] narração:', e.message); return null; }); if (nr) pl.narracao = nr; } return J(Object.assign({ ok: true }, pl)); } // v88: roteiro do vídeo do dia · v365: com a voz da Helena narrando
   if (mm[1] === 'plano') {
     let tr = null; try { tr = await estTranscreverComTempo(env, j.midias[0].md); } catch (e) { console.log('[ESTUDIO] transcrição:', e.message); }
     await estPrepararLegenda(env, j, tr ? tr.texto : '');
