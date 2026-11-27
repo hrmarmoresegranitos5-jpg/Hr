@@ -1794,7 +1794,7 @@ var DEF_ACESS=[
   {id:'calha_umida',nm:'Calha Úmida',marca:'',dim:'Sob medida',pr:0,desc:'Calha escavada na pedra para escorrer água. Integrada ao tampo.',photo:''},
   {id:'escorredor',nm:'Escorredor de Louça',marca:'',dim:'Embutir',pr:0,desc:'Escorredor em inox ou pedra esculpida integrado à bancada.',photo:''}
 ];
-var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,s_slim_esc:15,escada_garantia:8,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,sol_45:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:250,reb_a:250,tubo:70,cant:115,inst:320,inst_c:500,perfil:110,argamassa:53,desl_for:4.0,
+var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,s_slim_esc:15,escada_garantia:8,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,sol_45:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:250,reb_a:250,tubo:70,cant:115,inst:320,inst_c:500,fogao:230,desl_for:4.0,
   ac_sifao:45,ac_flex:25,ac_veda:15,ac_sil:20,ac_paraf:30,ac_bucha:20,ac_sup:60,ac_outros:0,
   // Túmulo
   tum_tampa:85, tum_lat:85, tum_front:85, tum_base:85, tum_det:85, tum_sainha:85,
@@ -1931,21 +1931,59 @@ function initCFG(){
   svCFG();
 }
 // v366: rebaixo com mão de obra igual (R$ 250) nos dois tipos; o americano soma a pedra do tampo.
-// Balcão / Ilha: sem instalação, só perfil (barra de 6 m) e argamassa AC3 (saco).
+// v367: devolve à lista de Serviços os itens padrão que sumiram (sainhas, furos, rebaixo, soleira...) e cria o Recorte p/ Fogão de Embutir.
+var SV_LIST_PADRAO=[
+  {k:'s_reta',l:'Sainha Reta',grp:'Sainha/Frontão',u:'sf'},{k:'s_45',l:'Sainha 45°',grp:'Sainha/Frontão',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',grp:'Sainha/Frontão',u:'sf'},{k:'s_slim',l:'Sainha Slim',grp:'Sainha/Frontão',u:'sf'},
+  {k:'frontao',l:'Frontão Reto',grp:'Sainha/Frontão',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',grp:'Sainha/Frontão',u:'sf'},{k:'rodape',l:'Rodapé de Pedra',grp:'Sainha/Frontão',u:'sf'},
+  {k:'sol1',l:'Soleira 1 lado',grp:'Soleira/Peitoril',u:'ml'},{k:'sol2',l:'Soleira 2 lados',grp:'Soleira/Peitoril',u:'ml'},{k:'peit_reto',l:'Peitoril Reto',grp:'Soleira/Peitoril',u:'ml'},{k:'peit_ping',l:'c/ Pingadeira',grp:'Soleira/Peitoril',u:'ml'},{k:'peit_col',l:'c/ Pedra Colada+Pingadeira',grp:'Soleira/Peitoril',u:'ml'},{k:'peit_portal',l:'p/ Portal Madeira',grp:'Soleira/Peitoril',u:'ml'},
+  {k:'forn',l:'Furo Torneira',grp:'Furos & Recortes',u:'un'},{k:'fralo',l:'Furo Ralo',grp:'Furos & Recortes',u:'un'},{k:'cook',l:'Recorte Cooktop',grp:'Furos & Recortes',u:'un',fx:1},{k:'fogao',l:'Recorte Fogão de Embutir',grp:'Furos & Recortes',u:'un',fx:1},
+  {k:'reb_n',l:'Rebaixo Normal',grp:'Rebaixo',u:'un',fx:1},{k:'reb_a',l:'Rebaixo Americano',grp:'Rebaixo',u:'un',fx:1},
+  {k:'tubo',l:'Tubo Metálico',grp:'Fixação',u:'un'},{k:'cant',l:'Cantoneira',grp:'Fixação',u:'un'},
+  {k:'inst',l:'Instalação Padrão',grp:'Instalação',u:'un'},{k:'inst_c',l:'Instalação Complexa',grp:'Instalação',u:'un'},
+  {k:'desl_for',l:'Deslocamento fora cidade',grp:'Deslocamento',u:'km'}
+];
 function _migRebBalcao(){
   try{
     if(!CFG.sv)CFG.sv={};
-    var feito=localStorage.getItem('hr_mig_reb366');
-    if(!feito){
+    var mudou=false;
+    if(!localStorage.getItem('hr_mig_reb366')){
       CFG.sv.reb_n=250;CFG.sv.reb_a=250;
-      (CFG.svList||[]).forEach(function(x){if(x.k==='reb_n'||x.k==='reb_a')x.preco=250;if(x.k==='reb_a')x.l='Rebaixo Americano';});
+      (CFG.svList||[]).forEach(function(x){if(x.k==='reb_n'||x.k==='reb_a')x.preco=250;});
+      localStorage.setItem('hr_mig_reb366','1');mudou=true;
     }
-    var add=[{k:'perfil',l:'Perfil (barra de 6 m)',preco:110,grp:'Fixação do Balcão',u:'un'},{k:'argamassa',l:'Argamassa AC3 (saco)',preco:53,grp:'Fixação do Balcão',u:'un'}];
-    add.forEach(function(it){
-      if(CFG.svList&&!CFG.svList.find(function(x){return x.k===it.k;}))CFG.svList.push(it);
-      if(CFG.sv[it.k]==null)CFG.sv[it.k]=it.preco;
-    });
-    if(!feito){localStorage.setItem('hr_mig_reb366','1');if(typeof svCFG==='function')setTimeout(function(){try{svCFG();}catch(e){}},0);}
+    if(CFG.svList){
+      // tira os itens de teste da v366 (perfil/argamassa viraram os do "Tem balcão?")
+      var n0=CFG.svList.length;CFG.svList=CFG.svList.filter(function(x){return !(x.grp==='Fixação do Balcão'&&(x.k==='perfil'||x.k==='argamassa'));});if(CFG.svList.length!==n0)mudou=true;
+      if(!localStorage.getItem('hr_mig_svlist367')){
+        SV_LIST_PADRAO.forEach(function(d){
+          if(CFG.svList.find(function(x){return x.k===d.k;}))return;
+          var pr=CFG.sv[d.k];if(pr==null)pr=DEF_SV[d.k]||0;
+          var it={k:d.k,l:d.l,preco:pr,grp:d.grp,u:d.u};if(d.fx)it.fx=d.fx;
+          CFG.svList.push(it);
+        });
+        localStorage.setItem('hr_mig_svlist367','1');mudou=true;
+      }
+      if(!CFG.svList.find(function(x){return x.k==='fogao';})){CFG.svList.push({k:'fogao',l:'Recorte Fogão de Embutir',preco:CFG.sv.fogao!=null?CFG.sv.fogao:230,grp:'Furos & Recortes',u:'un',fx:1});mudou=true;}
+    }
+    if(CFG.sv.fogao==null)CFG.sv.fogao=230;
+    // tipo de ambiente próprio de balcão (criado nas Configurações): sem instalação, só perfil e argamassa
+    if(!localStorage.getItem('hr_mig_balctipo367')){
+      (CFG.customTipos||[]).forEach(function(ct){
+        if(!/balc/i.test(ct.tipo||'')||!Array.isArray(ct.items))return;
+        var temAc=false,temPf=false;
+        ct.items=ct.items.filter(function(it){var l=String(it.l||'');return !(/instala/i.test(l)&&!/ac-?3|argamassa/i.test(l));});
+        ct.items.forEach(function(it){var l=String(it.l||'');
+          if(/ac-?3|argamassa/i.test(l)){it.l='Argamassa AC-3 (saco)';it.preco=53;it.u='un';it.fx=0;temAc=true;}
+          else if(/cantoneira|perfil/i.test(l)){it.l='Perfil (barra de 6 m)';it.preco=110;it.u='un';it.fx=0;temPf=true;}
+        });
+        var g0='Fixação';
+        if(!temPf)ct.items.push({k:'amb'+Date.now()+'_pf',l:'Perfil (barra de 6 m)',preco:110,u:'un',fx:0,grp:g0});
+        if(!temAc)ct.items.push({k:'amb'+Date.now()+'_ac',l:'Argamassa AC-3 (saco)',preco:53,u:'un',fx:0,grp:g0});
+        mudou=true;
+      });
+      localStorage.setItem('hr_mig_balctipo367','1');
+    }
+    if(mudou&&typeof svCFG==='function')setTimeout(function(){try{svCFG();}catch(e){}},0);
   }catch(e){}
 }
 var REB_A_TAMPO={c:126,l:54}; // tampo do rebaixo americano: recorte padrão 120×48 + 6 cm
@@ -2888,7 +2926,7 @@ var SV_DEFS={
 'Cozinha':[
   {g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},
   {g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},
-  {g:'Furos & Recortes',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0},{k:'fralo',l:'Furo Ralo',u:'un',fx:0},{k:'cook',l:'Recorte Cooktop',u:'un',fx:1}]},
+  {g:'Furos & Recortes',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0},{k:'fralo',l:'Furo Ralo',u:'un',fx:0},{k:'cook',l:'Recorte Cooktop',u:'un',fx:1},{k:'fogao',l:'Recorte Fogão de Embutir',u:'un',fx:1}]},
   {g:'Rebaixo',its:[{k:'reb_n',l:'Rebaixo Normal',u:'un',fx:1},{k:'reb_a',l:'Rebaixo Americano',u:'un',fx:1}]},
   {g:'Cuba',its:[{k:'cuba_coz',l:'Escolher cuba inox ou esculpida',u:'cuba',ctp:'coz'}]},
   {g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},
@@ -2920,11 +2958,6 @@ SV_DEFS['Área de Serviço']=[
 SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_auto',lados:1,is45:true}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS['Balcão / Ilha']=[
-  {g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},
-  {g:'Fixação do Balcão',its:[{k:'perfil',l:'Perfil (barra de 6 m)',u:'un',fx:0},{k:'argamassa',l:'Argamassa AC3 (saco)',u:'un',fx:0}]},
-  {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
-];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
 SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Colagem',its:[{k:'rdbox_cola',l:'Cola p/ Colagem (2 pedras)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
@@ -3550,7 +3583,7 @@ function pickCuba(id,tipo){
 
 // ═══ AMBIENTES ═══
 var TIPO_INST='🔧 Instalação';
-var TIPOS_AMBIENTE=['Cozinha','Balcão / Ilha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','Plaquinha','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','🔧 Instalação','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','Plaquinha','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','🔧 Instalação','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -12614,13 +12647,12 @@ function buildCfg(){
         {k:'peit_portal',l:'p/ Portal Madeira',     preco:CFG.sv.peit_portal||180,grp:'Soleira/Peitoril',u:'ml'},
         {k:'forn',      l:'Furo Torneira',          preco:CFG.sv.forn||45,      grp:'Furos & Recortes',u:'un'},
         {k:'fralo',     l:'Furo Ralo',              preco:CFG.sv.fralo||45,     grp:'Furos & Recortes',u:'un'},
-        {k:'cook',      l:'Recorte Cooktop',        preco:CFG.sv.cook||140,     grp:'Furos & Recortes',u:'un'},
+        {k:'cook',      l:'Recorte Cooktop',        preco:CFG.sv.cook||140,     grp:'Furos & Recortes',u:'un',fx:1},
+        {k:'fogao',     l:'Recorte Fogão de Embutir',preco:CFG.sv.fogao||230,   grp:'Furos & Recortes',u:'un',fx:1},
         {k:'reb_n',     l:'Rebaixo Normal',         preco:CFG.sv.reb_n||250,    grp:'Rebaixo',u:'un'},
         {k:'reb_a',     l:'Rebaixo Americano',      preco:CFG.sv.reb_a||250,    grp:'Rebaixo',u:'un'},
         {k:'tubo',      l:'Tubo Metálico',          preco:CFG.sv.tubo||60,      grp:'Fixação',u:'un'},
         {k:'cant',      l:'Cantoneira',             preco:CFG.sv.cant||110,     grp:'Fixação',u:'un'},
-        {k:'perfil',    l:'Perfil (barra de 6 m)',  preco:CFG.sv.perfil||110,   grp:'Fixação do Balcão',u:'un'},
-        {k:'argamassa', l:'Argamassa AC3 (saco)',   preco:CFG.sv.argamassa||53, grp:'Fixação do Balcão',u:'un'},
         {k:'rdbox_sup', l:'Rodapé de Box (1 lado)',  preco:CFG.sv.rdbox_sup||38,  grp:'Rodapé de Box',u:'ml'},
         {k:'rdbox_cola',l:'Cola p/ Colagem',           preco:CFG.sv.rdbox_cola||20, grp:'Rodapé de Box',u:'un'},
         {k:'inst',      l:'Instalação Padrão',      preco:CFG.sv.inst||280,     grp:'Instalação',u:'un'},

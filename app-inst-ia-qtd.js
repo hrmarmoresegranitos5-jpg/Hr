@@ -30,11 +30,7 @@
 (function() {
   'use strict';
 
-  var PRECO_CANT_BALCAO = 50;
-  var PRECO_AC3_BALCAO = 50;
-
-  // ── Renomeia cantoneira e argamassa AC-3 do Balcão pra terem preço
-  //     próprio, sem mexer no 'inst'/'cant' usados em outros ambientes ──
+  // v367: preços e nomes do balcão (perfil em barra de 6 m e argamassa por saco) ficam no app-fix-consultor.js
   function _prepararBalcao() {
     var grupos = SV_DEFS['🍽️ Balcão'];
     if (!grupos) return;
@@ -44,24 +40,6 @@
         if (it.k === 'inst' && /AC-?3/i.test(it.l || '')) it.k = 'balc_ac3';
       });
     });
-    if (window.CFG) {
-      if (!CFG.sv) CFG.sv = {};
-      if (CFG.sv.cant_balc === undefined || CFG.sv.cant_balc === null) CFG.sv.cant_balc = PRECO_CANT_BALCAO;
-      CFG.sv.balc_ac3 = PRECO_AC3_BALCAO; // preço fixo pedido: R$ 50
-      if (!CFG.svList) CFG.svList = [];
-      if (!CFG.svList.find(function(x) { return x.k === 'cant_balc'; })) {
-        CFG.svList.push({ k: 'cant_balc', l: 'Cantoneira p/ Balcão', preco: CFG.sv.cant_balc, grp: 'Balcão', u: 'un' });
-        svCFG();
-      }
-      var _ac3Item = CFG.svList.find(function(x) { return x.k === 'balc_ac3'; });
-      if (!_ac3Item) {
-        CFG.svList.push({ k: 'balc_ac3', l: 'Instalação c/ Argamassa AC-3', preco: PRECO_AC3_BALCAO, grp: 'Balcão', u: 'un' });
-        svCFG();
-      } else if (_ac3Item.preco !== PRECO_AC3_BALCAO) {
-        _ac3Item.preco = PRECO_AC3_BALCAO;
-        svCFG();
-      }
-    }
   }
 
   // ── Mede m² e ml (comprimento) a partir das peças do ambiente ──
@@ -89,8 +67,7 @@
   // ── Heurística local: quantas cantoneiras no Balcão ──
   // Regra: 1 cantoneira a cada 0,5m de comprimento, mínimo 2.
   function _sugerirCantoneiras(m) {
-    var qtd = Math.ceil(m.ml / 0.5);
-    return Math.max(2, qtd);
+    return Math.max(1, Math.ceil(m.ml / 6)); // v367: perfil em barra de 6 m
   }
 
   function _contextosPorAmbiente() {
@@ -137,7 +114,7 @@
       var qtd = chave.k === 'cant_balc' ? _sugerirCantoneiras(m) : _sugerirTubos(m);
       var pr = (window.CFG && CFG.sv && CFG.sv[chave.k]) || 0;
       var justificativa = chave.k === 'cant_balc'
-        ? m.ml.toFixed(2) + 'ml de balcão → ~1 cantoneira a cada 0,5m'
+        ? m.ml.toFixed(2) + 'ml de balcão → barras de perfil de 6 m'
         : m.m2.toFixed(2) + 'm² (' + m.n + ' peça(s)) → mínimo 2 + reforço por tamanho';
       linhas.push({ amb: ctx, chave: chave, qtd: qtd, pr: pr, justificativa: justificativa });
     });
