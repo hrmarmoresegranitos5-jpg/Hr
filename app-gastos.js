@@ -52,3 +52,23 @@
   }
   setInterval(cartao, 1000);
 })();
+
+// v2: aviso vermelho quando a Meta está recusando os envios da Helena (ex.: pagamento recusado) — o dono não recebe nada pelo WhatsApp
+(function () {
+  'use strict';
+  function base() { try { return String(_getBotCfg().url || '').replace(/\/+$/, ''); } catch (e) { return ''; } }
+  function hdr() { try { return _botHeaders(); } catch (e) { return {}; } }
+  function checar() {
+    var b = base(); if (!b) return;
+    fetch(b + '/bot/status', { headers: hdr() }).then(function (r) { return r.json(); }).then(function (d) {
+      var el = document.getElementById('waFalhaBar'), f = d && d.waFalha;
+      if (!f) { if (el) el.remove(); return; }
+      if (!el) { el = document.createElement('div'); el.id = 'waFalhaBar'; el.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99998;background:#5c1414;border:1px solid #e05151;color:#fff;border-radius:12px;padding:10px 12px;font:600 .8rem Outfit,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.5)'; document.body.appendChild(el); }
+      var h = new Date(f.em), hh = ('0' + h.getHours()).slice(-2) + ':' + ('0' + h.getMinutes()).slice(-2);
+      el.innerHTML = '⚠️ A Helena não consegue enviar mensagens no WhatsApp desde ' + hh + ': <b>' + String(f.motivo || 'a Meta recusou') + '</b>.' +
+        (f.codigo === 131042 ? ' Regularize em business.facebook.com → Cobrança e pagamentos.' : '') +
+        ' <span style="opacity:.8">Se ela já voltou a responder, ignore.</span> <button style="margin-left:6px;background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:3px 9px" onclick="this.parentNode.remove()">OK</button>';
+    }).catch(function () {});
+  }
+  setTimeout(checar, 4000); setInterval(checar, 10 * 60000);
+})();

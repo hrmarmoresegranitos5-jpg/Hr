@@ -557,8 +557,10 @@ async function enviarTextoPuro(env, para, texto, jaVariado) {
   });
   if (!r.ok) {
     const corpo = await r.text().catch(() => '');
+    await waFalhaAnotar(env, r.status, corpo);
     throw new Error(`WhatsApp API ${r.status}: ${corpo.slice(0, 300)}`);
   }
+  waFalhaLimpar(env).catch(() => {});
   try {
     const j = await r.json(); const id = (j && j.messages && j.messages[0] && j.messages[0].id) || null;
     if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id);
@@ -1710,6 +1712,21 @@ async function ferrFolhaFuncionarios(env, a) {
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
 // ═══ v370: MODO ECONOMIA + RELATÓRIO DE GASTOS ═══
 //   cfg:economia ('1' ligado, padrão; '0' desligado). Comando do dono: "economia ligada" / "economia desligada" / "gastos".
+// v370b: quando a Meta recusa TODOS os envios (pagamento, conta bloqueada, token), o dono não recebe nada pelo WhatsApp:
+//   guarda o motivo (wa:falha) para o app mostrar um aviso vermelho.
+async function waFalhaAnotar(env, status, corpo) {
+  try {
+    let j = null; try { j = JSON.parse(corpo); } catch (_) {}
+    const e = (j && j.error) || {}, cod = +e.code || 0, sub = +(e.error_data && e.error_data.details && 0) || 0;
+    const grave = [131042, 131031, 368, 190, 131048, 131049, 131056, 133010, 100].includes(cod) || status === 401;
+    if (!grave || cod === 100 && !/payment|billing|pagamento/i.test(JSON.stringify(e))) return;
+    if (globalThis.__waFalhaEm && Date.now() - globalThis.__waFalhaEm < 10 * 60000) return;
+    globalThis.__waFalhaEm = Date.now(); globalThis.__waFalha = true;
+    const motivo = cod === 131042 ? 'pagamento da Meta recusado (forma de pagamento com problema)' : cod === 131031 ? 'conta do WhatsApp Business bloqueada pela Meta' : cod === 190 || status === 401 ? 'token do WhatsApp vencido' : cod === 368 ? 'número bloqueado temporariamente pela Meta' : 'a Meta está recusando os envios';
+    await env.HR_KV.put('wa:falha', JSON.stringify({ em: Date.now(), codigo: cod, motivo, detalhe: String(e.message || '').slice(0, 200) }), { expirationTtl: 3 * 3600 });
+  } catch (_) {}
+}
+async function waFalhaLimpar(env) { if (!globalThis.__waFalha) return; globalThis.__waFalha = false; globalThis.__waFalhaEm = 0; await env.HR_KV.delete('wa:falha').catch(() => {}); }
 async function econ(env) {
   if (globalThis.__econEm && Date.now() - globalThis.__econEm < 60000) return globalThis.__econ;
   let v = '1'; try { v = (await env.HR_KV.get('cfg:economia')) || String(env.ECONOMIA ?? '1'); } catch (_) {}
@@ -1778,8 +1795,10 @@ async function postarMsg(env, para, extra) {
   });
   if (!r.ok) {
     const corpo = await r.text().catch(() => '');
+    await waFalhaAnotar(env, r.status, corpo);
     throw new Error(`WhatsApp API ${r.status}: ${corpo.slice(0, 300)}`);
   }
+  waFalhaLimpar(env).catch(() => {});
   const j = await r.json().catch(() => null);
   try { const id = j && j.messages && j.messages[0] && j.messages[0].id; if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id); await registrarMsgDono(env, para, id, resumoMsgDono(extra)); txRegistrar(env, para, 'b', txTexto(extra)); crmAdd(env, para, Object.assign(crmDeSaida(extra, id), extra && extra.type === 'audio' && env._falaVoz ? { texto: '🗣️ ' + env._falaVoz } : {})); } catch (_) {} // v48 · v62 · v75 · v159c: áudio com o texto falado
   return j;
@@ -28193,7 +28212,8 @@ async function rotaBotInterna(req, env, url) {
   if (p === '/bot/economia' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await env.HR_KV.put('cfg:economia', b.on === false ? '0' : '1'); globalThis.__econEm = 0; globalThis.__vozCfgEm = 0; return jsonR({ ok: true, economia: b.on !== false }); } // v370
   if (p === '/bot/status' && req.method === 'GET') {
     const ok = !!(env.WHATSAPP_TOKEN && env.PHONE_NUMBER_ID && env.APP_SECRET && env.VERIFY_TOKEN && env.HR_KV);
-    return jsonR({ status: ok ? 'connected' : 'disconnected', phone: numeroDono(env), code: null, modo: atenderClientes(env) ? 'clientes' : 'dono' });
+    let waFalha = null; try { waFalha = JSON.parse((await env.HR_KV.get('wa:falha')) || 'null'); } catch (_) {}
+    return jsonR({ status: ok ? 'connected' : 'disconnected', phone: numeroDono(env), code: null, modo: atenderClientes(env) ? 'clientes' : 'dono', waFalha });
   }
 
   // Conversas do bot com os clientes (somente leitura). Guardadas no KV por CLIENTE_TTL (24 h após a última mensagem), até 14 mensagens.
