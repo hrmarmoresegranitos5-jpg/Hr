@@ -23242,7 +23242,35 @@ async function esperarRajada(env, m) {
   }
   return false;
 }
+// v369: o dono nunca fica no silêncio. Guarda as últimas linhas do log e a hora do último envio ao dono;
+//   se uma mensagem do dono (texto ou áudio) termina sem nenhuma resposta, avisa com o motivo técnico.
+if (!globalThis.__logWrap) {
+  globalThis.__logWrap = true; globalThis.__logBuf = [];
+  const _log = console.log.bind(console);
+  console.log = (...a) => { try { globalThis.__logBuf.push(new Date().toISOString().slice(11, 19) + ' ' + a.map(x => typeof x === 'string' ? x : (x && x.message) || JSON.stringify(x)).join(' ').slice(0, 220)); if (globalThis.__logBuf.length > 40) globalThis.__logBuf.splice(0, globalThis.__logBuf.length - 40); } catch (_) {} _log(...a); };
+}
+function silencioMarcarFetch(env) {
+  if (globalThis.__fetchWrap) return; globalThis.__fetchWrap = true;
+  const _f = globalThis.fetch;
+  globalThis.fetch = function (u, o) {
+    try { if (/graph\.facebook\.com\/[^/]+\/[^/]+\/messages/.test(String(u)) && o && typeof o.body === 'string' && /"to"\s*:/.test(o.body)) { const mm = o.body.match(/"to"\s*:\s*"(\d+)"/); if (mm) globalThis.__ultEnvio = { para: mm[1], em: Date.now() }; } } catch (_) {}
+    return _f.apply(this, arguments);
+  };
+}
+async function silencioDono(env, m, t0) {
+  try {
+    if (!ehDono(env, m.from) || !['text', 'audio'].includes(m.type)) return;
+    const t = String((m.text && m.text.body) || '').trim();
+    if (m.type === 'text' && (t.length < 4 || /^(ok+|okay|blz|beleza|certo|ta|tá|ta bom|tá bom|valeu|vlw|obrigad[oa]|show|top|sim|não|nao|👍|✅)[!.\s]*$/i.test(t))) return;
+    const u = globalThis.__ultEnvio;
+    if (u && ultimos8(u.para) === ultimos8(m.from) && u.em >= t0) return; // respondeu
+    const logs = (globalThis.__logBuf || []).slice(-6).join('\n');
+    if (env.HR_DB) await env.HR_DB.prepare('UPDATE msg_fila SET passo = ? WHERE id = ?').bind(('SEM RESPOSTA | ' + logs).slice(0, 900), String(m.id || '')).run().catch(() => {});
+    await enviarTextoPuro(env, m.from, `Recebi sua mensagem${m.type === 'audio' ? ' de áudio' : ''}, mas ela terminou sem resposta e eu não sei o motivo. Mande de novo, por favor.\n\nDetalhe técnico (para o suporte):\n${logs.slice(-700) || '(sem registro)'}`).catch(e => console.log('[SIL] aviso:', e.message));
+  } catch (e) { console.log('[SIL]', e.message); }
+}
 async function tratarPayload(env, payload) {
+  silencioMarcarFetch(env);
   if (!env._depois) env._depois = new Map(); // v27: pedidos que o bot confere depois de dar tempo ao app (fora da trava do cliente)
   for (const entry of payload?.entry || []) {
     for (const ch of entry.changes || []) {
@@ -23256,7 +23284,8 @@ async function tratarPayload(env, payload) {
         m._perfil = perfis[m.from] || '';
         await filaEntrada(env, m); // v288: toda mensagem fica anotada até ser respondida (nada some em silêncio)
         if (await esperarRajada(env, m).catch(e => { console.log('[RAJ]', e.message); return false; })) { await filaOk(env, m.id); continue; } // v272: veio mensagem mais nova: ela responde por todas
-        try { await comTrava(env, m.from, () => tratarMensagem(env, m), m); await filaOk(env, m.id); }
+        const t0m = Date.now(); globalThis.__logBuf = [];
+        try { await comTrava(env, m.from, () => tratarMensagem(env, m), m); await filaOk(env, m.id); await silencioDono(env, m, t0m); }
         catch (e) {
           console.log('[BOT] erro ao tratar mensagem:', e.message);
           await filaOk(env, m.id); // v288: o erro já é avisado abaixo; não reprocessa
