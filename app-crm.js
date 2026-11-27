@@ -444,6 +444,7 @@
     var d = document.getElementById('hrCrm'); if (!d) return; d.classList.add('wa');
     d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="voltar" aria-label="Voltar">←</button><div class="crm-av" style="width:40px;height:40px;font-size:.85rem;background:' + cor(num) + ';">' + esc(iniciais(nm)) + '</div>' +
       '<div style="flex:1;min-width:0;"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nm) + '</b><div class="crm-info" id="crmJanela">' + esc(fmtNum(num)) + (cli && appConflita(c, cli) ? ' · ⚠️ no app está como "' + esc(cli.nome) + '"' : '') + '</div></div>' +
+      '<button class="crm-ic" data-a="exportar" title="Exportar a conversa (.txt)" aria-label="Exportar conversa">⤓</button>' +
       '<a class="crm-ic" href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener" title="Abrir no WhatsApp"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.3.4c.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.2.2.1.4.1.5-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.7-.1 1.3z"/></svg></a><button class="crm-ic" data-a="ficha" title="Ficha do cliente">📋</button><button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
       '<div class="crm-chat" id="crmChat"><div class="crm-vazio"><span class="ic">💬</span>Carregando conversa…</div></div>' +
       '<div id="crmPrev"></div>' +
@@ -456,6 +457,7 @@
         if (x === 'voltar') { try { history.back(); } catch (e) { st.aberto = null; telaLista(); } }
         else if (x === 'recarregar') carregarConversa(false);
         else if (x === 'ficha') abrirFicha(num);
+        else if (x === 'exportar') exportarConversa(num, nm); // v365: a conversa inteira em .txt (para conferir erros/pontos)
         else if (x === 'mais') carregarMais();
         else if (x === 'revisar') revisar();
         else if (x === 'enviar') enviarRevisado();
@@ -468,6 +470,26 @@
     };
     carregarConversa(true);
     pararAuto(); st.timer = setInterval(function () { if (!document.hidden && st.aberto === num) carregarConversa(false, true); }, 10000);
+  }
+  function exportarConversa(num, nm) {
+    toast('Juntando a conversa…');
+    var todas = [], antes = '';
+    function pagina() {
+      return api('/bot/crm/conversa?num=' + encodeURIComponent(num) + '&lim=200' + (antes ? '&antes=' + antes : '')).then(function (j) {
+        var ms = j.mensagens || []; todas = ms.concat(todas);
+        if (j.mais && ms.length && todas.length < 3000) { antes = ms[0].ts; return pagina(); }
+      });
+    }
+    pagina().then(function () {
+      var pad = function (n) { return String(n).padStart(2, '0'); };
+      var linhas = todas.map(function (m) { var d = new Date(m.ts); return '[' + pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + '] ' + (m.q === 'b' ? 'Helena' : nm) + ': ' + String(m.texto || (m.tipo && m.tipo !== 'text' ? '[' + m.tipo + ']' : '')).replace(/\s+/g, ' '); });
+      var txt = 'Conversa de ' + nm + ' com a Helena (' + todas.length + ' mensagens)\n\n' + linhas.join('\n');
+      var nomeArq = 'conversa-' + String(nm).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-') + '.txt';
+      var arq = new File([txt], nomeArq, { type: 'text/plain' });
+      if (navigator.canShare && navigator.canShare({ files: [arq] })) return navigator.share({ files: [arq], title: 'Conversa de ' + nm }).catch(function () {});
+      var a = document.createElement('a'); a.href = URL.createObjectURL(arq); a.download = nomeArq; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      toast('Conversa baixada: ' + nomeArq);
+    }).catch(function (e) { toast('⚠️ ' + e.message); });
   }
   function carregarConversa(primeira, silencioso) {
     var num = st.aberto; if (!num) return;
