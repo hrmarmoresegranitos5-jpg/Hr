@@ -1708,7 +1708,66 @@ async function ferrFolhaFuncionarios(env, a) {
 // ── Botões e listas (mensagens interativas da API oficial) ───────────
 // Regras da Meta: até 3 botões (título ≤ 20 caracteres); lista até 10 linhas (título ≤ 24).
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
+// ═══ v370: MODO ECONOMIA + RELATÓRIO DE GASTOS ═══
+//   cfg:economia ('1' ligado, padrão; '0' desligado). Comando do dono: "economia ligada" / "economia desligada" / "gastos".
+async function econ(env) {
+  if (globalThis.__econEm && Date.now() - globalThis.__econEm < 60000) return globalThis.__econ;
+  let v = '1'; try { v = (await env.HR_KV.get('cfg:economia')) || String(env.ECONOMIA ?? '1'); } catch (_) {}
+  globalThis.__econ = v !== '0'; globalThis.__econEm = Date.now(); return globalThis.__econ;
+}
+// modelos de mensagem de marketing/pesquisa (cobrados pela Meta) que o modo economia não manda
+function tplEconBloqueia(env, nome) {
+  const n = String(nome || '');
+  const marketing = [env.TEMPLATE_PESQUISA, env.TEMPLATE_INDICACAO, env.TEMPLATE_POS_INSTALACAO, env.TEMPLATE_POSVENDA, env.TEMPLATE_POS_VISITA, env.TEMPLATE_SEGUIMENTO, env.TEMPLATE_ACOMPANHAMENTO].filter(Boolean);
+  return marketing.includes(n) || /avalia|pesquisa|indica|pos_?venda|pos_?instal|pos_?visita|seguimento|promo|novidade/i.test(n);
+}
+// preços públicos aproximados (US$) — só para estimar
+const CUSTO_TAB = { 'gpt-4o-transcribe': { min: 0.006 }, 'gpt-4o-mini-transcribe': { min: 0.003 }, 'whisper-1': { min: 0.006 }, 'gpt-4o-mini-tts': { chr: 0.000012 }, 'tts-1': { chr: 0.000015 } };
+function custoModeloTok(model) { const m = String(model || ''); if (/haiku/.test(m)) return { i: 1, o: 5 }; if (/opus/.test(m)) return { i: 5, o: 25 }; if (/sonnet|claude/.test(m)) return { i: 3, o: 15 }; if (/gpt-4o-mini|gpt-4\.1-mini|gpt-5-mini|mini/.test(m)) return { i: 0.15, o: 0.6 }; if (/realtime/.test(m)) return { i: 4, o: 16 }; return { i: 2.5, o: 10 }; }
+async function custoAnotar(env, chave, n, qtd, usd) {
+  try { if (!env || !env.HR_DB) return; if (!globalThis.__custoTab) { await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS custo_uso (dia TEXT, chave TEXT, n INTEGER DEFAULT 0, qtd REAL DEFAULT 0, usd REAL DEFAULT 0, PRIMARY KEY (dia, chave))').run(); globalThis.__custoTab = true; }
+    await env.HR_DB.prepare('INSERT INTO custo_uso (dia, chave, n, qtd, usd) VALUES (?, ?, ?, ?, ?) ON CONFLICT(dia, chave) DO UPDATE SET n = n + excluded.n, qtd = qtd + excluded.qtd, usd = usd + excluded.usd').bind(dataBahia(), String(chave).slice(0, 80), n, qtd, usd).run();
+  } catch (e) { console.log('[CUSTO]', e.message); }
+}
+// olha cada chamada às APIs pagas (IA e WhatsApp) e anota quanto custou, sem mexer na chamada
+function custoObservar(env, u, o, resp) {
+  try {
+    const url = String(u);
+    if (/api\.(openai|anthropic)\.com/.test(url)) {
+      let corpo = {}; try { corpo = typeof o.body === 'string' ? JSON.parse(o.body) : {}; } catch (_) {}
+      const prov = /anthropic/.test(url) ? 'Claude' : 'OpenAI';
+      if (/audio\/speech/.test(url)) { const ch = String(corpo.input || '').length, md = String(corpo.model || 'tts'); return custoAnotar(env, prov + ' · voz (' + md.replace(/-20\d\d.*$/, '') + ')', 1, ch, ch * (/mini/.test(md) ? 0.000012 : 0.000015)); }
+      if (/audio\/transcriptions/.test(url)) { let md = 'transcrição'; try { md = o.body && o.body.get ? String(o.body.get('model') || md) : md; } catch (_) {} return resp.clone().json().then(j => { const t = j && j.usage; const usd = t && t.input_tokens ? ((+t.input_tokens || 0) * (/mini/.test(md) ? 1.25 : 2.5) + (+t.output_tokens || 0) * (/mini/.test(md) ? 5 : 10)) / 1e6 : (+(j && j.usage && j.usage.seconds) || 30) / 60 * ((CUSTO_TAB[md] || {}).min || 0.006); return custoAnotar(env, prov + ' · transcrição de áudio (' + md + ')', 1, 0, usd); }).catch(() => {}); }
+      return resp.clone().json().then(j => { const us = (j && j.usage) || {}; const md = String((j && j.model) || corpo.model || ''), p = custoModeloTok(md);
+        const inp = (+us.input_tokens || +us.prompt_tokens || 0) + (+us.cache_creation_input_tokens || 0) * 1.25, cr = +us.cache_read_input_tokens || 0, out = +us.output_tokens || +us.completion_tokens || 0;
+        const img = JSON.stringify(corpo.messages || '').includes('"image') ? ' com foto' : '';
+        return custoAnotar(env, prov + ' · texto' + img + ' (' + md.replace(/-20\d\d.*$/, '').slice(0, 30) + ')', 1, inp + out, (inp * p.i + cr * p.i * 0.1 + out * p.o) / 1e6); }).catch(() => {});
+    }
+    if (/graph\.facebook\.com\/[^/]+\/[^/]+\/messages/.test(url) && o && typeof o.body === 'string' && /"type"\s*:\s*"template"/.test(o.body) && resp.ok) {
+      let nome = 'modelo'; try { nome = JSON.parse(o.body).template.name; } catch (_) {}
+      const mk = tplEconBloqueia(env, nome);
+      return custoAnotar(env, 'WhatsApp · modelo ' + nome + (mk ? ' (marketing)' : ''), 1, 0, mk ? 0.0625 : 0.008);
+    }
+  } catch (_) {}
+}
+async function custosTexto(env, dias = 30) {
+  if (!env.HR_DB) return 'O relatório de gastos precisa do banco D1 (HR_DB) ligado no Worker.';
+  const de = dataBahia(-(dias - 1)), dol = +(env.DOLAR || 5.6);
+  const rs = await env.HR_DB.prepare('SELECT chave, SUM(n) n, SUM(usd) usd FROM custo_uso WHERE dia >= ? GROUP BY chave ORDER BY usd DESC').bind(de).all().catch(() => ({ results: [] }));
+  const L = (rs.results || []); if (!L.length) return `*Gastos estimados*\n\nAinda não tenho registros (comecei a anotar em 27/11). Peça de novo daqui a alguns dias.`;
+  const tot = L.reduce((t, x) => t + (+x.usd || 0), 0), grp = {}; L.forEach(x => { const g = String(x.chave).split(' · ')[0]; grp[g] = (grp[g] || 0) + (+x.usd || 0); });
+  const ini = await env.HR_DB.prepare('SELECT MIN(dia) d FROM custo_uso').first().catch(() => null), nd = Math.max(1, Math.round((Date.parse(dataBahia()) - Date.parse((ini && ini.d) || dataBahia())) / 86400000) + 1);
+  return [`*Gastos estimados* (últimos ${Math.min(dias, nd)} dia(s))`, '', ...Object.entries(grp).sort((a, b) => b[1] - a[1]).map(([g, v]) => `*${g}:* ~R$ ${reais(v * dol)}`), `*Total:* ~R$ ${reais(tot * dol)} · por mês ~R$ ${reais(tot / Math.min(dias, nd) * 30 * dol)}`, '', '*Onde mais gastou:*', ...L.slice(0, 10).map(x => `• ${String(x.chave).split(' · ').slice(1).join(' · ')}: ${x.n}× · ~R$ ${reais((+x.usd || 0) * dol)}`), '', `Modo economia: *${(await econ(env)) ? 'ligado' : 'desligado'}*. _Valores aproximados pelos preços públicos (dólar a R$ ${String(dol).replace('.', ',')}); a fatura real vem da Meta e da OpenAI/Anthropic._`].join('\n');
+}
+async function econComandoDono(env, from, msg) {
+  if (/^(gastos?|custos?|quanto (estou|to|tô|ta|tá) gastando|relatorio de gastos|relatório de gastos)( (da|com a|com) (ia|helena|meta|whatsapp))?\??$/.test(msg)) { await enviarTextoPuro(env, from, await custosTexto(env)); return true; }
+  const m = /^(modo )?economia (ligad[ao]|ligar|desligad[ao]|desligar|on|off)$/.exec(msg); if (!m) return false;
+  const on = /^(ligad|ligar|on)/.test(m[2]); await env.HR_KV.put('cfg:economia', on ? '1' : '0'); globalThis.__econEm = 0; globalThis.__vozCfgEm = 0;
+  await enviarTextoPuro(env, from, on ? 'Modo economia *ligado*: sem mensagens de marketing/pesquisa pagas, voz e transcrição no modelo econômico, auditorias 1× por semana e vídeo narrado só quando o senhor pedir.' : 'Modo economia *desligado*: tudo volta como antes.');
+  return true;
+}
 async function postarMsg(env, para, extra) {
+  if (extra && extra.type === 'template' && extra.template && tplEconBloqueia(env, extra.template.name) && await econ(env)) { console.log('[ECON] modelo não enviado (economia):', extra.template.name); await custoAnotar(env, 'WhatsApp · economizado (' + extra.template.name + ')', 1, 0, 0); return { messages: [{ id: 'economia' }] }; }
   if (env && env._painelCap && ehDono(env, para)) { const x = extra || {}; env._painelCap.push(String((x.text && x.text.body) || (x.interactive && x.interactive.body && x.interactive.body.text) || (x.image && x.image.caption) || (x.document && x.document.caption) || (x.audio ? '[áudio]' : '') || '').trim()); if (x.interactive && x.interactive.action && Array.isArray(x.interactive.action.buttons)) env._painelCap.push('[botões] ' + x.interactive.action.buttons.map(b => b.reply && b.reply.title).filter(Boolean).join(' · ')); return 'painel'; } // v286
   if (env && env._digTimer) { env._digParar = true; clearInterval(env._digTimer); env._digTimer = null; } // v130
   const v = env.GRAPH_VERSION || 'v23.0';
@@ -2889,7 +2948,7 @@ async function ouvirAudio(env, from, m, dono = true) {
     }
     const fd = new FormData();
     fd.append('file', new Blob([buf], { type: 'audio/ogg' }), 'audio.ogg');
-    fd.append('model', env.STT_MODEL || 'gpt-4o-transcribe'); // v284: o modelo completo erra bem menos nomes
+    fd.append('model', env.STT_MODEL || (globalThis.__econ === false ? 'gpt-4o-transcribe' : 'gpt-4o-mini-transcribe')); // v284: o modelo completo erra bem menos nomes
     fd.append('language', 'pt');
     fd.append('prompt', 'Conversa de WhatsApp com uma marmoraria da Bahia. Valores em reais, medidas em centímetros e metros, soleira, peitoril, peitoris, bancada, balcão, cozinha, lavatório, nicho, túmulo, orçamento, granito, mármore, Preto São Gabriel, pontos, meus pontos, corte, cortei, acabamento, polimento, fabricação, instalação, instalei, frontão, sainha, rebaixo, cuba, Sr. Hangel. Nomes: ' + (await vocabVoz(env).catch(() => '')));
     const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -3119,6 +3178,7 @@ async function vozCfg(env) {
   if (globalThis.__vozCfg && Date.now() - globalThis.__vozCfgEm < 60000) return globalThis.__vozCfg;
   let c = null; try { c = JSON.parse((await env.HR_KV.get('cfg:vozid')) || 'null'); } catch (_) {}
   const cfg = { ...VOZ_CFG_PADRAO, ...(c && c.atual || {}) };
+  if (await econ(env)) { cfg.reescrever = false; if (/realtime/.test(cfg.modelo || '')) cfg.modelo = 'gpt-4o-mini-tts-2025-12-15'; } // v370: economia: sem IA extra reescrevendo cada áudio
   globalThis.__vozCfg = cfg; globalThis.__vozCfgEm = Date.now(); return cfg;
 }
 async function vozCfgSalvar(env, nova, quem) {
@@ -9930,6 +9990,7 @@ async function pv1Rotina(env) {
     n++; r.num = num;
     try {
       if (await janela24h(env, num)) { await pv1Mandar(env, r, num); r.status = 'enviado'; }
+      else if (await econ(env)) { r.status = 'economia'; } // v370: economia: pós-venda por modelo pago não sai
       else {
         const curto = `${nomeDeTratamento(r.cli) ? nomeDeTratamento(r.cli) + ', a' : 'A'}qui é da HR Mármores e Granitos. Faz um mês da entrega e queria saber se ficou tudo certo. Posso te fazer uma pergunta rápida?`.slice(0, 200);
         await postarMsg(env, num, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } });
@@ -18509,9 +18570,10 @@ async function auditEnviar(env, para, nm, r) {
 }
 async function auditRotina(env) { // v365: todo dia às 18h a Helena confere a conversa de cada um (2 dias) e manda ao Sr. Hangel só o que ficou sem ponto
   const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 18 * 60 || ag.min > 20 * 60 || String(env.AUDIT_DIA ?? '1') === '0') return;
+  const semanal = await econ(env); if (semanal && ag.dia !== 6) return; // v370: economia: só aos sábados, olhando a semana toda
   if (await env.HR_KV.get('audd:' + hoje) || !(await travaEnvio(env, 'audd:' + hoje))) return; await env.HR_KV.put('audd:' + hoje, '1', { expirationTtl: 2 * 86400 });
   const cfg = await pontoCfg(env);
-  for (const f of (cfg.funcs || [])) { if (!f.tel) continue; try { const r = await auditarFunc(env, f, 2); if (r.falt.length) await auditEnviar(env, numeroDono(env), apelidoFunc(cfg, f) || f.nome.split(' ')[0], r); } catch (e) { console.log('[AUDIT]', f.nome, e.message); } }
+  for (const f of (cfg.funcs || [])) { if (!f.tel) continue; try { const r = await auditarFunc(env, f, semanal ? 7 : 2); if (r.falt.length) await auditEnviar(env, numeroDono(env), apelidoFunc(cfg, f) || f.nome.split(' ')[0], r); } catch (e) { console.log('[AUDIT]', f.nome, e.message); } }
 }
 async function auditFaltBotao(env, from, id) {
   const [, k, c] = id.split('|'); let a = null; try { a = JSON.parse((await env.HR_KV.get('audf:' + k)) || 'null'); } catch (_) {}
@@ -22864,6 +22926,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (/^(confere|conferir|conferencia de|resolve|resolver|acerta|acertar) (os )?pontos\b|\bpontos (nao recebidos|pendentes|que faltam)\b/.test(msg)) { await enviar(env, from, 'Conferindo todos os serviços e etapas, um momento.'); await enviar(env, from, await pontosReconciliarTexto(env, {})); return; } // v304
     if (await falhaComandoDono(env, from, msg, bruto).catch(e => { console.log('[FALHA] comando:', e.message); return false; })) return; // v329
     if (await eqConversaComando(env, from, msg).catch(e => { console.log('[CONV] comando:', e.message); return false; })) return; // v365
+    if (await econComandoDono(env, from, msg).catch(e => { console.log('[ECON] comando:', e.message); return false; })) return; // v370
     if (await aprovComandoDono(env, from, msg).catch(e => { console.log('[APROV] comando:', e.message); return false; })) return; // v339
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
@@ -23274,7 +23337,9 @@ function silencioMarcarFetch(env) {
   const _f = globalThis.fetch;
   globalThis.fetch = function (u, o) {
     try { if (/graph\.facebook\.com\/[^/]+\/[^/]+\/messages/.test(String(u)) && o && typeof o.body === 'string' && /"to"\s*:/.test(o.body)) { const mm = o.body.match(/"to"\s*:\s*"(\d+)"/); if (mm) globalThis.__ultEnvio = { para: mm[1], em: Date.now() }; } } catch (_) {}
-    return _f.apply(this, arguments);
+    const pr = _f.apply(this, arguments);
+    try { if (/api\.(openai|anthropic)\.com|graph\.facebook\.com\/[^/]+\/[^/]+\/messages/.test(String(u))) pr.then(resp => { const w = custoObservar(globalThis.__custoEnv || env, u, o || {}, resp); if (w && globalThis.__custoEnv && globalThis.__custoEnv._ctxW) globalThis.__custoEnv._ctxW(w); }).catch(() => {}); } catch (_) {}
+    return pr;
   };
 }
 async function silencioDono(env, m, t0) {
@@ -26599,7 +26664,7 @@ async function vdCriar(env, avisarSemObra) {
   let esc; try { esc = await vdEscolher(env); if (!esc) { globalThis.__vdFiltro.ig = true; esc = await vdEscolher(env); } } finally { globalThis.__vdFiltro = null; } // só usa post do Instagram se não houver nenhum original
   const o = esc && (esc.tipo === 'obra' ? esc.o : { id: 'mix', desc: 'compilação de ' + esc.partes.length + ' obras', midias: esc.partes.flatMap(p => p.sel.map(i => p.o.midias[i])) });
   if (!o) { if (avisarSemObra) await enviar(env, numeroDono(env), cartaoDono('Vídeo do dia', ['Ainda não há obra no acervo com fotos suficientes (mínimo 2 fotos ou 1 vídeo).', 'Mande as fotos e vídeos de um projeto com a legenda: *obra cozinha da Maria em granito preto*.'])); return null; }
-  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: esc.tipo === 'mix' ? 'Alguns dos nossos trabalhos: ' + esc.partes.map(p => p.o.desc).join('; ') : o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, estado: 'na_fila', original: true };
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', pedidoDono: !!avisarSemObra, midias: [], destino: 'reels', desc: esc.tipo === 'mix' ? 'Alguns dos nossos trabalhos: ' + esc.partes.map(p => p.o.desc).join('; ') : o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, estado: 'na_fila', original: true };
   if (esc.tipo === 'mix') { j.mix = esc.partes.map(p => ({ obra: p.o.id, sel: p.sel })); j.obraId = 'mix'; } else { j.obraId = o.id; j.sel = esc.sel; if ((esc.extras || []).length) j.extras = esc.extras.map(p => ({ obra: p.o.id, sel: p.sel })); }
   await estGravar(env, j);
   const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
@@ -26614,7 +26679,7 @@ async function vdCriarObra(env, obraId, frase) {
   const o = await acvLer(env, obraId); if (!o || !(o.midias || []).length) return { erro: 'não achei os arquivos dessa obra' };
   const sel = acvDisponiveis(o); if (!sel.length) return { erro: 'os arquivos dessa obra já não estão disponíveis (passou de 7 dias sem o computador guardar)' };
   const ped = String(frase || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: (o.semNome ? 'Trabalho da HR' : o.desc) + (ped ? '. Pedido do Sr. Hangel para o vídeo: ' + ped : ''), pedidoDono: ped, editar: true, montagem: true, estado: 'na_fila', original: true, obraId: o.id, sel };
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', pedidoDono: true, midias: [], destino: 'reels', desc: (o.semNome ? 'Trabalho da HR' : o.desc) + (ped ? '. Pedido do Sr. Hangel para o vídeo: ' + ped : ''), pedidoDono: ped, editar: true, montagem: true, estado: 'na_fila', original: true, obraId: o.id, sel };
   await estGravar(env, j);
   const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
   o.usos = (o.usos || 0) + 1; o.ultimoVideo = Date.now(); o.usadas = [...new Set([...(o.usadas || []), ...sel])]; await acvGravar(env, o);
@@ -26913,7 +26978,7 @@ async function rotaEditor(req, env, url) {
   const j = await estLer(env, mm[2]); if (!j) return J({ ok: false, erro: 'post não existe' }, 404);
   if (mm[1] === 'plano' && j.montagem && j.cartao) { let logo = /^https:\/\//.test(String(env.LOGO_VIDEO_URL || env.LOGO_URL || '')) ? (env.LOGO_VIDEO_URL || env.LOGO_URL) : ''; return J({ ok: true, cartao: j.cartao, whats: await igWhatsFormatado(env).catch(() => ''), cidade: env.CIDADE || 'Pilão Arcado - BA', logo }); } // v91
   if (mm[1] === 'narr') { const b = await env.HR_KV.get('vdnarr:' + j.id, 'arrayBuffer'); return b ? new Response(b, { headers: { 'Content-Type': 'audio/ogg' } }) : J({ ok: false, erro: 'sem narração' }, 404); } // v365
-  if (mm[1] === 'plano' && j.montagem) { const pl = await vdPlano(env, j); if (!j.mix || String(env.VD_NARRAR ?? '1') !== '0') { const nr = await vdNarracao(env, j, pl).catch(e => { console.log('[VD] narração:', e.message); return null; }); if (nr) pl.narracao = nr; } return J(Object.assign({ ok: true }, pl)); } // v88: roteiro do vídeo do dia · v365: com a voz da Helena narrando
+  if (mm[1] === 'plano' && j.montagem) { const pl = await vdPlano(env, j); if ((!j.mix || String(env.VD_NARRAR ?? '1') !== '0') && (j.pedidoDono || !(await econ(env)))) { const nr = await vdNarracao(env, j, pl).catch(e => { console.log('[VD] narração:', e.message); return null; }); if (nr) pl.narracao = nr; } return J(Object.assign({ ok: true }, pl)); } // v88: roteiro do vídeo do dia · v365: com a voz da Helena narrando
   if (mm[1] === 'plano') {
     let tr = null; try { tr = await estTranscreverComTempo(env, j.midias[0].md); } catch (e) { console.log('[ESTUDIO] transcrição:', e.message); }
     await estPrepararLegenda(env, j, tr ? tr.texto : '');
@@ -28124,6 +28189,8 @@ async function rotaBotInterna(req, env, url) {
       return jsonR({ ok: true, audio: bytesParaBase64(new Uint8Array(g.audio)), mime: g.mime, ms: Date.now() - t0, fala, via: g.via, transcricao: g.transcricao || '', direcao: cfg._direcao || '', emocao: cfg._emocao || '', contexto: cfg.emocao ? vozContexto(fala) : '', custoUsd: Math.round(((g.seg || fala.length / 14) / 60 * (/^rt:/.test(g.via) ? 0.02 : 0.015)) * 10000) / 10000 });
     } catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 300), ms: Date.now() - t0 }, 200); }
   }
+  if (p === '/bot/custos' && req.method === 'GET') { const d = Math.max(1, Math.min(90, +url.searchParams.get('dias') || 30)); return jsonR({ ok: true, texto: await custosTexto(env, d), economia: await econ(env) }); } // v370
+  if (p === '/bot/economia' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await env.HR_KV.put('cfg:economia', b.on === false ? '0' : '1'); globalThis.__econEm = 0; globalThis.__vozCfgEm = 0; return jsonR({ ok: true, economia: b.on !== false }); } // v370
   if (p === '/bot/status' && req.method === 'GET') {
     const ok = !!(env.WHATSAPP_TOKEN && env.PHONE_NUMBER_ID && env.APP_SECRET && env.VERIFY_TOKEN && env.HR_KV);
     return jsonR({ status: ok ? 'connected' : 'disconnected', phone: numeroDono(env), code: null, modo: atenderClientes(env) ? 'clientes' : 'dono' });
@@ -34053,6 +34120,7 @@ async function followupOrcamentosDiario(env) {
     const num = normalizarBR(d);
     let recente = false;
     for (const v of variantesNumero(num)) { try { const r0 = JSON.parse((await env.HR_KV.get('rt:' + v)) || 'null'); if (r0 && Date.now() - (r0.em || 0) < 3 * 86400000) recente = true; } catch (_) {} }
+    if (await econ(env) && !(await janela24h(env, num).catch(() => false))) continue; // v370: economia: retomada automática só com a conversa aberta (de graça)
     await env.HR_KV.put(chave, '1', { expirationTtl: 40 * 86400 });
     if (recente) continue;
     const telFmt = num.replace(/^55(\d{2})(\d+)$/, '($1) $2');
@@ -34280,6 +34348,7 @@ async function helenaFalhaChecar(env, m, ctx) {
 async function helenaAuditoriaRotina(env) {
   if (String(env.DIARIO_ERROS ?? '1') === '0' || !env.HR_DB || !crmAtivo(env)) return;
   const ag = agoraBahia(), hoje = dataBahia(); if (ag.min < 20 * 60 || ag.min > 22 * 60) return;
+  if (ag.dia !== 6 && await econ(env)) return; // v370: economia: diário de erros só aos sábados
   if (await env.HR_KV.get('falha:aud:' + hoje)) return; if (!(await travaEnvio(env, 'falha:aud:' + hoje))) return;
   await env.HR_KV.put('falha:aud:' + hoje, '1', { expirationTtl: 3 * 86400 });
   await falhaTab(env); await crmTabela(env);
@@ -37312,7 +37381,7 @@ async function totemOuvir(env, req) {
   const ext = /mp4|m4a|aac/.test(tipo) ? 'm4a' : /ogg/.test(tipo) ? 'ogg' : /wav/.test(tipo) ? 'wav' : 'webm';
   const fd = new FormData();
   fd.append('file', new Blob([buf], { type: tipo }), 'fala.' + ext);
-  fd.append('model', env.STT_MODEL || 'gpt-4o-transcribe'); fd.append('language', 'pt');
+  fd.append('model', env.STT_MODEL || (globalThis.__econ === false ? 'gpt-4o-transcribe' : 'gpt-4o-mini-transcribe')); fd.append('language', 'pt');
   fd.append('prompt', 'Cliente falando no balcão de uma marmoraria da Bahia: granito, mármore, quartzo, soleira, peitoril, bancada, cozinha, banheiro, cuba, nicho, metro quadrado, orçamento.');
   const r = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${chave}` }, body: fd });
   const j = await r.json().catch(() => null);
@@ -38050,6 +38119,7 @@ async function alertaAppParado(env) {
 export default {
   async scheduled(event, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
+    silencioMarcarFetch(env); globalThis.__custoEnv = env; env._ctxW = p => { try { ctx.waitUntil(p); } catch (_) {} }; // v370: relatório de gastos
     await googleLinkCarregar(env).catch(() => {}); // v151
     await eqModoCarregar(env).catch(() => {}); // v154
     await expCarregar(env).catch(() => {}); // v168
@@ -38100,6 +38170,7 @@ export default {
 
   async fetch(req, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
+    silencioMarcarFetch(env); globalThis.__custoEnv = env; env._ctxW = p => { try { ctx.waitUntil(p); } catch (_) {} }; // v370: relatório de gastos
     await googleLinkCarregar(env).catch(() => {}); // v151
     await eqModoCarregar(env).catch(() => {}); // v154
     await expCarregar(env).catch(() => {}); // v168
