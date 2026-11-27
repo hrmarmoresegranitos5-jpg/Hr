@@ -2583,6 +2583,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^fimc\|/.test(id)) return fimConfBotao(env, from, id); // v274
   if (/^etpc\|/.test(id)) return etapaConfBotao(env, from, id); // v279
   if (/^apv\|/.test(id)) return aprovBotao(env, from, id); // v339
+  if (/^audf\|/.test(id)) return auditFaltBotao(env, from, id); // v365
   if (id === 'apv_tudo') return aprovComandoDono(env, from, 'aprovar tudo'); // v346
   if (/^plx\|/.test(id)) return prodLixoBotao(env, from, id); // v349
   if (/^cor_(env|no)\|/.test(id)) return corridaBotao(env, from, id); // v355
@@ -18434,6 +18435,61 @@ async function aprovBotao(env, from, id) {
   await enviar(env, from, r.aprovados ? '✅ Aprovado. Os pontos entraram e o funcionário foi avisado.' : r.recusados ? 'Certo, não contou ponto. Avisei o funcionário. Se quiser registrar outra coisa, me diga o que foi feito.' : 'Esse já tinha sido decidido.');
   return true;
 }
+// v365: "conversa do Fabrício" → arquivo .txt com toda a conversa dele com a Helena (30 dias)
+// "auditar pontos do Fabrício" → a IA lê o que ele disse que fez (14 dias), compara com o que foi lançado e mostra o que faltou, com botão para lançar
+async function eqConvMsgs(env, tel, dias) {
+  await crmTabela(env).catch(() => {});
+  const r = await env.HR_DB.prepare('SELECT q, texto, tipo, ts FROM crm_msg WHERE num = ? AND ts > ? ORDER BY ts ASC LIMIT 3000').bind(normalizarBR(tel), Date.now() - dias * 86400000).all().catch(() => ({ results: [] }));
+  return (r.results || []).map(x => ({ q: x.q, ts: x.ts, t: String(x.texto || (x.tipo && x.tipo !== 'text' ? '[' + x.tipo + ']' : '')).replace(/\s+/g, ' ').trim() })).filter(x => x.t);
+}
+const hmBahia = ts => new Date(ts - 3 * 3600000).toISOString().slice(5, 16).replace('T', ' ').replace(/^(\d\d)-(\d\d)/, '$2/$1');
+async function eqConversaComando(env, from, msg) {
+  const mE = msg.match(/^(?:(?:exporta(?:r)?|baixa(?:r)?|me manda|manda(?:r)?|mande|ver|abr[ae](?:r)?|leia|ler)\s+(?:a\s+|toda\s+a\s+)?)?conversa\s+(?:com\s+(?:o\s+|a\s+)?|d[aeo]\s+)([a-z ]{3,30})$/);
+  const mA = msg.match(/^(?:auditar|audita|audite|confer[ei]r?|confira|revis[ae]r?|revise)\s+(?:os\s+|todos\s+os\s+)?pontos\s+(?:d[aeo]\s+)?([a-z ]{3,30})$/);
+  if (!mE && !mA) return false;
+  const cfg = await pontoCfg(env), f = eqFuncPorNomeTexto(cfg, (mE || mA)[1]);
+  if (!f || !f.tel) { await enviar(env, from, 'Não achei esse funcionário (ou ele está sem número cadastrado).'); return true; }
+  const tel = normalizarBR(String(f.tel).startsWith('55') ? f.tel : '55' + f.tel), nm = apelidoFunc(cfg, f) || f.nome.split(' ')[0];
+  if (mE) {
+    const l = await eqConvMsgs(env, tel, 30); if (!l.length) { await enviar(env, from, `Não tenho mensagens de ${nm} nos últimos 30 dias.`); return true; }
+    const txt = `Conversa de ${f.nome} com a Helena (últimos 30 dias)\n\n` + l.map(x => `[${hmBahia(x.ts)}] ${x.q === 'c' ? nm : 'Helena'}: ${x.t}`).join('\n');
+    const id = await subirMidiaMeta(env, new TextEncoder().encode(txt), 'text/plain', `conversa-${normaliza(nm).replace(/\s+/g, '-')}.txt`);
+    await postarMsg(env, from, { type: 'document', document: { id, filename: `conversa-${normaliza(nm).replace(/\s+/g, '-')}.txt`, caption: `Conversa de ${f.nome} com a Helena · ${l.length} mensagens (30 dias)` } });
+    return true;
+  }
+  await enviar(env, from, `Lendo as conversas de ${nm} dos últimos 14 dias e comparando com os pontos lançados. Leva uns segundos…`);
+  const l = (await eqConvMsgs(env, tel, 14)).slice(-500);
+  const fid = String(f.id), peds = await pedidosProducao(env, p => p.status !== 'recusado' && Date.now() - (p.criado || 0) < 60 * 86400000).catch(() => []);
+  const lanc = []; for (const p of peds) for (const x of (p.prodLog || [])) if ((x.por || []).map(String).includes(fid) && ETAPA_NOME2[x.e] && x.e !== 'inicio' && Date.now() - (x.ts || 0) < 15 * 86400000) lanc.push(`${dataBR(diaDe(x.ts)).slice(0, 5)} · ${p.nome} · ${ETAPA_NOME2[x.e]} · ${x.ap === 0 ? 'ESPERANDO APROVAÇÃO' : x.ap === -1 ? 'anulado/recusado' : vPt(ptsEtapa(p, x.e, x.ts)) + ' pts'}`);
+  const sis = 'Você audita os pontos de um funcionário de marmoraria. Recebe (1) a conversa dele com a secretária Helena e (2) as etapas que foram LANÇADAS para ele. Encontre tarefas que ele DISSE que fez (cortei, terminei, cortado, pronto, fiz o acabamento, instalei; foto com legenda conta) e que NÃO aparecem lançadas (ou aparecem anuladas sem motivo claro). Não invente: só o que ele disse. Uma tarefa repetida na conversa conta uma vez. Responda JSON {"faltando":[{"data":"dd/mm","cliente":"nome do cliente como ele falou","etapa":"corte|acabamento|fabricacao|instalacao","item":"peça/ambiente","prova":"frase dele, curta"}],"resumo":"1 frase"}.';
+  const conv = l.map(x => `[${hmBahia(x.ts)}] ${x.q === 'c' ? nm.toUpperCase() : 'HELENA'}: ${x.t.slice(0, 300)}`).join('\n').slice(-60000);
+  let o = null; try { o = lerJsonIA(await chamarIA(env, sis, [], `FUNCIONÁRIO: ${f.nome}\n\nLANÇADO PARA ELE:\n${lanc.join('\n') || '(nada)'}\n\nCONVERSA:\n${conv}`, { maxTokens: 1500, timeoutMs: 60000 })); } catch (e) { await enviar(env, from, 'A análise falhou agora: ' + e.message); return true; }
+  const falt = ((o && o.faltando) || []).filter(x => x && x.cliente && ETAPA_NOME2[x.etapa]).slice(0, 15);
+  if (!falt.length) { await enviar(env, from, `Auditoria de ${nm}: não achei tarefa dita por ele que esteja sem lançamento.\n${(o && o.resumo) || ''}\n\nLançado (15 dias): ${lanc.length} etapa(s).`); return true; }
+  const k = estId(8); await env.HR_KV.put('audf:' + k, JSON.stringify({ fid, falt, em: Date.now() }), { expirationTtl: 3 * 86400 });
+  await enviarComBotoes(env, from, [`Auditoria de ${nm} — ${falt.length} tarefa(s) que ele disse e não pontuaram:`, ...falt.map((x, i) => `${i + 1}. ${x.data || ''} · ${x.cliente} · ${ETAPA_NOME2[x.etapa]}${x.item ? ' (' + x.item + ')' : ''} — "${String(x.prova || '').slice(0, 80)}"`), '', `Lançado nos 15 dias: ${lanc.length} etapa(s).`, 'Confira e toque em Lançar para dar os pontos (só para os serviços que eu achar na produção).'].join('\n').slice(0, 1020), [{ id: 'audf|' + k + '|s', titulo: 'Lançar todos' }, { id: 'audf|' + k + '|n', titulo: 'Não lançar' }]);
+  return true;
+}
+async function auditFaltBotao(env, from, id) {
+  const [, k, c] = id.split('|'); let a = null; try { a = JSON.parse((await env.HR_KV.get('audf:' + k)) || 'null'); } catch (_) {}
+  if (!a) { await enviar(env, from, 'Essa auditoria expirou. Peça de novo: auditar pontos do (nome).'); return true; }
+  await env.HR_KV.delete('audf:' + k);
+  if (c !== 's') { await enviar(env, from, 'Certo, não lancei nada.'); return true; }
+  const peds = await pedidosProducao(env, p => p.status !== 'recusado' && Date.now() - (p.criado || 0) < 90 * 86400000).catch(() => []), ok = [], nao = [];
+  for (const x of a.falt) {
+    const tk = tokensPedra(x.cliente), cand = nomeMelhores(peds, tk); const p = cand.length === 1 ? cand[0] : cand.find(q => pedCasaTxt(q, (x.item || '') + ' ' + x.cliente) >= 1) || null;
+    if (!p) { nao.push(x.cliente); continue; }
+    const [dd, mm] = String(x.data || '').split('/').map(Number), ts = dd && mm ? quandoTs(`2026-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`, '16:00') : Date.now();
+    p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : [];
+    if (p.prodLog.some(y => y.e === x.etapa && (y.por || []).map(String).includes(a.fid) && y.ap !== -1 && y.ap !== 0)) { nao.push(p.nome + ' (já tinha)'); continue; }
+    const pend = p.prodLog.find(y => y.e === x.etapa && (y.por || []).map(String).includes(a.fid) && y.ap === 0);
+    if (pend) { pend.ap = 1; pend.apEm = Date.now(); } else p.prodLog.push({ e: x.etapa, por: [a.fid], ts, ap: 1, apEm: Date.now(), dono: 1, obs: 'auditoria' });
+    await salvarPedido(env, p); ok.push(`${p.nome} · ${ETAPA_NOME2[x.etapa]} · ${vPt(ptsEtapa(p, x.etapa, ts))} pts`);
+  }
+  await metaChecar(env, a.fid).catch(() => {});
+  await enviar(env, from, [ok.length ? 'Lancei:\n' + ok.join('\n') : 'Não lancei nada.', nao.length ? 'Não achei na produção (ou já estava): ' + nao.join(', ') : ''].filter(Boolean).join('\n\n'));
+  return true;
+}
 async function aprovComandoDono(env, from, msg) { // "aprovar tudo", "o que falta aprovar"
   if (/^(aprovar? (tudo|todos|todas)|aprova tudo|pode aprovar tudo)\b/.test(msg)) { const l = (await aprovListar(env)).filter(x => x.st === 0); if (!l.length) { await enviar(env, from, 'Não tem nada esperando aprovação.'); return true; }
     const r = await aprovDecidir(env, l.map(x => ({ pid: x.pid, apId: x.apId, ok: true }))); await enviar(env, from, `✅ Aprovei ${r.aprovados} registro(s) da produção. Os pontos entraram.`); return true; }
@@ -22764,6 +22820,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await camComandoDono(env, from, msg).catch(e => { console.log('[CAM] comando:', e.message); return false; })) return; // v317
     if (/^(confere|conferir|conferencia de|resolve|resolver|acerta|acertar) (os )?pontos\b|\bpontos (nao recebidos|pendentes|que faltam)\b/.test(msg)) { await enviar(env, from, 'Conferindo todos os serviços e etapas, um momento.'); await enviar(env, from, await pontosReconciliarTexto(env, {})); return; } // v304
     if (await falhaComandoDono(env, from, msg, bruto).catch(e => { console.log('[FALHA] comando:', e.message); return false; })) return; // v329
+    if (await eqConversaComando(env, from, msg).catch(e => { console.log('[CONV] comando:', e.message); return false; })) return; // v365
     if (await aprovComandoDono(env, from, msg).catch(e => { console.log('[APROV] comando:', e.message); return false; })) return; // v339
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
