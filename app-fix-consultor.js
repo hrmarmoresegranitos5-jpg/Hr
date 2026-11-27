@@ -22,10 +22,10 @@
 (function() {
   'use strict';
 
-  // v367: balcão não cobra instalação; só a argamassa AC-3 (por saco) e o perfil (barra de 6 m)
+  // v367: balcão não cobra instalação; só a argamassa AC-3 (por saco) e o cantoneira (perfil pequeno, até 30 cm)
   var PRECO_AC3_BALCAO = 53;
-  var PRECO_CANT_BALCAO = 110;
-  var LBL_AC3 = 'Argamassa AC-3 (saco)', LBL_PERFIL = 'Perfil p/ balcão (barra de 6 m)';
+  var PRECO_CANT_BALCAO = 50;
+  var LBL_AC3 = 'Argamassa AC-3 (saco)', LBL_PERFIL = 'Cantoneira do balcão (perfil até 30 cm)';
   // v3: todos os ambientes de bancada usam o consultor (antes só Cozinha e Banheiro)
   var TIPOS_COM_FIXACAO = ['Cozinha', '🌴 Área Gourmet', 'Banheiro', 'Lavabo', 'Área de Serviço', 'Outro'];
   window._fixTipos = TIPOS_COM_FIXACAO;
@@ -62,14 +62,14 @@
       if (CFG.sv.cant_balc === undefined || CFG.sv.cant_balc === null) CFG.sv.cant_balc = PRECO_CANT_BALCAO;
       if (!CFG.svList) CFG.svList = [];
       var mig = false;
-      try { mig = !localStorage.getItem('hr_mig_balc367'); } catch (e) {}
+      try { mig = !localStorage.getItem('hr_mig_balc368'); } catch (e) {}
       if (mig) { CFG.sv.balc_ac3 = PRECO_AC3_BALCAO; CFG.sv.cant_balc = PRECO_CANT_BALCAO; }
       [['balc_ac3', LBL_AC3], ['cant_balc', LBL_PERFIL]].forEach(function(d) {
         var it = CFG.svList.find(function(x) { return x.k === d[0]; });
         if (!it) { CFG.svList.push({ k: d[0], l: d[1], preco: CFG.sv[d[0]], grp: 'Fixação', u: 'un' }); mig = true; }
         else if (mig) { it.l = d[1]; it.preco = CFG.sv[d[0]]; it.fx = 0; }
       });
-      if (mig) { try { localStorage.setItem('hr_mig_balc367', '1'); } catch (e) {} if (typeof svCFG === 'function') svCFG(); }
+      if (mig) { try { localStorage.setItem('hr_mig_balc368', '1'); } catch (e) {} if (typeof svCFG === 'function') svCFG(); }
     }
     return true;
   }
@@ -237,9 +237,9 @@
       var qC = sv.cant_balc ? (sv.cant_balc.qty || 1) : (sv.balc_ac3 ? 0 : p.qtdCant);
       var qA = sv.balc_ac3 ? (sv.balc_ac3.qty || 1) : (sv.cant_balc ? 0 : (p.qtdAc3 == null ? 1 : p.qtdAc3));
       p.qtdCant = qC; p.qtdAc3 = qA;
-      h += _stepper('Perfil – barras de 6 m (R$ ' + fm(prCantB) + ' cada)', qC, '_fixSetQtdCant(' + amb.id + ',-1)', '_fixSetQtdCant(' + amb.id + ',1)');
+      h += _stepper('Cantoneiras (R$ ' + fm(prCantB) + ' cada)', qC, '_fixSetQtdCant(' + amb.id + ',-1)', '_fixSetQtdCant(' + amb.id + ',1)');
       h += _stepper('Argamassa AC-3 – sacos (R$ ' + fm(prAc3) + ' cada)', qA, '_fixSetQtdAc3(' + amb.id + ',-1)', '_fixSetQtdAc3(' + amb.id + ',1)');
-      h += '<div style="font-size:.66rem;color:#5dbf7a;">✓ ' + (qC ? qC + ' barra(s) de perfil R$ ' + fm(qC * prCantB) : '') + (qC && qA ? ' + ' : '') + (qA ? qA + ' saco(s) de argamassa R$ ' + fm(qA * prAc3) : '') + ' = <b>R$ ' + fm(qC * prCantB + qA * prAc3) + '</b> já no orçamento (balcão não cobra instalação)</div>';
+      h += '<div style="font-size:.66rem;color:#5dbf7a;">✓ ' + (qC ? qC + ' cantoneira(s) R$ ' + fm(qC * prCantB) : '') + (qC && qA ? ' + ' : '') + (qA ? qA + ' saco(s) de argamassa R$ ' + fm(qA * prAc3) : '') + ' = <b>R$ ' + fm(qC * prCantB + qA * prAc3) + '</b> já no orçamento (balcão não cobra instalação)</div>';
     }
     h += '</div></div>';
     return h;

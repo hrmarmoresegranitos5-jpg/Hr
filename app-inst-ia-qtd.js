@@ -30,7 +30,7 @@
 (function() {
   'use strict';
 
-  // v367: preços e nomes do balcão (perfil em barra de 6 m e argamassa por saco) ficam no app-fix-consultor.js
+  // v368: preços e nomes do balcão (cantoneira R$ 50 e argamassa por saco) ficam no app-fix-consultor.js
   function _prepararBalcao() {
     var grupos = SV_DEFS['🍽️ Balcão'];
     if (!grupos) return;
@@ -67,7 +67,7 @@
   // ── Heurística local: quantas cantoneiras no Balcão ──
   // Regra: 1 cantoneira a cada 0,5m de comprimento, mínimo 2.
   function _sugerirCantoneiras(m) {
-    return Math.max(1, Math.ceil(m.ml / 6)); // v367: perfil em barra de 6 m
+    return Math.max(2, Math.ceil(m.ml / 0.5));
   }
 
   function _contextosPorAmbiente() {
@@ -114,7 +114,7 @@
       var qtd = chave.k === 'cant_balc' ? _sugerirCantoneiras(m) : _sugerirTubos(m);
       var pr = (window.CFG && CFG.sv && CFG.sv[chave.k]) || 0;
       var justificativa = chave.k === 'cant_balc'
-        ? m.ml.toFixed(2) + 'ml de balcão → barras de perfil de 6 m'
+        ? m.ml.toFixed(2) + 'ml de balcão → ~1 cantoneira a cada 0,5m'
         : m.m2.toFixed(2) + 'm² (' + m.n + ' peça(s)) → mínimo 2 + reforço por tamanho';
       linhas.push({ amb: ctx, chave: chave, qtd: qtd, pr: pr, justificativa: justificativa });
     });

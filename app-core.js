@@ -1966,6 +1966,10 @@ function _migRebBalcao(){
       if(!CFG.svList.find(function(x){return x.k==='fogao';})){CFG.svList.push({k:'fogao',l:'Recorte Fogão de Embutir',preco:CFG.sv.fogao!=null?CFG.sv.fogao:230,grp:'Furos & Recortes',u:'un',fx:1});mudou=true;}
     }
     if(CFG.sv.fogao==null)CFG.sv.fogao=230;
+    if(!localStorage.getItem('hr_mig_balctipo368')){ // v368: a cantoneira do balcão é perfil pequeno (até 30 cm), R$ 50 cada
+      (CFG.customTipos||[]).forEach(function(ct){(ct.items||[]).forEach(function(it){if(it.l==='Perfil (barra de 6 m)'){it.l='Cantoneira (perfil até 30 cm)';it.preco=50;mudou=true;}});});
+      localStorage.setItem('hr_mig_balctipo368','1');
+    }
     // tipo de ambiente próprio de balcão (criado nas Configurações): sem instalação, só perfil e argamassa
     if(!localStorage.getItem('hr_mig_balctipo367')){
       (CFG.customTipos||[]).forEach(function(ct){
@@ -1974,10 +1978,10 @@ function _migRebBalcao(){
         ct.items=ct.items.filter(function(it){var l=String(it.l||'');return !(/instala/i.test(l)&&!/ac-?3|argamassa/i.test(l));});
         ct.items.forEach(function(it){var l=String(it.l||'');
           if(/ac-?3|argamassa/i.test(l)){it.l='Argamassa AC-3 (saco)';it.preco=53;it.u='un';it.fx=0;temAc=true;}
-          else if(/cantoneira|perfil/i.test(l)){it.l='Perfil (barra de 6 m)';it.preco=110;it.u='un';it.fx=0;temPf=true;}
+          else if(/cantoneira|perfil/i.test(l)){it.l='Cantoneira (perfil até 30 cm)';it.preco=50;it.u='un';it.fx=0;temPf=true;}
         });
         var g0='Fixação';
-        if(!temPf)ct.items.push({k:'amb'+Date.now()+'_pf',l:'Perfil (barra de 6 m)',preco:110,u:'un',fx:0,grp:g0});
+        if(!temPf)ct.items.push({k:'amb'+Date.now()+'_pf',l:'Cantoneira (perfil até 30 cm)',preco:50,u:'un',fx:0,grp:g0});
         if(!temAc)ct.items.push({k:'amb'+Date.now()+'_ac',l:'Argamassa AC-3 (saco)',preco:53,u:'un',fx:0,grp:g0});
         mudou=true;
       });
