@@ -26180,8 +26180,8 @@ async function fix364Site(env) { // uma vez: revisa as fotos que já estão no s
   if (fora.length || nd) await pontoAvisarDono(env, `Site revisado: tirei ${fora.length + nd} imagem(ns) que não eram foto de obra (prints, orçamento de cliente, vídeos da equipe com texto, legendas que eram recado seu). Agora só aparece foto real de serviço.`).catch(() => {});
 }
 async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de vídeo) no álbum de serviços feitos do site
-  if (legInstrucao(o && o.desc)) return ''; // v364: recado do dono não vira obra no site
-  if (!(await fotoEhObra(env, buf, mime))) return ''; // v364
+  if (legInstrucao(o && o.desc)) return '-'; // v364: recado do dono não vira obra no site ('-' = também fora do vídeo do dia)
+  if (!(await fotoEhObra(env, buf, mime))) return '-'; // v364
   const lista = await lerPortfolio(env);
   if (lista.filter(i => i.tipo === 'trabalho' && i.origem !== 'app').length >= 120 || lista.filter(i => i.obraId === o.id).length >= 8) return '';
   const h = await hashBuf(buf).catch(() => ''); if (h && lista.some(i => i.h === h)) return ''; // v359: a mesma foto não entra duas vezes no site
@@ -26386,7 +26386,7 @@ async function acvConfirmar(env, from, id, n) { // espera o álbum terminar (15 
   }
   if (await env.HR_KV.get('acv:card:' + id)) return; // v121: um aviso por obra (os arquivos seguintes entram em silêncio)
   await env.HR_KV.put('acv:card:' + id, '1', { expirationTtl: 15 * 60 });
-  const f = o.midias.filter(x => x.tipo === 'foto').length, v = o.midias.length - f, noSite = o.midias.filter(x => x.pf).length;
+  const f = o.midias.filter(x => x.tipo === 'foto').length, v = o.midias.length - f, noSite = o.midias.filter(x => x.pf && x.pf !== "-").length;
   const baixa = o.midias.filter(x => !x.doc).length && !(await env.HR_KV.get('acv:dicaDoc'));
   if (baixa) await env.HR_KV.put('acv:dicaDoc', '1', { expirationTtl: 30 * 86400 });
   const on = await estEditorOnline(env), par = await estEditorPareado(env), cfg = await vdCfg(env);
@@ -26398,9 +26398,12 @@ async function acvConfirmar(env, from, id, n) { // espera o álbum terminar (15 
 }
 // ── vídeo do dia ──
 async function vdCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('vd:cfg')) || '{}'); } catch (_) {} return { ligado: c.ligado !== false && String(env.VIDEO_DIA || '1') !== '0', hora: Number.isFinite(c.hora) ? c.hora : (Number(env.VIDEO_DIA_HORA) || 8) }; }
+const RE_NAO_OBRA = /\b(sistema|atras\w*|cronograma|aviso|comunicad\w*|desculp\w*|brinde|feriado|natal|ano novo|pontos|equipe|vaga|contrata\w*|promoc\w*|sorteio|black friday|bom dia|boa noite)\b/; // anúncios/avisos que vieram do Instagram
 function acvDisponiveis(o) { // índices das mídias que o computador tem (ou que ainda estão no bot / no Instagram)
   const vivo = o.origem === 'instagram' || Date.now() - (o.atualizado || o.criado) < 6.5 * 86400000;
-  return (o.midias || []).map((x, i) => i).filter(i => i < (o.noPC || 0) || vivo);
+  const F = globalThis.__vdFiltro; // v365: no vídeo do dia só entra filmagem/foto de obra (nada de vídeo de aviso, arte amarela, texto grande por cima)
+  if (F && (legInstrucao(o.desc) || RE_NAO_OBRA.test(normaliza(o.desc || '')))) return [];
+  return (o.midias || []).map((x, i) => i).filter(i => (i < (o.noPC || 0) || vivo) && (!F || (o.midias[i].pf ? F.ok.has(o.midias[i].pf) : o.origem !== 'instagram')));
 }
 async function vdEscolher(env) {
   const obras = []; for (const id of await acvLista(env)) { const o = await acvLer(env, id); if (o && (o.midias || []).length) obras.push(o); }
@@ -26438,7 +26441,8 @@ async function vdEscolherObra(env, evitar) {
 }
 async function vdCriar(env, avisarSemObra) {
   if (!(await estEditorPareado(env))) { if (avisarSemObra) await enviar(env, numeroDono(env), 'Para o vídeo do dia, o editor do computador precisa estar conectado. Mande *editor* e siga os passos.'); return null; }
-  const esc = await vdEscolher(env);
+  { const pf = await lerPortfolio(env).catch(() => []); globalThis.__vdFiltro = { ok: new Set(pf.filter(pfNoSite).map(i => i.id)) }; } // v365: só filmagem/foto de obra
+  let esc; try { esc = await vdEscolher(env); } finally { globalThis.__vdFiltro = null; }
   const o = esc && (esc.tipo === 'obra' ? esc.o : { id: 'mix', desc: 'compilação de ' + esc.partes.length + ' obras', midias: esc.partes.flatMap(p => p.sel.map(i => p.o.midias[i])) });
   if (!o) { if (avisarSemObra) await enviar(env, numeroDono(env), cartaoDono('Vídeo do dia', ['Ainda não há obra no acervo com fotos suficientes (mínimo 2 fotos ou 1 vídeo).', 'Mande as fotos e vídeos de um projeto com a legenda: *obra cozinha da Maria em granito preto*.'])); return null; }
   const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: esc.tipo === 'mix' ? 'Alguns dos nossos trabalhos: ' + esc.partes.map(p => p.o.desc).join('; ') : o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, estado: 'na_fila', original: true };
