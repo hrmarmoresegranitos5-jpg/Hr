@@ -16528,8 +16528,11 @@ async function chamarAnthropicFerramentas(env, sistemaBlocos, msgs) {
     tools: comNomeDonoObj(env, FERRAMENTAS), // v24: descrições das ferramentas também usam o DONO_NOME
     messages: ms,
   });
-  let r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: corpo() });
+  const t0IA = Date.now(); // v369b: sem limite de tempo, uma IA lenta deixava o Sr. Hangel sem resposta (o Worker é encerrado antes)
+  let r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: corpo(), signal: AbortSignal.timeout(+env.AGENTE_TIMEOUT_MS || 24000) })
+    .catch(e => { throw new Error(/abort|timeout/i.test(String(e && (e.name + e.message))) ? `a IA demorou mais de ${Math.round((Date.now() - t0IA) / 1000)} s para responder` : String(e && e.message || e)); });
   let j = await r.json().catch(() => null);
+  filaPasso(env, `ia ok ${((Date.now() - t0IA) / 1000).toFixed(1)}s`);
   if (!r.ok && r.status === 400 && !globalThis.__semTTL && /ttl|cache/i.test(j?.error?.message || '')) { globalThis.__semTTL = true; r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: corpo() }); j = await r.json().catch(() => null); }
   if (!r.ok) throw new Error(`${r.status}: ${(j?.error?.message || 'erro na API').slice(0, 200)}`);
   await iaUso(env, 'dono', j.model || env.AI_MODEL || 'sonnet', j.usage);
@@ -16672,6 +16675,7 @@ async function responderAgente(env, from, bruto, F, voz) {
     const notas = [];
     let resposta = '', terminou = false, usouFerr = 0, cobrouFerr = 0;
     for (let volta = 0; volta < AGENTE_MAX_VOLTAS && !terminou; volta++) {
+      filaPasso(env, 'agente volta ' + (volta + 1));
       const r = await chamarModeloAgente(env, [blocoRegras, blocoDados, blocoVivo], msgs); // v184: ordem para o cache
       const blocos = Array.isArray(r.content) ? r.content : [];
       const usos = blocos.filter(b => b.type === 'tool_use'); usouFerr += usos.length;
@@ -16686,6 +16690,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       const resultados = [];
       for (const u of usos) {
         let out;
+        filaPasso(env, 'ferramenta ' + u.name);
         try { out = await executarFerramenta(env, from, u.name, u.input || {}, F, voz); }
         catch (e) {
           console.log('[BOT] ferramenta', u.name, 'FALHOU:', String((e && e.message) || e), String((e && e.stack) || '').slice(0, 400));
@@ -23133,6 +23138,21 @@ async function filaEntrada(env, m) {
 // diagnóstico: em que passo a mensagem estava quando o processamento morreu (ex.: 'audio 3,2s')
 function filaPasso(env, passo) { const id = env && env._filaId; if (!id || !env.HR_DB) return; const ms = Date.now() - (env._t0 || Date.now()); env.HR_DB.prepare('UPDATE msg_fila SET passo = ? WHERE id = ?').bind(`${passo} ${(ms / 1000).toFixed(1)}s`, id).run().catch(() => {}); }
 async function filaOk(env, id) { if (!id) return; try { const db = await filaDb(env); if (db) await db.prepare('UPDATE msg_fila SET ok = 1 WHERE id = ?').bind(String(id).replace(/#r$/, '')).run(); } catch (_) {} }
+// v369b: mensagem do Sr. Hangel que morreu no meio (o Worker foi encerrado) gera aviso com o passo em que parou
+async function donoTravadoRotina(env) {
+  const db = await filaDb(env); if (!db) return; const agora = Date.now();
+  const rs = await db.prepare('SELECT id, de, em, m, passo, tent FROM msg_fila WHERE ok = 0 AND em < ? AND em > ? ORDER BY em LIMIT 10').bind(agora - 4 * 60000, agora - 3 * 3600000).all().catch(() => ({ results: [] }));
+  const L = []; let para = '';
+  for (const x of rs.results || []) {
+    if (!ehDono(env, x.de) || await env.HR_KV.get('filaav:' + x.id)) continue;
+    let m = null; try { m = JSON.parse(x.m); } catch (_) {}
+    if (!m || !['text', 'audio'].includes(m.type)) continue;
+    await env.HR_KV.put('filaav:' + x.id, '1', { expirationTtl: 86400 }).catch(() => {});
+    const hora = new Date(+x.em - 3 * 3600000).toISOString().slice(11, 16), txt = m.type === 'audio' ? 'áudio' : '"' + String((m.text && m.text.body) || '').slice(0, 60) + '"';
+    L.push(`• ${hora} ${txt} — parou em: ${x.passo || 'início'}`); para = x.de;
+  }
+  if (L.length) await enviarTextoPuro(env, para, `Estas mensagens suas ficaram sem resposta (o processamento foi interrompido antes de terminar):\n\n${L.join('\n')}\n\nMande de novo o que ainda precisar, por favor.`).catch(e => console.log('[FILA] aviso:', e.message));
+}
 async function filaReprocessar(env, maxTent = 1) {
   const db = await filaDb(env); if (!db) return 0; const agora = Date.now();
   if (Math.random() < 0.05) await db.prepare('DELETE FROM msg_fila WHERE em < ?').bind(agora - 3 * 86400000).run().catch(() => {});
@@ -38035,7 +38055,7 @@ export default {
     await expCarregar(env).catch(() => {}); // v168
     configurarRegras(env); // v27: limite de peças e pingadeira
     if (!(await env.HR_KV.get('voz:v3teste2')) && await travaEnvio(env, 'voz:v3teste2').catch(() => false)) { await env.HR_KV.put('voz:v3teste2', '1', { expirationTtl: 30 * 86400 }); ctx.waitUntil(vozVersoesWhatsApp(env, VOZ_MSG_TESTE).then(r => console.log('[VOZ] versões', JSON.stringify(r).slice(0, 300))).catch(e => console.log('[VOZ] versões:', e.message))); } // v295: as 4 versões da Helena, uma vez, no WhatsApp do dono
-    ctx.waitUntil(filaReprocessar(env, 2).catch(e => console.log('[FILA]', e.message))); // v288: mensagem que ficou sem resposta (o agendamento tem mais tempo para responder)
+    ctx.waitUntil(filaReprocessar(env, 2).catch(e => console.log('[FILA]', e.message)).then(() => donoTravadoRotina(env)).catch(e => console.log('[FILA] travado:', e.message))); // v288 · v369b: mensagem que ficou sem resposta (o agendamento tem mais tempo para responder)
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
     if (env.CRON_ALERTA_APP && event && event.cron === env.CRON_ALERTA_APP && event.cron !== (env.CRON_AVALIACAO || '*/15 * * * *')) {
