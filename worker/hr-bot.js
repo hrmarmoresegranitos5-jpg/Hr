@@ -26179,6 +26179,15 @@ async function fix364Site(env) { // uma vez: revisa as fotos que já estão no s
   if (nd) await env.HR_KV.put('site:det', JSON.stringify(c));
   if (fora.length || nd) await pontoAvisarDono(env, `Site revisado: tirei ${fora.length + nd} imagem(ns) que não eram foto de obra (prints, orçamento de cliente, vídeos da equipe com texto, legendas que eram recado seu). Agora só aparece foto real de serviço.`).catch(() => {});
 }
+async function fix365Site2(env) { // v365: a 1ª revisão viu só as 80 fotos mais novas; esta vê as mais antigas (capas de vídeos do Instagram com arte/aviso)
+  const l = (await lerPortfolio(env)).filter(i => i && i.tipo === 'trabalho' && i.origem !== 'app' && !i.naoSite), alvo = l.slice(0, Math.max(0, l.length - 80)), fora = [];
+  for (const i of alvo.slice(0, 120)) {
+    if (legInstrucao(i.legenda)) { fora.push(i.id); continue; }
+    const b = await env.HR_KV.get('pf:img:' + i.id, 'arrayBuffer').catch(() => null); if (!b) continue;
+    if (!(await fotoEhObra(env, b, i.mime))) fora.push(i.id);
+  }
+  if (fora.length) { await alterarPortfolio(env, async x => { for (const i of x) if (fora.includes(i.id)) i.naoSite = 1; }, x => x.filter(i => fora.includes(i.id)).every(i => i.naoSite)); await pontoAvisarDono(env, `Revisei as fotos/capas mais antigas: ${fora.length} não eram de obra (arte, aviso, texto grande). Saíram do site e do vídeo do dia.`).catch(() => {}); }
+}
 async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de vídeo) no álbum de serviços feitos do site
   if (legInstrucao(o && o.desc)) return '-'; // v364: recado do dono não vira obra no site ('-' = também fora do vídeo do dia)
   if (!(await fotoEhObra(env, buf, mime))) return '-'; // v364
@@ -37960,12 +37969,13 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__det359) { globalThis.__det359 = 1; ctx.waitUntil((async () => { if (await env.HR_KV.get('fix:det359') || !(await travaEnvio(env, 'det359'))) return; await env.HR_KV.put('fix:det359', '1', { expirationTtl: 30 * 86400 }); await siteDetPedir(env, numeroDono(env), []); })().catch(e => console.log('[DET359]', e.message))); } // v359: começa a pedir as fotos ao Sr. Hangel agora
-    if (ctx && ctx.waitUntil && globalThis.__fix365 !== 4) { globalThis.__fix365 = 4; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
+    if (ctx && ctx.waitUntil && globalThis.__fix365 !== 5) { globalThis.__fix365 = 5; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
       if (!(await env.HR_KV.get('fix:v365limpa')) && await travaEnvio(env, 'fix:v365limpa')) { await env.HR_KV.put('fix:v365limpa', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa(env).catch(e => console.log('[FIX365]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365osm')) && await travaEnvio(env, 'fix:v365osm')) { await env.HR_KV.put('fix:v365osm', '1', { expirationTtl: 60 * 86400 }); await fix365Osmailton(env).catch(e => console.log('[FIX365O]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365limpa2')) && await travaEnvio(env, 'fix:v365limpa2')) { await env.HR_KV.put('fix:v365limpa2', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa2(env).catch(e => console.log('[FIX365b]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365ren')) && await travaEnvio(env, 'fix:v365ren')) { await env.HR_KV.put('fix:v365ren', '1', { expirationTtl: 60 * 86400 }); await fix365Renata(env).catch(e => console.log('[FIX365R]', e.message)); }
       if (await env.HR_KV.get('fix:v365ren') && !(await env.HR_KV.get('fix:v365ren2')) && await travaEnvio(env, 'fix:v365ren2')) { await env.HR_KV.put('fix:v365ren2', '1', { expirationTtl: 60 * 86400 }); await fix365Renata2(env).catch(e => console.log('[FIX365R2]', e.message)); }
+      if (!(await env.HR_KV.get('fix:v365site2')) && await travaEnvio(env, 'fix:v365site2')) { await env.HR_KV.put('fix:v365site2', '1', { expirationTtl: 60 * 86400 }); await fix365Site2(env).catch(e => console.log('[FIX365S2]', e.message)); }
       if (!(await env.HR_KV.get('fix:v364proj')) && await travaEnvio(env, 'fix:v364proj')) { await env.HR_KV.put('fix:v364proj', '1', { expirationTtl: 60 * 86400 }); await fix364Projetos(env).catch(e => console.log('[FIX364P]', e.message)); }
       await env.HR_KV.delete('painel:cache').catch(() => {}); })()); }
     if (ctx && ctx.waitUntil && !globalThis.__fix364s) { globalThis.__fix364s = 1; ctx.waitUntil(fix364Site(env).catch(e => console.log('[FIX364S]', e.message))); } // v364
