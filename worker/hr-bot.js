@@ -7531,6 +7531,7 @@ async function pedirAvaliacoes(env) {
   await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
+  await auditRotina(env).catch(e => console.log('[AUDIT] rotina:', e.message)); // v365
   await helenaAuditoriaRotina(env).catch(e => console.log('[FALHA] auditoria:', e.message)); // v329
   await aprovLembrete(env).catch(e => console.log('[APROV] lembrete:', e.message)); // v346
   await prodLixoChecar(env).catch(e => console.log('[LIXO]', e.message)); // v349
@@ -18462,6 +18463,10 @@ async function eqConversaComando(env, from, msg) {
   const mE = msg.match(/^(?:(?:exporta(?:r)?|baixa(?:r)?|me manda|manda(?:r)?|mande|ver|abr[ae](?:r)?|leia|ler)\s+(?:a\s+|toda\s+a\s+)?)?conversa\s+(?:com\s+(?:o\s+|a\s+)?|d[aeo]\s+)([a-z ]{3,30})$/);
   const mA = msg.match(/^(?:auditar|audita|audite|confer[ei]r?|confira|revis[ae]r?|revise)\s+(?:os\s+|todos\s+os\s+)?pontos\s+(?:d[aeo]\s+)?([a-z ]{3,30})$/);
   if (!mE && !mA) return false;
+  if (mA && /^(todos|toda a equipe|equipe|da equipe|todo mundo)$/.test(mA[1].trim())) { // v365: "auditar pontos de todos"
+    const cfg0 = await pontoCfg(env); await enviar(env, from, 'Conferindo a conversa de cada um (14 dias). Mando só quem tiver tarefa sem ponto…'); let n = 0;
+    for (const f0 of (cfg0.funcs || [])) { if (!f0.tel) continue; try { const r0 = await auditarFunc(env, f0, 14); if (r0.falt.length) { n++; await auditEnviar(env, from, apelidoFunc(cfg0, f0) || f0.nome.split(' ')[0], r0); } } catch (e) { console.log('[AUDIT]', e.message); } }
+    if (!n) await enviar(env, from, 'Conferi todos: ninguém com tarefa dita e sem ponto nos últimos 14 dias.'); return true; }
   const cfg = await pontoCfg(env), f = eqFuncPorNomeTexto(cfg, (mE || mA)[1]);
   if (!f || !f.tel) { await enviar(env, from, 'Não achei esse funcionário (ou ele está sem número cadastrado).'); return true; }
   const tel = normalizarBR(String(f.tel).startsWith('55') ? f.tel : '55' + f.tel), nm = apelidoFunc(cfg, f) || f.nome.split(' ')[0];
@@ -18473,17 +18478,32 @@ async function eqConversaComando(env, from, msg) {
     return true;
   }
   await enviar(env, from, `Lendo as conversas de ${nm} dos últimos 14 dias e comparando com os pontos lançados. Leva uns segundos…`);
-  const l = (await eqConvMsgs(env, tel, 14)).slice(-500);
-  const fid = String(f.id), peds = await pedidosProducao(env, p => p.status !== 'recusado' && Date.now() - (p.criado || 0) < 60 * 86400000).catch(() => []);
-  const lanc = []; for (const p of peds) for (const x of (p.prodLog || [])) if ((x.por || []).map(String).includes(fid) && ETAPA_NOME2[x.e] && x.e !== 'inicio' && Date.now() - (x.ts || 0) < 15 * 86400000) lanc.push(`${dataBR(diaDe(x.ts)).slice(0, 5)} · ${p.nome} · ${ETAPA_NOME2[x.e]} · ${x.ap === 0 ? 'ESPERANDO APROVAÇÃO' : x.ap === -1 ? 'anulado/recusado' : vPt(ptsEtapa(p, x.e, x.ts)) + ' pts'}`);
-  const sis = 'Você audita os pontos de um funcionário de marmoraria. Recebe (1) a conversa dele com a secretária Helena e (2) as etapas que foram LANÇADAS para ele. Encontre tarefas que ele DISSE que fez (cortei, terminei, cortado, pronto, fiz o acabamento, instalei; foto com legenda conta) e que NÃO aparecem lançadas (ou aparecem anuladas sem motivo claro). Não invente: só o que ele disse. Uma tarefa repetida na conversa conta uma vez. Responda JSON {"faltando":[{"data":"dd/mm","cliente":"nome do cliente como ele falou","etapa":"corte|acabamento|fabricacao|instalacao","item":"peça/ambiente","prova":"frase dele, curta"}],"resumo":"1 frase"}.';
-  const conv = l.map(x => `[${hmBahia(x.ts)}] ${x.q === 'c' ? nm.toUpperCase() : 'HELENA'}: ${x.t.slice(0, 300)}`).join('\n').slice(-60000);
-  let o = null; try { o = lerJsonIA(await chamarIA(env, sis, [], `FUNCIONÁRIO: ${f.nome}\n\nLANÇADO PARA ELE:\n${lanc.join('\n') || '(nada)'}\n\nCONVERSA:\n${conv}`, { maxTokens: 1500, timeoutMs: 60000 })); } catch (e) { await enviar(env, from, 'A análise falhou agora: ' + e.message); return true; }
-  const falt = ((o && o.faltando) || []).filter(x => x && x.cliente && ETAPA_NOME2[x.etapa]).slice(0, 15);
-  if (!falt.length) { await enviar(env, from, `Auditoria de ${nm}: não achei tarefa dita por ele que esteja sem lançamento.\n${(o && o.resumo) || ''}\n\nLançado (15 dias): ${lanc.length} etapa(s).`); return true; }
-  const k = estId(8); await env.HR_KV.put('audf:' + k, JSON.stringify({ fid, falt, em: Date.now() }), { expirationTtl: 3 * 86400 });
-  await enviarComBotoes(env, from, [`Auditoria de ${nm} — ${falt.length} tarefa(s) que ele disse e não pontuaram:`, ...falt.map((x, i) => `${i + 1}. ${x.data || ''} · ${x.cliente} · ${ETAPA_NOME2[x.etapa]}${x.item ? ' (' + x.item + ')' : ''} — "${String(x.prova || '').slice(0, 80)}"`), '', `Lançado nos 15 dias: ${lanc.length} etapa(s).`, 'Confira e toque em Lançar para dar os pontos (só para os serviços que eu achar na produção).'].join('\n').slice(0, 1020), [{ id: 'audf|' + k + '|s', titulo: 'Lançar todos' }, { id: 'audf|' + k + '|n', titulo: 'Não lançar' }]);
+  let r; try { r = await auditarFunc(env, f, 14); } catch (e) { await enviar(env, from, 'A análise falhou agora: ' + e.message); return true; }
+  if (!r.falt.length) { await enviar(env, from, `Auditoria de ${nm}: não achei tarefa dita por ele que esteja sem lançamento.\n${r.resumo || ''}\n\nLançado (15 dias): ${r.lanc.length} etapa(s).`); return true; }
+  await auditEnviar(env, from, nm, r);
   return true;
+}
+// a IA compara o que o funcionário DISSE que fez com o que foi lançado (v365)
+async function auditarFunc(env, f, dias) {
+  const cfg = await pontoCfg(env), nm = apelidoFunc(cfg, f) || f.nome.split(' ')[0], tel = normalizarBR(String(f.tel).startsWith('55') ? f.tel : '55' + f.tel);
+  const l = (await eqConvMsgs(env, tel, dias)).slice(-500);
+  const fid = String(f.id), peds = await pedidosProducao(env, p => p.status !== 'recusado' && Date.now() - (p.criado || 0) < 60 * 86400000).catch(() => []);
+  const lanc = []; for (const p of peds) for (const x of (p.prodLog || [])) if ((x.por || []).map(String).includes(fid) && ETAPA_NOME2[x.e] && x.e !== 'inicio' && Date.now() - (x.ts || 0) < (dias + 1) * 86400000) lanc.push(`${dataBR(diaDe(x.ts)).slice(0, 5)} · ${p.nome} · ${ETAPA_NOME2[x.e]}${(x.por || []).length > 1 ? ' (em ' + x.por.length + ')' : ''} · ${x.ap === 0 ? 'ESPERANDO APROVAÇÃO' : x.ap === -1 ? 'anulado/recusado' : vPt(ptsEtapa(p, x.e, x.ts)) + ' pts'}`);
+  if (!l.some(x => x.q === 'c')) return { falt: [], lanc, resumo: 'Sem mensagens dele no período.', fid };
+  const sis = 'Você audita os pontos de um funcionário de marmoraria. Recebe (1) a conversa dele com a secretária Helena e (2) as etapas que foram LANÇADAS para ele. Encontre tarefas que ele DISSE que fez (cortei, terminei, cortado, pronto, fiz o acabamento, polimento, instalei, montamos; foto com legenda conta; mensagens do Sr. Hangel repassadas também) e que NÃO aparecem lançadas para ele (ou aparecem anuladas sem motivo claro). Atenção: instalação feita em dupla aparece "(em 2)". Não invente: só o que ele disse. Uma tarefa repetida na conversa conta uma vez. Responda JSON {"faltando":[{"data":"dd/mm","cliente":"nome do cliente como ele falou","etapa":"corte|acabamento|polimento|fabricacao|instalacao","item":"peça/ambiente","prova":"frase dele, curta"}],"resumo":"1 frase"}.';
+  const conv = l.map(x => `[${hmBahia(x.ts)}] ${x.q === 'c' ? nm.toUpperCase() : 'HELENA'}: ${x.t.slice(0, 300)}`).join('\n').slice(-60000);
+  const o = lerJsonIA(await chamarIA(env, sis, [], `FUNCIONÁRIO: ${f.nome}\n\nLANÇADO PARA ELE:\n${lanc.join('\n') || '(nada)'}\n\nCONVERSA:\n${conv}`, { maxTokens: 1500, timeoutMs: 60000 }));
+  return { falt: ((o && o.faltando) || []).filter(x => x && x.cliente && ETAPA_NOME2[x.etapa]).slice(0, 15), lanc, resumo: (o && o.resumo) || '', fid };
+}
+async function auditEnviar(env, para, nm, r) {
+  const k = estId(8); await env.HR_KV.put('audf:' + k, JSON.stringify({ fid: r.fid, falt: r.falt, em: Date.now() }), { expirationTtl: 3 * 86400 });
+  await enviarComBotoes(env, para, [`Auditoria de ${nm} — ${r.falt.length} tarefa(s) que ele disse e não pontuaram:`, ...r.falt.map((x, i) => `${i + 1}. ${x.data || ''} · ${x.cliente} · ${ETAPA_NOME2[x.etapa]}${x.item ? ' (' + x.item + ')' : ''} — "${String(x.prova || '').slice(0, 80)}"`), '', `Lançado no período: ${r.lanc.length} etapa(s).`, 'Confira e toque em Lançar para dar os pontos (só para os serviços que eu achar na produção).'].join('\n').slice(0, 1020), [{ id: 'audf|' + k + '|s', titulo: 'Lançar todos' }, { id: 'audf|' + k + '|n', titulo: 'Não lançar' }]);
+}
+async function auditRotina(env) { // v365: todo dia às 18h a Helena confere a conversa de cada um (2 dias) e manda ao Sr. Hangel só o que ficou sem ponto
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 18 * 60 || ag.min > 20 * 60 || String(env.AUDIT_DIA ?? '1') === '0') return;
+  if (await env.HR_KV.get('audd:' + hoje) || !(await travaEnvio(env, 'audd:' + hoje))) return; await env.HR_KV.put('audd:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const cfg = await pontoCfg(env);
+  for (const f of (cfg.funcs || [])) { if (!f.tel) continue; try { const r = await auditarFunc(env, f, 2); if (r.falt.length) await auditEnviar(env, numeroDono(env), apelidoFunc(cfg, f) || f.nome.split(' ')[0], r); } catch (e) { console.log('[AUDIT]', f.nome, e.message); } }
 }
 async function auditFaltBotao(env, from, id) {
   const [, k, c] = id.split('|'); let a = null; try { a = JSON.parse((await env.HR_KV.get('audf:' + k)) || 'null'); } catch (_) {}
