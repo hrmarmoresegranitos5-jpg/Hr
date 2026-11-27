@@ -1013,6 +1013,36 @@ async function orcPdfIndiceMontar(env) { // uma vez: monta o índice com os PDFs
   for (let i = 0; i < keys.length; i += 25) { const rs = await Promise.all(keys.slice(i, i + 25).map(k => env.HR_KV.get(k).then(v => [k, v]).catch(() => [k, null]))); for (const [k, v] of rs) { try { const r = JSON.parse(v || 'null'); if (r && r.resumo && r.cliente) idx.push({ k, cliente: r.cliente, em: r.em || 0, n: (r.resumo.itens || []).reduce((t, it) => t + it.pecas.length, 0) }); } catch (_) {} } }
   idx.sort((a, b) => b.em - a.em); await env.HR_KV.put('orcpdf:idx', JSON.stringify(idx.slice(0, 600))); await env.HR_KV.put('orcpdf:idxok', '1');
 }
+async function fix365Osmailton(env) { // as fotos do "Gibson entregou Cássio Borges" (26/11 12:39) eram do balcão do Osmailton, montado por Gibson e Jefferson
+  const cfg = await pontoCfg(env), fP = re => (cfg.funcs || []).find(x => re.test(normaliza(x.nome || ''))), gib = fP(/^gibs/), jef = fP(/^jeff/); if (!gib) return;
+  const todos = await pedidosProducao(env, p => p.status !== 'recusado').catch(() => []), L = [];
+  const dia26 = x => diaDe(x.ts || 0) === '2026-11-26';
+  let moveTs = 0;
+  for (const c of todos.filter(p => /^cassio\b/.test(normaliza(p.nome || '')))) {
+    const antes = (c.prodLog || []).length;
+    c.prodLog = (c.prodLog || []).filter(x => { const err = ['instalacao', 'entrega'].includes(x.e) && dia26(x) && (x.por || []).map(String).includes(String(gib.id)); if (err) moveTs = moveTs || x.ts; return !err; });
+    let mud = c.prodLog.length !== antes;
+    if (c.entregueEm && diaDe(c.entregueEm) === '2026-11-26' && String(c.entFeitoPor || '') === String(gib.id)) { c.entregueEm = null; c.entFeitoPor = null; c.fotoEntregaEm = null; c.entregaEnviadaEm = null; c.appEntregueAvisado = null; mud = true; }
+    if (mud) { await salvarPedido(env, c); L.push(`${c.nome}: tirei a instalação do Gibson de 26/11 (as fotos eram do Osmailton); o serviço volta a ficar em aberto`); }
+  }
+  const osm = todos.filter(p => /osmailt/.test(normaliza(p.nome || ''))).sort((a, b) => (+b.criado || 0) - (+a.criado || 0))[0];
+  if (osm) {
+    let r = await projetoDoCliente(env, 'Osmailtom').catch(() => null); if (!(r && r.resumo)) r = await projetoDoCliente(env, 'Osmailton').catch(() => null);
+    if (r && r.resumo) { osm.resumoApp = { ...(osm.resumoApp || {}), ...r.resumo }; osm.projetoDe = r.orcNum || 'orçamento do app'; }
+    else osm.resumoApp = { pedra: 'Verde Ubatuba', itens: [{ ambiente: 'Cozinha', acabamento: 'sainha', sv: ['sainha'], pecas: [{ qtd: 1, comp_cm: 181, larg_cm: 41, rot: 'Balcão' }, { qtd: 1, comp_cm: 51, larg_cm: 41, rot: 'Balcão (perna do L)' }] }] }; // medidas do orçamento do app (Osmailtom, 17/11)
+    osm.pecas = pecasDoResumo(osm.resumoApp); delete osm.estimado; osm.cor = osm.cor || osm.resumoApp.pedra;
+    if (/^cliente\s+/i.test(osm.nome || '')) osm.nome = String(osm.nome).replace(/^cliente\s+/i, '');
+    const ts = moveTs || quandoTs('2026-11-26', '12:39');
+    osm.prodLog = (osm.prodLog || []).filter(x => !['instalacao', 'entrega'].includes(x.e));
+    osm.prodLog.push({ e: 'instalacao', por: [String(gib.id), ...(jef ? [String(jef.id)] : [])], ts, ap: 1, apEm: Date.now(), dono: 1 });
+    osm.entregueEm = osm.entregueEm || ts; osm.prontoEm = osm.prontoEm || ts; osm.entFeitoPor = String(gib.id); osm.entAjud = jef ? [String(jef.id)] : [];
+    await salvarPedido(env, osm);
+    const pts = ptsEtapa(osm, 'instalacao', ts);
+    L.push(`${osm.nome}: instalação do balcão (181×41 + 51×41, Verde Ubatuba) para Gibson e Jefferson em 26/11 — ${vPt(pts)} pts no total, divididos entre os dois`);
+    for (const f of [gib, jef].filter(Boolean)) await metaChecar(env, f.id).catch(() => {});
+  }
+  if (L.length) await notificarDono(env, Date.now(), ['Osmailton corrigido', ...L].join('\n')).catch(() => {});
+}
 async function fix365Limpa(env) { // Eliane do Campo Grande, Douglas e Osmailton já foram entregues; Batim não fechou
   const abertos = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado').catch(() => []), L = [];
   const nm = p => normaliza(String(p.nome || '')).replace(/^cliente\s+/, '').trim();
@@ -11808,6 +11838,7 @@ async function prodDuplicadosDono(env) {
   return L;
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v365osm')) && await travaEnvio(env, 'fix:v365osm')) { await env.HR_KV.put('fix:v365osm', '1', { expirationTtl: 60 * 86400 }); await fix365Osmailton(env).catch(e => console.log('[FIX365O]', e.message)); } // v365: uma vez
   if (!(await env.HR_KV.get('fix:v365limpa')) && await travaEnvio(env, 'fix:v365limpa')) { await env.HR_KV.put('fix:v365limpa', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa(env).catch(e => console.log('[FIX365]', e.message)); } // v365: uma vez (pedido do Sr. Hangel 27/11)
   if (!(await env.HR_KV.get('fix:v364proj')) && await travaEnvio(env, 'fix:v364proj')) { await env.HR_KV.put('fix:v364proj', '1', { expirationTtl: 60 * 86400 }); await fix364Projetos(env).catch(e => console.log('[FIX364P]', e.message)); } // v364: uma vez
   if (!(await env.HR_KV.get('fix:v323cassio')) && await travaEnvio(env, 'fix:v323cassio')) { await env.HR_KV.put('fix:v323cassio', '1', { expirationTtl: 60 * 86400 }); await fixCassioV323(env).catch(e => console.log('[FIX323]', e.message)); } // v323: uma vez
