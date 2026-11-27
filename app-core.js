@@ -1,3 +1,10 @@
+// v365: o número do ORC era contado só neste aparelho (celular e PC davam o mesmo ORC-0588 para orçamentos diferentes).
+// Agora parte do maior número que já existe no histórico (que é o mesmo nos dois aparelhos).
+function _hrProxOrc(){
+  var n=parseInt(localStorage.getItem('hr_pdf_count')||'0',10)||0;
+  try{(DB.q||[]).forEach(function(x){var m=String((x&&x.orcNum)||'').match(/ORC-(\d+)/i);if(m){var v=parseInt(m[1],10)+1;if(v>n)n=v;}});}catch(e){}
+  return n;
+}
 // ═══ DIAGNÓSTICO — CAPTURAR ERROS SILENCIOSOS ═══
 window.onerror = function(msg, src, line, col, err) {
   console.error('GLOBAL ERROR:', msg, '| Linha:', line, '| Arquivo:', src, err);
@@ -8206,7 +8213,7 @@ function gerarPDF(){
   var _qNoDB=(q.id!=null)?(DB.q||[]).find(function(x){return x&&String(x.id)===String(q.id);}):null;
   var orcNum=String(q.orcNum||(_qNoDB&&_qNoDB.orcNum)||'');
   if(!orcNum){
-    var pdfCount=parseInt(localStorage.getItem('hr_pdf_count')||'0',10);
+    var pdfCount=_hrProxOrc();
     orcNum='ORC-'+String(pdfCount).padStart(4,'0');
     localStorage.setItem('hr_pdf_count', pdfCount+1);
   }
@@ -13160,7 +13167,7 @@ function gerarPDFTumulo(q){
   }
 
   // Numeração
-  var pdfCount=parseInt(localStorage.getItem('hr_pdf_count')||'0',10);
+  var pdfCount=_hrProxOrc();
   var orcNum='ORC-'+String(pdfCount).padStart(4,'0');
   localStorage.setItem('hr_pdf_count',pdfCount+1);
   var fileName='Orcamento_'+orcNum+'_Tumulo_'+(q.cli||'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
