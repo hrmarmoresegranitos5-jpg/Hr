@@ -13922,12 +13922,15 @@ async function corteJuntoRotina(env) {
 // v206: serviços do Hugo pelo PREÇO do app (sainha 45° por metro linear, rebaixo americano, rebaixo normal): pontos = valor ÷ R$ por ponto (padrão R$ 45)
 const PRECO_PAD = { s_45: 150, reb_a: 430, reb_n: 200 };
 const precoSv = k => { const v = +((globalThis.__precosSv || {})[k]); return v > 0 ? v : PRECO_PAD[k] || 0; };
+// v366: o preço do rebaixo no orçamento virou R$ 250 nos dois (o americano cobra a pedra do tampo à parte); os pontos da equipe continuam pelo trabalho de antes
+const PTS_REB = { reb_a: 430, reb_n: 200 };
+const precoPtsSv = k => PTS_REB[k] || precoSv(k);
 const rsPonto = () => +((globalThis.__precosSv || {})._rsPonto) || (dataBahia() >= MES100_INI ? 36 : 45); // v209: com a meta de 100/mês, cada ponto vale R$ 36 de serviço
 async function precosCarregar(env) { if (globalThis.__precosEm && Date.now() - globalThis.__precosEm < 5 * 60000) return; globalThis.__precosEm = Date.now(); try { globalThis.__precosSv = JSON.parse((await env.HR_KV.get('cfg:precosSv')) || '{}') || {}; } catch (_) { globalThis.__precosSv = {}; } try { globalThis.__reguaFator = JSON.parse((await env.HR_KV.get('cfg:regua_fator')) || '{}') || {}; } catch (_) { globalThis.__reguaFator = {}; } }
 function servicosHugo(it) {
   const sv = it.sv || [], L = [], saiasF = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia'), saiaM = (saiasF.length ? saiasF : (it.pecas || []).filter(pc => pcEstreita(pc, it))).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
-  if (sv.includes('reb_a')) L.push({ nome: `Rebaixo americano: recorte, polimento e colar o tampo (R$ ${reais(precoSv('reb_a'))})`, pts: meio(precoSv('reb_a') / rsPonto()) || 1 });
-  if (sv.includes('reb_n')) L.push({ nome: `Rebaixo: recorte e polimento (R$ ${reais(precoSv('reb_n'))})`, pts: meio(precoSv('reb_n') / rsPonto()) || 1 });
+  if (sv.includes('reb_a')) L.push({ nome: `Rebaixo americano: recorte, polimento e colar o tampo (R$ ${reais(precoPtsSv('reb_a'))})`, pts: meio(precoPtsSv('reb_a') / rsPonto()) || 1 });
+  if (sv.includes('reb_n')) L.push({ nome: `Rebaixo: recorte e polimento (R$ ${reais(precoPtsSv('reb_n'))})`, pts: meio(precoPtsSv('reb_n') / rsPonto()) || 1 });
   if (sv.includes('cuba_lav') || sv.includes('cuba_coz') || it.cuba) { const c = CUBA_HUGO[cubaTipo(it)]; L.push({ nome: c[1], pts: c[0] }); }
   // v203: recorte do cooktop é rápido, sem acabamento, e quem faz é a equipe do corte (conta no corte, não no Hugo)
   if (sv.includes('s_45') || it.acabamento === '45') { const mm = saiaM > 0 ? saiaM : 2.5; L.push({ nome: `Saia em 45°: corte, colagem e polimento (${String(Math.round(mm * 100) / 100).replace('.', ',')} m × R$ ${reais(precoSv('s_45'))})`, pts: Math.max(1, meio(mm * precoSv('s_45') / rsPonto())) }); }
@@ -13963,7 +13966,7 @@ function hugoPeloTexto(p) {
   const t = normaliza([p.interesse, p.projetoApp, p.desc, p.descricao, p.obs, p.servico, p.ambiente, p.resumo, typeof p.pecas === 'string' ? p.pecas : ''].filter(x => typeof x === 'string').join(' '));
   let v = 0; const nItens = Math.max(1, (t.match(/\b(pia|bancada|balcao|ilha|lavatorio|mesa)\b/g) || []).length);
   if (/\b45\b|quarenta e cinco|meia esquadria/.test(t)) v += meio(2.5 * Math.min(2, nItens) * precoSv('s_45') / rsPonto());
-  if (/rebaixo americano/.test(t)) v += meio(precoSv('reb_a') / rsPonto()); else if (/rebaixo/.test(t)) v += meio(precoSv('reb_n') / rsPonto());
+  if (/rebaixo americano/.test(t)) v += meio(precoPtsSv('reb_a') / rsPonto()); else if (/rebaixo/.test(t)) v += meio(precoPtsSv('reb_n') / rsPonto());
   if (/cuba|bojo/.test(t)) v += /flush/.test(t) ? 6 : /esculp/.test(t) ? 6 : /sobrep/.test(t) ? 1.5 : /embut/.test(t) ? 3 : 2.5;
   return v;
 }

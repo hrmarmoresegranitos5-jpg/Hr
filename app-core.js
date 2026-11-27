@@ -1794,7 +1794,7 @@ var DEF_ACESS=[
   {id:'calha_umida',nm:'Calha Úmida',marca:'',dim:'Sob medida',pr:0,desc:'Calha escavada na pedra para escorrer água. Integrada ao tampo.',photo:''},
   {id:'escorredor',nm:'Escorredor de Louça',marca:'',dim:'Embutir',pr:0,desc:'Escorredor em inox ou pedra esculpida integrado à bancada.',photo:''}
 ];
-var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,s_slim_esc:15,escada_garantia:8,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,sol_45:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
+var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,s_slim_esc:15,escada_garantia:8,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,sol_45:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:250,reb_a:250,tubo:70,cant:115,inst:320,inst_c:500,perfil:110,argamassa:53,desl_for:4.0,
   ac_sifao:45,ac_flex:25,ac_veda:15,ac_sil:20,ac_paraf:30,ac_bucha:20,ac_sup:60,ac_outros:0,
   // Túmulo
   tum_tampa:85, tum_lat:85, tum_front:85, tum_base:85, tum_det:85, tum_sainha:85,
@@ -1901,6 +1901,7 @@ function initCFG(){
     var _pr={andorinha:320,verde_ub:340,verde_perla:340,bege:380,p_indiano:450,p_gabriel:500,p_gabriel_e:540,via_lactea:750,dallas:400,itaunas:510,nepal:540,prime:730,mrm_branco:300,siena:580,siena_e:620,parana:1490,nano:930,super_nano:980,perla:1640,carrara:1640,trav_classic:400,trav_noce:440};
     CFG.stones.forEach(function(s){if(_pr[s.id])s.pr=_pr[s.id];});
   }
+  _migRebBalcao();
   syncSVDefsFromList();
   // Patch: garantir campo pr_orig em cubas existentes sem ele
   CFG.coz.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';if(!c.instTipos)c.instTipos={};});
@@ -1929,6 +1930,26 @@ function initCFG(){
   });
   svCFG();
 }
+// v366: rebaixo com mão de obra igual (R$ 250) nos dois tipos; o americano soma a pedra do tampo.
+// Balcão / Ilha: sem instalação, só perfil (barra de 6 m) e argamassa AC3 (saco).
+function _migRebBalcao(){
+  try{
+    if(!CFG.sv)CFG.sv={};
+    var feito=localStorage.getItem('hr_mig_reb366');
+    if(!feito){
+      CFG.sv.reb_n=250;CFG.sv.reb_a=250;
+      (CFG.svList||[]).forEach(function(x){if(x.k==='reb_n'||x.k==='reb_a')x.preco=250;if(x.k==='reb_a')x.l='Rebaixo Americano';});
+    }
+    var add=[{k:'perfil',l:'Perfil (barra de 6 m)',preco:110,grp:'Fixação do Balcão',u:'un'},{k:'argamassa',l:'Argamassa AC3 (saco)',preco:53,grp:'Fixação do Balcão',u:'un'}];
+    add.forEach(function(it){
+      if(CFG.svList&&!CFG.svList.find(function(x){return x.k===it.k;}))CFG.svList.push(it);
+      if(CFG.sv[it.k]==null)CFG.sv[it.k]=it.preco;
+    });
+    if(!feito){localStorage.setItem('hr_mig_reb366','1');if(typeof svCFG==='function')setTimeout(function(){try{svCFG();}catch(e){}},0);}
+  }catch(e){}
+}
+var REB_A_TAMPO={c:126,l:54}; // tampo do rebaixo americano: recorte padrão 120×48 + 6 cm
+function _rebATampoM2(){return REB_A_TAMPO.c*REB_A_TAMPO.l/10000;}
 function syncSVDefsFromList(){
   if(!CFG.svList)return;
   // Update CFG.sv prices and labels
@@ -2899,6 +2920,11 @@ SV_DEFS['Área de Serviço']=[
 SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_auto',lados:1,is45:true}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS['Balcão / Ilha']=[
+  {g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},
+  {g:'Fixação do Balcão',its:[{k:'perfil',l:'Perfil (barra de 6 m)',u:'un',fx:0},{k:'argamassa',l:'Argamassa AC3 (saco)',u:'un',fx:0}]},
+  {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
+];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
 SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Colagem',its:[{k:'rdbox_cola',l:'Cola p/ Colagem (2 pedras)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
@@ -3524,7 +3550,7 @@ function pickCuba(id,tipo){
 
 // ═══ AMBIENTES ═══
 var TIPO_INST='🔧 Instalação';
-var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','Plaquinha','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','🔧 Instalação','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','Balcão / Ilha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','Plaquinha','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','🔧 Instalação','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -6118,9 +6144,10 @@ function _svSmartCard(amb, grp) {
     its.forEach(function (it) {
       var on = !!sv[it.k], pr = getPr(it.k) || 0;
       if (on) totR += pr;
-      hR += '<button type="button" onclick="_svChip(' + amb.id + ',\'' + it.k + '\')" style="padding:10px 6px;border-radius:9px;border:1px solid ' + (on ? 'var(--gold)' : 'var(--bd2)') + ';background:' + (on ? 'rgba(201,168,76,.12)' : 'var(--s1)') + ';color:' + (on ? 'var(--gold)' : 'var(--t2)') + ';font-weight:700;font-size:.74rem;line-height:1.3;">' + (on ? '✓ ' : '') + escH(it.l) + '<br><span style="font-weight:500;font-size:.66rem;opacity:.85;">R$ ' + fm(pr) + '</span></button>';
+      hR += '<button type="button" onclick="_svChip(' + amb.id + ',\'' + it.k + '\')" style="padding:10px 6px;border-radius:9px;border:1px solid ' + (on ? 'var(--gold)' : 'var(--bd2)') + ';background:' + (on ? 'rgba(201,168,76,.12)' : 'var(--s1)') + ';color:' + (on ? 'var(--gold)' : 'var(--t2)') + ';font-weight:700;font-size:.74rem;line-height:1.3;">' + (on ? '✓ ' : '') + escH(it.l) + '<br><span style="font-weight:500;font-size:.66rem;opacity:.85;">R$ ' + fm(pr) + (it.k === 'reb_a' ? ' + tampo em pedra' : '') + '</span></button>';
     });
     hR += '</div>';
+    if (sv.reb_a) hR += '<div style="font-size:.64rem;color:var(--t4);margin-top:6px;">O americano soma o tampo do rebaixo (' + REB_A_TAMPO.c + '×' + REB_A_TAMPO.l + ' cm, ' + _rebATampoM2().toFixed(2).replace('.', ',') + ' m²) no preço da pedra escolhida.</div>';
     if (totR > 0) hR += '<div style="font-size:.66rem;color:var(--t4);border-top:1px solid var(--bd);padding-top:8px;margin-top:10px;">Total rebaixo: <b style="color:var(--gold);">R$ ' + fm(totR) + '</b></div>';
     return hR + '</div></div>';
   }
@@ -7350,6 +7377,7 @@ function calcular(){
         return;
       }
       if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});if(!it.interno)acN.push(it.l);}return;}
+      if(it.k==='reb_a'){var pA=getPr('reb_a')||0,mT=_rebATampoM2();m2+=mT;acT+=pA;acL.push({l:it.l+' (acabamento e cola) + tampo '+REB_A_TAMPO.c+'×'+REB_A_TAMPO.l+' em pedra ('+mT.toFixed(2)+'m²)',v:pA});acN.push(it.l+' (tampo '+REB_A_TAMPO.c+'×'+REB_A_TAMPO.l+')');return;}
       if(it.fx===1){var p2=getPr(it.k);if(p2>0){acT+=p2;acL.push({l:it.l,v:p2});if(!it.interno)acN.push(it.l);}return;}
       var qty=svd.qty||1;
       var vv=getPr(it.k)*qty;acT+=vv;var lblQty=it.l+(qty>1?' ('+qty+it.u+')':'');acL.push({l:lblQty,v:vv});if(!it.interno)acN.push(lblQty);
@@ -12587,10 +12615,12 @@ function buildCfg(){
         {k:'forn',      l:'Furo Torneira',          preco:CFG.sv.forn||45,      grp:'Furos & Recortes',u:'un'},
         {k:'fralo',     l:'Furo Ralo',              preco:CFG.sv.fralo||45,     grp:'Furos & Recortes',u:'un'},
         {k:'cook',      l:'Recorte Cooktop',        preco:CFG.sv.cook||140,     grp:'Furos & Recortes',u:'un'},
-        {k:'reb_n',     l:'Rebaixo Normal',         preco:CFG.sv.reb_n||200,    grp:'Rebaixo',u:'un'},
-        {k:'reb_a',     l:'Rebaixo Americano',      preco:CFG.sv.reb_a||380,    grp:'Rebaixo',u:'un'},
+        {k:'reb_n',     l:'Rebaixo Normal',         preco:CFG.sv.reb_n||250,    grp:'Rebaixo',u:'un'},
+        {k:'reb_a',     l:'Rebaixo Americano',      preco:CFG.sv.reb_a||250,    grp:'Rebaixo',u:'un'},
         {k:'tubo',      l:'Tubo Metálico',          preco:CFG.sv.tubo||60,      grp:'Fixação',u:'un'},
         {k:'cant',      l:'Cantoneira',             preco:CFG.sv.cant||110,     grp:'Fixação',u:'un'},
+        {k:'perfil',    l:'Perfil (barra de 6 m)',  preco:CFG.sv.perfil||110,   grp:'Fixação do Balcão',u:'un'},
+        {k:'argamassa', l:'Argamassa AC3 (saco)',   preco:CFG.sv.argamassa||53, grp:'Fixação do Balcão',u:'un'},
         {k:'rdbox_sup', l:'Rodapé de Box (1 lado)',  preco:CFG.sv.rdbox_sup||38,  grp:'Rodapé de Box',u:'ml'},
         {k:'rdbox_cola',l:'Cola p/ Colagem',           preco:CFG.sv.rdbox_cola||20, grp:'Rodapé de Box',u:'un'},
         {k:'inst',      l:'Instalação Padrão',      preco:CFG.sv.inst||280,     grp:'Instalação',u:'un'},
