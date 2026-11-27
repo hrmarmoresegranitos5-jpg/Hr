@@ -2760,8 +2760,8 @@ async function vocabVoz(env) {
   const c = await env.HR_KV.get('voz:vocab'); if (c) return c;
   const nm = new Set();
   try { const cfg = await pontoCfg(env); (cfg.funcs || []).forEach(x => x && x.nome && nm.add(String(x.nome).split(' ')[0])); } catch (_) {}
-  try { (await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 10 * 86400000)).forEach(p => p.nome && nm.add(String(p.nome).split(' ').slice(0, 2).join(' '))); } catch (_) {}
-  try { const snap = await lerSnapshotCompleto(env); ((snap && snap.dados && snap.dados.orcamentos) || []).slice(-40).forEach(o => o.cliente && nm.add(String(o.cliente).split(' ').slice(0, 2).join(' '))); } catch (_) {}
+  try { (await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 10 * 86400000)).forEach(p => p.nome && nm.add(String(p.nome).split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, ''))); } catch (_) {}
+  try { const snap = await lerSnapshotCompleto(env); ((snap && snap.dados && snap.dados.orcamentos) || []).slice(-40).forEach(o => o.cliente && nm.add(String(o.cliente).split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, ''))); } catch (_) {}
   ['Preto São Gabriel', 'Branco Dallas', 'Branco Itaúnas', 'Verde Ubatuba', 'Cinza Andorinha', 'Preto Absoluto', 'Branco pinta verde'].forEach(x => nm.add(x));
   const t = [...nm].join(', ').slice(0, 700); await env.HR_KV.put('voz:vocab', t, { expirationTtl: 3600 }).catch(() => {}); return t;
 }
@@ -8857,7 +8857,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
       const l0 = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado'), tkT = tokensPedra(texto);
       const ach = nomeMelhores(l0, tkT);
       if (ach.length) { const ts = Date.now(), fid = String(f.id); for (const p of ach.slice(0, 4)) { p.iniciadoEm = p.iniciadoEm || ts; p.prodLog = Array.isArray(p.prodLog) ? p.prodLog : []; p.prodLog.push({ e: 'inicio', por: [fid], ts }); if (!p.corteEm && !p.corteIniEm && [p.fabResp, p.fab2Resp].map(String).includes(fid) && !/\bacab/.test(msg)) { p.corteIniEm = ts; p.corteIniPor = fid; } else if (p.corteEm && !p.acabEm && !p.acabIniEm && (String(p.acabResp) === fid || /\bacab/.test(msg))) { p.acabIniEm = ts; p.acabIniPor = fid; } await salvarPedido(env, p); } // v335: "começando a cortar os lavatórios do Cássio" = início do corte (tempo real da tarefa)
-        const nms = ach.slice(0, 4).map(p => String(p.nome || '').split(' ').slice(0, 2).join(' '));
+        const nms = ach.slice(0, 4).map(p => String(p.nome || '').split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, ''));
         await enviar(env, from, `Anotado, ${nome}: você começou ${nms.join(' e ')}. Quando terminar, me diga: _terminei o de ${nms[0].split(" ")[0]}_.`);
         await pontoAvisarDono(env, `▶️ *${nome}* começou: ${nms.join(', ')}.`).catch(() => {}); return true; }
       if (await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return false; // foto com legenda: o fluxo da foto pergunta
@@ -12570,7 +12570,7 @@ async function eqResumoDiaRotina(env) {
   await env.HR_KV.put('eqdia:' + hoje, '1', { expirationTtl: 2 * 86400 });
   const cfg = await pontoCfg(env), pts = await metasPontos(env, hoje, hoje), eqd = await equipeLer(env).catch(() => ({ funcs: [] }));
   const pend = {}; // v364: o que ele mandou e está com o Sr. Hangel para confirmar (não é "não registrei nada")
-  for (const pre of ['fimconf:', 'etpconf:']) { const ks = await env.HR_KV.list({ prefix: pre, limit: 100 }).catch(() => ({ keys: [] })); for (const k of ks.keys || []) { let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (!c || !c.from || Date.now() - (c.em || 0) > 3 * 86400000) continue; let cli = c.cliente || ''; if (!cli && c.pid) { const pd = await lerPedido(env, c.pid).catch(() => null); cli = pd ? pd.nome : ''; } (pend[ultimos8(c.from)] = pend[ultimos8(c.from)] || []).push(String(cli || 'serviço').split(' ').slice(0, 2).join(' ')); } }
+  for (const pre of ['fimconf:', 'etpconf:']) { const ks = await env.HR_KV.list({ prefix: pre, limit: 100 }).catch(() => ({ keys: [] })); for (const k of ks.keys || []) { let c = null; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (!c || !c.from || Date.now() - (c.em || 0) > 3 * 86400000) continue; let cli = c.cliente || ''; if (!cli && c.pid) { const pd = await lerPedido(env, c.pid).catch(() => null); cli = pd ? pd.nome : ''; } (pend[ultimos8(c.from)] = pend[ultimos8(c.from)] || []).push(String(cli || 'serviço').split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, '')); } }
   const iniHoje = {}; for (const p of await pedidosProducao(env, p => !p.entregueEm || diaDe(p.entregueEm) === hoje).catch(() => [])) for (const l of (p.prodLog || [])) if (l.e === 'inicio' && diaDe(l.ts) === hoje) for (const q of (l.por || [])) (iniHoje[String(q)] = iniHoje[String(q)] || []).push(String(p.nome || '').split(' ')[0]);
   for (const f of cfg.funcs) {
     if (!f.tel || emFeriasHoje(eqd, f.id, hoje)) continue;
@@ -12943,7 +12943,7 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
   }
   const linhas = [], fmap = (await funcoesEquipe(env)).map[id] || [], instala = fmap.some(x => /instal|entrega/.test(x));
   for (const p of l.slice(0, 4)) {
-    const pn = String(p.nome || 'cliente').split(' ').slice(0, 2).join(' ');
+    const pn = String(p.nome || 'cliente').split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, '');
     if (!p.entregueEm && String(p.fabResp) === id && !p.corteEm && p.fichaEnviadaEm) { // v180: início e fim do corte (tempo real da tarefa)
       if (!p.corteIniEm) linhas.push({ id: `fot|${p.id}|cti`, titulo: `▶️ ${pn}`.slice(0, 24), descricao: 'Começando o corte' });
     }
@@ -18205,7 +18205,7 @@ async function finPistas(env, r) {
   try {
     const ini = Date.parse(r.data + 'T00:00:00-03:00'), fim = ini + 86400000, fez = [];
     const peds = await pedidosProducao(env, p => Array.isArray(p.prodLog) && p.prodLog.some(x => x.ts >= ini && x.ts < fim));
-    for (const p of peds.slice(0, 6)) { const ev = p.prodLog.filter(x => x.ts >= ini && x.ts < fim).map(x => x.e); const t = ev.includes('inicio_inst') || ev.includes('entrega') ? 'instalação' : ev.includes('corte') ? 'corte' : ev.includes('acabamento') ? 'acabamento' : 'serviço'; fez.push(`${t} de ${String(p.nome || '').split(' ').slice(0, 2).join(' ')}`); }
+    for (const p of peds.slice(0, 6)) { const ev = p.prodLog.filter(x => x.ts >= ini && x.ts < fim).map(x => x.e); const t = ev.includes('inicio_inst') || ev.includes('entrega') ? 'instalação' : ev.includes('corte') ? 'corte' : ev.includes('acabamento') ? 'acabamento' : 'serviço'; fez.push(`${t} de ${(w => /^(de|da|do|dos|das)$/i.test(w[1] || '') ? w.slice(0, 3) : w.slice(0, 2))(String(p.nome || '').split(' ')).join(' ')}`); }
     if (fez.length) out.linhas.push('nesse dia: ' + [...new Set(fez)].slice(0, 3).join(', '));
   } catch (_) {}
   return out;
@@ -19007,7 +19007,7 @@ async function mpxQuemPagou(env, id) {
   return { nome: aprendido || nome, banco, conta, aprendido: !!aprendido };
 }
 async function mpxPagador(env, id) { const q = await mpxQuemPagou(env, id); return q.nome; }
-const bancoCurto = b => String(b || '').replace(/\b(institui[cç][aã]o de pagamento|instituicao|pagamentos?|s\.?\s?a\.?|ltda|ip|banco|econ[oô]mica federal)\b/gi, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 2).join(' ');
+const bancoCurto = b => String(b || '').replace(/\b(institui[cç][aã]o de pagamento|instituicao|pagamentos?|s\.?\s?a\.?|ltda|ip|banco|econ[oô]mica federal)\b/gi, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, '');
 // Pix que entrou com o nome de quem tem conta no A Receber → o app pergunta "Dar baixa?" (mesmo mecanismo da cobrança do bot)
 async function recSugerirBaixaMP(env, h, r) {
   const { itens } = await recLerItens(env); if (!itens || !itens.length) return;
@@ -25245,7 +25245,7 @@ async function qcobComando(env, from, bruto, msg) {
   if (!c.length) { await enviar(env, from, `Não achei entrega${palavras.length ? ' de ' + palavras.join('/') + '…' : ''} com saldo em aberto ${data ? 'de ' + quando : quando}, nem no livro de entregas nem na agenda do app. Mande assim: *cobrar Fulano 350 dos peitoris* (com o número dele se for a primeira vez).`); return true; }
   if (c.length === 1) return qcobCriar(env, from, c[0]);
   const k = Date.now().toString(36); await env.HR_KV.put('qcob:' + k, JSON.stringify(c.slice(0, 3)), { expirationTtl: 86400 });
-  await enviarComBotoes(env, from, cartaoDono(`Entregas com saldo (${quando})`, c.slice(0, 3).map((x, i) => `${i + 1}. ${x.nome}: ${x.desc} · falta R$ ${reais(x.saldo)}`).concat(c.length > 3 ? [`… e mais ${c.length - 3}. Diga o nome: *cobrar Fulano ${data ? 'de ' + dataBR(data).slice(0, 5) : 'dos peitoris'}*`] : [], ['Qual eu cobro?'])), c.slice(0, 3).map((x, i) => ({ id: `qcob|${k}|${i}`, titulo: String(x.nome).split(' ').slice(0, 2).join(' ').slice(0, 20) })));
+  await enviarComBotoes(env, from, cartaoDono(`Entregas com saldo (${quando})`, c.slice(0, 3).map((x, i) => `${i + 1}. ${x.nome}: ${x.desc} · falta R$ ${reais(x.saldo)}`).concat(c.length > 3 ? [`… e mais ${c.length - 3}. Diga o nome: *cobrar Fulano ${data ? 'de ' + dataBR(data).slice(0, 5) : 'dos peitoris'}*`] : [], ['Qual eu cobro?'])), c.slice(0, 3).map((x, i) => ({ id: `qcob|${k}|${i}`, titulo: String(x.nome).split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, '').slice(0, 20) })));
   return true;
 }
 async function qcobBotao(env, from, id) {
@@ -26182,8 +26182,8 @@ async function crmFunil(env) {
   const leads = {}, porTel = {}, porNome = {};
   for (const c of cts) { const k = c.num; leads[k] = { k, num: c.num, nome: c.nome || nomeDoPerfil(c.perfil) || '', ult: c.ult, ultx: c.ultx, ultq: c.ultq, msgs: c.total || 0, orcs: [] }; porTel[ultimos8(c.num)] = leads[k]; }
   for (const o of orcs) {
-    const t8 = String(o.tel || '').replace(/\D/g, '').slice(-8), nk = normaliza(o.cliente || '').split(' ').slice(0, 2).join(' ');
-    let L = (t8.length === 8 && porTel[t8]) || (nk && porNome[nk]) || Object.values(leads).find(x => nk && normaliza(x.nome).split(' ').slice(0, 2).join(' ') === nk && nk.split(' ').length > 1);
+    const t8 = String(o.tel || '').replace(/\D/g, '').slice(-8), nk = normaliza(o.cliente || '').split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, '');
+    let L = (t8.length === 8 && porTel[t8]) || (nk && porNome[nk]) || Object.values(leads).find(x => nk && normaliza(x.nome).split(' ').slice(0, 2).join(' ').replace(/\s+(de|da|do|dos|das|e)$/i, '') === nk && nk.split(' ').length > 1);
     if (!L) { const k = t8.length === 8 ? '55' + String(o.tel).replace(/\D/g, '').replace(/^55/, '') : 'c:' + (o.cliCod || nk.replace(/\s/g, '-')); L = leads[k] = leads[k] || { k, num: t8.length === 8 ? k : '', nome: o.cliente || '', ult: Math.min(Date.now(), Date.parse((o.stDt || o.data) + 'T08:00:00-03:00') || 0), ultx: '', ultq: '', msgs: 0, orcs: [] }; if (t8.length === 8) porTel[t8] = L; }
     if (nk) porNome[nk] = L; if (!L.nome) L.nome = o.cliente || '';
     L.orcs.push({ id: o.id, num: o.orcNum || '', data: o.data || '', valor: +o.valor || 0, status: o.status || '', proj: [o.projeto, o.material].filter(Boolean).join(' · ').slice(0, 80) });
@@ -26250,7 +26250,9 @@ async function crmRotina(env) { // 8h (seg a sáb): só para o Sr. Hangel — re
   await env.HR_KV.put('crm:dia:' + hoje, '1', { expirationTtl: 2 * 86400 });
   const L = await crmFunil(env), fim = Date.parse(hoje + 'T23:59:59-03:00');
   const ret = L.filter(l => l.prox && l.prox <= fim && !['fechado', 'perdido'].includes(l.etapa)).sort((a, b) => a.prox - b.prox).slice(0, 10);
-  const par = L.filter(l => ['orcamento', 'negociacao'].includes(l.etapa) && l.parado >= 3 && !(l.prox && l.prox > fim)).sort((a, b) => (b.valor || 0) - (a.valor || 0)).slice(0, 8);
+  const prodNomes = (await pedidosProducao(env, p => p.status !== 'recusado').catch(() => [])).map(p => p.nome || ''), livN = (await livTodos(env).catch(() => [])).map(r => r.cliente || '');
+  const fechou = l => l.nome && (prodNomes.some(n => nomeNota(n, tokensPedra(l.nome)) >= 0.8 && nomeNota(l.nome, tokensPedra(n)) >= 0.8) || livN.some(n => livNomeCompat(n, l.nome))); // v365: Cássio e Osmailton fecharam (estão na produção/livro): não são "sem resposta"
+  const par = L.filter(l => ['orcamento', 'negociacao'].includes(l.etapa) && l.parado >= 3 && !(l.prox && l.prox > fim) && !fechou(l)).sort((a, b) => (b.valor || 0) - (a.valor || 0)).slice(0, 8);
   if (!ret.length && !par.length) return;
   const linhas = ['📋 *Vendas de hoje*'];
   if (ret.length) linhas.push('', '*Retornos marcados:*', ...ret.map(l => `• ${l.nome}${l.proxTxt ? ' — ' + l.proxTxt : ''}${l.prox < Date.parse(hoje + 'T00:00:00-03:00') ? ' _(atrasado)_' : ''}`));
