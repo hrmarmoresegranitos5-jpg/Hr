@@ -1013,6 +1013,16 @@ async function orcPdfIndiceMontar(env) { // uma vez: monta o índice com os PDFs
   for (let i = 0; i < keys.length; i += 25) { const rs = await Promise.all(keys.slice(i, i + 25).map(k => env.HR_KV.get(k).then(v => [k, v]).catch(() => [k, null]))); for (const [k, v] of rs) { try { const r = JSON.parse(v || 'null'); if (r && r.resumo && r.cliente) idx.push({ k, cliente: r.cliente, em: r.em || 0, n: (r.resumo.itens || []).reduce((t, it) => t + it.pecas.length, 0) }); } catch (_) {} } }
   idx.sort((a, b) => b.em - a.em); await env.HR_KV.put('orcpdf:idx', JSON.stringify(idx.slice(0, 600))); await env.HR_KV.put('orcpdf:idxok', '1');
 }
+async function fix365Limpa(env) { // Eliane do Campo Grande, Douglas e Osmailton já foram entregues; Batim não fechou
+  const abertos = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado').catch(() => []), L = [];
+  const nm = p => normaliza(String(p.nome || '')).replace(/^cliente\s+/, '').trim();
+  for (const p of abertos) {
+    const n = nm(p);
+    if (/^eliane\b/.test(n) || n === 'douglas' || /^osmailton\b/.test(n)) { p.prontoEm = p.prontoEm || Date.now(); p.entregueEm = Date.now(); p.entregaAntesDoBot = 1; await appMarcarEntregue(env, p).catch(() => {}); await salvarPedido(env, p); L.push(`${p.nome}: entregue`); }
+    else if (/^batim\b/.test(n)) { p.status = 'recusado'; p.recusadoEm = Date.now(); p.motivo = 'não fechou (Sr. Hangel, 27/11)'; await salvarPedido(env, p); L.push(`${p.nome}: tirado da produção (não fechou)`); }
+  }
+  if (L.length) await notificarDono(env, Date.now(), ['Produção limpa', ...L, 'Não mandei mensagem a cliente nem a funcionário.'].join('\n')).catch(() => {});
+}
 async function fix364Projetos(env) { // v364: desfaz projeto ligado ao PDF de OUTRO cliente/pedra (ex.: peitoril do ORC-0588 caiu na cozinha da Zenilda)
   const peds = await pedidosProducao(env, p => !!p.projetoDe && /ORC-\d/.test(String(p.projetoDe)) && p.status !== 'recusado').catch(() => []), L = [];
   for (const ped of peds) {
@@ -11798,6 +11808,7 @@ async function prodDuplicadosDono(env) {
   return L;
 }
 async function quitAntesRotina(env) { // v258
+  if (!(await env.HR_KV.get('fix:v365limpa')) && await travaEnvio(env, 'fix:v365limpa')) { await env.HR_KV.put('fix:v365limpa', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa(env).catch(e => console.log('[FIX365]', e.message)); } // v365: uma vez (pedido do Sr. Hangel 27/11)
   if (!(await env.HR_KV.get('fix:v364proj')) && await travaEnvio(env, 'fix:v364proj')) { await env.HR_KV.put('fix:v364proj', '1', { expirationTtl: 60 * 86400 }); await fix364Projetos(env).catch(e => console.log('[FIX364P]', e.message)); } // v364: uma vez
   if (!(await env.HR_KV.get('fix:v323cassio')) && await travaEnvio(env, 'fix:v323cassio')) { await env.HR_KV.put('fix:v323cassio', '1', { expirationTtl: 60 * 86400 }); await fixCassioV323(env).catch(e => console.log('[FIX323]', e.message)); } // v323: uma vez
   if (!(await env.HR_KV.get('fix:v322dup')) && await travaEnvio(env, 'fix:v322dup')) { await env.HR_KV.put('fix:v322dup', '1', { expirationTtl: 60 * 86400 }); await prodDuplicadosDono(env).catch(e => console.log('[DUP]', e.message)); } // v322: uma vez
