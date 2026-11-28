@@ -1,9 +1,9 @@
 // ═══════════════════════════════════════════════════════
-// HR Mármores e Granitos — Service Worker v7
+// HR Mármores e Granitos — Service Worker v8
 // Cache de arquivos versionados (?v=N) + rede primeiro para index.html + app abre offline
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v305';
+var CACHE_NAME = 'hr-shell-v306';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',
@@ -61,6 +61,14 @@ self.addEventListener('activate', function(e) {
 //  • .js/.css com ?v=N       → cache primeiro (a URL muda quando você sobe a versão): abre rápido e funciona sem internet
 //  • demais arquivos do app  → rede primeiro, guarda cópia para quando estiver sem sinal
 //  Nunca devolve index.html no lugar de um .js/.css (isso quebrava o app offline).
+// v8: internet fraca não trava mais a abertura — se a rede não responder em 3 s, abre com a cópia guardada
+//     (e a cópia nova continua chegando por trás, para a próxima vez).
+function _hrComPrazo(promessa, ms) {
+  return new Promise(function(ok, falha) {
+    var t = setTimeout(function() { falha(new Error('prazo')); }, ms);
+    promessa.then(function(r) { clearTimeout(t); ok(r); }, function(e) { clearTimeout(t); falha(e); });
+  });
+}
 function _hrIgnorar(url) {
   return url.indexOf('googleapis.com') !== -1 ||
          url.indexOf('anthropic.com') !== -1 ||
@@ -112,12 +120,14 @@ self.addEventListener('fetch', function(e) {
   var ehVersionado = /\.(js|css)$/.test(u.pathname) && /[?&]v=/.test(u.search);
 
   if (ehNavegacao) {
+    var rede = fetch(req, { cache: 'no-store' }).then(function(res) {
+      _hrGuardar(new Request(new URL('./index.html', self.location.href).href), res.clone());
+      return res;
+    });
+    e.waitUntil(rede.catch(function() {}));
     e.respondWith(
-      fetch(req, { cache: 'no-store' }).then(function(res) {
-        _hrGuardar(new Request(new URL('./index.html', self.location.href).href), res.clone());
-        return res;
-      }).catch(function() {
-        return caches.match('./index.html').then(function(c) { return c || Response.error(); });
+      _hrComPrazo(rede, 3000).catch(function() {
+        return caches.match('./index.html').then(function(c) { return c || rede; });
       })
     );
     return;
@@ -133,11 +143,12 @@ self.addEventListener('fetch', function(e) {
     return;
   }
 
+  var rede2 = fetch(req, { cache: 'no-store' }).then(function(res) { _hrGuardar(req, res); return res; });
+  e.waitUntil(rede2.catch(function() {}));
   e.respondWith(
-    fetch(req, { cache: 'no-store' }).then(function(res) { _hrGuardar(req, res); return res; })
-      .catch(function() {
-        return caches.match(req).then(function(c) { return c || Response.error(); });
-      })
+    _hrComPrazo(rede2, 4000).catch(function() {
+      return caches.match(req).then(function(c) { return c || rede2; });
+    })
   );
 });
 

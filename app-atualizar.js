@@ -16,13 +16,44 @@
 // v5 (28/11/2026): NÃO recarrega mais quando o app vai para o segundo plano — sair por segundos e voltar fazia o app
 //   "reiniciar" (perdia a tela e o que estava sendo feito). Versão nova agora só entra: logo ao abrir (antes de mexer),
 //   ao tocar no aviso "Nova versão · Atualizar", ou ao voltar depois de 30 min ou mais fora do app.
+// v6 (28/11/2026): atualiza SOZINHO quando o senhor não está usando, SEM parecer que reiniciou:
+//   • a tela em que o senhor estava (e a rolagem) fica guardada; depois de recarregar, o app volta exatamente nela;
+//   • versão nova entra quando o app fica 2 min ou mais em segundo plano (ou ao voltar depois disso);
+//   • se o Android fechar o app para liberar memória, ao abrir ele também volta para a mesma tela (até 30 min).
 (function () {
   'use strict';
   var abriuEm = Date.now(), saiuEm = 0;
+  var K = 'hr_tela_salva';
+  function telaAtual() {
+    var pg = document.querySelector('.pg.on'); if (!pg) return null;
+    var id = String(pg.id || '').replace(/^pg/, ''), n = id === '2b' ? 7 : +id;
+    if (!(n >= 0)) return null;
+    return { n: n, top: pg.scrollTop || 0, cfg: (typeof cfgTab !== 'undefined' ? cfgTab : null), em: Date.now() };
+  }
+  function salvarTela() { try { var t = telaAtual(); if (t) localStorage.setItem(K, JSON.stringify(t)); } catch (e) {} }
+  function restaurarTela() {
+    var t = null; try { t = JSON.parse(localStorage.getItem(K) || 'null'); } catch (e) {}
+    if (!t || Date.now() - t.em > 30 * 60000 || typeof go !== 'function') return;
+    if ((t.n === 5 || t.n === 6) && !(typeof _adOn !== 'undefined' && _adOn)) return; // área do proprietário: pede o PIN como sempre
+    var tentativas = 0;
+    (function tentar() {
+      tentativas++;
+      if (!document.querySelector('.pg') && tentativas < 20) return setTimeout(tentar, 300);
+      try {
+        if (t.n === 6 && t.cfg != null) { go(6); cfgTab = t.cfg; document.querySelectorAll('.cfgtab').forEach(function (x) { x.classList.toggle('on', String(x.dataset.cftab) === String(t.cfg)); }); if (typeof buildCfg === 'function') buildCfg(); }
+        else go(t.n);
+        setTimeout(function () { var pg = document.querySelector('.pg.on'); if (pg && t.top) pg.scrollTop = t.top; }, 350);
+      } catch (e) {}
+    })();
+  }
+  // volta para a tela guardada depois de uma atualização (ou de o Android ter fechado o app)
+  setTimeout(restaurarTela, 1200);
+  setInterval(function () { if (!document.hidden) salvarTela(); }, 4000);
+  var digitouAoSair = false;
   var mostrado = false, conferindo = false, ultima = 0, mexeu = 0, indo = false; // ao abrir, ainda não mexeu: atualiza direto
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchmove'].forEach(function (ev) { document.addEventListener(ev, function () { mexeu = Date.now(); }, { passive: true, capture: true }); });
   function digitando() { var a = document.activeElement; return !!(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable) && String(a.value || a.textContent || '').length); }
-  function podeSozinho() { return !document.hidden && !mexeu && Date.now() - abriuEm < 30000 && !digitando(); } // v5: só logo ao abrir (nunca no segundo plano)
+  function podeSozinho() { return (!document.hidden && !mexeu && Date.now() - abriuEm < 30000 && !digitando()) || (document.hidden && saiuEm && Date.now() - saiuEm > 2 * 60000 && !digitouAoSair); } // v6: ao abrir, ou 2 min em segundo plano
   function recentes() { try { return JSON.parse(sessionStorage.getItem('hr_atu_auto') || '[]').filter(function (t) { return Date.now() - t < 10 * 60000; }); } catch (e) { return []; } }
   function novaVersao() { // até 2 atualizações sozinhas em 10 min (se o GitHub ainda não terminou de publicar, não fica recarregando)
     var r = recentes();
@@ -69,7 +100,7 @@
   }
 
   function atualizar() {
-    if (indo) return; indo = true;
+    if (indo) return; indo = true; salvarTela();
     var bt = document.getElementById('hrAtualizarBt');
     if (bt) { bt.disabled = true; bt.textContent = 'Atualizando…'; }
     var limpar = Promise.resolve();
@@ -94,10 +125,10 @@
 
   setTimeout(conferir, 8000);
   setInterval(conferir, 2 * 60000);
-  setInterval(function () { if (mostrado && podeSozinho()) atualizar(); }, 3000); // v4: podeSozinho só vale em segundo plano / ao abrir
+  setInterval(function () { if (mostrado && podeSozinho()) atualizar(); else if (document.hidden && saiuEm && Date.now() - saiuEm > 2 * 60000) conferir(); }, 30000); // v6: em segundo plano também confere e atualiza // v4: podeSozinho só vale em segundo plano / ao abrir
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { saiuEm = Date.now(); return; } // v5: sair do app não recarrega mais
-    var longe = saiuEm && Date.now() - saiuEm > 30 * 60000; saiuEm = 0;
+    if (document.hidden) { saiuEm = Date.now(); digitouAoSair = digitando(); salvarTela(); return; } // v6: guarda a tela; só atualiza depois de 2 min fora
+    var longe = saiuEm && Date.now() - saiuEm > 2 * 60000 && !digitouAoSair; saiuEm = 0;
     if (mostrado && longe && !digitando()) { atualizar(); return; } // ficou 30 min ou mais fora: pode trazer a versão nova
     ultima = 0; conferir();
   });
