@@ -5260,7 +5260,7 @@ function promptCliente(env, c, regras) {
     `- ENDEREÇO DA MARMORARIA: se perguntarem onde fica a marmoraria, responda exatamente: "${ENDERECO_MARMORARIA}". Não invente nem altere nada, e não dê outras referências de localização.`,
     `- SOBRE A EMPRESA (fatos confirmados pelo dono; use sem inventar nada além): a marmoraria faz o PROJETO 3D e, para cozinhas planejadas, trabalha em parceria com a Ceará Planejados, que fabrica os móveis planejados. Juntas, elaboram o projeto 3D e entregam ao cliente. NUNCA diga que o projeto 3D ou os móveis são feitos \"por empresas especializadas\" nem que a marmoraria não faz projeto. Na visita técnica, a equipe também faz uma conferência do local (elétrica, hidráulica e qualquer ponto que possa atrapalhar móveis ou bancadas) e orienta a correção de erros possíveis. A visita técnica é gratuita.`,
     `- COZINHA PLANEJADA E PROJETO COMPLETO: se o cliente quiser cozinha planejada, projeto 3D ou saber quanto custam pedra e móveis, acolha com entusiasmo contido, explique em uma frase o que a empresa faz (pedra, projeto 3D e móveis com a Ceará Planejados) e conduza para a visita técnica gratuita. Valores de móveis e do projeto só depois da visita; nunca invente preço.`,
-    `- TÚMULO, CRUZ, LÁPIDE E CAPELA (v373): isto NÃO é bancada. Cruz tem preço de tabela por unidade: ${tumCruzTxt()}. Quando perguntarem o valor da cruz, DIGA o valor na mesma resposta (a partir de, no tamanho padrão) e então pergunte só o que falta (cor/pedra e altura). Se o cliente repetir "qual o valor", é porque você não respondeu: responda o valor, nunca repita a pergunta. Para túmulo, jazigo ou capela completos o valor depende das medidas: peça as medidas ou marque a visita. Para mostrar opções, use enviar_fotos com "trabalho tumulo" (fotos de túmulos e cruzes já feitos); NUNCA mande o catálogo de pedras de bancada (link do site) para quem pergunta de túmulo ou cruz. Não pergunte duas vezes a mesma coisa nem mande o mesmo link duas vezes.`,
+    `- TÚMULO, CRUZ, LÁPIDE E CAPELA (v373): isto NÃO é bancada. Cruz tem preço de tabela por unidade: ${tumCruzTxt()}. Quando perguntarem o valor da cruz, DIGA o valor na mesma resposta (a partir de, no tamanho padrão) e então pergunte só o que falta (cor/pedra e altura). Se o cliente repetir "qual o valor", é porque você não respondeu: responda o valor, nunca repita a pergunta. Para túmulo, jazigo ou capela completos o valor depende das medidas: peça as medidas ou marque a visita. Para mostrar opções, use enviar_fotos com "trabalho tumulo" (fotos de túmulos e cruzes já feitos); NUNCA mande o catálogo de pedras de bancada (link do site) para quem pergunta de túmulo ou cruz. Não pergunte duas vezes a mesma coisa nem mande o mesmo link duas vezes. NUNCA mande o cliente procurar outra empresa, funerária ou loja: se perguntarem "vocês só fazem de pedra?", confirme que sim (granito ou mármore, mais bonito e durável) e já diga o valor.`,
     `- BANCADAS (cozinha, banheiro, lavabo, área de serviço): NUNCA dê preço, faixa de preço nem estimativa de bancada, cuba, cooktop, rebaixo, frontão, sainha ou instalação; são muitas escolhas e o valor só sai depois da visita técnica gratuita, que é sempre a sua sugestão. Antes de marcar, o FUNIL DA VISITA faz algumas perguntas rápidas para o responsável já chegar preparado; todas são opcionais: se o cliente não souber, registre "na_visita" e siga, sem insistir. Se o cliente tiver PROJETO, peça o arquivo; o que vier dele é lido ao pé da letra pelo sistema: nunca deduza medidas nem detalhes do projeto, e nunca descreva o que não foi lido. Instalação de bancada é assunto do responsável na visita (não diga que não fazemos instalação de bancada: isso vale só para soleira e peitoril).`,
     `- VISITA TÉCNICA (feita pelo próprio responsável, que confere as medidas no local e conversa sobre os detalhes; por isso NÃO pergunte se é reforma ou obra nova nem se o cliente tem medidas): colete, uma pergunta curta por vez e nesta ordem: (1) o que será feito (cozinha, banheiro, soleira...), (2) a pedra ou cor (ofereça o catálogo com fotos se ele não souber), (3) o endereço da obra (ou a localização atual), (4) o dia e a hora da visita. Perguntas diretas, em uma frase, sem rodeios. Se o cliente der as medidas por conta própria, registre em medidas_texto e siga.`,
     `- VISITA, QUEM MARCA É O SISTEMA: enquanto o cliente não confirmar o resumo com sim, não diga que a visita está marcada. Depois do sim, o sistema marca na agenda e envia a confirmação; você só marca pronto: true. Se o cliente pedir um horário que já passou hoje ou que a AGENDA mostra ocupado, ofereça o próximo horário livre. Confirme o endereço e o horário UMA vez só. Nunca invente horário.`,
@@ -14681,7 +14681,7 @@ async function siteDominio(req, env, ctx, url) {
   if (host.startsWith('www.')) return Response.redirect('https://' + dom + url.pathname + url.search, 301);
   ctx.waitUntil(env.HR_KV.get('cfg:dominio').then(v => v === dom ? null : env.HR_KV.put('cfg:dominio', dom)).catch(() => {}));
   const p = url.pathname;
-  if (p === '/' || p === '/index.html') return new Response(PORTFOLIO_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }); // v360d: o domínio abre direto o site novo (monte o seu projeto)
+  if (p === '/' || p === '/index.html') return new Response(PORTFOLIO_HTML.replace('content="/portfolio/img/logo/1"', 'content="https://' + dom + '/portfolio/img/logo/1"'), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }); // v360d: o domínio abre direto o site novo (monte o seu projeto)
   if (!(/^\/(img\/[\w.-]+|bot\.json|robots\.txt|favicon\.ico)$/.test(p))) return null; // o resto (álbum, catálogo, ponto...) é o próprio bot
   const r = await fetch(SITE_ORIGEM + (p === '/' ? '/' : p), { cf: { cacheTtl: 300, cacheEverything: true } });
   const h = new Headers(r.headers); h.delete('x-github-request-id'); h.set('Cache-Control', 'public, max-age=300');
@@ -26397,10 +26397,10 @@ async function fix359Obras(env) { // v359: tira do site as fotos de obra repetid
 // orçamento/documento, vídeo da equipe com texto por cima: nada disso vai para o site.
 const RE_LEG_INSTRUCAO = /\b(edit[ae]|editar|monte|monta|fa[cz]a|manda|mande|envi[ae]|poste|postar|coloque|coloca|bota|mostra com|mostre|pra (a )?equipe|para (a )?equipe|bom dia|boa tarde|boa noite|frase|vinheta|legenda|reels?|stories|algo assim|tipo isso|assim [oó]|aqui nessa)\b/;
 function legInstrucao(t) { return RE_LEG_INSTRUCAO.test(normaliza(String(t || ''))); }
-function pfNoSite(i) { return !!i && i.tipo === 'trabalho' && i.origem !== 'app' && !i.naoSite && !legInstrucao(i.legenda); }
+function pfNoSite(i) { return !!i && i.tipo === 'trabalho' && i.origem !== 'app' && !i.naoSite && !legInstrucao(i.legenda) && !/inspira|refer[eê]ncia|pinterest|ideia de|modelo da internet/i.test(String(i.legenda || '')); } // v374: "Inspiração" não é obra da HR
 async function fotoEhObra(env, buf, mime) { // true = foto/quadro de obra de pedra limpo; false = print, documento, texto por cima, pessoas/equipe em foco
   try {
-    const o = await iaVisaoJSON(env, 'Você seleciona fotos para o site de uma marmoraria. Responda só JSON {"ok":true|false,"motivo":"..."}. ok=true SOMENTE se a imagem for uma FOTO REAL de bancada, pia, lavatório, escada, soleira, peitoril, nicho, churrasqueira ou outra peça de pedra (pronta ou instalada), SEM texto/legenda grande escrito por cima, e NÃO for print de tela, orçamento, PDF, planilha, documento, conversa de WhatsApp, desenho/projeto 3D, nem foto com pessoas em primeiro plano. Na dúvida, ok=false.', [{ mime: mime || 'image/jpeg', buf: buf instanceof Uint8Array ? buf : new Uint8Array(buf) }], 'Esta imagem pode ir para o site?', 120, String(env.AI_PROVIDER || '').toLowerCase() === 'anthropic' ? 'claude-haiku-5-5' : undefined);
+    const o = await iaVisaoJSON(env, 'Você seleciona fotos para o site de uma marmoraria. Responda só JSON {"ok":true|false,"motivo":"..."}. ok=false também se tiver marca d\'água, @ de Instagram ou logotipo de OUTRA empresa (foto que não é nossa). ok=true SOMENTE se a imagem for uma FOTO REAL de bancada, pia, lavatório, escada, soleira, peitoril, nicho, churrasqueira ou outra peça de pedra (pronta ou instalada), SEM texto/legenda grande escrito por cima, e NÃO for print de tela, orçamento, PDF, planilha, documento, conversa de WhatsApp, desenho/projeto 3D, nem foto com pessoas em primeiro plano. Na dúvida, ok=false.', [{ mime: mime || 'image/jpeg', buf: buf instanceof Uint8Array ? buf : new Uint8Array(buf) }], 'Esta imagem pode ir para o site?', 120, String(env.AI_PROVIDER || '').toLowerCase() === 'anthropic' ? 'claude-haiku-5-5' : undefined);
     return !(o && o.ok === false);
   } catch (_) { return true; } // IA fora do ar: não bloqueia (o filtro de legenda continua valendo)
 }
@@ -26426,6 +26426,20 @@ async function fix365Site2(env) { // v365: a 1ª revisão viu só as 80 fotos ma
     if (!(await fotoEhObra(env, b, i.mime))) fora.push(i.id);
   }
   if (fora.length) { await alterarPortfolio(env, async x => { for (const i of x) if (fora.includes(i.id)) i.naoSite = 1; }, x => x.filter(i => fora.includes(i.id)).every(i => i.naoSite)); await pontoAvisarDono(env, `Revisei as fotos/capas mais antigas: ${fora.length} não eram de obra (arte, aviso, texto grande). Saíram do site e do vídeo do dia.`).catch(() => {}); }
+}
+async function fix374Site(env) { // v374: tira do site os prints (orçamento da Zenilda em "Detalhes") e as fotos de outras empresas (@ de Instagram)
+  if (await env.HR_KV.get('fix:v374site') || !(await travaEnvio(env, 'fix374site'))) return; await env.HR_KV.put('fix:v374site', '1', { expirationTtl: 60 * 86400 });
+  const c = await siteDetLer(env); let tiradosDet = 0;
+  for (const k of Object.keys(c)) { const fs = (c[k] && c[k].fotos) || [], ok = [];
+    for (const id of fs) { const b = await env.HR_KV.get('pf:img:' + id, 'arrayBuffer').catch(() => null); if (b && await fotoEhObra(env, b, 'image/jpeg')) ok.push(id); else tiradosDet++; }
+    c[k].fotos = ok; }
+  if (tiradosDet) await env.HR_KV.put('site:det', JSON.stringify(c));
+  const l = (await lerPortfolio(env)).filter(pfNoSite), fora = [];
+  for (const i of l.slice(-40)) { const b = await env.HR_KV.get('pf:img:' + i.id, 'arrayBuffer').catch(() => null); if (b && !(await fotoEhObra(env, b, i.mime))) fora.push(i.id); }
+  const insp = (await lerPortfolio(env)).filter(i => i && i.tipo === 'trabalho' && !i.naoSite && /inspira|refer[eê]ncia|pinterest/i.test(String(i.legenda || ''))).map(i => i.id);
+  const todos = [...new Set([...fora, ...insp])];
+  if (todos.length) await alterarPortfolio(env, async x => { for (const i of x) if (todos.includes(i.id)) i.naoSite = 1; }, x => x.filter(i => todos.includes(i.id)).every(i => i.naoSite));
+  if (tiradosDet || todos.length) await pontoAvisarDono(env, `Revisei o site: tirei ${tiradosDet} print(s) de "Detalhes que fazem diferença" e ${todos.length} foto(s) de "Obras reais" que não eram obra nossa (inspiração ou com @ de outra empresa).`).catch(() => {});
 }
 async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de vídeo) no álbum de serviços feitos do site
   if (legInstrucao(o && o.desc)) return '-'; // v364: recado do dono não vira obra no site ('-' = também fora do vídeo do dia)
@@ -36346,7 +36360,7 @@ footer b{color:var(--t2)}
 @media(min-width:720px){.obg{flex-basis:280px}}
 .ph{position:relative;aspect-ratio:3/4;overflow:hidden;background:#0b0906}
 .ph .bg{position:absolute;inset:-24px;background:center/cover no-repeat;filter:blur(18px) brightness(.5)}
-.ph .fg{position:absolute;inset:0;background:center/contain no-repeat}
+.ph .fg{position:absolute;inset:0;background:center/cover no-repeat} /* v374: foto ocupa o cartão todo (antes sobrava faixa cinza dos lados) */
 .ph .qt{position:absolute;right:10px;top:10px;background:rgba(13,10,5,.8);border:1px solid var(--line2);color:var(--gold2);font-weight:700;font-size:11.5px;border-radius:20px;padding:4px 9px}
 .obg .oi{padding:11px 14px 13px}
 .obg b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14.5px;line-height:1.3;font-weight:700}
@@ -36893,7 +36907,7 @@ footer b{color:var(--t2)}
     var com=D.pedras.filter(function(p){return p.foto});
     var dst=com.filter(function(p){return p.top}).concat(com.filter(function(p){return !p.top})).slice(0,10);
     var GR=gruposObras();
-    if(GR.length){var hu=img('obra',GR[0].fotos[0]);$('mosaico').classList.add('foto');$('mosaico').innerHTML='<div class="bg" style="background-image:url('+hu+')"></div><div class="fg" style="background-image:url('+hu+')"></div>';}
+    if(false){} /* v374: a capa é sempre o mosaico das pedras (a foto de obra ampliada ficava borrada) */
     else $('mosaico').innerHTML=dst.slice(0,6).map(function(p){return '<div style="background-image:url(\\''+img('pedra',p.id)+'\\')"></div>'}).join('');
     setTimeout(function(){$('mosaico').classList.add('on')},100);
     $('destaques').innerHTML=dst.map(function(p){return '<div class="dest" data-p="'+esc(p.id)+'" style="background-image:url(\\''+img('pedra',p.id)+'\\')"><div class="dd"><b>'+esc(p.nm)+'</b><small>'+esc(p.cat||'')+'</small>'+(pr()&&p.pr?'<div><span class="pp">'+brl(p.pr)+'/m²</span></div>':'')+'</div></div>'}).join('');
@@ -37113,6 +37127,7 @@ async function siteLeadsLista(env) {
   return { ok: true, leads: out.slice(0, 60) };
 }
 // link pessoal do site: /portfolio?c=<token> já sabe quem é o cliente (o bot manda esse link na conversa)
+const SLUG_RESERVADO = new Set(['p', 'projeto', 'site', 'portfolio', 'obras', 'bot', 'webhook', 'mp', 'gpix', 'img', 'cam', 'editor', 'pagar', 'pix', 'ponto', 'admin', 'api', 'login', 'robots', 'favicon', 'tv', 'app', 'loja', 'catalogo']);
 async function siteLinkPessoal(env, numero, nome) {
   const base = await urlPublica(env).catch(() => ''); // v359c: domínio próprio quando estiver no ar
   if (!/^https:/.test(base)) return '';
@@ -37121,6 +37136,19 @@ async function siteLinkPessoal(env, numero, nome) {
   let t = await env.HR_KV.get('site:tokn:' + tel);
   if (!t) { t = Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3); await env.HR_KV.put('site:tokn:' + tel, t, { expirationTtl: 25 * 86400 }); }
   await env.HR_KV.put('site:tok:' + t, JSON.stringify({ tel, nome: String(nome || '').slice(0, 60) }), { expirationTtl: 30 * 86400 });
+  // v374: link bonito com o nome do cliente (hrmarmoresegranitos.com.br/ely) em vez de /p?c=tl253i0v7
+  try {
+    let slug = await env.HR_KV.get('site:slugn:' + tel);
+    if (slug && (await env.HR_KV.get('site:slug:' + slug)) !== t) slug = '';
+    if (!slug) {
+      const pn = normaliza(String(nome || '').split(/\s+/)[0] || '').replace(/[^a-z]/g, '').slice(0, 16);
+      if (pn.length >= 2 && !SLUG_RESERVADO.has(pn)) {
+        for (let k = 0; k < 6 && !slug; k++) { const c = k ? pn + (k + 1) : pn; const ja = await env.HR_KV.get('site:slug:' + c); if (!ja || ja === t) slug = c; }
+        if (!slug) slug = pn + Math.random().toString(36).slice(2, 5).replace(/[^a-z]/g, 'x');
+      }
+    }
+    if (slug) { await env.HR_KV.put('site:slug:' + slug, t, { expirationTtl: 30 * 86400 }); await env.HR_KV.put('site:slugn:' + tel, slug, { expirationTtl: 25 * 86400 }); return base + '/' + slug; }
+  } catch (e) { console.log('[SITE] slug:', e.message); }
   return base + '/p?c=' + t; // v359: link mais curto
 }
 async function siteObras(env, pedras) {
@@ -38069,7 +38097,7 @@ async function rotaPortfolio(req, env, ctx, url) {
   if (p === '/portfolio/catalogo') return siteCatalogo(env, ctx, url);
   if (p.startsWith('/portfolio/img/')) return siteImagem(env, ctx, url, p);
   if (p === '/portfolio') {
-    return new Response(PORTFOLIO_HTML, { headers: { ...cab, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
+    return new Response(PORTFOLIO_HTML.replace('content="/portfolio/img/logo/1"', 'content="' + url.origin + '/portfolio/img/logo/1"'), { headers: { ...cab, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }); // v374: prévia do link no WhatsApp com imagem
   }
   const cache = caches.default, chave = new Request(url.toString(), { method: 'GET' });
   const emCache = await cache.match(chave);
@@ -38217,6 +38245,7 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__fix353) { globalThis.__fix353 = 1; ctx.waitUntil(fix353Fabricio(env).catch(e => console.log('[FIX353]', e.message))); } // v353
     if (ctx && ctx.waitUntil && !globalThis.__fix356) { globalThis.__fix356 = 1; ctx.waitUntil(fix356Renata(env).catch(e => console.log('[FIX356]', e.message))); } // v356
     if (ctx && ctx.waitUntil && !globalThis.__det359) { globalThis.__det359 = 1; ctx.waitUntil((async () => { if (await env.HR_KV.get('fix:det359') || !(await travaEnvio(env, 'det359'))) return; await env.HR_KV.put('fix:det359', '1', { expirationTtl: 30 * 86400 }); await siteDetPedir(env, numeroDono(env), []); })().catch(e => console.log('[DET359]', e.message))); } // v359: começa a pedir as fotos ao Sr. Hangel agora
+    if (ctx && ctx.waitUntil && !globalThis.__fix374) { globalThis.__fix374 = 1; ctx.waitUntil(fix374Site(env).catch(e => console.log('[FIX374]', e.message))); } // v374
     if (ctx && ctx.waitUntil && globalThis.__fix365 !== 6) { globalThis.__fix365 = 6; ctx.waitUntil((async () => { // v365: as correções de hoje rodam já (não esperam a rotina)
       if (!(await env.HR_KV.get('fix:v365limpa')) && await travaEnvio(env, 'fix:v365limpa')) { await env.HR_KV.put('fix:v365limpa', '1', { expirationTtl: 60 * 86400 }); await fix365Limpa(env).catch(e => console.log('[FIX365]', e.message)); }
       if (!(await env.HR_KV.get('fix:v365osm')) && await travaEnvio(env, 'fix:v365osm')) { await env.HR_KV.put('fix:v365osm', '1', { expirationTtl: 60 * 86400 }); await fix365Osmailton(env).catch(e => console.log('[FIX365O]', e.message)); }
@@ -38252,6 +38281,7 @@ export default {
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
     if (/^\/(p|projeto|site)\/?$/i.test(url.pathname)) return Response.redirect(url.origin + '/portfolio' + url.search, 302); // v359: link curto do site
+    if (req.method === 'GET' && /^\/[a-z]{2,16}\w{0,3}\/?$/i.test(url.pathname)) { const sg = url.pathname.replace(/\//g, '').toLowerCase(); if (!SLUG_RESERVADO.has(sg)) { const tk = await env.HR_KV.get('site:slug:' + sg).catch(() => null); if (tk) return Response.redirect(url.origin + '/portfolio?c=' + tk, 302); } } // v374: hrmarmoresegranitos.com.br/ely
     if (url.pathname === '/portfolio' || url.pathname.startsWith('/portfolio/')) return rotaPortfolio(req, env, ctx, url);
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
