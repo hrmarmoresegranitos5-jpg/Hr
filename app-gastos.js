@@ -1,4 +1,4 @@
-// app-gastos.js — v1 (27/11/2026): GASTOS DA HELENA E DO WHATSAPP
+// app-gastos.js — v3 (28/11/2026): teto de gastos por mês. v1 (27/11/2026): GASTOS DA HELENA E DO WHATSAPP
 // Cartão nas Configurações: mostra quanto a IA (OpenAI/Claude) e os modelos pagos do WhatsApp estão custando
 // (estimativa anotada pelo próprio bot) e liga/desliga o modo economia.
 (function () {
@@ -19,11 +19,27 @@
       '<div style="display:flex;gap:6px;margin-bottom:10px">' +
       ['7', '30'].map(function (d) { return '<button data-d="' + d + '" class="gsD" style="flex:1;padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#efe9dc;font-weight:700">' + d + ' dias</button>'; }).join('') + '</div>' +
       '<div id="gsTx" style="font-size:.84rem;line-height:1.55;background:#0b0b0e;border-radius:12px;padding:12px;min-height:80px">Carregando…</div>' +
+      '<div id="gsTt" style="margin:12px 0 0;background:#0b0b0e;border:1px solid rgba(201,168,76,.18);border-radius:12px;padding:12px"></div>' +
       '<div id="gsEc" style="margin:12px 0;font-size:.84rem"></div>' +
       '<div style="font-size:.72rem;color:#a99c80;margin-bottom:12px">Modo economia: não manda mensagens de marketing/pesquisa pagas, usa voz e transcrição econômicas, faz as auditorias só aos sábados e o vídeo narrado só quando o senhor pede. No WhatsApp: <b>gastos</b>, <b>economia ligada</b>, <b>economia desligada</b>.</div>' +
       '<button id="gsFec" style="width:100%;padding:11px;border:none;border-radius:10px;background:rgba(255,255,255,.08);color:#efe9dc;font-weight:700">Fechar</button></div>';
     document.body.appendChild(ov);
-    var tx = ov.querySelector('#gsTx'), ec = ov.querySelector('#gsEc');
+    var tx = ov.querySelector('#gsTx'), ec = ov.querySelector('#gsEc'), tt = ov.querySelector('#gsTt');
+    function fmt(n) { return (+n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function teto(t) {
+      t = t || { valor: 0, gasto: 0, pct: 0 }; var on = t.valor > 0, pc = Math.min(100, t.pct || 0), cor = t.estourou ? '#e05151' : pc >= 80 ? '#e0a050' : '#5dbf7a';
+      tt.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:baseline"><b style="color:#ecd27c">Teto por mês</b><span style="font-size:.78rem;color:#a99c80">' + (on ? 'R$ ' + fmt(t.gasto) + ' de R$ ' + fmt(t.valor) : 'sem teto · este mês R$ ' + fmt(t.gasto)) + '</span></div>' +
+        (on ? '<div style="height:10px;border-radius:99px;background:rgba(255,255,255,.08);margin:10px 0 6px;overflow:hidden"><div style="height:100%;width:' + pc + '%;background:' + cor + ';border-radius:99px"></div></div><div style="font-size:.74rem;color:' + cor + '">' + (t.estourou ? 'Passou do teto: até o mês virar, clientes recebem resposta só em texto e nada pago sai.' : t.pct + '% usado · aviso no WhatsApp aos 80%') + '</div>' : '') +
+        '<div style="display:flex;gap:8px;margin-top:10px"><input id="gsTv" inputmode="numeric" placeholder="Ex.: 60" value="' + (on ? t.valor : '') + '" style="flex:1;min-width:0;padding:9px 11px;border-radius:9px;border:1px solid rgba(255,255,255,.14);background:#14141a;color:#efe9dc;font:600 .9rem Outfit,sans-serif">' +
+        '<button id="gsTs" style="padding:9px 14px;border:none;border-radius:9px;background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;font-weight:700">Salvar</button></div>' +
+        '<div style="font-size:.7rem;color:#a99c80;margin-top:6px">Deixe vazio ou 0 para não ter teto. No WhatsApp: <b>teto 60</b>.</div>';
+      tt.querySelector('#gsTs').onclick = function () {
+        var v = parseInt(String(tt.querySelector('#gsTv').value || '0').replace(/\D/g, ''), 10) || 0;
+        fetch(b + '/bot/teto', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, hdr()), body: JSON.stringify({ valor: v }) })
+          .then(function (r) { return r.json(); }).then(function (j) { teto(j.teto); aviso(v ? 'Teto salvo: R$ ' + v + ' por mês' : 'Sem teto de gastos'); })
+          .catch(function (e) { aviso('Não consegui: ' + e.message); });
+      };
+    }
     function botaoEc(on) {
       ec.innerHTML = 'Modo economia: <b style="color:' + (on ? '#5dbf7a' : '#e0a050') + '">' + (on ? 'ligado' : 'desligado') + '</b> ' +
         '<button id="gsTg" style="margin-left:8px;padding:7px 12px;border:none;border-radius:9px;background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;font-weight:700">' + (on ? 'Desligar' : 'Ligar') + '</button>';
@@ -36,7 +52,7 @@
     function carregar(d) {
       tx.textContent = 'Carregando…';
       fetch(b + '/bot/custos?dias=' + d, { headers: hdr() }).then(function (r) { return r.json(); })
-        .then(function (j) { tx.innerHTML = wa(j.texto || j.error || 'Sem dados.'); botaoEc(j.economia !== false); })
+        .then(function (j) { tx.innerHTML = wa(j.texto || j.error || 'Sem dados.'); botaoEc(j.economia !== false); teto(j.teto); })
         .catch(function (e) { tx.textContent = 'Não consegui carregar: ' + e.message; });
     }
     [].forEach.call(ov.querySelectorAll('.gsD'), function (x) { x.onclick = function () { carregar(x.getAttribute('data-d')); }; });
@@ -47,7 +63,7 @@
   function cartao() {
     var cb = document.getElementById('cfgBody'); if (!cb || cb.querySelector('.gs-card')) return;
     var d = document.createElement('div'); d.className = 'vz-card gs-card';
-    d.innerHTML = '<span style="font-size:1.5rem">💸</span><span><b>Gastos da Helena</b><small>Quanto a IA e o WhatsApp estão custando · modo economia</small></span>';
+    d.innerHTML = '<span style="font-size:1.5rem">💸</span><span><b>Gastos da Helena</b><small>Quanto a IA e o WhatsApp estão custando · teto por mês · modo economia</small></span>';
     d.onclick = abrir; var v = cb.querySelector('.vz-card'); cb.insertBefore(d, v ? v.nextSibling : cb.firstChild);
   }
   setInterval(cartao, 1000);

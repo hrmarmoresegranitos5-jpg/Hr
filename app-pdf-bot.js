@@ -1,4 +1,4 @@
-// app-pdf-bot.js — v4: manda também os dados da página do orçamento (link /o/nome). v3: manda também as peças (ficha de corte). v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
+// app-pdf-bot.js — v5: três opções de pedra no link. v4: manda também os dados da página do orçamento (link /o/nome). v3: manda também as peças (ficha de corte). v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
 // O bot manda o PDF ao cliente pelo WhatsApp da HR (dentro ou fora das 24 h, com o modelo aprovado da Meta),
 // registra o orçamento para o acompanhamento automático (parados, retomada, cliente quente) e a assistente
 // passa a saber o valor e o que foi orçado quando o cliente responder. Usa window._ultimoPdf (app-core.js).
@@ -23,6 +23,28 @@
     } catch (e) { return null; }
   }
 
+
+  // v5: três opções de pedra no link — a escolhida, uma mais em conta e uma mais nobre (mesma obra, só troca a pedra)
+  function opcoesDe(q) {
+    try {
+      if (!(q.m2 > 0) || q.tum || (CFG.emp && CFG.emp.link3op === false)) return [];
+      var pedras = {}; (q.ambSnap || []).forEach(function (a) { if (a.selMat) pedras[a.selMat] = 1; }); if (Object.keys(pedras).length > 1) return [];
+      var st = CFG.stones || [], mat = st.find(function (x) { return x.nm === q.mat; }); if (!mat || !(mat.pr > 0)) return [];
+      var fam = String(mat.cat || '').split(' ')[0].toLowerCase();
+      var ok = st.filter(function (x) { return x && x.id !== mat.id && x.pr > 0 && x.nm && !/cliente|instala/i.test(x.nm) && x.oculto !== true && x.ativo !== false; });
+      var mesmo = ok.filter(function (x) { return String(x.cat || '').split(' ')[0].toLowerCase() === fam; }); if (mesmo.length >= 2) ok = mesmo;
+      var baixo = ok.filter(function (x) { return x.pr < mat.pr * 0.93; }).sort(function (a, b) { return b.pr - a.pr; })[0];
+      var alto = ok.filter(function (x) { return x.pr > mat.pr * 1.07; }).sort(function (a, b) { return a.pr - b.pr; })[0];
+      if (!baixo && !alto) return [];
+      var urg = 1 + (+q.urgPct || 0) / 100, base = +q._vistaCalc || +q.vista || 0, fv = base ? (+q.vista || base) / base : 1, fp = base ? (+q.parc || base * 1.15) / base : 1.15;
+      var custo = function (x) { return (+q.m2) * (1 + ((x.perda != null ? +x.perda : 10) / 100)) * x.pr; };
+      var op = function (x, tag) { var d = (custo(x) - custo(mat)) * urg; return { nm: String(x.nm).slice(0, 60), fin: String(x.fin || '').slice(0, 30), tag: tag, vista: Math.round((+q.vista + d * fv) * 100) / 100, parc: Math.round((+q.parc + d * fp) * 100) / 100 }; };
+      var L = []; if (baixo) L.push(op(baixo, 'Mais em conta'));
+      L.push({ nm: String(mat.nm).slice(0, 60), fin: String(mat.fin || '').slice(0, 30), tag: 'Escolhida', atual: true, vista: +q.vista || 0, parc: +q.parc || 0 });
+      if (alto) L.push(op(alto, 'Mais nobre'));
+      return L;
+    } catch (e) { return []; }
+  }
   // v4: dados da página do orçamento que o cliente abre pelo link (sem custos, sem preço por item)
   function linkDe(q) {
     try {
@@ -36,7 +58,7 @@
       var inc = []; try { if (typeof _pdfInclusos === 'function') inc = _pdfInclusos(q); } catch (e) {}
       var fin = ''; try { var st = (CFG.stones || []).find(function (x) { return x.nm === q.mat; }); fin = st ? String(st.fin || '') : ''; } catch (e) {}
       var ate = ''; try { ate = typeof _orcValidoAte === 'function' ? (_orcValidoAte(q) || '') : ''; } catch (e) {}
-      return { vista: +q.vista || 0, parc: +q.parc || 0, mostrarVista: q.mostrarVista !== false, m2: +q.m2 || 0, pedra: String(q.mat || '').slice(0, 60), fin: fin.slice(0, 30), data: q.date || '', ate: String(ate).slice(0, 10), amb: amb.slice(0, 8), inc: inc.slice(0, 16).map(function (x) { return String(x).slice(0, 90); }), cidade: String(q.cidade || '').slice(0, 40) };
+      return { vista: +q.vista || 0, parc: +q.parc || 0, mostrarVista: q.mostrarVista !== false, m2: +q.m2 || 0, pedra: String(q.mat || '').slice(0, 60), fin: fin.slice(0, 30), data: q.date || '', ate: String(ate).slice(0, 10), amb: amb.slice(0, 8), inc: inc.slice(0, 16).map(function (x) { return String(x).slice(0, 90); }), cidade: String(q.cidade || '').slice(0, 40), ops: opcoesDe(q) };
     } catch (e) { return null; }
   }
   function codDe(q) { try { var c = (JSON.parse(localStorage.getItem('hr_clientes') || '[]')).find(function (x) { return typeof _cliNorm === 'function' && _cliNorm(x.nome) === _cliNorm(q.cli); }); return (c && c.cod) || ''; } catch (e) { return ''; } }

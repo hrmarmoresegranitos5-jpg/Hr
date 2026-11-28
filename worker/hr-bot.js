@@ -501,6 +501,7 @@ async function agNota(env, user, assistente) {
 // Cliente que mandou ÁUDIO recebe a resposta SÓ em áudio: o texto não sai, fica guardado para virar voz
 function respondeSoPorVoz(env, para) {
   const c = env && env._ctx;
+  if (globalThis.__tetoEstourou) return false; // v378: passou do teto de gastos → clientes em texto
   return !!(c && c.voz && (c.cliente || c.func) && c.de && normalizarBR(para) === c.de); // v284: funcionário que mandou áudio também recebe áudio
 }
 async function enviar(env, para, texto) {
@@ -1730,7 +1731,8 @@ async function waFalhaLimpar(env) { if (!globalThis.__waFalha) return; globalThi
 async function econ(env) {
   if (globalThis.__econEm && Date.now() - globalThis.__econEm < 60000) return globalThis.__econ;
   let v = '1'; try { v = (await env.HR_KV.get('cfg:economia')) || String(env.ECONOMIA ?? '1'); } catch (_) {}
-  globalThis.__econ = v !== '0'; globalThis.__econEm = Date.now(); return globalThis.__econ;
+  await tetoCarregar(env).catch(() => {}); // v378: passou do teto → economia forçada
+  globalThis.__econ = v !== '0' || !!globalThis.__tetoEstourou; globalThis.__econEm = Date.now(); return globalThis.__econ;
 }
 // modelos de mensagem de marketing/pesquisa (cobrados pela Meta) que o modo economia não manda
 function tplEconBloqueia(env, nome) {
@@ -1778,6 +1780,8 @@ async function custosTexto(env, dias = 30) {
 }
 async function econComandoDono(env, from, msg) {
   if (/^(gastos?|custos?|quanto (estou|to|tô|ta|tá) gastando|relatorio de gastos|relatório de gastos)( (da|com a|com) (ia|helena|meta|whatsapp))?\??$/.test(msg)) { await enviarTextoPuro(env, from, await custosTexto(env)); return true; }
+  const mt = /^teto( de gastos?)?( da helena)?\s*(?:r\$\s*)?(\d{1,4})(?:[.,]\d+)?\s*(reais)?$/.exec(msg);
+  if (mt) { await tetoDefinir(env, +mt[3]); const t = await tetoInfo(env); await enviarTextoPuro(env, from, t.valor > 0 ? `Teto de gastos da Helena: *R$ ${reais(t.valor)} por mês*. Este mês já foram ~R$ ${reais(t.gasto)} (${t.pct}%). Aviso aos 80%; ao passar, ela responde os clientes só em texto até o mês virar.` : 'Teto de gastos desligado.'); return true; } // v378
   const m = /^(modo )?economia (ligad[ao]|ligar|desligad[ao]|desligar|on|off)$/.exec(msg); if (!m) return false;
   const on = /^(ligad|ligar|on)/.test(m[2]); await env.HR_KV.put('cfg:economia', on ? '1' : '0'); globalThis.__econEm = 0; globalThis.__vozCfgEm = 0;
   await enviarTextoPuro(env, from, on ? 'Modo economia *ligado*: sem mensagens de marketing/pesquisa pagas, voz e transcrição no modelo econômico, auditorias 1× por semana e vídeo narrado só quando o senhor pedir.' : 'Modo economia *desligado*: tudo volta como antes.');
@@ -2562,6 +2566,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('cartv|')) return cartaoBotao(env, from, id); // v91c
   if (id.startsWith('promo|')) return promoBotao(env, from, id); // v92
   if (id.startsWith('rtp|')) return rtpBotao(env, from, id); // v93
+  if (id.startsWith('dpa|')) { if (ehDono(env, from)) await dpBotao(env, from, id); return true; } // v378
   if (id.startsWith('olk|')) { if (ehDono(env, from)) await olkBotao(env, from, id); return true; } // v377
   if (id.startsWith('qcob|')) return qcobBotao(env, from, id); // v94
   if (id.startsWith('cub|')) return cubaBotao(env, from, id); // v111
@@ -3332,6 +3337,7 @@ function falaSemPausas(t) {
 }
 // Gera a voz (OGG/Opus), sobe na Meta e envia como mensagem de voz. Nunca derruba o fluxo.
 async function enviarVoz(env, para, texto, opts = {}) {
+  if (globalThis.__tetoEstourou && !ehDono(env, para)) return false; // v378: teto de gastos
   try {
     await vozEscolhaCarregar(env).catch(() => {});
     let fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
@@ -24402,11 +24408,12 @@ async function manutRotina(env) {
   for (const r of await livTodos(env).catch(() => [])) {
     const d = livDataOk(r.entregaEm); if (!d || d < ini || d > fim || !r.tel || await env.HR_KV.get('mn:' + r.id)) continue;
     const desc = normaliza(r.desc || ''); if (PI_SO_ENTREGA.test(desc) && !PI_COM_INSTALACAO.test(desc)) continue;
+    if (lista.length >= 3) break;
     await env.HR_KV.put('mn:' + r.id, '1', { expirationTtl: 400 * 86400 });
     const nome = nomeDeTratamento(r.cliente || ''), serv = String(r.desc || 'pedra').replace(/\s+/g, ' ').slice(0, 35).toLowerCase();
-    lista.push({ num: normalizarBR(r.tel), nome: r.cliente, tag: 'mn', texto: `${nome}, já faz quase 1 ano da sua ${serv}! Dica da HR: uma limpeza e impermeabilização deixa a pedra protegida e com brilho. Quer que a gente agende?`.slice(0, 200) });
+    lista.push({ id: r.id, desc: r.desc, num: normalizarBR(r.tel), nome: r.cliente, tag: 'mn', texto: `${nome}, já faz quase 1 ano da sua ${serv}! Dica da HR: uma limpeza e impermeabilização deixa a pedra protegida e com brilho. Quer que a gente agende?`.slice(0, 200) });
   }
-  if (lista.length) { await cliFilaAdd(env, lista); await avisarDono(env, cartaoDono('Manutenção de 1 ano', [`Mandei o lembrete de manutenção para: ${lista.map(x => x.nome).join(', ')}.`, 'Quem responder cai na conversa normal; é uma chance de venda (impermeabilização/polimento).'])); }
+  for (const x of lista) await dpPerguntar(env, { chave: 'mn:' + x.id, num: x.num, nome: x.nome, tipo: 'mn', texto: x.texto, aviso: `Faz quase 1 ano que entregamos ${x.desc ? String(x.desc).slice(0, 40).toLowerCase() : 'a obra'} de ${x.nome}. Mando o lembrete de limpeza e impermeabilização? É chance de serviço extra.` }); // v378: só com o toque do dono
 }
 // ── relatório do mês ──
 async function relDados(env, mes) {
@@ -25773,7 +25780,7 @@ async function indConviteV99(env, numero, nome) {
   const cod = await obterCodigoIndicacao(env, normalizarBR(numero), nome), p = indPremios(cfg);
   const link = await igLinkWhats(env, `Olá! Vim por indicação de ${String(nome || '').split(' ')[0] || 'um cliente'} (código ${cod}) e quero um orçamento.`).catch(() => '');
   await env.HR_KV.put('ind:convnum:' + ultimos8(numero), '1', { expirationTtl: 300 * 86400 });
-  return { cod, texto: `${nomeDeTratamento(nome || '') || 'Olá'}, obrigada por confiar na HR! Conhece alguém que precisa de pedra (cozinha, banheiro, escada, soleira)? Indique a gente: ${p.indicador ? 'quando ele fechar, você ganha ' + p.indicador + '. ' : ''}${p.novo ? 'E ele ganha ' + p.novo + '. ' : ''}${link ? 'É só mandar este link para ele: ' + link : 'Peça para ele falar o código ' + cod + ' quando chamar a HR.'}` };
+  return { cod, texto: `${nomeDeTratamento(nome || '') || 'Olá'}, obrigada por confiar na HR! Conhece alguém que precisa de pedra (cozinha, banheiro, escada, soleira)? Indique a gente: ${p.indicador ? 'quando ele fechar, você ganha ' + p.indicador + '. ' : ''}${p.novo ? 'E ele ganha ' + p.novo + '. ' : ''}${'É só mandar este link para ele: https://' + (env.DOMINIO_SITE || DOMINIO_SITE) + '/i/' + cod}` };
 }
 async function indTextoCliente(env, from) {
   const u = await kvJson(env, 'ind:uso:' + ultimos8(from), null); if (!u || u.fechou) return '';
@@ -25787,10 +25794,10 @@ async function indRotina(env, snap) {
   const ini = dataBahia(-16), fim = dataBahia(-12), fila = [];
   for (const r of await livTodos(env).catch(() => [])) {
     const d = livDataOk(r.entregaEm); if (!d || d < ini || d > fim || !r.tel || await env.HR_KV.get('ind:conv:' + r.id) || await env.HR_KV.get('ind:convnum:' + ultimos8(r.tel))) continue;
+    if (fila.length >= 3) break;
     await env.HR_KV.put('ind:conv:' + r.id, '1', { expirationTtl: 400 * 86400 });
-    const c = await indConviteV99(env, r.tel, r.cliente); if (c) fila.push({ num: normalizarBR(r.tel), nome: r.cliente, texto: c.texto, tag: 'ind' });
+    const c = await indConviteV99(env, r.tel, r.cliente); if (c) { fila.push(1); await dpPerguntar(env, { chave: 'ind:' + r.id, num: r.tel, nome: r.cliente, tipo: 'ind', texto: c.texto, aviso: `Faz 2 semanas que entregamos a obra de ${r.cliente}${r.desc ? ' (' + String(r.desc).slice(0, 40) + ')' : ''}. Mando o convite de indicação? Quem indica ganha ${indPremios(cfg).indicador || 'um brinde'}.` }); } // v378: só com o toque do dono
   }
-  if (fila.length) { await cliFilaAdd(env, fila); await avisarDono(env, cartaoDono('Indicação', [`Convidei para indicar amigos: ${fila.map(x => x.nome).join(', ')}.`, 'Cada um tem um código; quem chegar com ele aparece aqui.'])); }
   const d = (snap && snap.dados) || {}, l = await listarTodas(env, 'ind:uso:').catch(() => ({ keys: [] }));
   for (const k of l.keys.slice(0, 200)) {
     const u = await kvJson(env, k.name, null); if (!u || u.fechou) continue;
@@ -28249,7 +28256,8 @@ async function rotaBotInterna(req, env, url) {
       return jsonR({ ok: true, audio: bytesParaBase64(new Uint8Array(g.audio)), mime: g.mime, ms: Date.now() - t0, fala, via: g.via, transcricao: g.transcricao || '', direcao: cfg._direcao || '', emocao: cfg._emocao || '', contexto: cfg.emocao ? vozContexto(fala) : '', custoUsd: Math.round(((g.seg || fala.length / 14) / 60 * (/^rt:/.test(g.via) ? 0.02 : 0.015)) * 10000) / 10000 });
     } catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 300), ms: Date.now() - t0 }, 200); }
   }
-  if (p === '/bot/custos' && req.method === 'GET') { const d = Math.max(1, Math.min(90, +url.searchParams.get('dias') || 30)); return jsonR({ ok: true, texto: await custosTexto(env, d), economia: await econ(env) }); } // v370
+  if (p === '/bot/custos' && req.method === 'GET') { const d = Math.max(1, Math.min(90, +url.searchParams.get('dias') || 30)); return jsonR({ ok: true, texto: await custosTexto(env, d), economia: await econ(env), teto: await tetoInfo(env).catch(() => null) }); } // v370
+  if (p === '/bot/teto' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await tetoDefinir(env, b.valor); return jsonR({ ok: true, teto: await tetoInfo(env) }); } // v378
   if (p === '/bot/economia' && req.method === 'POST') { const b = await req.json().catch(() => ({})); await env.HR_KV.put('cfg:economia', b.on === false ? '0' : '1'); globalThis.__econEm = 0; globalThis.__vozCfgEm = 0; return jsonR({ ok: true, economia: b.on !== false }); } // v370
   if (p === '/bot/status' && req.method === 'GET') {
     const ok = !!(env.WHATSAPP_TOKEN && env.PHONE_NUMBER_ID && env.APP_SECRET && env.VERIFY_TOKEN && env.HR_KV);
@@ -29747,6 +29755,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('segundo contato', () => segundoToqueRotina(e2));
   await passo('radar de vendas', () => radarRotina(e2));
   await passo('indicação', () => indRotina(e2, snap));
+  await passo('validade do orçamento', () => olVencerRotina(e2, snap)); // v378
   await passo('reconquista', () => reconqRotina(e2));
   await passo('previsão de caixa', () => caixaAlertaRotina(e2));
   await passo('meta do mês', () => metaRotina(e2));
@@ -37145,7 +37154,7 @@ async function siteLeadsLista(env) {
   return { ok: true, leads: out.slice(0, 60) };
 }
 // link pessoal do site: /portfolio?c=<token> já sabe quem é o cliente (o bot manda esse link na conversa)
-const SLUG_RESERVADO = new Set(['o', 'exemplo', 'p', 'projeto', 'site', 'portfolio', 'obras', 'bot', 'webhook', 'mp', 'gpix', 'img', 'cam', 'editor', 'pagar', 'pix', 'ponto', 'admin', 'api', 'login', 'robots', 'favicon', 'tv', 'app', 'loja', 'catalogo']);
+const SLUG_RESERVADO = new Set(['o', 'i', 'exemplo', 'p', 'projeto', 'site', 'portfolio', 'obras', 'bot', 'webhook', 'mp', 'gpix', 'img', 'cam', 'editor', 'pagar', 'pix', 'ponto', 'admin', 'api', 'login', 'robots', 'favicon', 'tv', 'app', 'loja', 'catalogo']);
 async function siteLinkPessoal(env, numero, nome) {
   const base = await urlPublica(env).catch(() => ''); // v359c: domínio próprio quando estiver no ar
   if (!/^https:/.test(base)) return '';
@@ -38204,6 +38213,7 @@ export default {
     if (!(await env.HR_KV.get('voz:v3teste2')) && await travaEnvio(env, 'voz:v3teste2').catch(() => false)) { await env.HR_KV.put('voz:v3teste2', '1', { expirationTtl: 30 * 86400 }); ctx.waitUntil(vozVersoesWhatsApp(env, VOZ_MSG_TESTE).then(r => console.log('[VOZ] versões', JSON.stringify(r).slice(0, 300))).catch(e => console.log('[VOZ] versões:', e.message))); } // v295: as 4 versões da Helena, uma vez, no WhatsApp do dono
     ctx.waitUntil(filaReprocessar(env, 2).catch(e => console.log('[FILA]', e.message)).then(() => donoTravadoRotina(env)).catch(e => console.log('[FILA] travado:', e.message))); // v288 · v369b: mensagem que ficou sem resposta (o agendamento tem mais tempo para responder)
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
+    ctx.waitUntil(tetoRotina(env).catch(e => console.log('[TETO]', e.message))); // v378
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
     if (env.CRON_ALERTA_APP && event && event.cron === env.CRON_ALERTA_APP && event.cron !== (env.CRON_AVALIACAO || '*/15 * * * *')) {
       ctx.waitUntil(alertaAppParado(env).catch(e => falhou(env, 'rotina: app parado', e)));
@@ -38294,8 +38304,10 @@ export default {
     if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
     if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).then(() => mig206(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
+    if (url.pathname === '/webhook') await tetoCarregar(env).catch(() => {}); // v378
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname === '/gpix' || url.pathname === '/gpix/script' || url.pathname === '/gpix/cfg') return gpixRota(req, env, url, ctx); // v361/v362
+    if (req.method === 'GET' && /^\/i\/[A-Za-z0-9]{3,12}\/?$/.test(url.pathname)) return rotaIndicacaoPagina(req, env, url); // v378: página de indicação
     if (/^\/o\/[a-z0-9]{2,30}(\/v|\/pdf)?\/?$/i.test(url.pathname)) return rotaOrcLink(req, env, ctx, url); // v377: página do orçamento
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
@@ -38367,7 +38379,8 @@ function olLinkLimpo(l) {
   const s = (v, n) => String(v == null ? '' : v).slice(0, n), num = v => Math.max(0, Number(v) || 0);
   return { vista: num(l.vista), parc: num(l.parc), mostrarVista: l.mostrarVista !== false, m2: num(l.m2), pedra: s(l.pedra, 60), fin: s(l.fin, 30), data: s(l.data, 10), ate: s(l.ate, 10), cidade: s(l.cidade, 40),
     amb: (Array.isArray(l.amb) ? l.amb : []).slice(0, 8).map(a => ({ t: s(a && a.t, 30), cuba: s(a && a.cuba, 50), sv: (Array.isArray(a && a.sv) ? a.sv : []).slice(0, 15).map(x => s(x, 50)), pc: (Array.isArray(a && a.pc) ? a.pc : []).slice(0, 30).map(p => ({ d: s(p && p.d, 40), w: num(p && p.w), h: num(p && p.h), q: Math.max(1, Math.round(num(p && p.q)) || 1) })).filter(p => p.w > 0 && p.h > 0) })),
-    inc: (Array.isArray(l.inc) ? l.inc : []).slice(0, 16).map(x => s(x, 90)).filter(Boolean) };
+    inc: (Array.isArray(l.inc) ? l.inc : []).slice(0, 16).map(x => s(x, 90)).filter(Boolean),
+    ops: (Array.isArray(l.ops) ? l.ops : []).slice(0, 3).map(o => ({ nm: s(o && o.nm, 60), fin: s(o && o.fin, 30), tag: s(o && o.tag, 20), atual: !!(o && o.atual), vista: num(o && o.vista), parc: num(o && o.parc) })).filter(o => o.nm && o.parc > 0) };
 }
 function olSlugBase(nome) { return normaliza(String(nome || '').split(/\s+/)[0] || '').replace(/[^a-z0-9]/g, '').slice(0, 14) || 'orcamento'; }
 async function olCriar(env, rec) { // devolve a URL da página; o mesmo orçamento mantém o mesmo link
@@ -38380,6 +38393,7 @@ async function olCriar(env, rec) { // devolve a URL da página; o mesmo orçamen
   }
   await env.HR_KV.put('ol:s:' + slug, k, { expirationTtl: 120 * 86400 });
   await env.HR_KV.put('ol:k:' + k, slug, { expirationTtl: 120 * 86400 });
+  await olIndexar(env, slug, k).catch(() => {});
   return 'https://' + (env.DOMINIO_SITE || DOMINIO_SITE) + '/o/' + slug;
 }
 function olEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -38391,44 +38405,17 @@ async function olDados(env, slug) {
   let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {} if (!r) return null;
   const L = r.link || {}, pedraNome = L.pedra || (r.resumo && r.resumo.pedra) || '';
   const pf = await lerPortfolio(env).catch(() => []), np = normaliza(pedraNome);
+  const fotoDe = nm => { const n = normaliza(nm || ''); if (!n) return ''; const it = pf.find(i => i && i.tipo === 'pedra' && !i.semFoto && normaliza(i.nome || '') === n) || pf.find(i => i && i.tipo === 'pedra' && !i.semFoto && n.length > 4 && normaliza(i.nome || '').includes(n)); return it ? '/portfolio/foto/' + encodeURIComponent(it.id) : ''; };
+  const ops = (L.ops || []).length >= 2 ? L.ops.map(o => ({ ...o, foto: fotoDe(o.nm) })) : [];
   const pedraIt = np ? pf.find(i => i && i.tipo === 'pedra' && !i.semFoto && normaliza(i.nome || '') === np) || pf.find(i => i && i.tipo === 'pedra' && !i.semFoto && np.length > 4 && normaliza(i.nome || '').includes(np)) : null;
   const ambs = (L.amb || []).map(a => normaliza(a.t)), obras = pf.filter(pfNoSite).map(i => {
     const tx = normaliza([i.cat, i.legenda, i.pedraNome].join(' ')); let sc = 0;
     if (np && normaliza(i.pedraNome || '').includes(np.split(' ')[0])) sc += 3; for (const a of ambs) if (a && tx.includes(a.split(' ')[0])) sc += 2; return { i, sc };
   }).sort((a, b) => b.sc - a.sc || (b.i.em || 0) - (a.i.em || 0)).slice(0, 8).map(x => ({ u: '/portfolio/img/obra/' + encodeURIComponent(x.i.id), t: String(x.i.legenda || x.i.cat || 'Obra').replace(/\s+/g, ' ').slice(0, 60) }));
   const whats = String(env.WHATSAPP_PUBLICO || '').replace(/\D/g, '') || (await igNumeroWhats(env).catch(() => '')) || '';
-  return { k, slug, r, L, pedraNome, pedraFoto: pedraIt ? '/portfolio/foto/' + encodeURIComponent(pedraIt.id) : '', obras, whats };
+  return { k, slug, r, L, ops, pedraNome, pedraFoto: pedraIt ? '/portfolio/foto/' + encodeURIComponent(pedraIt.id) : '', obras, whats };
 }
-function olHtml(d, opts) {
-  const { r, L } = d, e = olEsc, nome = String(r.cliente || '').trim(), pn = nome.split(/\s+/)[0] || '';
-  const parc = L.parc || r.valor || 0, vista = L.vista || 0, temVista = L.mostrarVista && vista > 0 && parc > vista + 0.5, pct = temVista ? Math.round((parc - vista) / parc * 100) : 0;
-  const base = parc || vista, p10 = Math.round(base / 10 * 100) / 100, [vi, vc] = reais(base).split(',');
-  const ambNomes = (L.amb || []).map(a => a.t).filter(Boolean), titulo = (ambNomes.length ? ambNomes.join(' + ') : (r.projeto || 'Seu projeto')) + (d.pedraNome ? ' em ' + d.pedraNome : '');
-  const hoje = dataBahia(), venceu = L.ate && L.ate < hoje, m2 = L.m2 || 0, chapas = m2 > 0 ? Math.max(1, Math.ceil(m2 * 1.1 / 4.8)) : 0;
-  const zap = t => d.whats ? 'https://wa.me/' + d.whats + '?text=' + encodeURIComponent(t) : '#';
-  const msgFechar = `Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}${titulo ? ' (' + titulo + ')' : ''}.`.replace(/\s+/g, ' ');
-  const msgDuvida = `Olá! Sou ${nome || 'cliente'}, estou vendo o orçamento ${r.orcNum || ''} e tenho uma dúvida:`.replace(/\s+/g, ' ');
-  const ic = {
-    ok: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    rel: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
-    wa: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.5l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>',
-    seta: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    pdf: '<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  };
-  const pecas = a => a.pc.map(p => `<li><span>${e(p.d || 'Peça')}</span><b>${olM(p.w)} × ${olM(p.h)} m${p.q > 1 ? ' <i>× ' + p.q + '</i>' : ''}</b></li>`).join('');
-  const ambHtml = (L.amb || []).filter(a => a.pc.length || a.sv.length || a.cuba).map((a, n) => `<div class="amb"><div class="amb-h"><span class="num">${String(n + 1).padStart(2, '0')}</span><h3>${e(a.t || 'Ambiente')}</h3></div>${a.pc.length ? '<ul class="pc">' + pecas(a) + '</ul>' : ''}${a.sv.length || a.cuba ? '<div class="chips">' + a.sv.map(x => `<span>${e(x)}</span>`).join('') + (a.cuba ? `<span>Cuba: ${e(a.cuba)}</span>` : '') + '</div>' : ''}</div>`).join('');
-  const inc = (L.inc && L.inc.length ? L.inc : ['Visita técnica e medição no local', 'A chapa inteira da pedra escolhida, com os veios combinados', 'Corte sob medida e polimento das bordas aparentes', 'Transporte e instalação pela nossa equipe']).concat(['Entrega instalada, limpa e impermeabilizada', 'Contrato de prestação de serviço']);
-  const vInc = {}, incHtml = inc.filter(x => { const kk = normaliza(x).slice(0, 16); if (vInc[kk]) return false; vInc[kk] = 1; return true; }).map(x => `<li><i>${ic.ok}</i><span>${e(x)}</span></li>`).join('');
-  const obras = d.obras.length ? `<section class="sec"><p class="eye">Portfólio</p><h2>Obras que já entregamos</h2><div class="gal">${d.obras.map(o => `<figure><img loading="lazy" src="${e(o.u)}" alt="${e(o.t)}"><figcaption>${e(o.t)}</figcaption></figure>`).join('')}</div><a class="mais" href="/obras">Ver todas as obras ${ic.seta}</a></section>` : '';
-  const heroBg = d.pedraFoto ? `background-image:linear-gradient(180deg,rgba(18,16,14,.35) 0%,rgba(18,16,14,.15) 35%,rgba(18,16,14,.88) 100%),url('${e(d.pedraFoto)}')` : '';
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Orçamento ${e(pn)} · HR Mármores e Granitos</title><meta name="robots" content="noindex">
-<meta property="og:title" content="${e(pn ? pn + ', seu orçamento está pronto' : 'Seu orçamento está pronto')}"><meta property="og:description" content="${e(titulo)} · HR Mármores e Granitos">
-<meta property="og:image" content="https://${e(DOMINIO_SITE)}${e(d.pedraFoto || '/portfolio/img/logo/1')}"><meta name="theme-color" content="#14120f">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-:root{--ink:#16130f;--ink2:#4a443b;--mute:#8a8174;--line:#e9e2d6;--ivory:#f6f1e8;--card:#fffdf9;--gold:#b0894f;--gold2:#d6b47a;--deep:#1c1915;--ok:#2f7a4f}
+const OL_CSS = `:root{--ink:#16130f;--ink2:#4a443b;--mute:#8a8174;--line:#e9e2d6;--ivory:#f6f1e8;--card:#fffdf9;--gold:#b0894f;--gold2:#d6b47a;--deep:#1c1915;--ok:#2f7a4f}
 *{box-sizing:border-box;margin:0;padding:0}html{-webkit-text-size-adjust:100%}
 body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--ivory);color:var(--ink);line-height:1.5;-webkit-font-smoothing:antialiased;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 .serif,h1,h2{font-family:Fraunces,Georgia,'Times New Roman',serif;font-weight:500;letter-spacing:-.01em}
@@ -38459,6 +38446,12 @@ body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;backgr
 .stats{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid rgba(255,255,255,.08)}.stats div{padding:14px 18px}.stats div+div{border-left:1px solid rgba(255,255,255,.08)}
 .stats b{display:block;font-family:Fraunces,Georgia,serif;font-weight:500;font-size:19px}.stats span{font-size:12px;color:rgba(255,255,255,.6)}
 .pedra p{padding:0 18px 18px;font-size:13.5px;color:rgba(255,255,255,.72)}
+.opx{font-size:14px;color:var(--mute);margin:-8px 0 14px}.ops{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.op{font:inherit;text-align:left;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:0 0 12px;overflow:hidden;cursor:pointer;color:var(--ink);display:flex;flex-direction:column;transition:border-color .2s,transform .2s,box-shadow .2s}
+.op.sel{border-color:var(--gold);box-shadow:0 10px 24px -14px rgba(120,80,20,.55);transform:translateY(-2px)}
+.oph{display:block;aspect-ratio:1;background:linear-gradient(135deg,#d9d0c2,#a89d8c) center/cover;margin-bottom:9px}
+.opt{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:0 10px}.op.sel .opt{color:var(--ink)}
+.op b{font-size:12.5px;font-weight:600;line-height:1.25;padding:3px 10px 6px;min-height:38px}.opv{font-family:Fraunces,Georgia,serif;font-size:15px;padding:0 10px}.opp{font-size:10.5px;color:var(--mute);padding:0 10px}
 .amb{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:12px}
 .amb-h{display:flex;align-items:baseline;gap:12px;margin-bottom:10px}.amb-h .num{font-family:Fraunces,Georgia,serif;color:var(--gold);font-size:15px}.amb-h h3{font-size:17px;font-weight:600}
 .pc{list-style:none}.pc li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px dashed var(--line);font-size:14px}.pc li:first-child{border-top:0}
@@ -38493,18 +38486,49 @@ details p{font-size:14px;color:var(--ink2);margin-top:10px}
 .btn.wa{flex:none;width:56px;background:#fff;color:#1f9d55;border:1px solid var(--line)}.btn.wa svg{width:26px;height:26px}
 .rev{opacity:0;transform:translateY(14px);transition:opacity .7s ease,transform .7s ease}.rev.on{opacity:1;transform:none}
 @media (prefers-reduced-motion:reduce){.rev{opacity:1;transform:none;transition:none}}
-</style></head><body><div class="wrap">
+`;
+function olHtml(d, opts) {
+  const { r, L } = d, e = olEsc, nome = String(r.cliente || '').trim(), pn = nome.split(/\s+/)[0] || '';
+  const parc = L.parc || r.valor || 0, vista = L.vista || 0, temVista = L.mostrarVista && vista > 0 && parc > vista + 0.5, pct = temVista ? Math.round((parc - vista) / parc * 100) : 0;
+  const base = parc || vista, p10 = Math.round(base / 10 * 100) / 100, [vi, vc] = reais(base).split(',');
+  const ambNomes = (L.amb || []).map(a => a.t).filter(Boolean), titulo = (ambNomes.length ? ambNomes.join(' + ') : (r.projeto || 'Seu projeto')) + (d.pedraNome ? ' em ' + d.pedraNome : '');
+  const hoje = dataBahia(), venceu = L.ate && L.ate < hoje, m2 = L.m2 || 0, chapas = m2 > 0 ? Math.max(1, Math.ceil(m2 * 1.1 / 4.8)) : 0;
+  const zap = t => d.whats ? 'https://wa.me/' + d.whats + '?text=' + encodeURIComponent(t) : '#';
+  const msgFechar = `Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}${titulo ? ' (' + titulo + ')' : ''}.`.replace(/\s+/g, ' ');
+  const msgDuvida = `Olá! Sou ${nome || 'cliente'}, estou vendo o orçamento ${r.orcNum || ''} e tenho uma dúvida:`.replace(/\s+/g, ' ');
+  const ic = {
+    ok: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    rel: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    wa: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.5l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>',
+    seta: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    pdf: '<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  };
+  const pecas = a => a.pc.map(p => `<li><span>${e(p.d || 'Peça')}</span><b>${olM(p.w)} × ${olM(p.h)} m${p.q > 1 ? ' <i>× ' + p.q + '</i>' : ''}</b></li>`).join('');
+  const ambHtml = (L.amb || []).filter(a => a.pc.length || a.sv.length || a.cuba).map((a, n) => `<div class="amb"><div class="amb-h"><span class="num">${String(n + 1).padStart(2, '0')}</span><h3>${e(a.t || 'Ambiente')}</h3></div>${a.pc.length ? '<ul class="pc">' + pecas(a) + '</ul>' : ''}${a.sv.length || a.cuba ? '<div class="chips">' + a.sv.map(x => `<span>${e(x)}</span>`).join('') + (a.cuba ? `<span>Cuba: ${e(a.cuba)}</span>` : '') + '</div>' : ''}</div>`).join('');
+  const inc = (L.inc && L.inc.length ? L.inc : ['Visita técnica e medição no local', 'A chapa inteira da pedra escolhida, com os veios combinados', 'Corte sob medida e polimento das bordas aparentes', 'Transporte e instalação pela nossa equipe']).concat(['Entrega instalada, limpa e impermeabilizada', 'Contrato de prestação de serviço']);
+  const vInc = {}, incHtml = inc.filter(x => { const kk = normaliza(x).slice(0, 16); if (vInc[kk]) return false; vInc[kk] = 1; return true; }).map(x => `<li><i>${ic.ok}</i><span>${e(x)}</span></li>`).join('');
+  const obras = d.obras.length ? `<section class="sec"><p class="eye">Portfólio</p><h2>Obras que já entregamos</h2><div class="gal">${d.obras.map(o => `<figure><img loading="lazy" src="${e(o.u)}" alt="${e(o.t)}"><figcaption>${e(o.t)}</figcaption></figure>`).join('')}</div><a class="mais" href="/obras">Ver todas as obras ${ic.seta}</a></section>` : '';
+  const heroBg = d.pedraFoto ? `background-image:linear-gradient(180deg,rgba(18,16,14,.35) 0%,rgba(18,16,14,.15) 35%,rgba(18,16,14,.88) 100%),url('${e(d.pedraFoto)}')` : '';
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Orçamento ${e(pn)} · HR Mármores e Granitos</title><meta name="robots" content="noindex">
+<meta property="og:title" content="${e(pn ? pn + ', seu orçamento está pronto' : 'Seu orçamento está pronto')}"><meta property="og:description" content="${e(titulo)} · HR Mármores e Granitos">
+<meta property="og:image" content="https://${e(DOMINIO_SITE)}${e(d.pedraFoto || '/portfolio/img/logo/1')}"><meta name="theme-color" content="#14120f">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+${OL_CSS}</style></head><body><div class="wrap">
 <header class="hero" style="${heroBg}">
  <div class="top"><div class="brand"><div class="mono">HR</div><small>HR Mármores<br>e Granitos</small></div>${r.orcNum ? `<div class="num-orc">${e(r.orcNum)}</div>` : ''}</div>
  <div class="hero-b"><p class="eye">Orçamento preparado para</p><h1>${e(nome || 'Você')}</h1><p class="sub">${e(titulo)}</p></div>
 </header>
 <section class="price" data-s="valor">
  <p class="lbl">Valor do projeto</p>
- <div class="big"><span class="rs">R$</span>${e(vi)}<small>,${e(vc)}</small></div>
- <p class="parc">em até <b>10× de R$ ${reais(p10)}</b> sem juros no cartão</p>
- ${temVista ? `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v2">R$ ${reais(vista)}</div><div class="v3">50% na entrada e 50% na entrega</div></div><span class="tag">${pct}% de desconto</span></div>` : `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v3" style="font-size:13.5px;color:var(--ink2)">Tem desconto. 50% na entrada e 50% na entrega.</div></div><span class="tag">Desconto</span></div>`}
+ <div class="big"><span class="rs">R$</span><span id="vI">${e(vi)}</span><small>,<span id="vC">${e(vc)}</span></small></div>
+ <p class="parc">em até <b>10× de R$ <span id="vP">${reais(p10)}</span></b> sem juros no cartão</p>
+ ${temVista ? `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v2">R$ <span id="vV">${reais(vista)}</span></div><div class="v3">50% na entrada e 50% na entrega</div></div><span class="tag"><span id="vT">${pct}</span>% de desconto</span></div>` : `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v3" style="font-size:13.5px;color:var(--ink2)">Tem desconto. 50% na entrada e 50% na entrega.</div></div><span class="tag">Desconto</span></div>`}
  ${L.ate ? `<p class="vale${venceu ? ' venceu' : ''}">${ic.rel}${venceu ? 'Este valor venceu em ' + olDataBR(L.ate) + '. Fale com a gente que atualizamos.' : 'Valor garantido até ' + olDiaSemana(L.ate) + ', ' + olDataBR(L.ate).slice(0, 5)}</p>` : ''}
 </section>
+${d.ops.length ? `<section class="sec rev" data-s="opcoes"><p class="eye">Compare</p><h2>A mesma obra em outras pedras</h2><p class="opx">Toque para ver o valor de cada uma. Só muda a pedra; o serviço é o mesmo.</p><div class="ops">${d.ops.map((o, i) => `<button class="op${o.atual ? ' sel' : ''}" data-i="${i}" data-v="${o.vista}" data-p="${o.parc}" data-nm="${e(o.nm)}"><span class="oph" style="${o.foto ? `background-image:url('${e(o.foto)}')` : ''}"></span><span class="opt">${e(o.tag)}</span><b>${e(o.nm)}</b><span class="opv">R$ ${reais(o.parc)}</span><span class="opp">10× de R$ ${reais(Math.round(o.parc / 10 * 100) / 100)}</span></button>`).join('')}</div></section>` : ''}
 ${d.pedraNome ? `<section class="sec rev" data-s="pedra"><p class="eye">A pedra</p><h2>Escolhida para o seu projeto</h2><div class="pedra"><div class="ph" style="${d.pedraFoto ? `background-image:url('${e(d.pedraFoto)}')` : 'background:linear-gradient(135deg,#3a332b,#1a1713)'}"><div class="nm"><span>${e(L.fin || 'Pedra natural')}</span><b>${e(d.pedraNome)}</b></div></div>${chapas ? `<div class="stats"><div><b>${chapas} chapa${chapas > 1 ? 's' : ''} inteira${chapas > 1 ? 's' : ''}</b><span>3,00 × 1,60 m cada</span></div><div><b>${m2.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} m²</b><span>de peças no projeto</span></div></div>` : ''}<p>Todas as peças saem da mesma chapa, para os veios e a cor combinarem de uma ponta à outra.</p></div></section>` : ''}
 ${ambHtml ? `<section class="sec rev" data-s="projeto"><p class="eye">O projeto</p><h2>O que vamos fazer</h2>${ambHtml}</section>` : ''}
 <section class="sec rev" data-s="incluso"><p class="eye">Sem surpresas</p><h2>Está tudo incluso</h2><ul class="inc">${incHtml}</ul></section>
@@ -38519,13 +38543,21 @@ ${obras}
 <section class="sec rev" data-s="entenda"><details><summary>Por que o valor não é só o m² da pedra?</summary><p>A pedra vem da pedreira em chapas inteiras de 3,00 × 1,60 m. Para os veios combinarem, as peças são cortadas da mesma chapa, e o que sobra dos recortes não volta para a venda.</p><p>No valor também estão o corte sob medida, os recortes de cuba e cooktop, o polimento das bordas, o transporte, a instalação e a impermeabilização. Por isso a conta "m² × preço da pedra" sempre dá menos do que o projeto pronto.</p></details></section>
 <footer class="foot">${r.temBytes ? `<a class="pdf" href="/o/${e(d.slug)}/pdf" data-ev="pdf">${ic.pdf}Baixar o orçamento em PDF</a><br>` : ''}HR Mármores e Granitos · Pilão Arcado, BA<br><a href="https://instagram.com/hrmarmoregranito">@hrmarmoregranito</a> · <a href="/">nosso site</a></footer>
 </div>
-<div class="bar"><div class="in"><a class="btn go" href="${e(zap(msgFechar))}" data-ev="fechar">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
+<div class="bar"><div class="in"><a class="btn go" href="${e(zap(msgFechar))}" data-ev="fechar" data-z="${e(d.whats ? 'https://wa.me/' + d.whats + '?text=' : '')}" data-m="${e(msgFechar)}">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
 <script>
 (function(){var S=${JSON.stringify(d.slug)},T=${opts && opts.semRastro ? 'false' : 'true'},t0=Date.now(),vis={valor:1},sid=Math.random().toString(36).slice(2,10),fim=0;
 var io=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting){x.target.classList.add('on');var s=x.target.getAttribute('data-s');if(s)vis[s]=1;}});},{threshold:.25});
 document.querySelectorAll('.rev').forEach(function(el){io.observe(el);});
 function env(ev,b){if(!T)return;var d=JSON.stringify({ev:ev,sid:sid,seg:Math.round((Date.now()-t0)/1000),vis:Object.keys(vis)});try{if(b&&navigator.sendBeacon){navigator.sendBeacon('/o/'+S+'/v',new Blob([d],{type:'text/plain'}));return;}}catch(e){}try{fetch('/o/'+S+'/v',{method:'POST',body:d,keepalive:true});}catch(e){}}
 env('abriu');
+var fe=document.querySelector('[data-ev=fechar]');
+function fmt(n){return n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+document.querySelectorAll('.op').forEach(function(b){b.addEventListener('click',function(){document.querySelectorAll('.op').forEach(function(x){x.classList.remove('sel');});b.classList.add('sel');
+var v=+b.getAttribute('data-v'),p=+b.getAttribute('data-p'),f=fmt(p).split(',');var a=document.getElementById('vI');if(a){a.textContent=f[0];document.getElementById('vC').textContent=f[1];document.getElementById('vP').textContent=fmt(Math.round(p/10*100)/100);}
+var vv=document.getElementById('vV');if(vv){vv.textContent=fmt(v);var t=document.getElementById('vT');if(t)t.textContent=Math.round((p-v)/p*100);}
+var nm=b.getAttribute('data-nm');document.querySelectorAll('.pedra .nm b, .hero p.sub').forEach(function(el){if(el.classList.contains('sub'))el.textContent=el.textContent.replace(/ em .*$/,' em '+nm);});
+if(fe&&fe.getAttribute('data-z')){fe.setAttribute('href',fe.getAttribute('data-z')+encodeURIComponent(fe.getAttribute('data-m').replace(/\.$/,'')+' Pedra: '+nm+'.'));}
+vis['pedra'+b.getAttribute('data-i')]=1;window.scrollTo({top:document.querySelector('.price').offsetTop-90,behavior:'smooth'});});});
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){env('saiu',1);}else{t0=Date.now()-1000*0;}});
 window.addEventListener('pagehide',function(){env('saiu',1);});
 document.querySelectorAll('[data-ev]').forEach(function(a){a.addEventListener('click',function(){env(a.getAttribute('data-ev'),1);});});
@@ -38546,7 +38578,7 @@ async function rotaOrcLink(req, env, ctx, url) {
   const semRastro = url.searchParams.get('d') === '1' || slug === 'exemplo';
   return new Response(olHtml(d, { semRastro }), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
 }
-const OL_SEC = { valor: 'o valor', pedra: 'a pedra', projeto: 'as peças', incluso: 'o que está incluso', como: 'como funciona', garantia: 'a garantia', entenda: 'por que o valor' };
+const OL_SEC = { valor: 'o valor', opcoes: 'as outras pedras', pedra: 'a pedra', projeto: 'as peças', incluso: 'o que está incluso', como: 'como funciona', garantia: 'a garantia', entenda: 'por que o valor' };
 function olTempo(s) { s = Math.max(0, Math.round(s)); return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min' + (s % 60 >= 10 ? ' ' + (s % 60) + ' s' : ''); }
 async function olEvento(env, slug, raw) {
   let b = {}; try { b = JSON.parse(raw || '{}'); } catch (_) { return; }
@@ -38556,12 +38588,13 @@ async function olEvento(env, slug, raw) {
   let st = { ab: [], ult: 0 }; try { st = JSON.parse((await env.HR_KV.get('ol:v:' + slug)) || 'null') || st; } catch (_) {}
   const agora = Date.now(); let s = st.ab.find(x => x.sid === sid);
   if (!s) { s = { sid, em: agora, seg: 0, vis: [], ev: [] }; st.ab.push(s); st.ab = st.ab.slice(-40); }
-  s.seg = Math.max(s.seg, Math.min(3600, Number(b.seg) || 0)); s.vis = [...new Set([...(s.vis || []), ...(Array.isArray(b.vis) ? b.vis : []).map(String).filter(x => OL_SEC[x])])];
+  s.seg = Math.max(s.seg, Math.min(3600, Number(b.seg) || 0)); s.vis = [...new Set([...(s.vis || []), ...(Array.isArray(b.vis) ? b.vis : []).map(String).filter(x => OL_SEC[x] || /^pedra\d$/.test(x))])];
   if (ev !== 'abriu' && ev !== 'saiu' && !s.ev.includes(ev)) s.ev.push(ev);
   const nome = r.cliente || 'O cliente', pn = String(nome).split(/\s+/)[0], dono = numeroDono(env), hoje = dataBahia();
   const hojeN = st.ab.filter(x => new Date(x.em - 3 * 3600000).toISOString().slice(0, 10) === hoje).length;
   const vez = hojeN > 1 ? ` (${hojeN}ª vez hoje)` : st.ab.length > 1 ? ` (já abriu ${st.ab.length} vezes)` : '';
-  const viu = s.vis.filter(x => x !== 'valor').map(x => OL_SEC[x]), viuTxt = 'Olhou o valor' + (viu.length ? (viu.length > 1 ? ', ' + viu.slice(0, -1).join(', ') + ' e ' + viu.slice(-1) : ' e ' + viu[0]) : '') + '.';
+  const ops = (r.link && r.link.ops) || [], viuOps = s.vis.filter(x => /^pedra\d$/.test(x)).map(x => ops[+x.slice(5)]).filter(o => o && !o.atual).map(o => `${o.nm} (R$ ${reais(o.parc)})`);
+  const viu = s.vis.filter(x => x !== 'valor' && OL_SEC[x]).map(x => OL_SEC[x]), viuTxt = 'Olhou o valor' + (viu.length ? (viu.length > 1 ? ', ' + viu.slice(0, -1).join(', ') + ' e ' + viu.slice(-1) : ' e ' + viu[0]) : '') + '.';
   const bts = [{ id: 'olk|m|' + slug, titulo: 'Mandar' }, { id: 'olk|l|' + slug, titulo: 'Eu ligo' }, { id: 'olk|n|' + slug, titulo: 'Agora não' }];
   if (ev === 'fechar' && !s.avFechar) {
     s.avFechar = 1; st.ult = agora; await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
@@ -38571,7 +38604,7 @@ async function olEvento(env, slug, raw) {
   }
   if (ev === 'saiu' && !s.av && s.seg >= 4 && agora - (st.ult || 0) > 90 * 60000) {
     s.av = 1; st.ult = agora; await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
-    await enviarComBotoes(env, dono, `${nome} abriu o orçamento agora${vez}. Ficou ${olTempo(s.seg)}. ${viuTxt}${s.ev.includes('pdf') ? ' Baixou o PDF.' : ''}\n\nQuer que a assistente chame ${pn} para tirar dúvidas?`, bts).catch(() => {});
+    await enviarComBotoes(env, dono, `${nome} abriu o orçamento agora${vez}. Ficou ${olTempo(s.seg)}. ${viuTxt}${viuOps.length ? ' Comparou com ' + viuOps.join(' e ') + '.' : ''}${s.ev.includes('pdf') ? ' Baixou o PDF.' : ''}\n\nQuer que a assistente chame ${pn} para tirar dúvidas?`, bts).catch(() => {});
     return;
   }
   await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
@@ -38604,9 +38637,115 @@ async function olkBotao(env, from, id) {
 }
 async function olDemo(env) { // página de exemplo (sem rastreio) para o dono ver como fica: /o/exemplo
   const k = 'orcpdf:EXEMPLO';
-  if (!(await env.HR_KV.get(k))) {
+  if (!(await env.HR_KV.get(k)) || !(await env.HR_KV.get('ol:ex:v2'))) { await env.HR_KV.put('ol:ex:v2', '1', { expirationTtl: 400 * 86400 });
     await env.HR_KV.put(k, JSON.stringify({ orcNum: 'HR-2026-0000', cliente: 'Maria Exemplo', valor: 3417.24, projeto: 'Cozinha em Preto São Gabriel', em: Date.now(),
-      link: { vista: 3417.24, parc: 3797, mostrarVista: true, m2: 2.31, pedra: 'Preto São Gabriel', fin: 'Polido', data: dataBahia(), ate: dataBahia(7), amb: [{ t: 'Cozinha', cuba: 'Cuba inox de embutir 56 cm', sv: ['Recorte de cooktop', 'Rebaixo americano', 'Saia de 4 cm'], pc: [{ d: 'Bancada da pia', w: 240, h: 60, q: 1 }, { d: 'Bancada lateral', w: 120, h: 60, q: 1 }, { d: 'Frontão', w: 360, h: 10, q: 1 }] }], inc: [] } }), { expirationTtl: 400 * 86400 });
+      link: { vista: 3417.24, parc: 3797, mostrarVista: true, m2: 2.31, pedra: 'Preto São Gabriel', fin: 'Polido', data: dataBahia(), ate: dataBahia(7), amb: [{ t: 'Cozinha', cuba: 'Cuba inox de embutir 56 cm', sv: ['Recorte de cooktop', 'Rebaixo americano', 'Saia de 4 cm'], pc: [{ d: 'Bancada da pia', w: 240, h: 60, q: 1 }, { d: 'Bancada lateral', w: 120, h: 60, q: 1 }, { d: 'Frontão', w: 360, h: 10, q: 1 }] }], inc: [], ops: [{ nm: 'Verde Ubatuba', fin: 'Polida', tag: 'Mais em conta', vista: 3205.5, parc: 3561.67 }, { nm: 'Preto São Gabriel', fin: 'Polida', tag: 'Escolhida', atual: true, vista: 3417.24, parc: 3797 }, { nm: 'Branco Itaúnas', fin: 'Polida', tag: 'Mais nobre', vista: 3842.1, parc: 4269.0 }] } }), { expirationTtl: 400 * 86400 });
     await env.HR_KV.put('ol:s:exemplo', k, { expirationTtl: 400 * 86400 });
   }
+}
+// ═══ v378: PERGUNTA AO DONO ANTES DE FALAR COM O CLIENTE (lembrete de validade, indicação, manutenção de 1 ano) ═══
+// Nada vai para o cliente sem o toque do Sr. Hangel. Ao tocar em "Mandar": dentro das 24 h a Helena manda de graça;
+// fora das 24 h (a Meta cobraria um modelo pago e pode reclassificar), devolve um link que abre o WhatsApp do senhor
+// com a mensagem pronta para o cliente — custo zero.
+async function dpPerguntar(env, o) {
+  if (!o || !o.num || !o.texto || await env.HR_KV.get('dp:feito:' + o.chave)) return false;
+  await env.HR_KV.put('dp:feito:' + o.chave, '1', { expirationTtl: 400 * 86400 });
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  await env.HR_KV.put('dp:' + id, JSON.stringify({ num: normalizarBR(o.num), nome: o.nome || '', texto: o.texto, tipo: o.tipo || '' }), { expirationTtl: 10 * 86400 });
+  await enviarComBotoes(env, numeroDono(env), `${o.aviso}\n\nMensagem para ${String(o.nome || 'o cliente').split(/\s+/)[0]}:\n"${o.texto}"`, [{ id: 'dpa|s|' + id, titulo: o.sim || 'Mandar' }, { id: 'dpa|n|' + id, titulo: 'Não' }]);
+  return true;
+}
+async function dpBotao(env, from, id) {
+  const [, ac, k] = id.split('|'); let o = null; try { o = JSON.parse((await env.HR_KV.get('dp:' + k)) || 'null'); } catch (_) {}
+  if (!o) return enviar(env, from, 'Esse aviso já foi resolvido.');
+  await env.HR_KV.delete('dp:' + k); const pn = String(o.nome || 'o cliente').split(/\s+/)[0];
+  if (ac !== 's') return enviar(env, from, `Certo, não mando nada para ${pn}.`);
+  if (await janela24h(env, o.num)) { await enviar(env, o.num, o.texto); await semearConversaProativa(env, o.num, o.texto).catch(() => {}); return enviar(env, from, `Mandei para ${pn}.`); }
+  return enviar(env, from, `${pn} não fala com a HR há mais de 24 h; pelo número da HR a Meta cobraria. Toque no link para mandar do seu WhatsApp, já com a mensagem pronta (sem custo):\nhttps://wa.me/${o.num}?text=${encodeURIComponent(o.texto)}`);
+}
+async function olIndexar(env, slug, k) {
+  let l = []; try { l = JSON.parse((await env.HR_KV.get('ol:idx')) || '[]'); } catch (_) {}
+  l = l.filter(x => x.s !== slug); l.unshift({ s: slug, k, em: Date.now() }); await env.HR_KV.put('ol:idx', JSON.stringify(l.slice(0, 300)));
+}
+// lembrete 1 dia antes de vencer o valor do orçamento (só de quem ainda não fechou)
+async function olVencerRotina(env, snap) {
+  const hoje = dataBahia(); if (await env.HR_KV.get('olv:dia:' + hoje)) return; await env.HR_KV.put('olv:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const amanha = dataBahia(1), orcs = ((snap && snap.dados && snap.dados.orcamentos) || []);
+  let l = []; try { l = JSON.parse((await env.HR_KV.get('ol:idx')) || '[]'); } catch (_) {}
+  let liv = []; try { liv = await livTodos(env); } catch (_) {}
+  let n = 0;
+  for (const x of l) {
+    if (n >= 6) break;
+    let r = null; try { r = JSON.parse((await env.HR_KV.get(x.k)) || 'null'); } catch (_) {}
+    if (!r || !r.link || r.link.ate !== amanha || !r.tel) continue;
+    const n8 = ultimos8(r.tel);
+    if (orcs.some(o => (String(o.qId || o.id || '') === String(r.qId) || String(o.tel || '').replace(/\D/g, '').slice(-8) === n8) && /aprov|fech|aceit/.test(String(o.status || '')))) continue;
+    if (liv.some(v => v.tel && ultimos8(v.tel) === n8 && Date.now() - (v.criadoEm || v.atualizadoEm || 0) < 60 * 86400000)) continue;
+    let st = null; try { st = JSON.parse((await env.HR_KV.get('ol:v:' + x.s)) || 'null'); } catch (_) {}
+    const abriu = st && st.ab && st.ab.length, pn = String(r.cliente || '').split(/\s+/)[0];
+    const proj = ((r.link.amb || []).map(a => String(a.t || '').toLowerCase()).filter(Boolean).join(' e ')) || 'do seu projeto';
+    const url = 'https://' + (env.DOMINIO_SITE || DOMINIO_SITE) + '/o/' + x.s;
+    const texto = `Oi, ${pn}! Passando para lembrar que o valor do orçamento ${proj.startsWith('do ') ? proj : 'da ' + proj} vale até amanhã (${olDataBR(amanha).slice(0, 5)}). Ficou alguma dúvida? Seu orçamento está aqui: ${url}`;
+    if (await dpPerguntar(env, { chave: 'venc:' + x.k + ':' + amanha, num: r.tel, nome: r.cliente, tipo: 'venc', texto, aviso: `O orçamento de ${r.cliente || 'um cliente'}${r.valor ? ' (R$ ' + reais(r.valor) + ')' : ''} vence amanhã e ainda não fechou.${abriu ? ` Abriu a página ${st.ab.length} vez(es).` : ' Ainda não abriu a página.'} Mando um lembrete?` })) n++;
+  }
+}
+// página de indicação: o cliente manda hrmarmoresegranitos.com.br/i/CODIGO para um amigo
+async function rotaIndicacaoPagina(req, env, url) {
+  const cod = String(url.pathname.split('/')[2] || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+  const dono = cod ? await kvJson(env, 'ind:cod:' + cod, null) : null, cfg = await lerCfgInd(env), p = indPremios(cfg), e = olEsc;
+  const quem = dono ? String(dono.nome || '').split(/\s+/)[0] : '';
+  const whats = String(env.WHATSAPP_PUBLICO || '').replace(/\D/g, '') || (await igNumeroWhats(env).catch(() => '')) || '';
+  const msg = `Olá! Vim por indicação de ${quem || 'um cliente'}${dono ? ' (código ' + cod + ')' : ''} e quero um orçamento.`;
+  const pf = (await lerPortfolio(env).catch(() => [])).filter(pfNoSite).sort((a, b) => (b.em || 0) - (a.em || 0)).slice(0, 8);
+  const ok = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const capa = pf[0] ? `background-image:linear-gradient(180deg,rgba(18,16,14,.35),rgba(18,16,14,.15) 35%,rgba(18,16,14,.9)),url('/portfolio/img/obra/${encodeURIComponent(pf[0].id)}')` : '';
+  return new Response(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${e(quem ? quem + ' indicou a HR para você' : 'HR Mármores e Granitos')}</title><meta property="og:title" content="${e(quem ? quem + ' indicou a HR Mármores e Granitos para você' : 'HR Mármores e Granitos')}"><meta property="og:description" content="${e(p.novo ? 'Indicação vale ' + p.novo + '. Bancadas, cozinhas e banheiros em pedra natural.' : 'Bancadas, cozinhas e banheiros em pedra natural, entregues instalados.')}">
+<meta property="og:image" content="https://${e(DOMINIO_SITE)}${pf[0] ? '/portfolio/img/obra/' + encodeURIComponent(pf[0].id) : '/portfolio/img/logo/1'}"><meta name="theme-color" content="#14120f">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>${OL_CSS}.hero{min-height:520px}.presente{margin:-64px 16px 0;position:relative;background:var(--card);border-radius:22px;padding:22px;border:1px solid #efe7da;box-shadow:0 24px 50px -24px rgba(40,30,15,.35)}.presente .big{font-size:30px}</style></head><body><div class="wrap">
+<header class="hero" style="${capa}"><div class="top"><div class="brand"><div class="mono">HR</div><small>HR Mármores<br>e Granitos</small></div></div>
+<div class="hero-b"><p class="eye">Indicação${quem ? ' de ' + e(quem) : ''}</p><h1>${quem ? e(quem) + ' indicou a gente para você' : 'Pedra natural, do jeito certo'}</h1><p class="sub">Cozinhas, banheiros, escadas e bancadas em granito, mármore e quartzo, entregues instalados.</p></div></header>
+<section class="presente"><p class="lbl">${p.novo ? 'Seu presente de boas-vindas' : 'Para você'}</p><div class="big">${e(p.novo || 'Atendimento com prioridade')}</div><p class="parc">${dono ? 'Fale com a gente pelo WhatsApp: o código <b>' + e(cod) + '</b> já vai na mensagem.' : 'Fale com a gente pelo WhatsApp.'}</p></section>
+<section class="sec"><p class="eye">Por que a HR</p><h2>Do orçamento à entrega</h2><ul class="inc">${['Visita técnica e medição no local', 'Chapa inteira, com os veios combinados entre as peças', 'Entrega instalada, limpa e impermeabilizada', 'Contrato com 1 ano de garantia', 'Até 10× sem juros no cartão ou desconto à vista'].map(x => `<li><i>${ok}</i><span>${e(x)}</span></li>`).join('')}</ul></section>
+${pf.length ? `<section class="sec"><p class="eye">Portfólio</p><h2>Obras que já entregamos</h2><div class="gal">${pf.map(i => `<figure><img loading="lazy" src="/portfolio/img/obra/${encodeURIComponent(i.id)}" alt=""><figcaption>${e(String(i.legenda || i.cat || 'Obra').replace(/\s+/g, ' ').slice(0, 60))}</figcaption></figure>`).join('')}</div><a class="mais" href="/obras">Ver todas as obras</a></section>` : ''}
+<footer class="foot">HR Mármores e Granitos · Pilão Arcado, BA<br><a href="https://instagram.com/hrmarmoregranito">@hrmarmoregranito</a> · <a href="/">nosso site</a></footer></div>
+<div class="bar"><div class="in"><a class="btn go" href="${e(whats ? 'https://wa.me/' + whats + '?text=' + encodeURIComponent(msg) : '/')}">Quero um orçamento</a></div></div></body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+// ═══ v378: TETO DE GASTOS DA HELENA ═══
+// cfg:teto = { valor: R$ por mês }. Aos 80% o dono é avisado; ao passar de 100%, até virar o mês: modo economia
+// fica forçado e os clientes recebem resposta em texto (sem gerar áudio). O dono continua com tudo.
+async function tetoGastoMes(env) {
+  if (!env.HR_DB) return 0; const mes = dataBahia().slice(0, 7);
+  const r = await env.HR_DB.prepare('SELECT SUM(usd) usd FROM custo_uso WHERE dia >= ?').bind(mes + '-01').first().catch(() => null);
+  return Math.round((+(r && r.usd) || 0) * +(env.DOLAR || 5.6) * 100) / 100;
+}
+async function tetoInfo(env) {
+  let c = {}; try { c = JSON.parse((await env.HR_KV.get('cfg:teto')) || '{}') || {}; } catch (_) {}
+  const valor = +c.valor || 0, gasto = await tetoGastoMes(env), pct = valor > 0 ? Math.round(gasto / valor * 100) : 0;
+  return { valor, gasto, pct, estourou: valor > 0 && gasto >= valor };
+}
+async function tetoCarregar(env) {
+  if (globalThis.__tetoEm && Date.now() - globalThis.__tetoEm < 60000) return;
+  globalThis.__tetoEm = Date.now();
+  globalThis.__tetoEstourou = (await env.HR_KV.get('teto:on:' + dataBahia().slice(0, 7)).catch(() => null)) === '1';
+}
+async function tetoRotina(env) {
+  const t = await tetoInfo(env); if (!(t.valor > 0)) return; const mes = dataBahia().slice(0, 7);
+  if (t.pct >= 80 && t.pct < 100 && !(await env.HR_KV.get('teto:av80:' + mes))) {
+    await env.HR_KV.put('teto:av80:' + mes, '1', { expirationTtl: 40 * 86400 });
+    await enviar(env, numeroDono(env), `Gastos da Helena: R$ ${reais(t.gasto)} de R$ ${reais(t.valor)} este mês (${t.pct}%). Se passar do teto, ela entra no modo economia forte até o mês virar: responde os clientes só em texto e não manda nada pago. Para mudar o teto: *teto 80*.`).catch(() => {});
+  }
+  if (t.estourou && !(await env.HR_KV.get('teto:on:' + mes))) {
+    await env.HR_KV.put('teto:on:' + mes, '1', { expirationTtl: 40 * 86400 }); globalThis.__tetoEm = 0; globalThis.__econEm = 0; globalThis.__vozCfgEm = 0;
+    await enviar(env, numeroDono(env), `A Helena chegou no teto de gastos: R$ ${reais(t.gasto)} de R$ ${reais(t.valor)} este mês. Até o mês virar ela continua atendendo, mas responde os clientes só em texto (sem áudio) e não manda mensagens pagas. Para liberar: *teto 0* (sem teto) ou um valor maior, ex.: *teto 120*.`).catch(() => {});
+  }
+}
+async function tetoDefinir(env, valor) {
+  valor = Math.max(0, Math.min(5000, Math.round(+valor || 0)));
+  await env.HR_KV.put('cfg:teto', JSON.stringify({ valor, em: Date.now() }));
+  const mes = dataBahia().slice(0, 7), t = await tetoInfo(env);
+  if (!t.estourou) { await env.HR_KV.delete('teto:on:' + mes).catch(() => {}); await env.HR_KV.delete('teto:av80:' + mes).catch(() => {}); }
+  globalThis.__tetoEm = 0; globalThis.__econEm = 0; globalThis.__vozCfgEm = 0;
+  return t;
 }
