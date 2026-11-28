@@ -36369,7 +36369,7 @@ footer b{color:var(--t2)}
 .loja .end{font-size:16px;line-height:1.45}
 .loja .end b{color:var(--gold2)}
 .loja .bts{display:flex;gap:10px;flex-wrap:wrap}
-.loja .bts a{flex:1;min-width:140px;text-align:center;text-decoration:none;border-radius:12px;padding:13px 14px;font-weight:700;font-size:15px}
+.loja .bts a{flex:1;min-width:140px;text-align:center;display:flex;align-items:center;justify-content:center;text-decoration:none;border-radius:12px;padding:13px 14px;font-weight:700;font-size:15px}
 .loja .bts .mapa{background:var(--gold);color:#1a1200}
 .loja .bts .zap{border:1.5px solid var(--line2);color:var(--tx)}
 .loja iframe{width:100%;height:220px;border:0;border-radius:12px;filter:grayscale(.3) contrast(1.05)}
