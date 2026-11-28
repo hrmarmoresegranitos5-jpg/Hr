@@ -5274,7 +5274,7 @@ function promptCliente(env, c, regras) {
     `- LOCALIZAÇÃO RECEBIDA: uma mensagem no formato "[Localização enviada pelo cliente...]" é o pino do WhatsApp com o endereço da obra. Agradeça em poucas palavras, trate como endereço já recebido (preencha "endereco" com o texto) e siga para a próxima pergunta do funil. Nunca diga que só lê texto.`,
     `- LOCALIZAÇÃO: ao pedir o local da visita, peça DE PREFERÊNCIA a localização ATUAL do cliente (ele precisa estar no local da obra) e ENSINE a enviar, em passos curtos: no Android, tocar no clipe; no iPhone, tocar no +; escolher "Localização"; tocar em "Enviar sua localização atual". Avise para NÃO usar "Compartilhar localização em tempo real", que não é aceita. Se ele não estiver na obra ou preferir, aceite o endereço completo escrito com ponto de referência. Não repita o passo a passo se ele já enviou a localização.`,
     `- MATERIAIS (fatos confirmados): a marmoraria trabalha com granito, mármore, quartzo, travertino e lâmina ultracompacta. NÃO trabalha com porcelanato. Se pedirem porcelanato, explique com gentileza e sugira a lâmina ultracompacta ou o quartzo como alternativas modernas. Faz tudo em pedra: bancadas, pias, lavatórios, soleiras, peitoris, escadas, pisos e túmulos.`,
-    `- PAGAMENTO (fatos confirmados; use só isto, sem inventar percentuais): (1) À VISTA: tem desconto; pede-se 50% de entrada e os outros 50% na entrega. O percentual do desconto é informado pela equipe, nunca cite um número. (2) CARTÃO: o valor do projeto pode ser parcelado em até 10 vezes sem juros, sem desconto. (3) PARCELADO PELA EMPRESA: o cliente dá uma entrada, faz mais uma entrada no meio da execução do projeto e paga o restante na entrega, que pode ser dividido em 3 vezes; é sobre o valor do projeto, sem desconto. O desconto vale somente para pagamento realmente à vista. Apresente sempre assim: o valor do projeto é o preço cheio, que pode ser parcelado em até 10 vezes sem juros; pagando à vista, o cliente GANHA um desconto. Nunca diga que a prazo tem acréscimo ou juros. Explique isso de forma simples quando o cliente perguntar, sem empurrar.`,
+    `- PAGAMENTO (fatos confirmados; use só isto, sem inventar percentuais): (1) À VISTA: tem desconto; pede-se 50% de entrada e os outros 50% na entrega. O percentual do desconto é informado pela equipe, nunca cite um número. (2) CARTÃO: o valor do projeto pode ser parcelado em até 10 vezes sem juros, sem desconto. (3) PARCELADO PELA EMPRESA: o cliente dá uma entrada, faz mais uma entrada no meio da execução do projeto e paga o restante na entrega, que pode ser dividido em 3 vezes; é sobre o valor do projeto, sem desconto. O desconto vale somente para pagamento realmente à vista. Apresente sempre assim: o valor do projeto é o preço cheio, que pode ser parcelado em até 10 vezes sem juros; pagando à vista, o cliente GANHA um desconto. Nunca diga que a prazo tem acréscimo ou juros. Explique isso de forma simples quando o cliente perguntar, sem empurrar. CONTRATO E GARANTIA (fatos do Sr. Hangel): o serviço é fechado com contrato de prestação de serviço profissional; o cliente tem 1 ano de garantia contra erros de instalação e de fabricação; a pedra é entregue instalada, limpa e impermeabilizada. Diga isso junto com a forma de pagamento.`,
     `- PRAZO E AGENDA: a marmoraria trabalha com uma agenda programada para não atrasar o serviço de nenhum cliente. Se perguntarem prazo ou quando fica pronto, explique isso em uma frase, diga que a data de entrega é definida na agenda assim que o pedido é fechado e que a equipe confirma. Nunca prometa dia.`,
     `- FOTOS E PROJETO 3D: pode mostrar fotos de trabalhos já feitos e das pedras do catálogo para o cliente escolher. O projeto 3D da cozinha do cliente é elaborado sem custo, mas só é ENTREGUE (imagens e arquivos) depois que o cliente fecha o serviço; antes disso não envie, não ofereça enviar e não descreva o resultado em detalhes. Se pedirem as imagens do projeto antes de fechar, explique com gentileza que o projeto é apresentado e entregue ao fechar o serviço, e conduza para a visita técnica e o orçamento. Nunca soe como cobrança.`,
     `- HORÁRIO DE FUNCIONAMENTO: se perguntarem o horário, responda com o HORÁRIO DA EQUIPE informado abaixo; se não houver, diga que vai consultar a equipe.`,
@@ -25281,7 +25281,7 @@ async function promoComando(env, from, bruto, msg) {
 //   O dono vê antes (Enviar / Outra versão / Cancelar); depois a assistente continua já sabendo de tudo.
 // ═════════════════════════════════════════════════════════════════════════════
 const rtpFmt = n => String(n).replace(/^55(\d{2})(9?\d{4})(\d{4})$/, '($1) $2-$3');
-const RE_RTP_INTENCAO = /\b(continu\w*|retom\w*|da(r)? (continuidade|sequencia|seguimento)|segue|seguir|atendimento|fechar|feche|fecha|nao (me )?respond\w*|sumiu|parou de responder|vacuo|print\w*|conversa)\b/;
+const RE_RTP_INTENCAO = /\b(continu\w*|retom\w*|da(r)? (continuidade|sequencia|seguimento)|segue|seguir|atendimento|fechar|feche|fecha|nao (me )?respond\w*|sumiu|parou de responder|vacuo|print\w*|conversa|anot\w*|saber|saiba)\b/;
 function rtpTel(t) { const m = String(t || '').match(/(?:\+?\s*55[\s.-]*)?\(?\d{2}\)?[\s.-]*9?[\s.-]*\d{4}[\s.-]*\d{4}/); if (!m) return null; let d = m[0].replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d; return /^55\d{10,11}$/.test(d) ? { num: normalizarBR(d), txt: m[0] } : null; }
 // v114: fotos recentes do dono num banco (D1): várias fotos chegando juntas (álbum) não se atropelam como na KV
 let _mrTab = false;
@@ -25391,8 +25391,22 @@ Responda SÓ JSON: {"nome":"primeiro nome","pedido":"o que ele quer, curto, ex.:
   const tel = rtpFmt(num);
   if (!variar) { const kDup = 'rtpdup:' + from + ':' + num; if (await env.HR_KV.get(kDup)) { await env.HR_KV.delete('rtp:p:' + id); return; } await env.HR_KV.put(kDup, '1', { expirationTtl: 90 }); } // v358b: a mesma prévia não sai duas vezes
   await enviar(env, from, cartaoDono(`${obs && !/^(SEGUNDO CONTATO|RECONQUISTA)/.test(obs) ? 'Atendimento' : 'Retomada'}: ${reg.nome || tel}`, [`${reg.pedido}${reg.valor ? ' · ' + reg.valor : ''}`, reg.situacao, reg.estrategia ? 'Estratégia: ' + reg.estrategia : null, '', 'Mensagem que vou mandar:']));
-  await enviarComBotoes(env, from, reg.mensagem, [{ id: 'rtp|env|' + id, titulo: 'Enviar' }, { id: 'rtp|outra|' + id, titulo: 'Outra versão' }, { id: 'rtp|no|' + id, titulo: 'Cancelar' }]);
-  await enviar(env, from, 'Para mudar o texto você mesmo: *mensagem: ...*. Depois que eu mandar, a assistente continua a conversa sabendo de tudo e te avisa quando ele responder.');
+  await enviarComBotoes(env, from, reg.mensagem, [{ id: 'rtp|env|' + id, titulo: 'Enviar' }, { id: 'rtp|anot|' + id, titulo: 'Só anotar' }, { id: 'rtp|outra|' + id, titulo: 'Outra versão' }]);
+  await enviar(env, from, 'Para mudar o texto você mesmo: *mensagem: ...*. *Só anotar*: não mando nada, só guardo a conversa para a assistente já saber de tudo quando o cliente escrever. Depois que eu mandar, a assistente continua a conversa sabendo de tudo e te avisa quando ele responder.');
+}
+// v375: "Só anotar" — o Sr. Hangel atendeu pelo WhatsApp dele; a assistente fica sabendo (sem mandar mensagem)
+async function rtpAnotar(env, reg) {
+  const pn = reg.nome;
+  for (const v of variantesNumero(reg.num)) {
+    let c = null; try { c = JSON.parse((await env.HR_KV.get('ca:' + v)) || 'null'); } catch (_) {}
+    c = c || { dados: {}, hist: [] };
+    if (pn && !(c.dados && c.dados.nome)) { c.dados = { ...(c.dados || {}), nome: pn }; c.nomeOrigem = 'salvo'; }
+    c.hist = [...(c.hist || []), { role: 'assistant', content: `[O Sr. Hangel atendeu este cliente pelo WhatsApp pessoal dele (lido dos prints). Resumo: ${reg.situacao} Pedido: ${reg.pedido}${reg.valor ? ' · valor ' + reg.valor : ''}. Continue a partir daqui, sem repetir o que ele já respondeu.]` }].slice(-14);
+    c.ultimaEm = Date.now(); delete c.concluido;
+    await env.HR_KV.put('ca:' + v, JSON.stringify(c), { expirationTtl: 14 * 86400 });
+    if (pn) await env.HR_KV.put('nm:' + v, JSON.stringify({ nome: pn }), { expirationTtl: LEAD_TTL }).catch(() => {});
+    await env.HR_KV.put('apr2:' + ultimos8(v), '1', { expirationTtl: apresTtl(env) }).catch(() => {});
+  }
 }
 async function rtpEnviar(env, from, reg) {
   const tpl = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta').catch(() => null)) ? 'hr_resposta' : (env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'));
@@ -25457,6 +25471,7 @@ async function rtpBotao(env, from, id) {
   const reg = JSON.parse((await env.HR_KV.get('rtp:p:' + k)) || 'null');
   if (!reg) { await enviar(env, from, 'Essa retomada expirou. Mande os prints de novo.'); return true; }
   if (ac === 'no') { await env.HR_KV.delete('rtp:p:' + k); await enviar(env, from, 'Cancelado, não mandei nada.'); return true; }
+  if (ac === 'anot') { await rtpAnotar(env, reg); await env.HR_KV.delete('rtp:p:' + k); await enviar(env, from, `Anotado. Não mandei nada para ${reg.nome || rtpFmt(reg.num)}; quando ${reg.nome ? 'ela/ele' : 'o cliente'} escrever, a assistente já sabe de tudo: ${reg.pedido}${reg.valor ? ' · ' + reg.valor : ''}.`); return true; } // v375
   if (ac === 'outra') { await enviar(env, from, 'Fazendo outra versão…'); await rtpProcessar(env, from, reg.num, reg.imgIds, reg.obs, reg.mensagem).catch(async e => enviar(env, from, await textoFalhaIA(env, e))); return true; }
   if (ac === 'env') { if (reg.enviado) { await enviar(env, from, 'Essa já foi enviada.'); return true; } reg.enviado = Date.now(); await env.HR_KV.put('rtp:p:' + k, JSON.stringify(reg), { expirationTtl: 3 * 86400 }); await rtpEnviar(env, from, reg); return true; }
   return true;
