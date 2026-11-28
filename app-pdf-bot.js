@@ -1,4 +1,4 @@
-// app-pdf-bot.js — v5: três opções de pedra no link. v4: manda também os dados da página do orçamento (link /o/nome). v3: manda também as peças (ficha de corte). v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
+// app-pdf-bot.js — v6: todas as pedras no link. v5: três opções de pedra no link. v4: manda também os dados da página do orçamento (link /o/nome). v3: manda também as peças (ficha de corte). v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
 // O bot manda o PDF ao cliente pelo WhatsApp da HR (dentro ou fora das 24 h, com o modelo aprovado da Meta),
 // registra o orçamento para o acompanhamento automático (parados, retomada, cliente quente) e a assistente
 // passa a saber o valor e o que foi orçado quando o cliente responder. Usa window._ultimoPdf (app-core.js).
@@ -24,24 +24,19 @@
   }
 
 
-  // v5: três opções de pedra no link — a escolhida, uma mais em conta e uma mais nobre (mesma obra, só troca a pedra)
+  // v6: todas as pedras do catálogo no link (mesma obra, só troca a pedra), da mais em conta à mais nobre
   function opcoesDe(q) {
     try {
       if (!(q.m2 > 0) || q.tum || (CFG.emp && CFG.emp.link3op === false)) return [];
       var pedras = {}; (q.ambSnap || []).forEach(function (a) { if (a.selMat) pedras[a.selMat] = 1; }); if (Object.keys(pedras).length > 1) return [];
       var st = CFG.stones || [], mat = st.find(function (x) { return x.nm === q.mat; }); if (!mat || !(mat.pr > 0)) return [];
-      var fam = String(mat.cat || '').split(' ')[0].toLowerCase();
-      var ok = st.filter(function (x) { return x && x.id !== mat.id && x.pr > 0 && x.nm && !/cliente|instala/i.test(x.nm) && x.oculto !== true && x.ativo !== false; });
-      var mesmo = ok.filter(function (x) { return String(x.cat || '').split(' ')[0].toLowerCase() === fam; }); if (mesmo.length >= 2) ok = mesmo;
-      var baixo = ok.filter(function (x) { return x.pr < mat.pr * 0.93; }).sort(function (a, b) { return b.pr - a.pr; })[0];
-      var alto = ok.filter(function (x) { return x.pr > mat.pr * 1.07; }).sort(function (a, b) { return a.pr - b.pr; })[0];
-      if (!baixo && !alto) return [];
       var urg = 1 + (+q.urgPct || 0) / 100, base = +q._vistaCalc || +q.vista || 0, fv = base ? (+q.vista || base) / base : 1, fp = base ? (+q.parc || base * 1.15) / base : 1.15;
       var custo = function (x) { return (+q.m2) * (1 + ((x.perda != null ? +x.perda : 10) / 100)) * x.pr; };
-      var op = function (x, tag) { var d = (custo(x) - custo(mat)) * urg; return { nm: String(x.nm).slice(0, 60), fin: String(x.fin || '').slice(0, 30), tag: tag, vista: Math.round((+q.vista + d * fv) * 100) / 100, parc: Math.round((+q.parc + d * fp) * 100) / 100 }; };
-      var L = []; if (baixo) L.push(op(baixo, 'Mais em conta'));
-      L.push({ nm: String(mat.nm).slice(0, 60), fin: String(mat.fin || '').slice(0, 30), tag: 'Escolhida', atual: true, vista: +q.vista || 0, parc: +q.parc || 0 });
-      if (alto) L.push(op(alto, 'Mais nobre'));
+      var L = st.filter(function (x) { return x && x.pr > 0 && x.nm && !/cliente|instala/i.test(x.nm) && x.oculto !== true && x.ativo !== false; }).map(function (x) {
+        if (x.id === mat.id) return { nm: String(x.nm).slice(0, 60), fin: String(x.fin || '').slice(0, 30), tag: String(x.cat || '').slice(0, 24), atual: true, vista: +q.vista || 0, parc: +q.parc || 0 };
+        var d = (custo(x) - custo(mat)) * urg; return { nm: String(x.nm).slice(0, 60), fin: String(x.fin || '').slice(0, 30), tag: String(x.cat || '').slice(0, 24), vista: Math.round((+q.vista + d * fv) * 100) / 100, parc: Math.round((+q.parc + d * fp) * 100) / 100 };
+      }).filter(function (o) { return o.parc > 0; }).sort(function (a, b) { return a.parc - b.parc; });
+      if (L.length < 2) return [];
       return L;
     } catch (e) { return []; }
   }
