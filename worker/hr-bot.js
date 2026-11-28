@@ -38554,7 +38554,7 @@ ${obras}
 <section class="sec rev" data-s="entenda"><details><summary>Por que o valor não é só o m² da pedra?</summary><p>A pedra vem da pedreira em chapas inteiras de 3,00 × 1,60 m. Para os veios combinarem, as peças são cortadas da mesma chapa, e o que sobra dos recortes não volta para a venda.</p><p>No valor também estão o corte sob medida, os recortes de cuba e cooktop, o polimento das bordas, o transporte, a instalação e a impermeabilização. Por isso a conta "m² × preço da pedra" sempre dá menos do que o projeto pronto.</p></details></section>
 <footer class="foot">${r.temBytes ? `<a class="pdf" href="/o/${e(d.slug)}/pdf" data-ev="pdf">${ic.pdf}Baixar o orçamento em PDF</a><br>` : ''}HR Mármores e Granitos · Pilão Arcado, BA<br><a href="https://instagram.com/hrmarmoregranito">@hrmarmoregranito</a> · <a href="/">nosso site</a></footer>
 </div>
-<div class="bar"><div class="in"><a class="btn go" href="${e(d.mp ? '/o/' + d.slug + '/fechar' : zap(msgFechar))}" data-ev="${d.mp ? 'abrefechar' : 'fechar'}" data-fx="${d.mp ? 1 : ''}" data-z="${e(d.whats ? 'https://wa.me/' + d.whats + '?text=' : '')}" data-m="${e(`Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}`.replace(/\s+/g, ' ').trim())}">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
+<div class="bar"><div class="in"><a class="btn go" href="${e(d.mp ? '/o/' + d.slug + '/fechar' + (opts && opts.semRastro ? '?d=1' : '') : zap(msgFechar))}" data-ev="${d.mp ? 'abrefechar' : 'fechar'}" data-fx="${d.mp ? 1 : ''}" data-z="${e(d.whats ? 'https://wa.me/' + d.whats + '?text=' : '')}" data-m="${e(`Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}`.replace(/\s+/g, ' ').trim())}">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
 <script>
 (function(){var S=${JSON.stringify(d.slug)},T=${opts && opts.semRastro ? 'false' : 'true'},t0=Date.now(),vis={valor:1},sid=Math.random().toString(36).slice(2,10),fim=0;
 var io=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting){x.target.classList.add('on');var s=x.target.getAttribute('data-s');if(s)vis[s]=1;}});},{threshold:.25});
@@ -38575,7 +38575,7 @@ document.querySelectorAll('.op').forEach(function(b){b.addEventListener('click',
 var v=+b.getAttribute('data-v'),p=+b.getAttribute('data-p'),f=fmt(p).split(',');var a=document.getElementById('vI');if(a){a.textContent=f[0];document.getElementById('vC').textContent=f[1];document.getElementById('vP').textContent=fmt(Math.round(p/10*100)/100);}
 var vv=document.getElementById('vV');if(vv){vv.textContent=fmt(v);var t=document.getElementById('vT');if(t)t.textContent=Math.round((p-v)/p*100);}
 var nm=b.getAttribute('data-nm');document.querySelectorAll('.pedra .nm b, .hero p.sub').forEach(function(el){if(el.classList.contains('sub'))el.textContent=el.textContent.replace(/ em .*$/,' em '+nm);});
-if(fe&&fe.getAttribute('data-fx')){fe.setAttribute('href','/o/'+S+'/fechar?p='+b.getAttribute('data-i'));}else if(fe&&fe.getAttribute('data-z')){fe.setAttribute('href',fe.getAttribute('data-z')+encodeURIComponent(fe.getAttribute('data-m')+' na pedra '+nm+'.'));}
+if(fe&&fe.getAttribute('data-fx')){fe.setAttribute('href','/o/'+S+'/fechar?p='+b.getAttribute('data-i')+(T?'':'&d=1'));}else if(fe&&fe.getAttribute('data-z')){fe.setAttribute('href',fe.getAttribute('data-z')+encodeURIComponent(fe.getAttribute('data-m')+' na pedra '+nm+'.'));}
 vis['pedra'+b.getAttribute('data-i')]=1;window.scrollTo({top:document.querySelector('.price').offsetTop-90,behavior:'smooth'});});});
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){env('saiu',1);}else{t0=Date.now()-1000*0;}});
 window.addEventListener('pagehide',function(){env('saiu',1);});
@@ -38594,7 +38594,7 @@ async function rotaOrcLink(req, env, ctx, url) {
   if (sub === '/fechar') {
     if (slug === 'exemplo' && req.method === 'POST') return jr({ ok: false, erro: 'Esta é uma página de exemplo.' });
     if (req.method === 'POST') { const b = await req.json().catch(() => ({})); return jr(await olFecharPost(env, d, b).catch(e => ({ ok: false, erro: 'Erro: ' + String(e.message).slice(0, 80) }))); }
-    ctx.waitUntil(olEvento(env, slug, JSON.stringify({ ev: 'fechar', sid: 'fx' + Date.now().toString(36), seg: 1, vis: ['valor'] })).catch(() => {}));
+    if (slug !== 'exemplo' && url.searchParams.get('d') !== '1') ctx.waitUntil(olEvento(env, slug, JSON.stringify({ ev: 'fechar', sid: 'fx' + Date.now().toString(36), seg: 1, vis: ['valor'] })).catch(() => {}));
     return new Response(olFecharHtml(d, await olFeLer(env, slug), url.searchParams.get('p'), mpAtivo(env)), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
   }
   if (sub === '/estado') { const fe = await olFeLer(env, slug); return jr({ aceito: !!(fe && fe.aceitoEm), pago: !!(fe && fe.pago), dia: fe && fe.dia ? fe.dia.d : '', diaOk: !!(fe && fe.dia && fe.dia.ok) }); }
