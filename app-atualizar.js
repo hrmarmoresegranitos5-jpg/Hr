@@ -13,13 +13,16 @@
 // v4: NUNCA recarrega enquanto o senhor está usando (antes recarregava depois de 8 s sem tocar = "o app reinicia sozinho").
 // Versão nova → só atualiza sozinho: logo ao abrir (antes de mexer) ou quando o app vai para o segundo plano.
 // Enquanto isso aparece um aviso discreto "Nova versão · Atualizar" no topo, para tocar quando quiser.
+// v5 (28/11/2026): NÃO recarrega mais quando o app vai para o segundo plano — sair por segundos e voltar fazia o app
+//   "reiniciar" (perdia a tela e o que estava sendo feito). Versão nova agora só entra: logo ao abrir (antes de mexer),
+//   ao tocar no aviso "Nova versão · Atualizar", ou ao voltar depois de 30 min ou mais fora do app.
 (function () {
   'use strict';
-  var abriuEm = Date.now();
+  var abriuEm = Date.now(), saiuEm = 0;
   var mostrado = false, conferindo = false, ultima = 0, mexeu = 0, indo = false; // ao abrir, ainda não mexeu: atualiza direto
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchmove'].forEach(function (ev) { document.addEventListener(ev, function () { mexeu = Date.now(); }, { passive: true, capture: true }); });
   function digitando() { var a = document.activeElement; return !!(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable) && String(a.value || a.textContent || '').length); }
-  function podeSozinho() { return document.hidden || (!mexeu && Date.now() - abriuEm < 30000 && !digitando()); } // v4: só em segundo plano ou logo ao abrir
+  function podeSozinho() { return !document.hidden && !mexeu && Date.now() - abriuEm < 30000 && !digitando(); } // v5: só logo ao abrir (nunca no segundo plano)
   function recentes() { try { return JSON.parse(sessionStorage.getItem('hr_atu_auto') || '[]').filter(function (t) { return Date.now() - t < 10 * 60000; }); } catch (e) { return []; } }
   function novaVersao() { // até 2 atualizações sozinhas em 10 min (se o GitHub ainda não terminou de publicar, não fica recarregando)
     var r = recentes();
@@ -92,7 +95,12 @@
   setTimeout(conferir, 8000);
   setInterval(conferir, 2 * 60000);
   setInterval(function () { if (mostrado && podeSozinho()) atualizar(); }, 3000); // v4: podeSozinho só vale em segundo plano / ao abrir
-  document.addEventListener('visibilitychange', function () { if (document.hidden) { if (mostrado) atualizar(); } else { ultima = 0; conferir(); } }); // saiu do app com o botão na tela → atualiza enquanto está fora
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { saiuEm = Date.now(); return; } // v5: sair do app não recarrega mais
+    var longe = saiuEm && Date.now() - saiuEm > 30 * 60000; saiuEm = 0;
+    if (mostrado && longe && !digitando()) { atualizar(); return; } // ficou 30 min ou mais fora: pode trazer a versão nova
+    ultima = 0; conferir();
+  });
   window.addEventListener('online', conferir);
   window.HRAtualizar = { conferir: conferir, mostrar: mostrar, atualizar: atualizar };
 })();
