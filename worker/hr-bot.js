@@ -38451,7 +38451,7 @@ body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;backgr
 .op.sel{border-color:var(--gold);box-shadow:0 10px 24px -14px rgba(120,80,20,.55);transform:translateY(-2px)}
 .oph{display:block;aspect-ratio:1;background:linear-gradient(135deg,#d9d0c2,#a89d8c) center/cover;margin-bottom:9px}
 .opt{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:0 10px}.op.sel .opt{color:var(--ink)}
-.op b{font-size:12.5px;font-weight:600;line-height:1.25;padding:3px 10px 6px;min-height:38px}.opv{font-family:Fraunces,Georgia,serif;font-size:15px;padding:0 10px}.opp{font-size:10.5px;color:var(--mute);padding:0 10px}
+.op b{font-size:12.5px;font-weight:600;line-height:1.25;padding:3px 10px 6px;min-height:38px}.opv{font-family:Fraunces,Georgia,serif;font-size:14.5px;padding:0 10px;white-space:nowrap;letter-spacing:-.02em}.opp{font-size:10.5px;color:var(--mute);padding:0 10px}
 .amb{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:12px}
 .amb-h{display:flex;align-items:baseline;gap:12px;margin-bottom:10px}.amb-h .num{font-family:Fraunces,Georgia,serif;color:var(--gold);font-size:15px}.amb-h h3{font-size:17px;font-weight:600}
 .pc{list-style:none}.pc li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px dashed var(--line);font-size:14px}.pc li:first-child{border-top:0}
@@ -38543,7 +38543,7 @@ ${obras}
 <section class="sec rev" data-s="entenda"><details><summary>Por que o valor não é só o m² da pedra?</summary><p>A pedra vem da pedreira em chapas inteiras de 3,00 × 1,60 m. Para os veios combinarem, as peças são cortadas da mesma chapa, e o que sobra dos recortes não volta para a venda.</p><p>No valor também estão o corte sob medida, os recortes de cuba e cooktop, o polimento das bordas, o transporte, a instalação e a impermeabilização. Por isso a conta "m² × preço da pedra" sempre dá menos do que o projeto pronto.</p></details></section>
 <footer class="foot">${r.temBytes ? `<a class="pdf" href="/o/${e(d.slug)}/pdf" data-ev="pdf">${ic.pdf}Baixar o orçamento em PDF</a><br>` : ''}HR Mármores e Granitos · Pilão Arcado, BA<br><a href="https://instagram.com/hrmarmoregranito">@hrmarmoregranito</a> · <a href="/">nosso site</a></footer>
 </div>
-<div class="bar"><div class="in"><a class="btn go" href="${e(zap(msgFechar))}" data-ev="fechar" data-z="${e(d.whats ? 'https://wa.me/' + d.whats + '?text=' : '')}" data-m="${e(msgFechar)}">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
+<div class="bar"><div class="in"><a class="btn go" href="${e(zap(msgFechar))}" data-ev="fechar" data-z="${e(d.whats ? 'https://wa.me/' + d.whats + '?text=' : '')}" data-m="${e(`Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}`.replace(/\s+/g, ' ').trim())}">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
 <script>
 (function(){var S=${JSON.stringify(d.slug)},T=${opts && opts.semRastro ? 'false' : 'true'},t0=Date.now(),vis={valor:1},sid=Math.random().toString(36).slice(2,10),fim=0;
 var io=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting){x.target.classList.add('on');var s=x.target.getAttribute('data-s');if(s)vis[s]=1;}});},{threshold:.25});
@@ -38556,7 +38556,7 @@ document.querySelectorAll('.op').forEach(function(b){b.addEventListener('click',
 var v=+b.getAttribute('data-v'),p=+b.getAttribute('data-p'),f=fmt(p).split(',');var a=document.getElementById('vI');if(a){a.textContent=f[0];document.getElementById('vC').textContent=f[1];document.getElementById('vP').textContent=fmt(Math.round(p/10*100)/100);}
 var vv=document.getElementById('vV');if(vv){vv.textContent=fmt(v);var t=document.getElementById('vT');if(t)t.textContent=Math.round((p-v)/p*100);}
 var nm=b.getAttribute('data-nm');document.querySelectorAll('.pedra .nm b, .hero p.sub').forEach(function(el){if(el.classList.contains('sub'))el.textContent=el.textContent.replace(/ em .*$/,' em '+nm);});
-if(fe&&fe.getAttribute('data-z')){fe.setAttribute('href',fe.getAttribute('data-z')+encodeURIComponent(fe.getAttribute('data-m').replace(/\.$/,'')+' Pedra: '+nm+'.'));}
+if(fe&&fe.getAttribute('data-z')){fe.setAttribute('href',fe.getAttribute('data-z')+encodeURIComponent(fe.getAttribute('data-m')+' na pedra '+nm+'.'));}
 vis['pedra'+b.getAttribute('data-i')]=1;window.scrollTo({top:document.querySelector('.price').offsetTop-90,behavior:'smooth'});});});
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){env('saiu',1);}else{t0=Date.now()-1000*0;}});
 window.addEventListener('pagehide',function(){env('saiu',1);});
