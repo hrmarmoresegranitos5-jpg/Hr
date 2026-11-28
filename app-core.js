@@ -3392,7 +3392,7 @@ function openCubaPick(tipo,svKey){
   var h='';
   // Cliente option
   var instCli=tipo==='coz'?160:280;
-  h+='<div class="cpcard" data-pcuba="__cli__" data-ctype="'+tipo+'"><div class="cpthumb" style="background:var(--s3);font-size:1.4rem;color:var(--t3);display:grid;place-items:center;">📦</div><div><div class="cpbrand">Cliente Fornece</div><div class="cpnm">Só Mão de Obra</div><div class="cpdim">Cliente compra, HR instala · sobrepor, embutir ou flush</div><div class="cppr">M.O.: <b>'+(function(){var v=CUBA_INST_TIPOS.map(function(t){return _cubaCliMo(tipo,t.k);});var a=Math.min.apply(null,v),b=Math.max.apply(null,v);return a===b?'R$ '+a:'R$ '+a+'–'+b;})()+'</b></div></div></div>';
+  h+='<div class="cpcard" data-pcuba="__cli__" data-ctype="'+tipo+'"><div class="cpthumb" style="background:var(--s3);font-size:1.4rem;color:var(--t3);display:grid;place-items:center;">📦</div><div><div class="cpbrand">Cliente Fornece</div><div class="cpnm">Só Mão de Obra</div><div class="cpdim">Cliente compra, HR instala · '+(tipo==='coz'?'embutir ou flush':'sobrepor, embutir ou flush')+'</div><div class="cppr">M.O.: <b>'+(function(){var v=_cubaCliTipos(tipo).map(function(t){return _cubaCliMo(tipo,t.k);});var a=Math.min.apply(null,v),b=Math.max.apply(null,v);return a===b?'R$ '+a:'R$ '+a+'–'+b;})()+'</b></div></div></div>';
   h+='<div style="font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:13px 0 8px;">Cubas HR — fornecemos e instalamos</div>';
   lista.filter(function(c){return c.pr>0;}).forEach(function(c){
     var _ativosPrev=(c.instTipos)?CUBA_INST_TIPOS.filter(function(t){return c.instTipos[t.k]&&c.instTipos[t.k].on;}):[];
@@ -3538,7 +3538,7 @@ function _renderCubaQtdInstButtons(){
   var cli = id==='__cli__';
   var lista = tipo==='coz'?CFG.coz:CFG.lav;
   var c = cli ? {instTipos:{}} : lista.find(function(x){return x.id===id;});
-  if(cli) CUBA_INST_TIPOS.forEach(function(t){c.instTipos[t.k]={on:true,mo:_cubaCliMo(tipo,t.k)};});
+  if(cli) _cubaCliTipos(tipo).forEach(function(t){c.instTipos[t.k]={on:true,mo:_cubaCliMo(tipo,t.k)};});
   var ativos = (c && c.instTipos) ? CUBA_INST_TIPOS.filter(function(t){return c.instTipos[t.k]&&c.instTipos[t.k].on;}) : [];
   if(!ativos.length){ instWrap.style.display='none'; instWrap.innerHTML=''; return; }
   if(!window._pendCubaInstTipo || !ativos.some(function(t){return t.k===window._pendCubaInstTipo;})){
@@ -3576,7 +3576,7 @@ function pickCuba(id,tipo){
   var instCli=tipo==='coz'?160:280;
   var cubaObj;
   if(id==='__cli__'){
-    var _kCli=window._pendCubaInstTipo||'embutir', _tCli=CUBA_INST_TIPOS.find(function(t){return t.k===_kCli;})||CUBA_INST_TIPOS[1], _moCli=_cubaCliMo(tipo,_tCli.k);
+    var _tsCli=_cubaCliTipos(tipo), _kCli=window._pendCubaInstTipo||'embutir', _tCli=_tsCli.find(function(t){return t.k===_kCli;})||_tsCli.find(function(t){return t.k==='embutir';})||_tsCli[0], _moCli=_cubaCliMo(tipo,_tCli.k);
     cubaObj={id:'__cli__',nm:'Cuba do cliente — '+_tCli.l,total:_moCli,tipo:tipo,instTipo:_tCli.k,instTipoLabel:_tCli.l,mo:_moCli};
   } else {
     var c=lista.find(function(x){return x.id===id;});
@@ -11979,17 +11979,27 @@ function _cubaInstDefault(k){
 }
 // v372: cuba do cliente (só mão de obra) também escolhe a forma de instalação. Preços em Configurações › Serviços,
 //   grupo "Cuba do cliente". Começam todos no valor antigo (R$ 160 cozinha / R$ 280 banheiro) até o senhor ajustar.
-var CUBA_CLI_KEY={coz:{sobrepor:'cli_cz_sob',embutir:'cli_cz_emb',flush:'cli_cz_flu'},lav:{sobrepor:'cli_lv_sob',embutir:'cli_lv_emb',flush:'cli_lv_flu'}};
+// v372b: sobrepor só existe em lavatório (banheiro) — é só o furo do ralo e colar a cuba; na cozinha é embutir ou flush.
+var CUBA_CLI_KEY={coz:{embutir:'cli_cz_emb',flush:'cli_cz_flu'},lav:{sobrepor:'cli_lv_sob',embutir:'cli_lv_emb',flush:'cli_lv_flu'}};
+function _cubaCliTipos(tipo){var t=tipo==='coz'?'coz':'lav';return CUBA_INST_TIPOS.filter(function(x){return !!CUBA_CLI_KEY[t][x.k];});}
 function _cubaCliMo(tipo,k){
   var t=tipo==='coz'?'coz':'lav', key=(CUBA_CLI_KEY[t]||{})[k], v=key&&CFG.sv?CFG.sv[key]:null;
-  return (v!=null&&v!=='')?+v:(t==='coz'?160:280);
+  if(v!=null&&v!=='')return +v;
+  if(t==='lav'&&k==='sobrepor')return +(CFG.sv&&CFG.sv.fralo)||50; // furo do ralo + colagem
+  return t==='coz'?160:280;
 }
 function _cubaCliGarantir(){
   try{
     if(!CFG.sv)CFG.sv={}; if(!CFG.svList)return; var mudou=false;
-    ['coz','lav'].forEach(function(t){CUBA_INST_TIPOS.forEach(function(it){
-      var key=CUBA_CLI_KEY[t][it.k]; if(CFG.sv[key]==null){CFG.sv[key]=t==='coz'?160:280;mudou=true;}
-      if(!CFG.svList.find(function(x){return x.k===key;})){CFG.svList.push({k:key,l:'Cuba do cliente '+(t==='coz'?'(cozinha)':'(banheiro)')+' · '+it.l,preco:CFG.sv[key],grp:'Cuba do cliente',u:'un',amb:[]});mudou=true;}
+    var n0=CFG.svList.length; CFG.svList=CFG.svList.filter(function(x){return x.k!=='cli_cz_sob';}); if(CFG.svList.length!==n0){delete CFG.sv.cli_cz_sob;mudou=true;}
+    var sobOk=false; try{sobOk=!!localStorage.getItem('hr_mig_cubasob372');}catch(e){}
+    if(!sobOk){var pr=+(CFG.sv.fralo)||50; CFG.sv.cli_lv_sob=pr; var it0=CFG.svList.find(function(x){return x.k==='cli_lv_sob';}); if(it0){it0.preco=pr;} try{localStorage.setItem('hr_mig_cubasob372','1');}catch(e){} mudou=true;}
+    ['coz','lav'].forEach(function(t){_cubaCliTipos(t).forEach(function(it){
+      var key=CUBA_CLI_KEY[t][it.k]; if(CFG.sv[key]==null){CFG.sv[key]=_cubaCliMo(t,it.k);mudou=true;}
+      var nm='Cuba do cliente '+(t==='coz'?'(cozinha)':'(banheiro)')+' · '+it.l+(it.k==='sobrepor'?' (furo do ralo + colagem)':'');
+      var ex=CFG.svList.find(function(x){return x.k===key;});
+      if(!ex){CFG.svList.push({k:key,l:nm,preco:CFG.sv[key],grp:'Cuba do cliente',u:'un',amb:[]});mudou=true;}
+      else if(it.k==='sobrepor'&&ex.l!==nm){ex.l=nm;mudou=true;}
     });});
     if(mudou&&typeof svCFG==='function')svCFG();
   }catch(e){}
