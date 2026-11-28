@@ -988,10 +988,10 @@ function resumoLimpo(rs) { // v134: pedra e peças do orçamento do app (para a 
 async function orcPdfGuardar(env, d, bytes) {
   const orcNum = orcNumNorm(d.orcNum) || orcNumDoArquivo(d.arquivo), k = orcPdfChave(orcNum, d.qId); if (!k) return null;
   const r = { qId: d.qId ? String(d.qId).slice(0, 30) : '', orcNum, cliente: String(d.cliente || '').slice(0, 60), cliCod: String(d.cliCod || '').slice(0, 12), tel: String(d.tel || '').replace(/\D/g, '').slice(0, 13),
-    valor: Number(d.valor) || 0, projeto: String(d.pedido || d.projeto || '').slice(0, 80), resumo: resumoLimpo(d.resumo), arquivo: String(d.arquivo || (orcNum || 'Orcamento') + '.pdf').slice(0, 80), mediaId: d.mediaId || null, mediaEm: d.mediaId ? Date.now() : 0, em: Date.now() };
+    valor: Number(d.valor) || 0, projeto: String(d.pedido || d.projeto || '').slice(0, 80), resumo: resumoLimpo(d.resumo), link: olLinkLimpo(d.link), arquivo: String(d.arquivo || (orcNum || 'Orcamento') + '.pdf').slice(0, 80), mediaId: d.mediaId || null, mediaEm: d.mediaId ? Date.now() : 0, em: Date.now() };
   if (bytes) { await env.HR_KV.put(k + ':b', bytesParaBase64(bytes), { expirationTtl: 120 * 86400 }); r.temBytes = 1; }
   else { try { const ant = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (ant && ant.temBytes) r.temBytes = 1; } catch (_) {} }
-  if (!r.resumo) { try { const ant = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (ant && ant.resumo) r.resumo = ant.resumo; } catch (_) {} }
+  if (!r.resumo || !r.link) { try { const ant = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (ant && ant.resumo && !r.resumo) r.resumo = ant.resumo; if (ant && ant.link && !r.link) r.link = ant.link; if (ant && ant.tel && !r.tel) r.tel = ant.tel; } catch (_) {} }
   await env.HR_KV.put(k, JSON.stringify(r), { expirationTtl: 120 * 86400 });
   if (r.resumo) await orcPdfIndexar(env, k, r).catch(() => {}); // v286
   if (r.qId && orcNum) await env.HR_KV.put('orcpdf:qid:' + r.qId, orcNum, { expirationTtl: 120 * 86400 });
@@ -2562,6 +2562,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('cartv|')) return cartaoBotao(env, from, id); // v91c
   if (id.startsWith('promo|')) return promoBotao(env, from, id); // v92
   if (id.startsWith('rtp|')) return rtpBotao(env, from, id); // v93
+  if (id.startsWith('olk|')) { if (ehDono(env, from)) await olkBotao(env, from, id); return true; } // v377
   if (id.startsWith('qcob|')) return qcobBotao(env, from, id); // v94
   if (id.startsWith('cub|')) return cubaBotao(env, from, id); // v111
   if (id.startsWith('rtpl|')) return paradosBotao(env, from, id); // v96
@@ -28989,10 +28990,12 @@ async function rotaBotInterna(req, env, url) {
     let bytes; try { bytes = base64ParaBytes(body.pdf); } catch (_) { return jsonR({ ok: false, erro: 'PDF inválido.' }); }
     const num = normalizarBR(d), nome = String(body.nome || '').slice(0, 60), pedido = String(body.pedido || '').slice(0, 80), valor = +body.valor || 0;
     const up = await subirPdfMeta(env, bytes, String(body.arquivo || 'Orcamento.pdf').slice(0, 80));
-    await orcPdfGuardar(env, { qId: body.qId, orcNum: body.orcNum, cliente: nome, cliCod: body.cliCod, tel: d, valor, pedido, arquivo: up.nome, mediaId: up.id }, bytes).catch(e => console.log('[ORCPDF]', e.message)); // v118
+    await orcPdfGuardar(env, { qId: body.qId, orcNum: body.orcNum, cliente: nome, cliCod: body.cliCod, tel: d, valor, pedido, arquivo: up.nome, mediaId: up.id, link: body.link }, bytes).catch(e => console.log('[ORCPDF]', e.message)); // v118
+    const olUrl = await olCriar(env, { orcNum: orcNumNorm(body.orcNum) || orcNumDoArquivo(up.nome), qId: body.qId, cliente: nome }).catch(e => { console.log('[OL]', e.message); return ''; }); // v377: página do orçamento
     const pn = nome.split(' ')[0];
     const msg = String(body.mensagem || '').trim() || `Olá${pn ? ', ' + pn : ''}! Segue o seu orçamento${pedido ? ' de ' + pedido : ''} da HR Mármores e Granitos. Pode ser em até 10x sem juros no cartão, ou à vista com desconto. Qual forma fica melhor para você?`;
-    const r = await enviarOrcamentoCliente(env, num, { mediaId: up.id, arquivoNome: up.nome, nome, valor, interesse: pedido, id: 'app' + Date.now(), qId: body.qId ? String(body.qId) : null, orcNum: orcNumNorm(body.orcNum) || orcNumDoArquivo(up.nome) }, nome, msg);
+    const msgL = olUrl ? msg + `\n\nVeja o seu orçamento completo, com fotos e tudo o que está incluso:\n${olUrl}` : msg;
+    const r = await enviarOrcamentoCliente(env, num, { mediaId: up.id, arquivoNome: up.nome, nome, valor, interesse: pedido, id: 'app' + Date.now(), qId: body.qId ? String(body.qId) : null, orcNum: orcNumNorm(body.orcNum) || orcNumDoArquivo(up.nome) }, nome, msgL);
     await orcEnvRegistrar(env, num, { id: 'app' + Date.now(), valor, nome }, nome, { qId: body.qId, orcNum: body.orcNum || orcNumDoArquivo(up.nome), mediaId: up.id, arquivo: up.nome, projeto: pedido, valor }).catch(() => {}); // v118
     if (nome) await ctAtualizar(env, num, { nome }).catch(() => {});
     for (const v of variantesNumero(num)) { // a assistente sabe do orçamento quando ele responder
@@ -29001,8 +29004,8 @@ async function rotaBotInterna(req, env, url) {
       c.hist = [...(c.hist || []), { role: 'assistant', content: `[O Sr. Hangel mandou pelo app o orçamento${pedido ? ' de ' + pedido : ''}${valor ? ' no valor de R$ ' + reais(valor) : ''} em PDF. Se o cliente perguntar, use esses dados; desconto à vista até ${(await promoCfg(env)).descontoMax}% e até 10x sem juros no cartão.]` }].slice(-16);
       await env.HR_KV.put('ca:' + v, JSON.stringify(c), { expirationTtl: 14 * 86400 });
     }
-    await enviar(env, numeroDono(env), `Orçamento enviado pelo app para ${nome || rtpFmt(num)}${valor ? ' (R$ ' + reais(valor) + ')' : ''}. ${r}`).catch(() => {});
-    return jsonR({ ok: true, texto: r });
+    await enviar(env, numeroDono(env), `Orçamento enviado pelo app para ${nome || rtpFmt(num)}${valor ? ' (R$ ' + reais(valor) + ')' : ''}. ${r}${olUrl ? `\nPágina do orçamento (este link não avisa quando o senhor abre): ${olUrl}?d=1\nQuando ${nome.split(' ')[0] || 'o cliente'} abrir, eu aviso.` : ''}`).catch(() => {});
+    return jsonR({ ok: true, texto: r, link: olUrl });
   }
   if (p === '/bot/cliente' && req.method === 'GET') { // v105: o que o bot sabe de um cliente (ficha do app)
     let d = String(url.searchParams.get('tel') || '').replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d;
@@ -37142,7 +37145,7 @@ async function siteLeadsLista(env) {
   return { ok: true, leads: out.slice(0, 60) };
 }
 // link pessoal do site: /portfolio?c=<token> já sabe quem é o cliente (o bot manda esse link na conversa)
-const SLUG_RESERVADO = new Set(['p', 'projeto', 'site', 'portfolio', 'obras', 'bot', 'webhook', 'mp', 'gpix', 'img', 'cam', 'editor', 'pagar', 'pix', 'ponto', 'admin', 'api', 'login', 'robots', 'favicon', 'tv', 'app', 'loja', 'catalogo']);
+const SLUG_RESERVADO = new Set(['o', 'exemplo', 'p', 'projeto', 'site', 'portfolio', 'obras', 'bot', 'webhook', 'mp', 'gpix', 'img', 'cam', 'editor', 'pagar', 'pix', 'ponto', 'admin', 'api', 'login', 'robots', 'favicon', 'tv', 'app', 'loja', 'catalogo']);
 async function siteLinkPessoal(env, numero, nome) {
   const base = await urlPublica(env).catch(() => ''); // v359c: domínio próprio quando estiver no ar
   if (!/^https:/.test(base)) return '';
@@ -38293,6 +38296,7 @@ export default {
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname === '/gpix' || url.pathname === '/gpix/script' || url.pathname === '/gpix/cfg') return gpixRota(req, env, url, ctx); // v361/v362
+    if (/^\/o\/[a-z0-9]{2,30}(\/v|\/pdf)?\/?$/i.test(url.pathname)) return rotaOrcLink(req, env, ctx, url); // v377: página do orçamento
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
     if (/^\/(p|projeto|site)\/?$/i.test(url.pathname)) return Response.redirect(url.origin + '/portfolio' + url.search, 302); // v359: link curto do site
@@ -38353,5 +38357,256 @@ export default {
   },
 };
 
-
-
+// ═══ v377: PÁGINA DO ORÇAMENTO (hrmarmoresegranitos.com.br/o/nome) ═══
+// O cliente recebe junto com o PDF um link para uma página bonita do orçamento: valor, pedra, o que vamos fazer
+// (sem preço por item), o que está incluso, como funciona, garantia e obras reais. Quando ele abre, o Sr. Hangel
+// é avisado (quanto tempo ficou e o que olhou) com os botões Mandar / Eu ligo / Agora não. "Quero fechar" abre o
+// WhatsApp da HR com a mensagem pronta e avisa o dono na hora. Nada vai para o cliente sem o toque do dono.
+function olLinkLimpo(l) {
+  if (!l || typeof l !== 'object') return null;
+  const s = (v, n) => String(v == null ? '' : v).slice(0, n), num = v => Math.max(0, Number(v) || 0);
+  return { vista: num(l.vista), parc: num(l.parc), mostrarVista: l.mostrarVista !== false, m2: num(l.m2), pedra: s(l.pedra, 60), fin: s(l.fin, 30), data: s(l.data, 10), ate: s(l.ate, 10), cidade: s(l.cidade, 40),
+    amb: (Array.isArray(l.amb) ? l.amb : []).slice(0, 8).map(a => ({ t: s(a && a.t, 30), cuba: s(a && a.cuba, 50), sv: (Array.isArray(a && a.sv) ? a.sv : []).slice(0, 15).map(x => s(x, 50)), pc: (Array.isArray(a && a.pc) ? a.pc : []).slice(0, 30).map(p => ({ d: s(p && p.d, 40), w: num(p && p.w), h: num(p && p.h), q: Math.max(1, Math.round(num(p && p.q)) || 1) })).filter(p => p.w > 0 && p.h > 0) })),
+    inc: (Array.isArray(l.inc) ? l.inc : []).slice(0, 16).map(x => s(x, 90)).filter(Boolean) };
+}
+function olSlugBase(nome) { return normaliza(String(nome || '').split(/\s+/)[0] || '').replace(/[^a-z0-9]/g, '').slice(0, 14) || 'orcamento'; }
+async function olCriar(env, rec) { // devolve a URL da página; o mesmo orçamento mantém o mesmo link
+  const k = orcPdfChave(rec.orcNum, rec.qId); if (!k) return '';
+  let slug = await env.HR_KV.get('ol:k:' + k).catch(() => null);
+  if (!slug) {
+    const b = olSlugBase(rec.cliente);
+    for (let i = 0; i < 60 && !slug; i++) { const c = i ? b + (i + 1) : b; if (SLUG_RESERVADO.has(c)) continue; const ja = await env.HR_KV.get('ol:s:' + c); if (!ja || ja === k) slug = c; }
+    if (!slug) slug = b + Date.now().toString(36).slice(-4);
+  }
+  await env.HR_KV.put('ol:s:' + slug, k, { expirationTtl: 120 * 86400 });
+  await env.HR_KV.put('ol:k:' + k, slug, { expirationTtl: 120 * 86400 });
+  return 'https://' + (env.DOMINIO_SITE || DOMINIO_SITE) + '/o/' + slug;
+}
+function olEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function olM(cm) { const m = (Number(cm) || 0) / 100; return m.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function olDataBR(iso) { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(iso || '')); return m ? m[3] + '/' + m[2] + '/' + m[1] : ''; }
+function olDiaSemana(iso) { const m = /^(\d{4})-(\d\d)-(\d\d)/.exec(String(iso || '')); if (!m) return ''; return ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12)).getUTCDay()]; }
+async function olDados(env, slug) {
+  const k = await env.HR_KV.get('ol:s:' + slug).catch(() => null); if (!k) return null;
+  let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {} if (!r) return null;
+  const L = r.link || {}, pedraNome = L.pedra || (r.resumo && r.resumo.pedra) || '';
+  const pf = await lerPortfolio(env).catch(() => []), np = normaliza(pedraNome);
+  const pedraIt = np ? pf.find(i => i && i.tipo === 'pedra' && !i.semFoto && normaliza(i.nome || '') === np) || pf.find(i => i && i.tipo === 'pedra' && !i.semFoto && np.length > 4 && normaliza(i.nome || '').includes(np)) : null;
+  const ambs = (L.amb || []).map(a => normaliza(a.t)), obras = pf.filter(pfNoSite).map(i => {
+    const tx = normaliza([i.cat, i.legenda, i.pedraNome].join(' ')); let sc = 0;
+    if (np && normaliza(i.pedraNome || '').includes(np.split(' ')[0])) sc += 3; for (const a of ambs) if (a && tx.includes(a.split(' ')[0])) sc += 2; return { i, sc };
+  }).sort((a, b) => b.sc - a.sc || (b.i.em || 0) - (a.i.em || 0)).slice(0, 8).map(x => ({ u: '/portfolio/img/obra/' + encodeURIComponent(x.i.id), t: String(x.i.legenda || x.i.cat || 'Obra').replace(/\s+/g, ' ').slice(0, 60) }));
+  const whats = String(env.WHATSAPP_PUBLICO || '').replace(/\D/g, '') || (await igNumeroWhats(env).catch(() => '')) || '';
+  return { k, slug, r, L, pedraNome, pedraFoto: pedraIt ? '/portfolio/foto/' + encodeURIComponent(pedraIt.id) : '', obras, whats };
+}
+function olHtml(d, opts) {
+  const { r, L } = d, e = olEsc, nome = String(r.cliente || '').trim(), pn = nome.split(/\s+/)[0] || '';
+  const parc = L.parc || r.valor || 0, vista = L.vista || 0, temVista = L.mostrarVista && vista > 0 && parc > vista + 0.5, pct = temVista ? Math.round((parc - vista) / parc * 100) : 0;
+  const base = parc || vista, p10 = Math.round(base / 10 * 100) / 100, [vi, vc] = reais(base).split(',');
+  const ambNomes = (L.amb || []).map(a => a.t).filter(Boolean), titulo = (ambNomes.length ? ambNomes.join(' + ') : (r.projeto || 'Seu projeto')) + (d.pedraNome ? ' em ' + d.pedraNome : '');
+  const hoje = dataBahia(), venceu = L.ate && L.ate < hoje, m2 = L.m2 || 0, chapas = m2 > 0 ? Math.max(1, Math.ceil(m2 * 1.1 / 4.8)) : 0;
+  const zap = t => d.whats ? 'https://wa.me/' + d.whats + '?text=' + encodeURIComponent(t) : '#';
+  const msgFechar = `Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}${titulo ? ' (' + titulo + ')' : ''}.`.replace(/\s+/g, ' ');
+  const msgDuvida = `Olá! Sou ${nome || 'cliente'}, estou vendo o orçamento ${r.orcNum || ''} e tenho uma dúvida:`.replace(/\s+/g, ' ');
+  const ic = {
+    ok: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    rel: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    wa: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4.1-.2 0-.3 0-.5l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>',
+    seta: '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    pdf: '<svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  };
+  const pecas = a => a.pc.map(p => `<li><span>${e(p.d || 'Peça')}</span><b>${olM(p.w)} × ${olM(p.h)} m${p.q > 1 ? ' <i>× ' + p.q + '</i>' : ''}</b></li>`).join('');
+  const ambHtml = (L.amb || []).filter(a => a.pc.length || a.sv.length || a.cuba).map((a, n) => `<div class="amb"><div class="amb-h"><span class="num">${String(n + 1).padStart(2, '0')}</span><h3>${e(a.t || 'Ambiente')}</h3></div>${a.pc.length ? '<ul class="pc">' + pecas(a) + '</ul>' : ''}${a.sv.length || a.cuba ? '<div class="chips">' + a.sv.map(x => `<span>${e(x)}</span>`).join('') + (a.cuba ? `<span>Cuba: ${e(a.cuba)}</span>` : '') + '</div>' : ''}</div>`).join('');
+  const inc = (L.inc && L.inc.length ? L.inc : ['Visita técnica e medição no local', 'A chapa inteira da pedra escolhida, com os veios combinados', 'Corte sob medida e polimento das bordas aparentes', 'Transporte e instalação pela nossa equipe']).concat(['Entrega instalada, limpa e impermeabilizada', 'Contrato de prestação de serviço']);
+  const vInc = {}, incHtml = inc.filter(x => { const kk = normaliza(x).slice(0, 16); if (vInc[kk]) return false; vInc[kk] = 1; return true; }).map(x => `<li><i>${ic.ok}</i><span>${e(x)}</span></li>`).join('');
+  const obras = d.obras.length ? `<section class="sec"><p class="eye">Portfólio</p><h2>Obras que já entregamos</h2><div class="gal">${d.obras.map(o => `<figure><img loading="lazy" src="${e(o.u)}" alt="${e(o.t)}"><figcaption>${e(o.t)}</figcaption></figure>`).join('')}</div><a class="mais" href="/obras">Ver todas as obras ${ic.seta}</a></section>` : '';
+  const heroBg = d.pedraFoto ? `background-image:linear-gradient(180deg,rgba(18,16,14,.35) 0%,rgba(18,16,14,.15) 35%,rgba(18,16,14,.88) 100%),url('${e(d.pedraFoto)}')` : '';
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Orçamento ${e(pn)} · HR Mármores e Granitos</title><meta name="robots" content="noindex">
+<meta property="og:title" content="${e(pn ? pn + ', seu orçamento está pronto' : 'Seu orçamento está pronto')}"><meta property="og:description" content="${e(titulo)} · HR Mármores e Granitos">
+<meta property="og:image" content="https://${e(DOMINIO_SITE)}${e(d.pedraFoto || '/portfolio/img/logo/1')}"><meta name="theme-color" content="#14120f">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#16130f;--ink2:#4a443b;--mute:#8a8174;--line:#e9e2d6;--ivory:#f6f1e8;--card:#fffdf9;--gold:#b0894f;--gold2:#d6b47a;--deep:#1c1915;--ok:#2f7a4f}
+*{box-sizing:border-box;margin:0;padding:0}html{-webkit-text-size-adjust:100%}
+body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--ivory);color:var(--ink);line-height:1.5;-webkit-font-smoothing:antialiased;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+.serif,h1,h2{font-family:Fraunces,Georgia,'Times New Roman',serif;font-weight:500;letter-spacing:-.01em}
+.wrap{max-width:520px;margin:0 auto;position:relative}
+.hero{position:relative;min-height:440px;padding:22px 24px 92px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;background:#2a251f;background-size:cover;background-position:center;overflow:hidden}
+.hero:not([style*=url]){background:radial-gradient(120% 80% at 80% 10%,#4a4036 0%,transparent 60%),radial-gradient(90% 70% at 10% 90%,#3a3128 0%,transparent 60%),linear-gradient(160deg,#2b2620,#14120f)}
+.hero:not([style*=url])::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(118deg,transparent 0 38px,rgba(255,255,255,.035) 39px 40px,transparent 41px 90px),repeating-linear-gradient(32deg,transparent 0 70px,rgba(214,180,122,.05) 71px 72px,transparent 73px 150px);pointer-events:none}
+.top{display:flex;align-items:center;justify-content:space-between;position:relative}
+.brand{display:flex;align-items:center;gap:10px}.mono{width:38px;height:38px;border-radius:50%;border:1px solid rgba(214,180,122,.7);display:grid;place-items:center;font-family:Fraunces,Georgia,serif;font-size:15px;color:var(--gold2);background:rgba(20,18,15,.35);backdrop-filter:blur(6px)}
+.brand small{display:block;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.85);line-height:1.35}
+.num-orc{font-size:11px;letter-spacing:.08em;color:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.25);padding:5px 10px;border-radius:99px;background:rgba(20,18,15,.3);backdrop-filter:blur(6px)}
+.hero-b{position:relative}.eye{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px}
+.hero .eye{color:var(--gold2)}.hero h1{font-size:44px;line-height:1.02;margin-bottom:12px}.hero p.sub{font-size:15.5px;color:rgba(255,255,255,.86);max-width:30ch}
+.price{position:relative;margin:-64px 16px 0;background:var(--card);border-radius:22px;padding:24px 22px 20px;box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 24px 50px -24px rgba(40,30,15,.35),0 2px 6px rgba(40,30,15,.06);border:1px solid #efe7da}
+.lbl{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:600}
+.big{font-family:Fraunces,Georgia,serif;font-size:46px;line-height:1.05;margin:6px 0 4px;letter-spacing:-.02em}.big small{font-size:.5em;color:var(--ink2);margin-left:1px}.big .rs{font-size:.42em;vertical-align:.95em;margin-right:5px;color:var(--ink2);font-family:Inter,sans-serif;font-weight:600}
+.parc{font-size:15px;color:var(--ink2)}.parc b{color:var(--ink)}
+.vista{margin-top:18px;padding:14px 16px;border-radius:14px;background:linear-gradient(135deg,#f3ecdf,#f8f3ea);border:1px solid #eadfcb;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.vista .v1{font-size:13px;color:var(--ink2)}.vista .v2{font-family:Fraunces,Georgia,serif;font-size:22px;color:var(--ink)}.vista .v3{font-size:12px;color:var(--mute);margin-top:2px}
+.tag{flex:none;background:var(--deep);color:var(--gold2);font-size:11.5px;font-weight:700;padding:6px 10px;border-radius:99px;letter-spacing:.02em}
+.vale{margin-top:16px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink2)}.vale svg{width:17px;height:17px;color:var(--gold)}
+.vale.venceu{color:#a2482f}.vale.venceu svg{color:#a2482f}
+.sec{padding:40px 20px 0}.sec h2{font-size:28px;line-height:1.15;margin-bottom:16px}
+.pedra{border-radius:20px;overflow:hidden;background:var(--deep);color:#fff;box-shadow:0 18px 40px -22px rgba(30,20,10,.5)}
+.pedra .ph{aspect-ratio:16/10;background:#2b2620 center/cover no-repeat;position:relative}
+.pedra .ph::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(20,18,15,.85))}
+.pedra .nm{position:absolute;left:18px;bottom:14px;z-index:1}.pedra .nm b{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:24px;display:block;line-height:1.1}.pedra .nm span{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold2)}
+.stats{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid rgba(255,255,255,.08)}.stats div{padding:14px 18px}.stats div+div{border-left:1px solid rgba(255,255,255,.08)}
+.stats b{display:block;font-family:Fraunces,Georgia,serif;font-weight:500;font-size:19px}.stats span{font-size:12px;color:rgba(255,255,255,.6)}
+.pedra p{padding:0 18px 18px;font-size:13.5px;color:rgba(255,255,255,.72)}
+.amb{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:12px}
+.amb-h{display:flex;align-items:baseline;gap:12px;margin-bottom:10px}.amb-h .num{font-family:Fraunces,Georgia,serif;color:var(--gold);font-size:15px}.amb-h h3{font-size:17px;font-weight:600}
+.pc{list-style:none}.pc li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px dashed var(--line);font-size:14px}.pc li:first-child{border-top:0}
+.pc span{color:var(--ink2)}.pc b{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}.pc i{font-style:normal;color:var(--gold);font-weight:700}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.chips span{font-size:12px;padding:5px 10px;border-radius:99px;background:#f2ebde;color:var(--ink2)}
+.inc{list-style:none;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:6px 18px}
+.inc li{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line);font-size:14.5px}.inc li:first-child{border-top:0}
+.inc i{flex:none;width:24px;height:24px;border-radius:50%;background:#eef5ef;color:var(--ok);display:grid;place-items:center;margin-top:-1px}.inc i svg{width:14px;height:14px}
+.steps{position:relative;padding-left:6px}.step{display:flex;gap:16px;position:relative;padding-bottom:22px}.step:last-child{padding-bottom:0}
+.step::before{content:"";position:absolute;left:17px;top:38px;bottom:2px;width:1px;background:linear-gradient(var(--gold2),var(--line))}.step:last-child::before{display:none}
+.step .n{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--gold2);display:grid;place-items:center;font-family:Fraunces,Georgia,serif;color:var(--gold);background:var(--card)}
+.step b{display:block;font-size:15px;font-weight:600;margin-top:6px}.step span{font-size:13.5px;color:var(--mute)}
+.gar{margin:40px 16px 0;border-radius:22px;background:var(--deep);color:#fff;padding:24px 22px;display:flex;gap:18px;align-items:center;position:relative;overflow:hidden}
+.gar::after{content:"";position:absolute;right:-40px;top:-40px;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,rgba(214,180,122,.18),transparent 70%)}
+.selo{flex:none;width:78px;height:78px;border-radius:50%;border:1.5px solid var(--gold2);display:grid;place-items:center;text-align:center;position:relative}
+.selo::before{content:"";position:absolute;inset:5px;border-radius:50%;border:1px dashed rgba(214,180,122,.5)}
+.selo b{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:26px;line-height:1;color:var(--gold2);display:block}.selo span{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.75)}
+.gar h3{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:19px;margin-bottom:4px}.gar p{font-size:13.5px;color:rgba(255,255,255,.72)}
+.gal{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -20px;padding:0 20px 4px;scrollbar-width:none}.gal::-webkit-scrollbar{display:none}
+.gal figure{flex:none;width:72%;scroll-snap-align:start;border-radius:16px;overflow:hidden;background:#ddd5c7;position:relative;aspect-ratio:4/5}
+.gal img{width:100%;height:100%;object-fit:cover;display:block}.gal figcaption{position:absolute;left:0;right:0;bottom:0;padding:28px 14px 12px;font-size:12.5px;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.65))}
+.mais{display:inline-flex;align-items:center;gap:6px;margin-top:14px;font-size:14px;font-weight:600;color:var(--ink);text-decoration:none;border-bottom:1px solid var(--gold2);padding-bottom:2px}.mais svg{width:16px;height:16px}
+details{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 18px}summary{cursor:pointer;font-weight:600;font-size:15px;list-style:none;display:flex;justify-content:space-between;gap:10px}summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-family:Fraunces,Georgia,serif;font-size:22px;line-height:1;color:var(--gold)}details[open] summary::after{content:"–"}
+details p{font-size:14px;color:var(--ink2);margin-top:10px}
+.foot{text-align:center;padding:40px 20px 10px;font-size:12.5px;color:var(--mute)}.foot a{color:var(--ink2)}
+.pdf{display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;padding:11px 18px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-decoration:none;font-size:14px;font-weight:600}.pdf svg{width:18px;height:18px}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:9;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(246,241,232,.92) 30%);}
+.bar .in{max-width:520px;margin:0 auto;display:flex;gap:10px}
+.btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;height:56px;border-radius:16px;text-decoration:none;font-weight:700;font-size:16px;letter-spacing:.01em}
+.btn.go{background:linear-gradient(135deg,#1c1915,#2e2820);color:#f3dfb8;box-shadow:0 12px 28px -12px rgba(20,15,5,.6);border:1px solid #3c342a}.btn.go svg{width:19px;height:19px}
+.btn.wa{flex:none;width:56px;background:#fff;color:#1f9d55;border:1px solid var(--line)}.btn.wa svg{width:26px;height:26px}
+.rev{opacity:0;transform:translateY(14px);transition:opacity .7s ease,transform .7s ease}.rev.on{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.rev{opacity:1;transform:none;transition:none}}
+</style></head><body><div class="wrap">
+<header class="hero" style="${heroBg}">
+ <div class="top"><div class="brand"><div class="mono">HR</div><small>HR Mármores<br>e Granitos</small></div>${r.orcNum ? `<div class="num-orc">${e(r.orcNum)}</div>` : ''}</div>
+ <div class="hero-b"><p class="eye">Orçamento preparado para</p><h1>${e(nome || 'Você')}</h1><p class="sub">${e(titulo)}</p></div>
+</header>
+<section class="price" data-s="valor">
+ <p class="lbl">Valor do projeto</p>
+ <div class="big"><span class="rs">R$</span>${e(vi)}<small>,${e(vc)}</small></div>
+ <p class="parc">em até <b>10× de R$ ${reais(p10)}</b> sem juros no cartão</p>
+ ${temVista ? `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v2">R$ ${reais(vista)}</div><div class="v3">50% na entrada e 50% na entrega</div></div><span class="tag">${pct}% de desconto</span></div>` : `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v3" style="font-size:13.5px;color:var(--ink2)">Tem desconto. 50% na entrada e 50% na entrega.</div></div><span class="tag">Desconto</span></div>`}
+ ${L.ate ? `<p class="vale${venceu ? ' venceu' : ''}">${ic.rel}${venceu ? 'Este valor venceu em ' + olDataBR(L.ate) + '. Fale com a gente que atualizamos.' : 'Valor garantido até ' + olDiaSemana(L.ate) + ', ' + olDataBR(L.ate).slice(0, 5)}</p>` : ''}
+</section>
+${d.pedraNome ? `<section class="sec rev" data-s="pedra"><p class="eye">A pedra</p><h2>Escolhida para o seu projeto</h2><div class="pedra"><div class="ph" style="${d.pedraFoto ? `background-image:url('${e(d.pedraFoto)}')` : 'background:linear-gradient(135deg,#3a332b,#1a1713)'}"><div class="nm"><span>${e(L.fin || 'Pedra natural')}</span><b>${e(d.pedraNome)}</b></div></div>${chapas ? `<div class="stats"><div><b>${chapas} chapa${chapas > 1 ? 's' : ''} inteira${chapas > 1 ? 's' : ''}</b><span>3,00 × 1,60 m cada</span></div><div><b>${m2.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} m²</b><span>de peças no projeto</span></div></div>` : ''}<p>Todas as peças saem da mesma chapa, para os veios e a cor combinarem de uma ponta à outra.</p></div></section>` : ''}
+${ambHtml ? `<section class="sec rev" data-s="projeto"><p class="eye">O projeto</p><h2>O que vamos fazer</h2>${ambHtml}</section>` : ''}
+<section class="sec rev" data-s="incluso"><p class="eye">Sem surpresas</p><h2>Está tudo incluso</h2><ul class="inc">${incHtml}</ul></section>
+<section class="sec rev" data-s="como"><p class="eye">Do sim à entrega</p><h2>Como funciona</h2><div class="steps">
+ <div class="step"><div class="n">1</div><div><b>Você aprova</b><span>Assinamos o contrato de prestação de serviço.</span></div></div>
+ <div class="step"><div class="n">2</div><div><b>Medição final</b><span>Conferimos tudo no local antes de cortar a pedra.</span></div></div>
+ <div class="step"><div class="n">3</div><div><b>Fabricação</b><span>Corte sob medida e acabamento na nossa oficina.</span></div></div>
+ <div class="step"><div class="n">4</div><div><b>Entrega</b><span>Instalada, limpa e impermeabilizada.</span></div></div>
+</div></section>
+<section class="gar rev" data-s="garantia"><div class="selo"><div><b>1</b><span>ano</span></div></div><div><h3>Garantia em contrato</h3><p>Cobre erros de fabricação e de instalação por 12 meses.</p></div></section>
+${obras}
+<section class="sec rev" data-s="entenda"><details><summary>Por que o valor não é só o m² da pedra?</summary><p>A pedra vem da pedreira em chapas inteiras de 3,00 × 1,60 m. Para os veios combinarem, as peças são cortadas da mesma chapa, e o que sobra dos recortes não volta para a venda.</p><p>No valor também estão o corte sob medida, os recortes de cuba e cooktop, o polimento das bordas, o transporte, a instalação e a impermeabilização. Por isso a conta "m² × preço da pedra" sempre dá menos do que o projeto pronto.</p></details></section>
+<footer class="foot">${r.temBytes ? `<a class="pdf" href="/o/${e(d.slug)}/pdf" data-ev="pdf">${ic.pdf}Baixar o orçamento em PDF</a><br>` : ''}HR Mármores e Granitos · Pilão Arcado, BA<br><a href="https://instagram.com/hrmarmoregranito">@hrmarmoregranito</a> · <a href="/">nosso site</a></footer>
+</div>
+<div class="bar"><div class="in"><a class="btn go" href="${e(zap(msgFechar))}" data-ev="fechar">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
+<script>
+(function(){var S=${JSON.stringify(d.slug)},T=${opts && opts.semRastro ? 'false' : 'true'},t0=Date.now(),vis={valor:1},sid=Math.random().toString(36).slice(2,10),fim=0;
+var io=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting){x.target.classList.add('on');var s=x.target.getAttribute('data-s');if(s)vis[s]=1;}});},{threshold:.25});
+document.querySelectorAll('.rev').forEach(function(el){io.observe(el);});
+function env(ev,b){if(!T)return;var d=JSON.stringify({ev:ev,sid:sid,seg:Math.round((Date.now()-t0)/1000),vis:Object.keys(vis)});try{if(b&&navigator.sendBeacon){navigator.sendBeacon('/o/'+S+'/v',new Blob([d],{type:'text/plain'}));return;}}catch(e){}try{fetch('/o/'+S+'/v',{method:'POST',body:d,keepalive:true});}catch(e){}}
+env('abriu');
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){env('saiu',1);}else{t0=Date.now()-1000*0;}});
+window.addEventListener('pagehide',function(){env('saiu',1);});
+document.querySelectorAll('[data-ev]').forEach(function(a){a.addEventListener('click',function(){env(a.getAttribute('data-ev'),1);});});
+})();
+</script></body></html>`;
+}
+async function rotaOrcLink(req, env, ctx, url) {
+  const m = /^\/o\/([a-z0-9]{2,30})(\/v|\/pdf)?\/?$/i.exec(url.pathname); if (!m) return new Response('Não encontrado', { status: 404 });
+  const slug = m[1].toLowerCase(), sub = m[2] || '';
+  if (slug === 'exemplo') await olDemo(env).catch(() => {});
+  if (sub === '/v' && req.method === 'POST') { ctx.waitUntil(olEvento(env, slug, await req.text().catch(() => '')).catch(e => console.log('[OL]', e.message))); return new Response('ok'); }
+  const d = await olDados(env, slug);
+  if (!d) return new Response('<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;background:#f6f1e8;color:#16130f;display:grid;place-items:center;min-height:90vh;text-align:center;padding:24px"><div><h1 style="font-family:Georgia,serif;font-weight:500">Orçamento não encontrado</h1><p style="color:#8a8174;margin-top:8px">O link pode ter expirado. Fale com a HR Mármores e Granitos pelo WhatsApp.</p></div>', { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  if (sub === '/pdf') {
+    const b64 = await env.HR_KV.get(d.k + ':b').catch(() => null); if (!b64) return Response.redirect(url.origin + '/o/' + slug, 302);
+    return new Response(base64ParaBytes(b64), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${String(d.r.arquivo || 'Orcamento.pdf').replace(/[^\w.\- ]/g, '')}"`, 'Cache-Control': 'private, max-age=300' } });
+  }
+  const semRastro = url.searchParams.get('d') === '1' || slug === 'exemplo';
+  return new Response(olHtml(d, { semRastro }), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+}
+const OL_SEC = { valor: 'o valor', pedra: 'a pedra', projeto: 'as peças', incluso: 'o que está incluso', como: 'como funciona', garantia: 'a garantia', entenda: 'por que o valor' };
+function olTempo(s) { s = Math.max(0, Math.round(s)); return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min' + (s % 60 >= 10 ? ' ' + (s % 60) + ' s' : ''); }
+async function olEvento(env, slug, raw) {
+  let b = {}; try { b = JSON.parse(raw || '{}'); } catch (_) { return; }
+  const ev = String(b.ev || ''), sid = String(b.sid || '').slice(0, 12); if (!/^(abriu|saiu|fechar|duvida|pdf)$/.test(ev) || !sid) return;
+  const k = await env.HR_KV.get('ol:s:' + slug); if (!k) return;
+  let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {} if (!r) return;
+  let st = { ab: [], ult: 0 }; try { st = JSON.parse((await env.HR_KV.get('ol:v:' + slug)) || 'null') || st; } catch (_) {}
+  const agora = Date.now(); let s = st.ab.find(x => x.sid === sid);
+  if (!s) { s = { sid, em: agora, seg: 0, vis: [], ev: [] }; st.ab.push(s); st.ab = st.ab.slice(-40); }
+  s.seg = Math.max(s.seg, Math.min(3600, Number(b.seg) || 0)); s.vis = [...new Set([...(s.vis || []), ...(Array.isArray(b.vis) ? b.vis : []).map(String).filter(x => OL_SEC[x])])];
+  if (ev !== 'abriu' && ev !== 'saiu' && !s.ev.includes(ev)) s.ev.push(ev);
+  const nome = r.cliente || 'O cliente', pn = String(nome).split(/\s+/)[0], dono = numeroDono(env), hoje = dataBahia();
+  const hojeN = st.ab.filter(x => new Date(x.em - 3 * 3600000).toISOString().slice(0, 10) === hoje).length;
+  const vez = hojeN > 1 ? ` (${hojeN}ª vez hoje)` : st.ab.length > 1 ? ` (já abriu ${st.ab.length} vezes)` : '';
+  const viu = s.vis.filter(x => x !== 'valor').map(x => OL_SEC[x]), viuTxt = 'Olhou o valor' + (viu.length ? (viu.length > 1 ? ', ' + viu.slice(0, -1).join(', ') + ' e ' + viu.slice(-1) : ' e ' + viu[0]) : '') + '.';
+  const bts = [{ id: 'olk|m|' + slug, titulo: 'Mandar' }, { id: 'olk|l|' + slug, titulo: 'Eu ligo' }, { id: 'olk|n|' + slug, titulo: 'Agora não' }];
+  if (ev === 'fechar' && !s.avFechar) {
+    s.avFechar = 1; st.ult = agora; await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
+    await olNotaHelena(env, r, `[${nome} abriu a página do orçamento ${r.orcNum || ''} e tocou em "Quero fechar". Quando escrever, agradeça, confirme a forma de pagamento (à vista 50% de entrada e 50% na entrega, ou até 10x sem juros no cartão) e comece a pegar os dados do contrato.]`).catch(() => {});
+    await enviarComBotoes(env, dono, `${nome} tocou em "Quero fechar" no orçamento ${r.orcNum || ''}${r.valor ? ' (R$ ' + reais(r.valor) + ')' : ''}. Abriu o WhatsApp da HR com a mensagem pronta; quando ${pn} mandar, a assistente já sabe e começa a pegar os dados do contrato.`, [{ id: 'olk|l|' + slug, titulo: 'Eu ligo' }, { id: 'olk|n|' + slug, titulo: 'Ok' }]).catch(() => {});
+    return;
+  }
+  if (ev === 'saiu' && !s.av && s.seg >= 4 && agora - (st.ult || 0) > 90 * 60000) {
+    s.av = 1; st.ult = agora; await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
+    await enviarComBotoes(env, dono, `${nome} abriu o orçamento agora${vez}. Ficou ${olTempo(s.seg)}. ${viuTxt}${s.ev.includes('pdf') ? ' Baixou o PDF.' : ''}\n\nQuer que a assistente chame ${pn} para tirar dúvidas?`, bts).catch(() => {});
+    return;
+  }
+  await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
+}
+async function olNotaHelena(env, r, nota) {
+  const num = normalizarBR(String(r.tel || '').replace(/\D/g, '')); if (!/^55\d{10,11}$/.test(num)) return;
+  for (const v of variantesNumero(num)) {
+    let c = null; try { c = JSON.parse((await env.HR_KV.get('ca:' + v)) || 'null'); } catch (_) {}
+    c = c || { dados: {}, hist: [] }; c.hist = [...(c.hist || []), { role: 'assistant', content: nota }].slice(-16);
+    await env.HR_KV.put('ca:' + v, JSON.stringify(c), { expirationTtl: 14 * 86400 });
+  }
+}
+async function olkBotao(env, from, id) {
+  const [, ac, slug] = id.split('|'), k = await env.HR_KV.get('ol:s:' + String(slug || '')); let r = null;
+  try { r = k ? JSON.parse((await env.HR_KV.get(k)) || 'null') : null; } catch (_) {}
+  if (!r) return enviar(env, from, 'Não achei mais esse orçamento.');
+  const nome = r.cliente || 'o cliente', pn = String(nome).split(/\s+/)[0], num = normalizarBR(String(r.tel || '').replace(/\D/g, ''));
+  if (ac === 'n') return enviar(env, from, 'Certo, não mando nada.');
+  if (!/^55\d{10,11}$/.test(num)) return enviar(env, from, `Não tenho o WhatsApp de ${nome} nesse orçamento.`);
+  if (ac === 'l') return enviar(env, from, `Ligue para ${nome}: ${rtpFmt(num)}\nWhatsApp: wa.me/${num}`);
+  if (ac === 'm') {
+    const lk = await env.HR_KV.get('olm:' + slug); if (lk && Date.now() - Number(lk) < 6 * 3600000) return enviar(env, from, `Já mandei mensagem para ${pn} há pouco. Não vou repetir para não incomodar.`);
+    if (!(await janela24h(env, num))) return enviar(env, from, `${pn} não fala com a HR há mais de 24 h, e a Meta não deixa mandar mensagem livre agora. Melhor o senhor ligar: ${rtpFmt(num)}`);
+    const proj = (r.link && (r.link.amb || []).map(a => String(a.t || '').toLowerCase()).filter(Boolean).join(' e ')) || String(r.projeto || '').toLowerCase();
+    const txt = `Oi, ${pn}! Vi que você deu uma olhada no orçamento${proj ? ' da ' + proj : ''}. Ficou alguma dúvida? Posso te explicar as formas de pagamento ou, se preferir, combinamos para você ver a pedra pessoalmente.`;
+    await enviar(env, num, txt); await env.HR_KV.put('olm:' + slug, String(Date.now()), { expirationTtl: 86400 });
+    await semearConversaProativa(env, num, txt).catch(() => {});
+    return enviar(env, from, `Mandei para ${pn}: "${txt}"`);
+  }
+}
+async function olDemo(env) { // página de exemplo (sem rastreio) para o dono ver como fica: /o/exemplo
+  const k = 'orcpdf:EXEMPLO';
+  if (!(await env.HR_KV.get(k))) {
+    await env.HR_KV.put(k, JSON.stringify({ orcNum: 'HR-2026-0000', cliente: 'Maria Exemplo', valor: 3417.24, projeto: 'Cozinha em Preto São Gabriel', em: Date.now(),
+      link: { vista: 3417.24, parc: 3797, mostrarVista: true, m2: 2.31, pedra: 'Preto São Gabriel', fin: 'Polido', data: dataBahia(), ate: dataBahia(7), amb: [{ t: 'Cozinha', cuba: 'Cuba inox de embutir 56 cm', sv: ['Recorte de cooktop', 'Rebaixo americano', 'Saia de 4 cm'], pc: [{ d: 'Bancada da pia', w: 240, h: 60, q: 1 }, { d: 'Bancada lateral', w: 120, h: 60, q: 1 }, { d: 'Frontão', w: 360, h: 10, q: 1 }] }], inc: [] } }), { expirationTtl: 400 * 86400 });
+    await env.HR_KV.put('ol:s:exemplo', k, { expirationTtl: 400 * 86400 });
+  }
+}

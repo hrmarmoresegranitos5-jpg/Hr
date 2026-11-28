@@ -1,4 +1,4 @@
-// app-pdf-bot.js — v3: manda também as peças (ficha de corte). v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
+// app-pdf-bot.js — v4: manda também os dados da página do orçamento (link /o/nome). v3: manda também as peças (ficha de corte). v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
 // O bot manda o PDF ao cliente pelo WhatsApp da HR (dentro ou fora das 24 h, com o modelo aprovado da Meta),
 // registra o orçamento para o acompanhamento automático (parados, retomada, cliente quente) e a assistente
 // passa a saber o valor e o que foi orçado quando o cliente responder. Usa window._ultimoPdf (app-core.js).
@@ -22,6 +22,23 @@
       return itens.length ? { pedra: q.mat || '', itens: itens } : null;
     } catch (e) { return null; }
   }
+
+  // v4: dados da página do orçamento que o cliente abre pelo link (sem custos, sem preço por item)
+  function linkDe(q) {
+    try {
+      var snaps = q.ambSnap || [], amb = snaps.map(function (s) {
+        var t = String(s.tipo || ''), defs = (typeof SV_DEFS !== 'undefined' && SV_DEFS[s.tipo]) || [], sv = [];
+        Object.keys(s.svState || {}).forEach(function (k) { var l = ''; defs.forEach(function (g) { (g.its || []).forEach(function (it) { if (it.k === k) l = it.l; }); }); if (l) sv.push(String(l).replace(/\s*\(.*?\)\s*$/, '').slice(0, 50)); });
+        var pc = (q.pds || []).filter(function (p) { return String(p.desc || '').indexOf(t + ': ') === 0 || snaps.length === 1; }).map(function (p) { return { d: String(p.desc || 'Peça').replace(t + ': ', '').slice(0, 40), w: +p.w || 0, h: +p.h || 0, q: +p.q || 1 }; }).filter(function (p) { return p.w > 0 && p.h > 0; }).slice(0, 30);
+        var cb = s.selCuba ? String(s.selCuba.nm || s.selCuba.nome || '').slice(0, 50) : '';
+        return { t: t.replace(/^[^A-Za-zÀ-ú]+/, '').slice(0, 30), sv: sv.slice(0, 15), pc: pc, cuba: cb };
+      });
+      var inc = []; try { if (typeof _pdfInclusos === 'function') inc = _pdfInclusos(q); } catch (e) {}
+      var fin = ''; try { var st = (CFG.stones || []).find(function (x) { return x.nm === q.mat; }); fin = st ? String(st.fin || '') : ''; } catch (e) {}
+      var ate = ''; try { ate = typeof _orcValidoAte === 'function' ? (_orcValidoAte(q) || '') : ''; } catch (e) {}
+      return { vista: +q.vista || 0, parc: +q.parc || 0, mostrarVista: q.mostrarVista !== false, m2: +q.m2 || 0, pedra: String(q.mat || '').slice(0, 60), fin: fin.slice(0, 30), data: q.date || '', ate: String(ate).slice(0, 10), amb: amb.slice(0, 8), inc: inc.slice(0, 16).map(function (x) { return String(x).slice(0, 90); }), cidade: String(q.cidade || '').slice(0, 40) };
+    } catch (e) { return null; }
+  }
   function codDe(q) { try { var c = (JSON.parse(localStorage.getItem('hr_clientes') || '[]')).find(function (x) { return typeof _cliNorm === 'function' && _cliNorm(x.nome) === _cliNorm(q.cli); }); return (c && c.cod) || ''; } catch (e) { return ''; } }
   // v2: todo PDF de orçamento gerado no app fica guardado no bot (ele manda depois, sem o app aberto)
   var guardadoEm = 0;
@@ -30,7 +47,7 @@
     guardadoEm = u.em;
     var q = u.q || {}; if (!(u.num || q.orcNum || q.id) || u.blob.size > 6 * 1024 * 1024) return;
     b64(u.blob).then(function (pdf) {
-      return fetch(base() + '/bot/orcpdf/guardar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ qId: q.id || '', orcNum: u.num || q.orcNum || '', cliente: q.cli || '', cliCod: codDe(q), tel: telDe(q), valor: q._vistaCalc != null ? q._vistaCalc : (q.vista || q.parc || 0), pedido: pedidoDe(q), arquivo: u.nome, resumo: resumoDe(q), pdf: pdf }) });
+      return fetch(base() + '/bot/orcpdf/guardar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ qId: q.id || '', orcNum: u.num || q.orcNum || '', cliente: q.cli || '', cliCod: codDe(q), tel: telDe(q), valor: q._vistaCalc != null ? q._vistaCalc : (q.vista || q.parc || 0), pedido: pedidoDe(q), arquivo: u.nome, resumo: resumoDe(q), link: linkDe(q), pdf: pdf }) });
     }).catch(function () {});
   }, 3000);
 
@@ -50,9 +67,9 @@
       if (!confirm('Mandar o orçamento ' + (u.num || '') + ' para ' + (q.cli || 'o cliente') + ' pelo WhatsApp da HR?\n\nO bot acompanha sozinho: se o cliente sumir, aparece em "orçamentos parados" para retomar.')) return;
       b.disabled = true; b.innerHTML = '⏳ Enviando…';
       b64(u.blob).then(function (pdf) {
-        return fetch(base() + '/bot/orcamento/enviar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ tel: tel, nome: q.cli || '', pdf: pdf, arquivo: u.nome, valor: valor, pedido: pedido, qId: q.id || '', orcNum: u.num || q.orcNum || '', cliCod: codDe(q) }) }).then(function (r) { return r.json(); });
+        return fetch(base() + '/bot/orcamento/enviar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ tel: tel, nome: q.cli || '', pdf: pdf, arquivo: u.nome, valor: valor, pedido: pedido, qId: q.id || '', orcNum: u.num || q.orcNum || '', cliCod: codDe(q), link: linkDe(q) }) }).then(function (r) { return r.json(); });
       }).then(function (j) {
-        if (j && j.ok) { b.innerHTML = '✓ Enviado'; aviso('🤖 ' + String(j.texto || 'Orçamento enviado pelo bot.').slice(0, 220)); if (q && !q.tel) { try { q.tel = tel; if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (e) {} } }
+        if (j && j.ok) { b.innerHTML = '✓ Enviado'; if (j.link) { try { navigator.clipboard.writeText(j.link); } catch (e) {} } aviso('🤖 ' + String(j.texto || 'Orçamento enviado pelo bot.').slice(0, 220)); if (q && !q.tel) { try { q.tel = tel; if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (e) {} } }
         else { b.disabled = false; b.innerHTML = '🤖 Enviar pelo bot'; aviso('⚠️ ' + ((j && (j.erro || j.error)) || 'Não deu para enviar.')); }
       }).catch(function (e) { b.disabled = false; b.innerHTML = '🤖 Enviar pelo bot'; aviso('⚠️ ' + e.message); });
     };
