@@ -39,9 +39,9 @@
       'Projeto das peças e conferência das medidas antes de cortar'
     ];
     if (temInst) { base.push('Transporte da pedra pronta até a obra'); base.push('Instalação pela nossa equipe, com material de fixação'); }
-    base.push(temInst ? 'Garantia de 12 meses na instalação' : 'Garantia do material e do acabamento até a entrega');
+    base = base.concat(acN); base.push(temInst ? 'Garantia de 12 meses na instalação' : 'Garantia do material e do acabamento até a entrega');
     var vistos = {};
-    return base.concat(acN).filter(function (x) { var k = String(x).toLowerCase().slice(0, 18); if (vistos[k]) return false; vistos[k] = 1; return true; });
+    return base.filter(function (x) { var k = String(x).toLowerCase().slice(0, 18); if (vistos[k]) return false; vistos[k] = 1; return true; });
   }
 
   function dados() {
@@ -73,7 +73,7 @@
       '#exvOv .por .t{font-weight:800;color:#f0d78c;font-size:.9rem;margin-bottom:4px}#exvOv .por .x{color:#bdb19a;font-size:.8rem;line-height:1.5}' +
       '#exvOv .inc{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:.88rem;line-height:1.4}#exvOv .inc:last-child{border-bottom:none}' +
       '#exvOv .inc span{color:#5dbf7a;font-weight:900}' +
-      '#exvOv .ch{position:relative;background:#2a2620;border:2px solid #6b5a33;border-radius:6px;aspect-ratio:3/1.6;overflow:hidden}' +
+      '#exvOv .ch{position:relative;background:#2a2620;border:2px solid #6b5a33;border-radius:6px;aspect-ratio:3/1.6;max-height:200px;max-width:375px;margin:0 auto;overflow:hidden}' +
       '#exvOv .ch i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(135deg,#c9a84c,#8a6d2a);opacity:.85}' +
       '#exvOv .btn{border:none;border-radius:12px;padding:11px 14px;font:700 .82rem Outfit,sans-serif;cursor:pointer}' +
       '#exvOv .int{border:1px dashed rgba(224,81,81,.5);background:rgba(224,81,81,.06)}';
@@ -111,7 +111,7 @@
 
     // 3. Chapa
     h += '<h2>A pedra vem em chapa inteira</h2><div class="cd">' +
-      '<div class="sub" style="margin-bottom:10px">As peças do seu projeto somam <b style="color:#f3ddb0">' + m2t(e.m2) + '</b>, mas a pedra só é vendida em chapa inteira. Para o seu projeto usamos <b style="color:#f3ddb0">' + (d.chapas > 1 ? d.chapas + ' chapas' : '1 chapa') + ' de ' + String(CH_W).replace('.', ',') + ' × ' + String(CH_H).replace('.', ',') + ' m (' + m2t(d.m2Chapa) + ')</b>.</div>' +
+      '<div class="sub" style="margin-bottom:10px">As peças do seu projeto somam <b style="color:#f3ddb0">' + m2t(e.m2) + '</b>, mas a pedra só é vendida em chapa inteira. Para o seu projeto usamos <b style="color:#f3ddb0">' + (d.chapas > 1 ? d.chapas + ' chapas' : '1 chapa') + ' de 3,00 × 1,60 m (' + m2t(d.m2Chapa) + ')</b>.</div>' +
       '<div class="ch"><i style="width:' + aproveit + '%"></i><div style="position:absolute;left:8px;bottom:6px;font-size:.72rem;color:#1a1408;font-weight:800">peças: ' + m2t(e.m2) + '</div><div style="position:absolute;right:8px;bottom:6px;font-size:.72rem;color:#d8cfb8">sobra e recortes</div></div>' +
       '<div class="sub" style="margin-top:10px">✓ O senhor paga a pedra só pela área das peças (' + m2t(e.m2) + '), não pela chapa inteira. A sobra e o risco de quebra no corte ficam por nossa conta.</div></div>';
 
