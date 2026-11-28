@@ -38453,7 +38453,7 @@ body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;backgr
 .op.sel{border-color:var(--gold);box-shadow:0 10px 24px -14px rgba(120,80,20,.55);transform:translateY(-2px)}
 .oph{display:block;aspect-ratio:1;background:linear-gradient(135deg,#d9d0c2,#a89d8c) center/cover;margin-bottom:9px}
 .opt{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.op b{font-size:12.5px;font-weight:600;line-height:1.25;padding:3px 10px 6px;min-height:38px}.opv{font-family:Fraunces,Georgia,serif;font-size:14.5px;padding:0 10px;white-space:nowrap;letter-spacing:-.02em}.opp{font-size:10.5px;color:var(--mute);padding:0 10px}
+.op b{font-size:12.5px;font-weight:600;line-height:1.25;padding:3px 10px 6px;min-height:38px;overflow-wrap:anywhere}.opv{font-family:Fraunces,Georgia,serif;font-size:14.5px;padding:0 10px;white-space:nowrap;letter-spacing:-.02em}.opp{font-size:10.5px;color:var(--mute);padding:0 10px}
 .amb{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:12px}
 .amb-h{display:flex;align-items:baseline;gap:12px;margin-bottom:10px}.amb-h .num{font-family:Fraunces,Georgia,serif;color:var(--gold);font-size:15px}.amb-h h3{font-size:17px;font-weight:600}
 .pc{list-style:none}.pc li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px dashed var(--line);font-size:14px}.pc li:first-child{border-top:0}
