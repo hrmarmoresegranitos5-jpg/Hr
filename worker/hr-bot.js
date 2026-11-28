@@ -11664,6 +11664,7 @@ async function v151ComandoDono(env, from, msg, texto) {
   if (/^(sobras?|retalhos?|sobras guardadas)$/.test(msg)) { await enviar(env, from, await sobrasTexto(env)); return true; }
   if (/^(previsao( do mes| de caixa)?|quanto vai entrar( esse mes| este mes| no mes)?\??|vai entrar quanto( esse mes)?\??)$/.test(msg)) { await enviar(env, from, await previsaoTexto(env)); return true; }
   if (/^(plano( do dia| de hoje)?)$/.test(msg)) { await planoDiaEnviar(env, true); return true; }
+  if (/^(resumo (do|dos) (link|links|orcamentos? (pelo|do) link)|funil do link|como (estao|tao|ta) os links)\??$/.test(msg)) { await enviar(env, from, (await olResumoSemanaTexto(env)) || 'Nenhum orçamento foi enviado com link nos últimos 7 dias.'); return true; } // v382
   const g = String(texto || '').match(/^\s*link (?:do|da|de)? ?(?:google|avalia[cç][aã]o)[^h]*(https:\/\/\S+)/i);
   if (g) { await env.HR_KV.put('cfg:google_link', g[1]); globalThis.__gLink = g[1]; globalThis.__gLinkEm = Date.now(); await enviar(env, from, '⭐ Link da avaliação no Google guardado. Clientes que disserem que ficou tudo ótimo no pós-venda já recebem esse link.'); return true; }
   return false;
@@ -29759,6 +29760,8 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('indicação', () => indRotina(e2, snap));
   await passo('validade do orçamento', () => olVencerRotina(e2, snap)); // v378
   await passo('saldo na véspera', () => saldoVesperaRotina(e2, snap)); // v380
+  await passo('resumo do link', () => olResumoSemanaRotina(e2)); // v382
+  await passo('avaliação no Google', () => gavPosEntregaRotina(e2)); // v382
   await passo('reconquista', () => reconqRotina(e2));
   await passo('previsão de caixa', () => caixaAlertaRotina(e2));
   await passo('meta do mês', () => metaRotina(e2));
@@ -32553,8 +32556,7 @@ async function enviarAvaliacoesGoogle(env) {
     if (Date.now() < x.quando) continue;
     try { await env.HR_KV.delete(k.name); } catch (_) { continue; } // apaga antes de enviar: se não der para apagar, não envia (nunca repete)
     const primeiro = nomeDeTratamento(x.nome);
-    await enviar(env, x.numero, `${primeiro ? primeiro + ', s' : 'S'}e ficou satisfeito(a) com o nosso atendimento, a sua opinião no Google ajuda outras pessoas a conhecerem o nosso trabalho. Leva menos de um minuto: ${link}`)
-      .catch(e => console.log('[BOT] avaliação Google (fora da janela de 24 h?):', e.message));
+    await dpPerguntar(env, { chave: 'gavp:' + ultimos8(x.numero), num: x.numero, nome: x.nome, tipo: 'gav', sim: 'Pedir avaliação', texto: `${primeiro ? primeiro + ', s' : 'S'}e ficou satisfeito(a) com o nosso atendimento, a sua opinião no Google ajuda outras pessoas a conhecerem o nosso trabalho. Leva menos de um minuto: ${link}`, aviso: `${x.nome || 'O cliente'} quitou o pedido. Peço a avaliação no Google?` }).catch(e => console.log('[BOT] avaliação Google:', e.message)); // v382: só com o toque do dono
   }
 }
 
@@ -38949,3 +38951,54 @@ async function saldoVesperaRotina(env, snap) {
 const HR_DATA_ANTES_INST = '2027-01-01';
 function restoAntesInst(iso) { return String(iso || dataBahia()) >= HR_DATA_ANTES_INST; }
 function olEncargos(L) { const c = (L && L.cobr) || {}, m = c.multa != null ? +c.multa : 2, j = c.juros != null ? +c.juros : 1, k = +c.carencia || 0; return `multa de ${String(m).replace('.', ',')}% e juros de ${String(j).replace('.', ',')}% ao mês (proporcional aos dias de atraso)${k ? `, depois de ${k} dia${k > 1 ? 's' : ''} de tolerância` : ''}`; }
+// ═══ v382: RESUMO SEMANAL DO LINK DO ORÇAMENTO · AVALIAÇÃO NO GOOGLE SÓ COM O TOQUE DO DONO ═══
+// Toda segunda (rotina diária): orçamentos enviados com link nos últimos 7 dias → quantos abriram, compararam pedras,
+// aceitaram o contrato e pagaram a entrada; e quem parou em cada etapa, com botão para a assistente chamar.
+async function olResumoSemanaTexto(env) {
+  let l = []; try { l = JSON.parse((await env.HR_KV.get('ol:idx')) || '[]'); } catch (_) {}
+  const desde = Date.now() - 7 * 86400000, L = l.filter(x => (x.em || 0) >= desde), linhas = [];
+  let nAb = 0, nCmp = 0, nAc = 0, nPg = 0, vPg = 0; const parados = { naoAbriu: [], olhou: [], aceitou: [] };
+  for (const x of L.slice(0, 60)) {
+    let r = null, st = null, fe = null;
+    try { r = JSON.parse((await env.HR_KV.get(x.k)) || 'null'); } catch (_) {}
+    try { st = JSON.parse((await env.HR_KV.get('ol:v:' + x.s)) || 'null'); } catch (_) {}
+    try { fe = JSON.parse((await env.HR_KV.get('ol:fe:' + x.s)) || 'null'); } catch (_) {}
+    if (!r) continue; const nome = String(r.cliente || 'cliente').split(' ').slice(0, 2).join(' ');
+    const ab = st && st.ab ? st.ab.length : 0, cmp = !!(st && st.ab && st.ab.some(s => (s.vis || []).some(v => v === 'opcoes' || /^pedra\d/.test(v))));
+    if (ab) nAb++; if (cmp) nCmp++; if (fe && fe.aceitoEm) nAc++; if (fe && fe.pago) { nPg++; vPg += +fe.pago.valor || 0; }
+    if (fe && fe.pago) continue;
+    if (fe && fe.aceitoEm) parados.aceitou.push(nome); else if (ab) parados.olhou.push(`${nome}${ab > 1 ? ' (' + ab + 'x)' : ''}`); else parados.naoAbriu.push(nome);
+  }
+  if (!L.length) return '';
+  const pct = n => L.length ? Math.round(n / L.length * 100) + '%' : '0%';
+  linhas.push('*Orçamentos da semana pelo link*', '', `Enviados: ${L.length}`, `Abriram: ${nAb} (${pct(nAb)})`, `Compararam pedras: ${nCmp}`, `Aceitaram o contrato: ${nAc}`, `Pagaram a entrada: ${nPg}${vPg ? ' · R$ ' + reais(vPg) : ''}`);
+  if (parados.aceitou.length) linhas.push('', `Aceitaram mas não pagaram: ${parados.aceitou.join(', ')}`);
+  if (parados.olhou.length) linhas.push('', `Olharam e não fecharam: ${parados.olhou.slice(0, 10).join(', ')}`);
+  if (parados.naoAbriu.length) linhas.push('', `Nem abriram: ${parados.naoAbriu.slice(0, 10).join(', ')}`);
+  if (parados.olhou.length || parados.naoAbriu.length) linhas.push('', 'Para a assistente chamar alguém, escreva "Fulana não me respondeu".');
+  return linhas.join('\n');
+}
+async function olResumoSemanaRotina(env) {
+  const hoje = dataBahia(); if (diaSemanaISO(hoje) !== 1 || await env.HR_KV.get('olres:' + hoje)) return;
+  await env.HR_KV.put('olres:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const t = await olResumoSemanaTexto(env); if (t) await enviar(env, numeroDono(env), t);
+}
+// avaliação no Google: 3 dias depois da entrega (livro) a Helena pergunta ao dono; o pedido vai ao cliente só com o toque dele
+async function gavPosEntregaRotina(env) {
+  const hoje = dataBahia(); if (await env.HR_KV.get('gavd:' + hoje)) return; await env.HR_KV.put('gavd:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const link = String(env.GOOGLE_AVALIACAO || (await env.HR_KV.get('cfg:google_link').catch(() => null)) || globalThis.__gLink || '').trim();
+  const ini = dataBahia(-5), fim = dataBahia(-3), lista = [];
+  for (const r of await livTodos(env).catch(() => [])) {
+    const d = livDataOk(r.entregaEm); if (!d || d < ini || d > fim || !r.tel) continue;
+    const u = ultimos8(r.tel); if (!u || await env.HR_KV.get('gav:' + u)) continue;
+    if ((livSaldo(r) || 0) > 1) continue; // ainda devendo: não é hora de pedir avaliação
+    lista.push(r); if (lista.length >= 3) break;
+  }
+  if (!lista.length) return;
+  if (!/^https:\/\//.test(link)) { if (!(await env.HR_KV.get('gav:semlink'))) { await env.HR_KV.put('gav:semlink', '1', { expirationTtl: 30 * 86400 }); await enviar(env, numeroDono(env), `Entregamos para ${lista.map(r => r.cliente).join(', ')} há 3 dias, e é uma boa hora de pedir avaliação no Google, mas não tenho o link. Mande assim: *link do google https://g.page/r/...* (no Perfil da Empresa no Google: "Pedir avaliações").`).catch(() => {}); } return; }
+  for (const r of lista) {
+    await env.HR_KV.put('gav:' + ultimos8(r.tel), '1', { expirationTtl: 90 * 86400 });
+    const pn = nomeDeTratamento(r.cliente || '') || 'Olá', serv = String(r.desc || 'pedra').replace(/\s+/g, ' ').slice(0, 35).toLowerCase();
+    await dpPerguntar(env, { chave: 'gav:' + r.id, num: r.tel, nome: r.cliente, tipo: 'gav', sim: 'Pedir avaliação', texto: `${pn}, tudo certo com a sua ${serv}? Se ficou satisfeito(a), a sua avaliação no Google ajuda muito outras pessoas a conhecerem o trabalho da HR. Leva menos de um minuto: ${link}`, aviso: `Faz 3 dias que entregamos ${serv} de ${r.cliente} (pago). Peço a avaliação no Google?` });
+  }
+}
