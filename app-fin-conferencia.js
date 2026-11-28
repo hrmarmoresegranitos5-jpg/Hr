@@ -166,6 +166,18 @@
         corpo.feitos = qs ? 1 : 0;
         return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
       }
+      if (t.tipo === 'orc_data') { // v8: o cliente escolheu o dia da instalação no link e o dono confirmou → entrega da obra nessa data
+        var qd = (DB.q || []).find(function (x) { return String(x.id) === String(t.orcId); }), jd = null;
+        if (qd && /^\d{4}-\d{2}-\d{2}$/.test(String(t.dia || ''))) {
+          qd.prazoEntrega = t.dia; qd._fixarDatas = true; qd._diaPeloCliente = t.dia;
+          jd = (DB.j || []).find(function (j) { return j && j.qId === qd.id; });
+          if (jd) { jd.end = t.dia; if (jd.start && jd.start > t.dia) jd.start = t.dia; }
+          try { DB.sv(); } catch (e) {} try { if (typeof renderOrc === 'function') renderOrc(); } catch (e) {}
+          if (typeof toast === 'function') toast('📅 ' + (qd.cli || 'Cliente') + ': instalação em ' + t.dia.split('-').reverse().join('/'));
+        }
+        corpo.feitos = qd ? 1 : 0;
+        return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
+      }
       if (t.tipo === 'orc_entregue') { // v7: o bot registrou a instalação/entrega → o orçamento vira "Entregue" (abre o "a receber" se faltar pagamento)
         var nrm = function (x) { return String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); };
         var qe = t.orcId ? (DB.q || []).find(function (x) { return String(x.id) === String(t.orcId); }) : null;

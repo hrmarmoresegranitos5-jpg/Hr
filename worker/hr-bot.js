@@ -2566,6 +2566,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('cartv|')) return cartaoBotao(env, from, id); // v91c
   if (id.startsWith('promo|')) return promoBotao(env, from, id); // v92
   if (id.startsWith('rtp|')) return rtpBotao(env, from, id); // v93
+  if (id.startsWith('oldia|')) { if (ehDono(env, from)) await olDiaBotao(env, from, id); return true; } // v380
   if (id.startsWith('dpa|')) { if (ehDono(env, from)) await dpBotao(env, from, id); return true; } // v378
   if (id.startsWith('olk|')) { if (ehDono(env, from)) await olkBotao(env, from, id); return true; } // v377
   if (id.startsWith('qcob|')) return qcobBotao(env, from, id); // v94
@@ -17390,14 +17391,15 @@ async function tratarPagamentoLinkUmaVez(env, pg, ref) {
   const desc = lk && lk.desc ? lk.desc : 'link de pagamento';
   const forma = FORMA_MP[pg.payment_type_id] || 'Mercado Pago';
   let quitou = false;
-  if (lk && lk.destino && !lk.qr) await agendarAvaliacaoGoogle(env, lk.destino, lk.cli); // link pago (não é o QR do sinal)
+  if (lk && lk.destino && !lk.qr && !lk.ol) await agendarAvaliacaoGoogle(env, lk.destino, lk.cli); // link pago (não é o QR do sinal nem a entrada pelo link)
   if (lk && lk.pedId) { try { const pd = await lerPedido(env, lk.pedId); if (pd) { pd.restantePago = true; pd.restantePagoEm = Date.now(); await salvarPedido(env, pd); quitou = true; } } catch (e) { console.log('[BOT] quitar restante:', e.message); } }
   if (lk && lk.destino) await enviar(env, lk.destino, `${nomeDeTratamento(lk.cli) ? nomeDeTratamento(lk.cli) + ', p' : 'P'}agamento de R$ ${reais(pago)} recebido. Obrigada!`).catch(e => falhou(env, 'tratarPagamentoLink: enviar', e)); // fora das 24 h não chega; sem problema
   let lancado = true;
   try {
     await registrarLancamento(env, { type: 'in', value: pago, desc: `Recebido: ${desc} (${forma})`.slice(0, 80), date: dataBahia(), forma: pg.payment_type_id === 'bank_transfer' ? 'pix' : undefined, origem: 'mp', mpId: pg.id, semUltimo: true });
   } catch (e) { lancado = false; console.log('[BOT] lançamento do link:', e.message); }
-  if (lk && lk.cli) await livAuto(env, { cliente: lk.cli, tel: lk.destino, desc, pagamento: { valor: pago, forma: FORMA_MP[pg.payment_type_id] || 'Pix', data: dataBahia(), ref: 'mp-' + pg.id, origem: 'mp', obs: lk.qr ? 'sinal' : '' } }, 'link');
+  if (lk && lk.cli) await livAuto(env, { cliente: lk.cli, tel: lk.destino, desc, pagamento: { valor: pago, forma: FORMA_MP[pg.payment_type_id] || 'Pix', data: dataBahia(), ref: 'mp-' + pg.id, origem: 'mp', obs: lk.qr || lk.ol ? 'sinal' : '' } }, 'link');
+  if (lk && lk.ol) { await olPagou(env, lk, pago, forma, lancado); return; } // v380: entrada paga pela página do orçamento
   if (lk && lk.qr) { await finalizarQRPago(env, lk, ref, pago, forma, lancado); return; } // QR do sinal: aviso e registro próprios
   await notificarDono(env, Date.now(), `*Pagamento recebido pelo link: R$ ${reais(pago)}* (${forma})\nReferente a: ${desc}\n${quitou ? '*Pedido quitado: o restante foi pago.*\n' : ''}${lancado ? 'Lancei a entrada nas finanças.' : 'Não consegui lançar nas finanças; lance à mão.'}${lk && lk.valor && pago + 0.009 < lk.valor ? `\n_Atenção: o link era de R$ ${reais(lk.valor)}._` : ''}`);
 }
@@ -29756,6 +29758,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('radar de vendas', () => radarRotina(e2));
   await passo('indicação', () => indRotina(e2, snap));
   await passo('validade do orçamento', () => olVencerRotina(e2, snap)); // v378
+  await passo('saldo na véspera', () => saldoVesperaRotina(e2, snap)); // v380
   await passo('reconquista', () => reconqRotina(e2));
   await passo('previsão de caixa', () => caixaAlertaRotina(e2));
   await passo('meta do mês', () => metaRotina(e2));
@@ -38308,7 +38311,7 @@ export default {
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname === '/gpix' || url.pathname === '/gpix/script' || url.pathname === '/gpix/cfg') return gpixRota(req, env, url, ctx); // v361/v362
     if (req.method === 'GET' && /^\/i\/[A-Za-z0-9]{3,12}\/?$/.test(url.pathname)) return rotaIndicacaoPagina(req, env, url); // v378: página de indicação
-    if (/^\/o\/[a-z0-9]{2,30}(\/v|\/pdf)?\/?$/i.test(url.pathname)) return rotaOrcLink(req, env, ctx, url); // v377: página do orçamento
+    if (/^\/o\/[a-z0-9]{2,30}(\/(v|pdf|fechar|estado|dia|foto|img\/\d))?\/?$/i.test(url.pathname)) return rotaOrcLink(req, env, ctx, url); // v377: página do orçamento
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
     if (/^\/(p|projeto|site)\/?$/i.test(url.pathname)) return Response.redirect(url.origin + '/portfolio' + url.search, 302); // v359: link curto do site
@@ -38413,7 +38416,8 @@ async function olDados(env, slug) {
     if (np && normaliza(i.pedraNome || '').includes(np.split(' ')[0])) sc += 3; for (const a of ambs) if (a && tx.includes(a.split(' ')[0])) sc += 2; return { i, sc };
   }).sort((a, b) => b.sc - a.sc || (b.i.em || 0) - (a.i.em || 0)).slice(0, 8).map(x => ({ u: '/portfolio/img/obra/' + encodeURIComponent(x.i.id), t: String(x.i.legenda || x.i.cat || 'Obra').replace(/\s+/g, ' ').slice(0, 60) }));
   const whats = String(env.WHATSAPP_PUBLICO || '').replace(/\D/g, '') || (await igNumeroWhats(env).catch(() => '')) || '';
-  return { k, slug, r, L, ops, pedraNome, pedraFoto: pedraIt ? '/portfolio/foto/' + encodeURIComponent(pedraIt.id) : '', obras, whats };
+  const fe = await olFeLer(env, slug).catch(() => null), dias = fe && fe.pago && !(fe.dia && fe.dia.ok) ? await olDiasLivres(env, r).catch(() => []) : [], nFotos = +(await env.HR_KV.get('ol:fn:' + slug).catch(() => null)) || 0;
+  return { k, slug, r, L, ops, fe, dias, nFotos, mp: mpAtivo(env), ia: !!chaveVoz(env), pedraNome, pedraFoto: pedraIt ? '/portfolio/foto/' + encodeURIComponent(pedraIt.id) : '', obras, whats };
 }
 const OL_CSS = `:root{--ink:#16130f;--ink2:#4a443b;--mute:#8a8174;--line:#e9e2d6;--ivory:#f6f1e8;--card:#fffdf9;--gold:#b0894f;--gold2:#d6b47a;--deep:#1c1915;--ok:#2f7a4f}
 *{box-sizing:border-box;margin:0;padding:0}html{-webkit-text-size-adjust:100%}
@@ -38530,6 +38534,11 @@ ${OL_CSS}</style></head><body><div class="wrap">
  ${temVista ? `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v2">R$ <span id="vV">${reais(vista)}</span></div><div class="v3">50% na entrada e 50% na entrega</div></div><span class="tag"><span id="vT">${pct}</span>% de desconto</span></div>` : `<div class="vista"><div><div class="v1">Pagando à vista</div><div class="v3" style="font-size:13.5px;color:var(--ink2)">Tem desconto. 50% na entrada e 50% na entrega.</div></div><span class="tag">Desconto</span></div>`}
  ${L.ate ? `<p class="vale${venceu ? ' venceu' : ''}">${ic.rel}${venceu ? 'Este valor venceu em ' + olDataBR(L.ate) + '. Fale com a gente que atualizamos.' : 'Valor garantido até ' + olDiaSemana(L.ate) + ', ' + olDataBR(L.ate).slice(0, 5)}</p>` : ''}
 </section>
+${(() => { const fe = d.fe; if (!fe || !fe.aceitoEm) return ''; if (!fe.pago) return `<section class="sec"><div class="vista" style="margin:0"><div><div class="v1">Você aceitou o contrato</div><div class="v3" style="font-size:13.5px;color:var(--ink2)">${fe.pix ? 'Falta o Pix da entrada (R$ ' + reais(fe.pix.valor) + ').' : 'A HR vai te chamar para combinar o pagamento.'}</div></div>${fe.pix ? `<a class="tag" style="text-decoration:none" href="/o/${e(d.slug)}/fechar">Pagar</a>` : ''}</div></section>`;
+  if (fe.dia && fe.dia.ok) return `<section class="sec" id="dia"><div class="ok" style="background:#eef5ef;color:#24603e;border-radius:14px;padding:14px;font-weight:600">✓ Instalação confirmada: ${e(olDiaTxt(fe.dia.d))}</div></section>`;
+  if (fe.dia) return `<section class="sec" id="dia"><div class="vista" style="margin:0"><div><div class="v1">Dia escolhido</div><div class="v2" style="text-transform:capitalize">${e(olDiaTxt(fe.dia.d))}</div><div class="v3">Aguardando a HR confirmar</div></div></div></section>`;
+  return d.dias.length ? `<section class="sec" id="dia"><p class="eye">Entrada recebida ✓</p><h2>Escolha o dia da instalação</h2><p class="opx">Estes são os próximos dias livres no nosso cronograma${fe.diaRecusado ? ' (o dia anterior não deu, desculpe)' : ''}.</p><div class="dias" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${d.dias.map(x => `<button class="dia" data-d="${x}" style="font:600 14px Inter,sans-serif;padding:12px 8px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);text-transform:capitalize;cursor:pointer">${e(olDiaTxt(x))}</button>`).join('')}</div><p class="err" id="dEr" style="color:#a2482f;font-size:13.5px;margin-top:8px"></p></section>` : ''; })()}
+${d.ia && d.nFotos < 3 ? `<section class="sec rev" data-s="foto"><p class="eye">Novidade</p><h2>Veja a pedra na sua cozinha</h2><p class="opx">Tire uma foto de frente para a bancada (ou do banheiro). Em menos de 1 minuto mostramos como fica com a pedra escolhida.</p><label class="pdf" style="display:flex;justify-content:center;cursor:pointer;margin:0"><input type="file" accept="image/*" id="fIn" style="display:none">Escolher ou tirar uma foto</label><p id="fSt" style="font-size:13.5px;color:var(--mute);margin-top:10px"></p><div id="fRes"></div></section>` : ''}
 ${d.ops.length ? `<section class="sec rev" data-s="opcoes"><p class="eye">Compare</p><h2>A mesma obra em outras pedras</h2><p class="opx">São ${d.ops.length} pedras, da mais em conta à mais nobre. Toque numa para ver o valor; só muda a pedra, o serviço é o mesmo.</p>${(() => { const fams = [...new Set(d.ops.map(o => (String(o.tag || '').split(' ')[0] || '').trim()).filter(Boolean))]; return fams.length > 1 ? `<div class="fams"><button class="fam on" data-f="">Todas</button>${fams.map(f => `<button class="fam" data-f="${e(f)}">${e(f)}</button>`).join('')}</div>` : ''; })()}<div class="opdir"><span>← mais em conta</span><span>mais nobre →</span></div><div class="ops">${d.ops.map((o, i) => `<button class="op${o.atual ? ' sel' : ''}" data-i="${i}" data-v="${o.vista}" data-p="${o.parc}" data-nm="${e(o.nm)}" data-f="${e((String(o.tag || '').split(' ')[0] || '').trim())}"><span class="oph" style="${o.foto ? `background-image:url('${e(o.foto)}')` : ''}">${o.atual ? '<em>Escolhida</em>' : ''}</span><span class="opt">${e(o.tag || o.fin || 'Pedra')}</span><b>${e(o.nm)}</b><span class="opv">R$ ${reais(o.parc)}</span><span class="opp">10× de R$ ${reais(Math.round(o.parc / 10 * 100) / 100)}</span></button>`).join('')}</div></section>` : ''}
 ${d.pedraNome ? `<section class="sec rev" data-s="pedra"><p class="eye">A pedra</p><h2>Escolhida para o seu projeto</h2><div class="pedra"><div class="ph" style="${d.pedraFoto ? `background-image:url('${e(d.pedraFoto)}')` : 'background:linear-gradient(135deg,#3a332b,#1a1713)'}"><div class="nm"><span>${e(L.fin || 'Pedra natural')}</span><b>${e(d.pedraNome)}</b></div></div>${chapas ? `<div class="stats"><div><b>${chapas} chapa${chapas > 1 ? 's' : ''} inteira${chapas > 1 ? 's' : ''}</b><span>3,00 × 1,60 m cada</span></div><div><b>${m2.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} m²</b><span>de peças no projeto</span></div></div>` : ''}<p>Todas as peças saem da mesma chapa, para os veios e a cor combinarem de uma ponta à outra.</p></div></section>` : ''}
 ${ambHtml ? `<section class="sec rev" data-s="projeto"><p class="eye">O projeto</p><h2>O que vamos fazer</h2>${ambHtml}</section>` : ''}
@@ -38545,13 +38554,19 @@ ${obras}
 <section class="sec rev" data-s="entenda"><details><summary>Por que o valor não é só o m² da pedra?</summary><p>A pedra vem da pedreira em chapas inteiras de 3,00 × 1,60 m. Para os veios combinarem, as peças são cortadas da mesma chapa, e o que sobra dos recortes não volta para a venda.</p><p>No valor também estão o corte sob medida, os recortes de cuba e cooktop, o polimento das bordas, o transporte, a instalação e a impermeabilização. Por isso a conta "m² × preço da pedra" sempre dá menos do que o projeto pronto.</p></details></section>
 <footer class="foot">${r.temBytes ? `<a class="pdf" href="/o/${e(d.slug)}/pdf" data-ev="pdf">${ic.pdf}Baixar o orçamento em PDF</a><br>` : ''}HR Mármores e Granitos · Pilão Arcado, BA<br><a href="https://instagram.com/hrmarmoregranito">@hrmarmoregranito</a> · <a href="/">nosso site</a></footer>
 </div>
-<div class="bar"><div class="in"><a class="btn go" href="${e(zap(msgFechar))}" data-ev="fechar" data-z="${e(d.whats ? 'https://wa.me/' + d.whats + '?text=' : '')}" data-m="${e(`Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}`.replace(/\s+/g, ' ').trim())}">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
+<div class="bar"><div class="in"><a class="btn go" href="${e(d.mp ? '/o/' + d.slug + '/fechar' : zap(msgFechar))}" data-ev="${d.mp ? 'abrefechar' : 'fechar'}" data-fx="${d.mp ? 1 : ''}" data-z="${e(d.whats ? 'https://wa.me/' + d.whats + '?text=' : '')}" data-m="${e(`Olá! Sou ${nome || 'cliente'} e quero fechar o orçamento ${r.orcNum || ''}`.replace(/\s+/g, ' ').trim())}">Quero fechar ${ic.seta}</a><a class="btn wa" href="${e(zap(msgDuvida))}" data-ev="duvida" aria-label="Tirar uma dúvida no WhatsApp">${ic.wa}</a></div></div>
 <script>
 (function(){var S=${JSON.stringify(d.slug)},T=${opts && opts.semRastro ? 'false' : 'true'},t0=Date.now(),vis={valor:1},sid=Math.random().toString(36).slice(2,10),fim=0;
 var io=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting){x.target.classList.add('on');var s=x.target.getAttribute('data-s');if(s)vis[s]=1;}});},{threshold:.25});
 document.querySelectorAll('.rev').forEach(function(el){io.observe(el);});
 function env(ev,b){if(!T)return;var d=JSON.stringify({ev:ev,sid:sid,seg:Math.round((Date.now()-t0)/1000),vis:Object.keys(vis)});try{if(b&&navigator.sendBeacon){navigator.sendBeacon('/o/'+S+'/v',new Blob([d],{type:'text/plain'}));return;}}catch(e){}try{fetch('/o/'+S+'/v',{method:'POST',body:d,keepalive:true});}catch(e){}}
 env('abriu');
+document.querySelectorAll('.dia').forEach(function(b){b.addEventListener('click',function(){if(!confirm('Marcar a instalação para '+b.textContent+'?'))return;b.disabled=true;fetch('/o/'+S+'/dia',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dia:b.getAttribute('data-d')})}).then(function(r){return r.json();}).then(function(j){if(j.ok)location.reload();else{document.getElementById('dEr').textContent=j.erro||'Não deu certo.';b.disabled=false;}});});});
+var fIn=document.getElementById('fIn');if(fIn)fIn.addEventListener('change',function(){var f=fIn.files&&fIn.files[0];if(!f)return;var st=document.getElementById('fSt'),rs=document.getElementById('fRes');st.textContent='Preparando a foto…';
+var im=new Image();im.onload=function(){var m=1280,w=im.width,h=im.height,k=Math.min(1,m/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);var du=c.toDataURL('image/jpeg',.86);
+st.textContent='Colocando a pedra na sua foto… (pode levar até 1 minuto)';var sel=document.querySelector('.op.sel');
+fetch('/o/'+S+'/foto',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({img:du,p:sel?sel.getAttribute('data-i'):''})}).then(function(r){return r.json();}).then(function(j){if(!j.ok){st.textContent=j.erro||'Não deu certo.';return;}st.textContent='Pronto! É uma simulação: a pedra de verdade tem variações naturais.'+(j.resta>0?' Você ainda pode fazer '+j.resta+'.':'');
+rs.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"><figure style="margin:0"><img src="'+du+'" style="width:100%;border-radius:12px"><figcaption style="font-size:12px;color:#8a8174;text-align:center">Antes</figcaption></figure><figure style="margin:0"><img src="'+j.url+'" style="width:100%;border-radius:12px"><figcaption style="font-size:12px;color:#8a8174;text-align:center">Com a pedra</figcaption></figure></div>';vis.foto=1;}).catch(function(){st.textContent='Sem internet? Tente de novo.';});};im.src=URL.createObjectURL(f);});
 document.querySelectorAll('.fam').forEach(function(c){c.addEventListener('click',function(){document.querySelectorAll('.fam').forEach(function(x){x.classList.remove('on');});c.classList.add('on');var f=c.getAttribute('data-f');document.querySelectorAll('.op').forEach(function(o){o.style.display=!f||o.getAttribute('data-f')===f?'':'none';});var w=document.querySelector('.ops');if(w)w.scrollLeft=0;});});
 (function(){var w=document.querySelector('.ops'),s=document.querySelector('.op.sel');if(w&&s)w.scrollLeft=Math.max(0,w.scrollLeft+s.getBoundingClientRect().left-w.getBoundingClientRect().left-20);})();
 var fe=document.querySelector('[data-ev=fechar]');
@@ -38560,7 +38575,7 @@ document.querySelectorAll('.op').forEach(function(b){b.addEventListener('click',
 var v=+b.getAttribute('data-v'),p=+b.getAttribute('data-p'),f=fmt(p).split(',');var a=document.getElementById('vI');if(a){a.textContent=f[0];document.getElementById('vC').textContent=f[1];document.getElementById('vP').textContent=fmt(Math.round(p/10*100)/100);}
 var vv=document.getElementById('vV');if(vv){vv.textContent=fmt(v);var t=document.getElementById('vT');if(t)t.textContent=Math.round((p-v)/p*100);}
 var nm=b.getAttribute('data-nm');document.querySelectorAll('.pedra .nm b, .hero p.sub').forEach(function(el){if(el.classList.contains('sub'))el.textContent=el.textContent.replace(/ em .*$/,' em '+nm);});
-if(fe&&fe.getAttribute('data-z')){fe.setAttribute('href',fe.getAttribute('data-z')+encodeURIComponent(fe.getAttribute('data-m')+' na pedra '+nm+'.'));}
+if(fe&&fe.getAttribute('data-fx')){fe.setAttribute('href','/o/'+S+'/fechar?p='+b.getAttribute('data-i'));}else if(fe&&fe.getAttribute('data-z')){fe.setAttribute('href',fe.getAttribute('data-z')+encodeURIComponent(fe.getAttribute('data-m')+' na pedra '+nm+'.'));}
 vis['pedra'+b.getAttribute('data-i')]=1;window.scrollTo({top:document.querySelector('.price').offsetTop-90,behavior:'smooth'});});});
 document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){env('saiu',1);}else{t0=Date.now()-1000*0;}});
 window.addEventListener('pagehide',function(){env('saiu',1);});
@@ -38569,12 +38584,23 @@ document.querySelectorAll('[data-ev]').forEach(function(a){a.addEventListener('c
 </script></body></html>`;
 }
 async function rotaOrcLink(req, env, ctx, url) {
-  const m = /^\/o\/([a-z0-9]{2,30})(\/v|\/pdf)?\/?$/i.exec(url.pathname); if (!m) return new Response('Não encontrado', { status: 404 });
+  const m = /^\/o\/([a-z0-9]{2,30})(\/v|\/pdf|\/fechar|\/estado|\/dia|\/foto|\/img\/\d)?\/?$/i.exec(url.pathname); if (!m) return new Response('Não encontrado', { status: 404 });
   const slug = m[1].toLowerCase(), sub = m[2] || '';
   if (slug === 'exemplo') await olDemo(env).catch(() => {});
   if (sub === '/v' && req.method === 'POST') { ctx.waitUntil(olEvento(env, slug, await req.text().catch(() => '')).catch(e => console.log('[OL]', e.message))); return new Response('ok'); }
   const d = await olDados(env, slug);
   if (!d) return new Response('<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;background:#f6f1e8;color:#16130f;display:grid;place-items:center;min-height:90vh;text-align:center;padding:24px"><div><h1 style="font-family:Georgia,serif;font-weight:500">Orçamento não encontrado</h1><p style="color:#8a8174;margin-top:8px">O link pode ter expirado. Fale com a HR Mármores e Granitos pelo WhatsApp.</p></div>', { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  const jr = o => new Response(JSON.stringify(o), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (sub === '/fechar') {
+    if (slug === 'exemplo' && req.method === 'POST') return jr({ ok: false, erro: 'Esta é uma página de exemplo.' });
+    if (req.method === 'POST') { const b = await req.json().catch(() => ({})); return jr(await olFecharPost(env, d, b).catch(e => ({ ok: false, erro: 'Erro: ' + String(e.message).slice(0, 80) }))); }
+    ctx.waitUntil(olEvento(env, slug, JSON.stringify({ ev: 'fechar', sid: 'fx' + Date.now().toString(36), seg: 1, vis: ['valor'] })).catch(() => {}));
+    return new Response(olFecharHtml(d, await olFeLer(env, slug), url.searchParams.get('p'), mpAtivo(env)), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
+  }
+  if (sub === '/estado') { const fe = await olFeLer(env, slug); return jr({ aceito: !!(fe && fe.aceitoEm), pago: !!(fe && fe.pago), dia: fe && fe.dia ? fe.dia.d : '', diaOk: !!(fe && fe.dia && fe.dia.ok) }); }
+  if (sub === '/dia' && req.method === 'POST') { const b = await req.json().catch(() => ({})); return jr(slug === 'exemplo' ? { ok: false, erro: 'Página de exemplo.' } : await olDiaPost(env, d, String(b.dia || '')).catch(e => ({ ok: false, erro: String(e.message).slice(0, 80) }))); }
+  if (sub === '/foto' && req.method === 'POST') { const b = await req.json().catch(() => ({})); return jr(await olFotoPost(env, d, b).catch(e => ({ ok: false, erro: 'Não consegui agora: ' + String(e.message).slice(0, 80) }))); }
+  if (sub.startsWith('/img/')) { const im = await env.HR_KV.get(`ol:img:${slug}:${sub.slice(5)}`, 'arrayBuffer').catch(() => null); return im ? new Response(im, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=86400' } }) : new Response('', { status: 404 }); }
   if (sub === '/pdf') {
     const b64 = await env.HR_KV.get(d.k + ':b').catch(() => null); if (!b64) return Response.redirect(url.origin + '/o/' + slug, 302);
     return new Response(base64ParaBytes(b64), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${String(d.r.arquivo || 'Orcamento.pdf').replace(/[^\w.\- ]/g, '')}"`, 'Cache-Control': 'private, max-age=300' } });
@@ -38582,11 +38608,11 @@ async function rotaOrcLink(req, env, ctx, url) {
   const semRastro = url.searchParams.get('d') === '1' || slug === 'exemplo';
   return new Response(olHtml(d, { semRastro }), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' } });
 }
-const OL_SEC = { valor: 'o valor', opcoes: 'as outras pedras', pedra: 'a pedra', projeto: 'as peças', incluso: 'o que está incluso', como: 'como funciona', garantia: 'a garantia', entenda: 'por que o valor' };
+const OL_SEC = { valor: 'o valor', opcoes: 'as outras pedras', foto: 'a simulação da pedra na cozinha', pedra: 'a pedra', projeto: 'as peças', incluso: 'o que está incluso', como: 'como funciona', garantia: 'a garantia', entenda: 'por que o valor' };
 function olTempo(s) { s = Math.max(0, Math.round(s)); return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min' + (s % 60 >= 10 ? ' ' + (s % 60) + ' s' : ''); }
 async function olEvento(env, slug, raw) {
   let b = {}; try { b = JSON.parse(raw || '{}'); } catch (_) { return; }
-  const ev = String(b.ev || ''), sid = String(b.sid || '').slice(0, 12); if (!/^(abriu|saiu|fechar|duvida|pdf)$/.test(ev) || !sid) return;
+  const ev = String(b.ev || ''), sid = String(b.sid || '').slice(0, 12); if (!/^(abriu|saiu|fechar|abrefechar|duvida|pdf)$/.test(ev) || !sid) return;
   const k = await env.HR_KV.get('ol:s:' + slug); if (!k) return;
   let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {} if (!r) return;
   let st = { ab: [], ult: 0 }; try { st = JSON.parse((await env.HR_KV.get('ol:v:' + slug)) || 'null') || st; } catch (_) {}
@@ -38600,10 +38626,10 @@ async function olEvento(env, slug, raw) {
   const ops = (r.link && r.link.ops) || [], viuOps = s.vis.filter(x => /^pedra\d{1,3}$/.test(x)).map(x => ops[+x.slice(5)]).filter(o => o && !o.atual).map(o => `${o.nm} (R$ ${reais(o.parc)})`).slice(-4);
   const viu = s.vis.filter(x => x !== 'valor' && OL_SEC[x]).map(x => OL_SEC[x]), viuTxt = 'Olhou o valor' + (viu.length ? (viu.length > 1 ? ', ' + viu.slice(0, -1).join(', ') + ' e ' + viu.slice(-1) : ' e ' + viu[0]) : '') + '.';
   const bts = [{ id: 'olk|m|' + slug, titulo: 'Mandar' }, { id: 'olk|l|' + slug, titulo: 'Eu ligo' }, { id: 'olk|n|' + slug, titulo: 'Agora não' }];
-  if (ev === 'fechar' && !s.avFechar) {
-    s.avFechar = 1; st.ult = agora; await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
+  if (ev === 'fechar' && !s.avFechar && !(st.avF && agora - st.avF < 6 * 3600000)) {
+    s.avFechar = 1; st.ult = agora; st.avF = agora; await env.HR_KV.put('ol:v:' + slug, JSON.stringify(st), { expirationTtl: 120 * 86400 });
     await olNotaHelena(env, r, `[${nome} abriu a página do orçamento ${r.orcNum || ''} e tocou em "Quero fechar". Quando escrever, agradeça, confirme a forma de pagamento (à vista 50% de entrada e 50% na entrega, ou até 10x sem juros no cartão) e comece a pegar os dados do contrato.]`).catch(() => {});
-    await enviarComBotoes(env, dono, `${nome} tocou em "Quero fechar" no orçamento ${r.orcNum || ''}${r.valor ? ' (R$ ' + reais(r.valor) + ')' : ''}. Abriu o WhatsApp da HR com a mensagem pronta; quando ${pn} mandar, a assistente já sabe e começa a pegar os dados do contrato.`, [{ id: 'olk|l|' + slug, titulo: 'Eu ligo' }, { id: 'olk|n|' + slug, titulo: 'Ok' }]).catch(() => {});
+    await enviarComBotoes(env, dono, `${nome} tocou em "Quero fechar" no orçamento ${r.orcNum || ''}${r.valor ? ' (R$ ' + reais(r.valor) + ')' : ''}. ${mpAtivo(env) ? `Abriu a página de fechamento (contrato e Pix da entrada). Aviso quando ${pn} aceitar.` : `Abriu o WhatsApp da HR com a mensagem pronta; quando ${pn} mandar, a assistente já sabe e começa a pegar os dados do contrato.`}`, [{ id: 'olk|l|' + slug, titulo: 'Eu ligo' }, { id: 'olk|n|' + slug, titulo: 'Ok' }]).catch(() => {});
     return;
   }
   if (ev === 'saiu' && !s.av && s.seg >= 4 && agora - (st.ult || 0) > 90 * 60000) {
@@ -38752,4 +38778,165 @@ async function tetoDefinir(env, valor) {
   if (!t.estourou) { await env.HR_KV.delete('teto:on:' + mes).catch(() => {}); await env.HR_KV.delete('teto:av80:' + mes).catch(() => {}); }
   globalThis.__tetoEm = 0; globalThis.__econEm = 0; globalThis.__vozCfgEm = 0;
   return t;
+}
+// ═══ v380: FECHAR PELO LINK · PEDRA NA COZINHA · DIA DA INSTALAÇÃO · SALDO NA VÉSPERA ═══
+// /o/<slug>/fechar — o cliente confere, preenche os dados, aceita o contrato e recebe o Pix da entrada (50%, Mercado Pago).
+// Quando o Pix cai: entrada nas finanças e no livro (fluxo dos links), orçamento Aceito e obra no cronograma do app (orc_sinal),
+// e a página passa a mostrar os dias livres para a instalação. O dia escolhido só vale depois do toque do dono (orc_data no app).
+function olCpfOk(c) { c = String(c || '').replace(/\D/g, ''); if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false; for (let t = 9; t < 11; t++) { let s = 0; for (let i = 0; i < t; i++) s += +c[i] * (t + 1 - i); if (((s * 10) % 11) % 10 !== +c[t]) return false; } return true; }
+async function olFeLer(env, slug) { try { return JSON.parse((await env.HR_KV.get('ol:fe:' + slug)) || 'null'); } catch (_) { return null; } }
+async function olFeGravar(env, slug, fe) { await env.HR_KV.put('ol:fe:' + slug, JSON.stringify(fe), { expirationTtl: 400 * 86400 }); }
+function olOpEscolhida(r, idx) { const ops = (r.link && r.link.ops) || []; const o = ops[+idx]; return o && o.parc > 0 ? o : (ops.find(x => x.atual) || null); }
+async function olPixCriar(env, ref, valor, desc, horas) {
+  const base = await urlDoWorker(env);
+  const corpo = { transaction_amount: Math.round(valor * 100) / 100, description: `${desc} - ${env.EMPRESA || 'HR Mármores e Granitos'}`.slice(0, 200), payment_method_id: 'pix', external_reference: ref,
+    payer: { email: env.MP_EMAIL_PADRAO || 'cliente+cobranca@example.com', first_name: 'Cliente' }, date_of_expiration: new Date(Date.now() + (horas || 48) * 3600000).toISOString().replace('Z', '+00:00') };
+  if (base) corpo.notification_url = base + '/mp/webhook';
+  const r = await fetch(`${MP_API}/v1/payments`, { method: 'POST', headers: { 'Authorization': `Bearer ${env.MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json', 'X-Idempotency-Key': 'hr-' + ref }, body: JSON.stringify(corpo) });
+  const j = await r.json().catch(() => null), t = j && j.point_of_interaction && j.point_of_interaction.transaction_data;
+  if (!r.ok || !t || !t.qr_code) throw new Error(`Pix (${r.status}): ${String((j && (j.message || j.error)) || 'sem código').slice(0, 120)}`);
+  return { id: String(j.id), codigo: t.qr_code, png: t.qr_code_base64 || '' };
+}
+// dias livres para a instalação: depois da fila de produção (última entrega em aberto) + o prazo do orçamento
+async function olDiasLivres(env, r) {
+  const snap = await lerSnapshotCompleto(env).catch(() => null), ag = ((snap && snap.dados && snap.dados.agenda) || []).filter(a => a && ehAberto(a));
+  const hoje = dataBahia(), prazo = Math.max(3, Math.min(60, +(r.link && r.link.prazo) || 15));
+  let ini = ag.map(a => a.entrega).filter(x => /^\d{4}-\d\d-\d\d$/.test(String(x || ''))).sort().slice(-1)[0] || hoje; if (ini < hoje) ini = hoje;
+  ini = isoSomaDias(ini, prazo);
+  const cap = Math.max(1, +(await env.HR_KV.get('cfg:inst:cap').catch(() => null)) || 2), cont = {};
+  ag.forEach(a => { if (a.entrega) cont[a.entrega] = (cont[a.entrega] || 0) + 1; });
+  const eF = await envComFolgas(env).catch(() => env), L = [];
+  for (let d = ini, k = 0; L.length < 10 && k < 40; d = isoSomaDias(d, 1), k++) { if (semExpediente(eF, {}, d) || diaSemanaISO(d) === 6 || (cont[d] || 0) >= cap) continue; L.push(d); }
+  return L;
+}
+function olDiaTxt(d) { return `${olDiaSemana(d)}, ${olDataBR(d).slice(0, 5)}`; }
+function olPgCss() { return OL_CSS + '.pg{padding:28px 20px 0}.pg h1{font-family:Fraunces,Georgia,serif;font-weight:500;font-size:34px;line-height:1.08;margin:8px 0 6px}.cardx{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-top:14px}.lin{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px dashed var(--line);font-size:14.5px}.lin:first-of-type{border-top:0}.lin b{font-variant-numeric:tabular-nums}.fm{display:block;border:1.5px solid var(--line);border-radius:16px;padding:14px 16px;margin-top:10px;cursor:pointer;background:var(--card)}.fm input{accent-color:#b0894f;margin-right:8px}.fm.on{border-color:var(--gold);box-shadow:0 8px 20px -14px rgba(120,80,20,.6)}.fm small{display:block;color:var(--mute);margin:4px 0 0 24px;font-size:13px}label.cp{display:block;font-size:13px;font-weight:600;color:var(--ink2);margin:14px 0 6px}.inp{width:100%;font:500 16px Inter,sans-serif;padding:13px 14px;border-radius:12px;border:1px solid #ddd3c3;background:#fff;color:var(--ink)}.cl{font-size:13.5px;color:var(--ink2);padding-left:18px}.cl li{margin:7px 0}.ac{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-size:14px}.ac input{width:22px;height:22px;accent-color:#b0894f;flex:none;margin-top:1px}.err{color:#a2482f;font-size:13.5px;margin-top:10px;min-height:18px}.btn[disabled]{opacity:.5}.qr{display:block;width:220px;height:220px;margin:6px auto 10px;border-radius:12px;background:#fff;padding:8px;border:1px solid var(--line)}.cod{font:12px ui-monospace,monospace;word-break:break-all;background:#f2ebde;border-radius:10px;padding:10px;color:var(--ink2);max-height:84px;overflow:auto}.ok{display:flex;gap:10px;align-items:center;background:#eef5ef;color:#24603e;border-radius:14px;padding:14px;font-weight:600;font-size:14.5px;margin-top:14px}.dias{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.dia{font:600 14px Inter,sans-serif;padding:12px 8px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;text-transform:capitalize}.dia.on{border-color:var(--gold);background:#f6efe2}'; }
+function olPgHead(t) { return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${olEsc(t)} · HR Mármores e Granitos</title><meta name="robots" content="noindex"><meta name="theme-color" content="#14120f"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>${olPgCss()}</style></head><body><div class="wrap">`; }
+function olFecharHtml(d, fe, idx, pixOk) {
+  const { r, L } = d, e = olEsc, o = olOpEscolhida(r, idx), nome = String(r.cliente || '').trim();
+  const vista = o ? o.vista : (L.vista || r.valor || 0), parc = o ? o.parc : (L.parc || vista), pedra = o ? o.nm : d.pedraNome, ent = Math.round(vista * 50) / 100;
+  const proj = ((L.amb || []).map(a => a.t).filter(Boolean).join(' + ')) || r.projeto || 'Projeto', emp = (L.emp && L.emp.nome) || 'HR Mármores e Granitos', prazo = +L.prazo || 15;
+  const cls = [`A ${emp} fornece a pedra e executa os serviços deste orçamento (${proj}${pedra ? ' em ' + pedra : ''}), conforme as medidas conferidas no local.`,
+    `O prazo de produção é de ${prazo} dias úteis, contados depois do pagamento da entrada e da confirmação das medidas definitivas.`,
+    'Variações naturais de cor, veios e textura são próprias da pedra natural e não são defeito.',
+    L.inst !== false ? 'No dia da instalação o ambiente deve estar pronto e nivelado (gabinetes, paredes, encanamento). Se não estiver, o cliente tem 2 dias úteis para regularizar; depois disso, a instalação é remarcada conforme o cronograma.' : 'O cliente garante o acesso ao local e a estrutura de apoio pronta e nivelada no dia da entrega.',
+    'Alterações no projeto depois das medidas aprovadas podem gerar custo adicional, com novo orçamento.',
+    'Desistência depois do início da produção implica cobrança mínima de 40% do valor total (material e mão de obra já executados).',
+    `Garantia de 1 (um) ano a partir da entrega contra erros de instalação e defeitos de fabricação. Não cobre arranhões, manchas ou quebras que não sejam causados por instalação ou fabricação.`,
+    'A pedra é entregue instalada, limpa e impermeabilizada.'];
+  const pago = fe && fe.pago, aceito = fe && fe.aceitoEm;
+  return olPgHead('Fechar o pedido') + `<div class="pg"><p class="eye">Orçamento ${e(r.orcNum || '')}</p><h1>${aceito ? (pago ? 'Pedido fechado' : 'Falta só o Pix da entrada') : 'Fechar o pedido'}</h1><p style="color:var(--mute);font-size:14.5px">${e(nome)}</p>
+<div class="cardx"><div class="lin"><span>Projeto</span><b>${e(proj)}</b></div>${pedra ? `<div class="lin"><span>Pedra</span><b>${e(pedra)}</b></div>` : ''}<div class="lin"><span>À vista</span><b>R$ ${reais(vista)}</b></div><div class="lin"><span>Entrada (50%)</span><b>R$ ${reais(ent)}</b></div><div class="lin"><span>Na entrega</span><b>R$ ${reais(Math.round((vista - ent) * 100) / 100)}</b></div><div class="lin"><span>Ou no cartão</span><b>10× de R$ ${reais(Math.round(parc / 10 * 100) / 100)}</b></div></div>
+${pago ? `<div class="ok">✓ Recebemos a entrada de R$ ${reais(fe.pago.valor)}. Obrigada!</div><a class="btn go" style="margin-top:14px" href="/o/${e(d.slug)}#dia">Escolher o dia da instalação</a>`
+  : aceito && fe.pix ? `<div class="cardx" style="text-align:center"><p class="lbl">Pix da entrada · R$ ${reais(fe.pix.valor)}</p>${fe.pix.png ? `<img class="qr" alt="QR code Pix" src="data:image/png;base64,${fe.pix.png}">` : ''}<div class="cod" id="cod">${e(fe.pix.codigo)}</div><button class="btn go" style="margin-top:12px;width:100%;border:0;font:inherit;font-weight:700" id="cp">Copiar o código Pix</button><p style="font-size:13px;color:var(--mute);margin-top:10px" id="st">Assim que o Pix cair, esta página confirma sozinha.</p></div>`
+  : aceito ? `<div class="ok">✓ Recebemos o seu aceite. A HR vai te chamar para combinar ${fe.forma === 'cartao' ? 'o cartão' : 'o pagamento'} e a medição final.</div>`
+  : `<form id="f"><p class="eye" style="margin-top:26px">Forma de pagamento</p>
+<label class="fm on"><input type="radio" name="fp" value="pix" checked>${pixOk ? 'À vista: entrada de 50% agora no Pix' : 'À vista: 50% de entrada e 50% na entrega'}<small>R$ ${reais(ent)} ${pixOk ? 'agora' : 'de entrada'} e R$ ${reais(Math.round((vista - ent) * 100) / 100)} na entrega</small></label>
+<label class="fm"><input type="radio" name="fp" value="cartao">Cartão em até 10× sem juros<small>R$ ${reais(parc)} · passamos o cartão na medição final</small></label>
+<p class="eye" style="margin-top:26px">Seus dados para o contrato</p>
+<label class="cp">Nome completo</label><input class="inp" name="nome" autocomplete="name" value="${e(nome)}" required>
+<label class="cp">CPF</label><input class="inp" name="cpf" inputmode="numeric" autocomplete="off" placeholder="000.000.000-00" required>
+<label class="cp">Endereço da obra</label><input class="inp" name="end" autocomplete="street-address" placeholder="Rua, número, bairro e cidade" required>
+<p class="eye" style="margin-top:26px">Contrato de prestação de serviço</p><div class="cardx"><ol class="cl">${cls.map(x => `<li>${e(x)}</li>`).join('')}</ol></div>
+<label class="ac"><input type="checkbox" name="ok" required><span>Li e aceito o contrato e as condições deste orçamento.</span></label>
+<div class="err" id="er"></div><button class="btn go" style="width:100%;border:0;font:inherit;font-weight:700;margin-top:6px" id="bt">Aceitar e fechar</button></form>`}
+<p style="text-align:center;margin:22px 0 10px"><a class="mais" href="/o/${e(d.slug)}">Voltar ao orçamento</a></p></div></div>
+<script>(function(){var S=${JSON.stringify(d.slug)},I=${JSON.stringify(String(idx == null ? '' : idx))};
+document.querySelectorAll('.fm').forEach(function(l){l.addEventListener('click',function(){document.querySelectorAll('.fm').forEach(function(x){x.classList.remove('on');});l.classList.add('on');});});
+var c=document.querySelector('[name=cpf]');if(c)c.addEventListener('input',function(){var v=c.value.replace(/\\D/g,'').slice(0,11);c.value=v.replace(/(\\d{3})(\\d)/,'$1.$2').replace(/(\\d{3})(\\d)/,'$1.$2').replace(/(\\d{3})(\\d{1,2})$/,'$1-$2');});
+var f=document.getElementById('f');if(f)f.addEventListener('submit',function(ev){ev.preventDefault();var b=document.getElementById('bt'),er=document.getElementById('er');b.disabled=true;b.textContent='Enviando…';er.textContent='';
+fetch('/o/'+S+'/fechar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({p:I,forma:f.fp.value,nome:f.nome.value,cpf:f.cpf.value,end:f.end.value,ok:f.ok.checked})}).then(function(r){return r.json();}).then(function(j){if(j.ok)location.reload();else{er.textContent=j.erro||'Não deu certo. Tente de novo.';b.disabled=false;b.textContent='Aceitar e fechar';}}).catch(function(){er.textContent='Sem internet? Tente de novo.';b.disabled=false;b.textContent='Aceitar e fechar';});});
+var cp=document.getElementById('cp');if(cp)cp.addEventListener('click',function(){var t=document.getElementById('cod').textContent;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){cp.textContent='Código copiado ✓';},function(){var r=document.createRange();r.selectNode(document.getElementById('cod'));getSelection().removeAllRanges();getSelection().addRange(r);});});
+if(document.getElementById('st'))setInterval(function(){fetch('/o/'+S+'/estado').then(function(r){return r.json();}).then(function(j){if(j.pago)location.reload();}).catch(function(){});},6000);
+})();</script></body></html>`;
+}
+async function olFecharPost(env, d, b) {
+  const { r } = d, slug = d.slug; let fe = await olFeLer(env, slug);
+  if (fe && fe.aceitoEm) return { ok: true };
+  const nome = String(b.nome || '').replace(/\s+/g, ' ').trim().slice(0, 80), cpf = String(b.cpf || '').replace(/\D/g, ''), end = String(b.end || '').replace(/\s+/g, ' ').trim().slice(0, 160), forma = b.forma === 'cartao' ? 'cartao' : 'pix';
+  if (nome.split(' ').length < 2) return { ok: false, erro: 'Escreva o nome completo.' };
+  if (!olCpfOk(cpf)) return { ok: false, erro: 'Confira o CPF: algum número está errado.' };
+  if (end.length < 8) return { ok: false, erro: 'Escreva o endereço da obra.' };
+  if (!b.ok) return { ok: false, erro: 'Marque que leu e aceita o contrato.' };
+  const o = olOpEscolhida(r, b.p), vista = o ? o.vista : (r.link && r.link.vista) || r.valor || 0, pedra = o ? o.nm : d.pedraNome;
+  fe = { aceitoEm: Date.now(), nome, cpf, end, forma, pedra, vista, parc: o ? o.parc : (r.link && r.link.parc) || 0, opIdx: b.p };
+  if (forma === 'pix' && mpAtivo(env) && vista > 0) {
+    const ent = Math.round(vista * 50) / 100, ref = 'lk-ol' + Date.now().toString(36) + Math.random().toString(36).slice(2, 4), desc = `Entrada 50% - ${nome} - ${(r.projeto || 'pedido').slice(0, 40)}`;
+    try {
+      const px = await olPixCriar(env, ref, ent, desc, 48);
+      fe.pix = { ref, valor: ent, codigo: px.codigo, png: px.png, id: px.id };
+      await env.HR_KV.put('lk:' + ref, JSON.stringify({ valor: ent, desc, em: Date.now(), pagId: px.id, codigo: px.codigo, cli: nome, destino: normalizarBR(String(r.tel || '').replace(/\D/g, '')) || undefined, ol: slug, qId: r.qId || '', total: vista }), { expirationTtl: 40 * 24 * 3600 });
+    } catch (e) { console.log('[OL] pix:', e.message); }
+  }
+  await olFeGravar(env, slug, fe);
+  await olNotaHelena(env, r, `[${nome} aceitou o contrato pela página do orçamento ${r.orcNum || ''}${pedra ? ' (pedra ' + pedra + ')' : ''}, forma: ${forma === 'cartao' ? 'cartão em até 10x (passar na medição final)' : 'à vista, entrada de 50% no Pix'}. Endereço da obra: ${end}. Não peça esses dados de novo.]`).catch(() => {});
+  await enviarComBotoes(env, numeroDono(env), `${nome} aceitou o contrato pelo link do orçamento ${r.orcNum || ''}.\nPedra: ${pedra || '-'} · à vista R$ ${reais(vista)}\nForma: ${forma === 'cartao' ? 'cartão em até 10x (R$ ' + reais(fe.parc) + '), passar na medição final' : fe.pix ? 'Pix da entrada (R$ ' + reais(fe.pix.valor) + ') gerado; aviso quando cair' : 'à vista 50% + 50%; combinar a entrada'}\nCPF conferido (final ${cpf.slice(-2)}) · Obra: ${end}\nO aceite fica guardado com data e hora.`, [{ id: 'olk|l|' + slug, titulo: 'Eu ligo' }, { id: 'olk|n|' + slug, titulo: 'Ok' }]).catch(() => {});
+  return { ok: true };
+}
+async function olPagou(env, lk, pago, forma, lancado) {
+  const slug = lk.ol, fe = (await olFeLer(env, slug)) || {}; fe.pago = { valor: pago, em: Date.now(), forma }; await olFeGravar(env, slug, fe);
+  if (lk.qId) await confEnfileirar(env, { tipo: 'orc_sinal', orcId: lk.qId, cliente: lk.cli || '', valor: pago, sinal: true }).catch(e => console.log('[OL] orc_sinal:', e.message));
+  const url = 'https://' + (env.DOMINIO_SITE || DOMINIO_SITE) + '/o/' + slug;
+  await notificarDono(env, Date.now(), `*Entrada paga pelo link: R$ ${reais(pago)}* (${forma})\n${lk.cli || 'Cliente'}${fe.pedra ? ' · ' + fe.pedra : ''}\n${lancado ? 'Lancei a entrada nas finanças. ' : 'Lance a entrada nas finanças à mão. '}O orçamento vira Aceito e a obra entra no cronograma quando o app abrir. A página já mostra os dias livres para ${String(lk.cli || 'o cliente').split(' ')[0]} escolher a instalação: ${url}?d=1`).catch(() => {});
+}
+async function olDiaPost(env, d, dia) {
+  const fe = await olFeLer(env, d.slug); if (!fe || !fe.pago) return { ok: false, erro: 'Escolha o dia depois do Pix da entrada.' };
+  if (fe.dia && fe.dia.ok) return { ok: false, erro: 'O dia já está confirmado. Para mudar, fale com a HR.' };
+  if (!(await olDiasLivres(env, d.r)).includes(dia)) return { ok: false, erro: 'Esse dia não está mais livre. Escolha outro.' };
+  fe.dia = { d: dia, em: Date.now() }; await olFeGravar(env, d.slug, fe);
+  await enviarComBotoes(env, numeroDono(env), `${d.r.cliente || 'O cliente'} escolheu a instalação para ${olDiaTxt(dia)}. Confirmo?`, [{ id: 'oldia|ok|' + d.slug, titulo: 'Confirmar' }, { id: 'oldia|no|' + d.slug, titulo: 'Outro dia' }]).catch(() => {});
+  return { ok: true };
+}
+async function olDiaBotao(env, from, id) {
+  const [, ac, slug] = id.split('|'), d = await olDados(env, slug); if (!d) return enviar(env, from, 'Não achei mais esse orçamento.');
+  const fe = await olFeLer(env, slug); if (!fe || !fe.dia) return enviar(env, from, 'Esse pedido de dia já foi resolvido.');
+  const pn = String(d.r.cliente || 'o cliente').split(' ')[0], num = normalizarBR(String(d.r.tel || '').replace(/\D/g, '')), dia = fe.dia.d;
+  if (ac === 'ok') {
+    fe.dia.ok = Date.now(); await olFeGravar(env, slug, fe);
+    if (d.r.qId) await confEnfileirar(env, { tipo: 'orc_data', orcId: d.r.qId, dia }).catch(() => {});
+    const txt = `${pn}, instalação confirmada para ${olDiaTxt(dia)} (${olDataBR(dia)}). Na véspera a gente confirma o horário. Qualquer coisa, é só chamar.`;
+    if (/^55\d{10,11}$/.test(num) && await janela24h(env, num)) { await enviar(env, num, txt); await semearConversaProativa(env, num, txt).catch(() => {}); }
+    return enviar(env, from, `Confirmado: ${d.r.cliente || pn} em ${olDataBR(dia)}. Mudei a entrega no cronograma do app (aplica quando o app abrir). A página dela já mostra a data confirmada.`);
+  }
+  fe.dia = null; fe.diaRecusado = dia; await olFeGravar(env, slug, fe);
+  return enviar(env, from, `Ok, ${olDataBR(dia)} não. A página volta a mostrar os dias livres para ${pn} escolher outro.${/^55\d{10,11}$/.test(num) ? ` Se quiser falar com ela: wa.me/${num}` : ''}`);
+}
+// pedra na cozinha do cliente: foto dele + a pedra escolhida (IA de imagem da OpenAI). Até 3 por orçamento; respeita o teto de gastos.
+async function olFotoPost(env, d, b) {
+  const chave = chaveVoz(env); if (!chave) return { ok: false, erro: 'Esse recurso não está ligado agora.' };
+  await tetoCarregar(env).catch(() => {}); if (globalThis.__tetoEstourou) return { ok: false, erro: 'Esse recurso está pausado este mês. Fale com a HR pelo WhatsApp.' };
+  const n = +(await env.HR_KV.get('ol:fn:' + d.slug)) || 0; if (n >= 3) return { ok: false, erro: 'Você já fez 3 simulações neste orçamento. Para mais, fale com a HR.' };
+  const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/.exec(String(b.img || '')); if (!m || m[2].length > 2.8e6) return { ok: false, erro: 'Foto inválida ou grande demais.' };
+  const o = olOpEscolhida(d.r, b.p), pedra = (o && o.nm) || d.pedraNome || 'granito';
+  const pf = await lerPortfolio(env).catch(() => []), np = normaliza(pedra), it = pf.find(i => i && i.tipo === 'pedra' && !i.semFoto && normaliza(i.nome || '') === np);
+  const fd = new FormData(); fd.append('model', env.OL_IMG_MODELO || 'gpt-image-1'); fd.append('size', '1024x1024'); fd.append('quality', env.OL_IMG_QUALIDADE || 'medium');
+  fd.append('image[]', new Blob([base64ParaBytes(m[2])], { type: 'image/' + m[1] }), 'cozinha.' + (m[1] === 'jpeg' ? 'jpg' : m[1]));
+  const pb = it ? await env.HR_KV.get('pf:img:' + it.id, 'arrayBuffer').catch(() => null) : null;
+  if (pb) fd.append('image[]', new Blob([pb], { type: it.mime || 'image/jpeg' }), 'pedra.jpg');
+  fd.append('prompt', `Photorealistic edit. In the first image (a customer's kitchen or bathroom), replace ONLY the countertop/worktop surfaces (and backsplash strip if present) with polished natural stone "${pedra}"${pb ? ', matching exactly the color, grain and pattern of the stone shown in the second image' : ''}. Keep everything else identical: cabinets, walls, floor, appliances, sink, faucet, objects, lighting, camera angle and perspective. Natural reflections, realistic edges and thickness. Do not add text or logos.`);
+  const t0 = Date.now(), r = await fetch('https://api.openai.com/v1/images/edits', { method: 'POST', headers: { Authorization: 'Bearer ' + chave }, body: fd });
+  const j = await r.json().catch(() => null), b64 = j && j.data && j.data[0] && j.data[0].b64_json;
+  await custoAnotar(env, 'OpenAI · pedra na cozinha (' + (env.OL_IMG_MODELO || 'gpt-image-1') + ')', 1, 1, 0.07).catch(() => {});
+  if (!r.ok || !b64) { console.log('[OL] foto:', r.status, JSON.stringify(j || {}).slice(0, 200)); return { ok: false, erro: 'Não consegui montar a imagem agora. Tente outra foto, de frente para a bancada.' }; }
+  await env.HR_KV.put('ol:fn:' + d.slug, String(n + 1), { expirationTtl: 120 * 86400 });
+  await env.HR_KV.put(`ol:img:${d.slug}:${n + 1}`, base64ParaBytes(b64), { expirationTtl: 60 * 86400, metadata: { pedra } });
+  console.log('[OL] foto ok', Math.round((Date.now() - t0) / 1000) + 's');
+  return { ok: true, url: `/o/${d.slug}/img/${n + 1}`, resta: 2 - n };
+}
+// véspera da entrega: o dono recebe o saldo a receber com o Pix pronto; ao cliente só com o toque dele
+async function saldoVesperaRotina(env, snap) {
+  const hoje = dataBahia(); if (agoraBahia().min < 15 * 60 || await env.HR_KV.get('sdv:dia:' + hoje)) return;
+  await env.HR_KV.put('sdv:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const eF = await envComFolgas(env).catch(() => env); let amanha = isoSomaDias(hoje, 1); for (let k = 0; k < 4 && semExpediente(eF, {}, amanha); k++) amanha = isoSomaDias(amanha, 1);
+  const ag = ((snap && snap.dados && snap.dados.agenda) || []).filter(a => a && a.cliente && ehAberto(a) && a.entrega === amanha && (+a.valor || 0) - (+a.pago || 0) > 1);
+  for (const a of ag.slice(0, 6)) {
+    const saldo = Math.round(((+a.valor || 0) - (+a.pago || 0)) * 100) / 100, num = await telefoneDoClienteApp(env, a.cliente).catch(() => '');
+    let px = null;
+    if (mpAtivo(env)) { const ref = 'lk-sd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 4), desc = `Saldo na entrega - ${a.cliente}`.slice(0, 80);
+      try { px = await olPixCriar(env, ref, saldo, desc, 72); await env.HR_KV.put('lk:' + ref, JSON.stringify({ valor: saldo, desc, em: Date.now(), pagId: px.id, codigo: px.codigo, cli: a.cliente, destino: num ? normalizarBR(num) : undefined }), { expirationTtl: 40 * 24 * 3600 }); } catch (e) { console.log('[SDV]', e.message); px = null; } }
+    const serv = String(a.servico || 'pedido').replace(/\s+/g, ' ').slice(0, 50).toLowerCase(), pn = nomeDeTratamento(a.cliente) || 'Olá';
+    const aviso = `Amanhã (${dataBR(amanha).slice(0, 5)}) é a ${a.instala ? 'instalação' : 'entrega'} de ${a.cliente} (${serv}). Falta receber *R$ ${reais(saldo)}* de R$ ${reais(+a.valor || 0)}.${px ? '\n\nPix pronto (vale 3 dias; cai sozinho nas finanças):\n' + px.codigo : ''}`;
+    if (num && px) await dpPerguntar(env, { chave: 'sdv:' + a.cliente + ':' + amanha, num, nome: a.cliente, tipo: 'sdv', sim: 'Mandar ao cliente', texto: `${pn}, amanhã é a ${a.instala ? 'instalação' : 'entrega'} do seu pedido (${serv})! O saldo é de R$ ${reais(saldo)}. Se preferir adiantar, este é o Pix copia e cola: ${px.codigo}\nTambém pode pagar na hora, como combinamos.`, aviso });
+    else await enviar(env, numeroDono(env), aviso + (num ? '' : '\n(Não achei o WhatsApp do cliente no app.)')).catch(() => {});
+  }
 }
