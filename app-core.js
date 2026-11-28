@@ -8291,6 +8291,10 @@ function _avisoSemInstalacao(lista){
 }
 // v371: o cliente multiplicava "m² do projeto × preço do m² no depósito". No PDF a pedra aparece em CHAPAS, e o quadro
 //   "Incluso no Projeto" lista tudo o que o valor cobre.
+// v108: a partir de 01/01/2027 os 50% restantes são pagos ANTES da instalação (pedidos/contratos desse dia em diante)
+var HR_DATA_ANTES_INST='2027-01-01';
+function _restoAntesInst(dataIso){return String(dataIso||(typeof td==='function'?td():'')||'')>=HR_DATA_ANTES_INST;}
+function _encargosTxt(){var c=(typeof CFG!=='undefined'&&CFG&&CFG.cobranca)||{},m=isFinite(c.multaPct)&&c.multaPct!==''&&c.multaPct!=null?+c.multaPct:2,j=isFinite(c.jurosMesPct)&&c.jurosMesPct!==''&&c.jurosMesPct!=null?+c.jurosMesPct:1,k=c.carenciaDias>0?Math.round(+c.carenciaDias):0;return {multa:m,juros:j,carencia:k,txt:'multa de '+String(m).replace('.',',')+'% e juros de '+String(j).replace('.',',')+'% ao mês (proporcional aos dias de atraso)'+(k?', depois de '+k+' dia'+(k>1?'s':'')+' de tolerância':'')};}
 function _pdfChapas(m2){var c=Math.max(1,Math.ceil((+m2||0)*1.1/4.8));return c+(c>1?' chapas':' chapa');}
 function _pdfInclusos(q){
   var acN=(q.acN||[]).map(function(x){return /^Garantia de Medidas/i.test(x)?'Garantia de medidas':x;});
@@ -8999,14 +9003,14 @@ function gerarPDF(){
           +'<div style="font-size:11px;color:#999;">Entrada para iniciar a produção</div>'
         +'</div>'
         +'<div style="border-left:1px solid #e8dfc4;padding-left:16px;">'
-          +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA</div>'
+          +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">'+(_restoAntesInst(q.date)?'ANTES DA INSTALAÇÃO':'NA ENTREGA')+'</div>'
           +'<div style="font-size:24px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.ent)+'</div>'
-          +'<div style="font-size:11px;color:#999;">Pagamento na entrega e instalação</div>'
+          +'<div style="font-size:11px;color:#999;">'+(_restoAntesInst(q.date)?'Pago antes da equipe instalar':'Pagamento na entrega e instalação')+'</div>'
         +'</div>'
       +'</div>'
       +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e8dfc4;font-size:11px;color:#888;display:flex;align-items:center;gap:6px;">'
         +'<span style="color:#C9A84C;font-size:13px;">ℹ</span>'
-        +'<span>Você só paga R$ '+fm(q.ent)+' agora. O restante apenas na entrega do serviço.</span>'
+        +'<span>'+(_restoAntesInst(q.date)?'Você paga R$ '+fm(q.ent)+' agora e o restante antes da instalação: a equipe só instala com o pagamento confirmado. Atraso: '+_encargosTxt().txt+'.':'Você só paga R$ '+fm(q.ent)+' agora. O restante apenas na entrega do serviço. Atraso: '+_encargosTxt().txt+'.')+'</span>'
       +'</div>'
     +'</div>'))
 
@@ -14454,7 +14458,7 @@ function confirmarContrato(){
     entgVal=vista*(entgPct/100);
   }
   if(entPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Pago:</strong> R$ '+fm(entVal)+' no ato da assinatura'});
-  if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Restante:</strong> R$ '+fm(entgVal)+' no ato da entrega'});
+  if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Restante:</strong> R$ '+fm(entgVal)+(_restoAntesInst()?' antes da instalação (a equipe só instala com o pagamento confirmado)':' no ato da entrega')});
   if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'💰',txt:'<strong>1ª parcela:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'💰',txt:'<strong>2ª parcela:</strong> R$ '+fm(v3)+' na metade do prazo'},{icon:'💰',txt:'<strong>3ª parcela:</strong> R$ '+fm(v3)+' na entrega'});}
   // parcelamento mostrado na price-box, não duplicar em pgConds
   // "Orçamento válido por X dias" removido — não faz sentido em contrato assinado

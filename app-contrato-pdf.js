@@ -77,6 +77,12 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
     conds.push([5,'Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.']);
     conds.push([6,'A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.']);
   }
+  // v108: pagamento atrasado (multa e juros) e, a partir de 01/01/2027, restante antes da instalação
+  try{
+    var _enc=(typeof _encargosTxt==='function')?_encargosTxt():{txt:'multa de 2% e juros de 1% ao mês'};
+    if(typeof _restoAntesInst==='function'&&_restoAntesInst()) conds.push([conds.length+1,'O saldo restante deve ser pago <strong>antes da instalação</strong>. A equipe só realiza a instalação com o pagamento confirmado; sem ele, a instalação é remarcada conforme o cronograma.']);
+    conds.push([conds.length+1,'Valores não pagos na data combinada'+((typeof _restoAntesInst==='function'&&_restoAntesInst())?'':' (inclusive o saldo devido no dia da entrega/instalação)')+' terão <strong>'+_enc.txt+'</strong>, calculados até a data do pagamento.']);
+  }catch(e){}
   conds.forEach(function(c){
     condsGeraisHtml+='<div class="cond-item"><div class="cond-num">'+c[0]+'</div><div class="cond-text">'+c[1]+'</div></div>';
   });
