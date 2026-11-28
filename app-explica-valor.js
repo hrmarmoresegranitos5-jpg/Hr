@@ -117,7 +117,7 @@
 
     // 4. Comparação
     h += '<h2>Por que não dá para comparar com o m² do depósito</h2><div class="g2">' +
-      '<div class="por"><div class="t">🪨 Chapa crua × peça pronta</div><div class="x">O m² do depósito é a pedra bruta, sem nenhum corte. O seu projeto chega pronto: cortado, polido e encaixado.</div></div>' +
+      '<div class="por"><div class="t">🧱 Chapa crua × peça pronta</div><div class="x">O m² do depósito é a pedra bruta, sem nenhum corte. O seu projeto chega pronto: cortado, polido e encaixado.</div></div>' +
       '<div class="por"><div class="t">📐 Sainha e frontão</div><div class="x">Cada metro de sainha 45° leva dois cortes em ângulo, colagem e polimento da quina. Não é só "mais pedra".</div></div>' +
       '<div class="por"><div class="t">✂️ Recortes e furos</div><div class="x">Cuba, cooktop e torneira precisam de recorte exato na máquina; um erro perde a peça toda.</div></div>' +
       '<div class="por"><div class="t">🚚 Transporte, instalação e garantia</div><div class="x">Levamos, instalamos com a nossa equipe e respondemos pela obra depois de pronta.</div></div>' +

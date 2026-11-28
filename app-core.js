@@ -8632,7 +8632,7 @@ function gerarPDF(){
           +'<div style="font-size:14px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:2px;">'+escH(_st.nm)+'</div>'
           +'<div style="font-size:9px;color:#aaa;margin-bottom:5px;">'+(escH(_st.cat)||'')+((_st.cat&&_st.fin)?' · ':'')+escH(_st.fin||'')+'</div>'
           +'<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-            +'<span style="font-size:9px;color:#888;">🪨 '+_pdfChapas(_m2)+'</span>'
+            +'<span style="font-size:9px;color:#888;">🧱 '+_pdfChapas(_m2)+'</span>'
             +'<span style="font-size:9px;color:#aaa;">'+escH(_ambs)+'</span>'
           +'</div>'
         +'</div>'
