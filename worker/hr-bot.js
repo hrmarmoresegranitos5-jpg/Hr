@@ -36161,7 +36161,7 @@ header.top{position:sticky;top:0;z-index:40;background:rgba(13,10,5,.82);backdro
 .mosaico div{background:#14100a center/cover;animation:zoom 18s ease-in-out infinite alternate}
 .mosaico div:nth-child(2n){animation-delay:-6s}.mosaico div:nth-child(3n){animation-delay:-11s}
 @keyframes zoom{from{transform:scale(1)}to{transform:scale(1.12)}}
-.hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,10,5,.35) 0%,rgba(13,10,5,.55) 40%,rgba(13,10,5,.96) 85%),radial-gradient(900px 500px at 20% 100%,rgba(201,168,76,.18),transparent 70%)}
+.hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,10,5,.05) 0%,rgba(13,10,5,.25) 38%,rgba(13,10,5,.94) 80%),radial-gradient(900px 500px at 20% 100%,rgba(201,168,76,.18),transparent 70%)}
 .hero .wrap{position:relative;z-index:2;padding-top:90px;padding-bottom:44px;width:100%}
 .selo{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold2);border:1px solid var(--line2);border-radius:30px;padding:7px 14px;background:rgba(13,10,5,.5);margin-bottom:18px}
 .hero h1{font-family:'Cormorant Garamond',serif;font-size:clamp(40px,9vw,76px);line-height:.98;margin:0 0 16px;font-weight:700;letter-spacing:-.5px}
@@ -36908,7 +36908,7 @@ footer b{color:var(--t2)}
     var dst=com.filter(function(p){return p.top}).concat(com.filter(function(p){return !p.top})).slice(0,10);
     var GR=gruposObras();
     if(false){} /* v374: a capa é sempre o mosaico das pedras (a foto de obra ampliada ficava borrada) */
-    else $('mosaico').innerHTML=dst.slice(0,6).map(function(p){return '<div style="background-image:url(\\''+img('pedra',p.id)+'\\')"></div>'}).join('');
+    else $('mosaico').innerHTML=(function(){var cl=/branc|beg|marf|cinz|travert|calacat|carrar|dallas|itaun|siena|crema|ocre|amarel|dourad|ouro/i;var cl2=com.filter(function(p){return cl.test(p.nm+' '+(p.cat||''))});return cl2.slice(0,4).concat(dst.filter(function(p){return cl2.indexOf(p)<0})).slice(0,6)})().map(function(p){return '<div style="background-image:url(\\''+img('pedra',p.id)+'\\')"></div>'}).join('');
     setTimeout(function(){$('mosaico').classList.add('on')},100);
     $('destaques').innerHTML=dst.map(function(p){return '<div class="dest" data-p="'+esc(p.id)+'" style="background-image:url(\\''+img('pedra',p.id)+'\\')"><div class="dd"><b>'+esc(p.nm)+'</b><small>'+esc(p.cat||'')+'</small>'+(pr()&&p.pr?'<div><span class="pp">'+brl(p.pr)+'/m²</span></div>':'')+'</div></div>'}).join('');
     var cats={};D.pedras.forEach(function(p){if(p.cat)cats[p.cat]=1});
