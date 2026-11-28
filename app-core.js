@@ -7955,6 +7955,10 @@ function calcular(){
     +'</div>':'')
   +'</div>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
+  // v371: dados para a tela "💡 Entenda o valor" (app-explica-valor.js)
+  try{var _m2c=0;Object.keys(_m2CompraPorPedra||{}).forEach(function(k){_m2c+=_m2CompraPorPedra[k]||0;});
+    window._orcExplica={m2:totalM2,m2Compra:_m2c,pedT:pedT,vista:vista,parc:parc,urgVal:urgVal,pedras:pedrasUnicas.map(function(id){var st=CFG.stones.find(function(s){return s.id===id;})||{};return {nm:st.nm||'',fin:st.fin||'',pr:+st.pr||0,m2c:_m2CompraPorPedra[id]||0};}),custoPedra:custoPedraExibir,custoMO:custoMOReal,custo:custoPainel,tumulo:!!temTumulo,cli:(document.getElementById('oCliente')||{}).value||''};
+  }catch(_e){window._orcExplica=null;}
   // ── Alerta ativo de margem mínima (toast + vibração) ──
   var _pg0On=(function(){var e=document.getElementById('pg0');var a=document.getElementById('sApp');return !!(e&&e.classList.contains('on')&&a&&a.classList.contains('on'));})();
   if(_margemPct<25&&vista>0&&_pg0On){
@@ -8280,6 +8284,17 @@ function _avisoSemInstalacao(lista){
   var nome=tem('Soleira')&&tem('Peitoril')?'Soleira e peitoril':tem('Soleira')?'Soleira':'Peitoril';
   return nome+': não fazemos a instalação; o valor desses itens neste orçamento é somente da pedra.';
 }
+// v371: o cliente multiplicava "m² do projeto × preço do m² no depósito". No PDF a pedra aparece em CHAPAS, e o quadro
+//   "Incluso no Projeto" lista tudo o que o valor cobre.
+function _pdfChapas(m2){var c=Math.max(1,Math.ceil((+m2||0)*1.1/4.8));return c+(c>1?' chapas':' chapa');}
+function _pdfInclusos(q){
+  var acN=(q.acN||[]).map(function(x){return /^Garantia de Medidas/i.test(x)?'Garantia de medidas':x;});
+  var temInst=acN.some(function(x){return /instala/i.test(x);});
+  var L=['Visita técnica e medição no local','A chapa inteira da pedra escolhida, com os veios combinados entre as peças','Corte sob medida e polimento de todas as bordas aparentes','Conferência das medidas antes de cortar'];
+  if(temInst){L.push('Transporte da pedra pronta até a obra');L.push('Instalação pela nossa equipe, com material de fixação');}
+  L=L.concat(acN);L.push(temInst?'Garantia de 12 meses na instalação':'Garantia do material e do acabamento até a entrega');
+  var v={};return L.filter(function(x){var k=String(x).toLowerCase().slice(0,18);if(v[k])return false;v[k]=1;return true;});
+}
 function gerarPDF(){
   if(!pendQ){toast('Calcule um orçamento primeiro');return;}
   // Load PDF libs on-demand if not already loaded
@@ -8484,7 +8499,8 @@ function gerarPDF(){
   }).join('');
 
 
-  var svcs=(q.acN&&q.acN.length)?q.acN.map(function(a){
+  var _incL=_soInstPDF?(q.acN||[]):_pdfInclusos(q); // v371: quadro completo do que o valor cobre
+  var svcs=_incL.length?_incL.map(function(a){
     var svcTxt=polishSvcPDF(a);
     return '<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;">'
       +'<span style="color:#C9A84C;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">&#10003;</span>'
@@ -8578,8 +8594,9 @@ function gerarPDF(){
               +'<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:5px;letter-spacing:1px;">'+(mat.cat||'')+(mat.cat&&mat.fin?' · ':'')+( mat.fin||'')+'</div>'
             +'</div>'
             +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
-              +'<div style="font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:4px;">TOTAL DE PEDRA</div>'
-              +'<div style="font-size:26px;font-weight:900;color:#fff;line-height:1;">'+q.m2.toFixed(3)+' m&sup2;</div>'
+              +'<div style="font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:4px;">PEDRA DO PROJETO</div>'
+              +'<div style="font-size:24px;font-weight:900;color:#fff;line-height:1;">'+_pdfChapas(q.m2)+'</div>'
+              +'<div style="font-size:9px;color:rgba(255,255,255,0.5);margin-top:4px;">inteira(s), de 3,00 × 1,60 m</div>'
             +'</div>'
           +'</div>'
         +'</div>'
@@ -8615,21 +8632,18 @@ function gerarPDF(){
           +'<div style="font-size:14px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:2px;">'+escH(_st.nm)+'</div>'
           +'<div style="font-size:9px;color:#aaa;margin-bottom:5px;">'+(escH(_st.cat)||'')+((_st.cat&&_st.fin)?' · ':'')+escH(_st.fin||'')+'</div>'
           +'<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-            +'<span style="font-size:9px;color:#888;">📐 '+_m2.toFixed(3)+' m²</span>'
+            +'<span style="font-size:9px;color:#888;">🪨 '+_pdfChapas(_m2)+'</span>'
             +'<span style="font-size:9px;color:#aaa;">'+escH(_ambs)+'</span>'
           +'</div>'
         +'</div>'
-        +'<div style="background:#0f0c00;padding:10px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;">'
-          +'<div style="font-size:6px;letter-spacing:1px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:2px;">R$/m²</div>'
-          +'<div style="font-size:12px;font-weight:900;color:#C9A84C;">'+fm(_st.pr||0)+'</div>'
-        +'</div>'
+
       +'</div>';
     });
     matSecHtml=sh('Materiais do Projeto — '+_matIds.length+' pedras')
       +'<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;margin-bottom:20px;">'
         +'<div style="background:#0f0c00;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">'
           +'<span style="font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.75);font-weight:900;">'+_matIds.length+' MATERIAIS DIFERENTES</span>'
-          +'<span style="font-size:13px;font-weight:900;color:#fff;">'+q.m2.toFixed(3)+' m&sup2; total</span>'
+          +'<span style="font-size:13px;font-weight:900;color:#fff;">'+_pdfChapas(q.m2)+' no total</span>'
         +'</div>'
         +_mRows
       +'</div>'
@@ -8721,7 +8735,7 @@ function gerarPDF(){
         +svcs
         +'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;">'
           +'<span style="color:#C9A84C;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">&#10003;</span>'
-          +'<span style="font-size:12px;color:#333;line-height:1.4;">'+(_soInstPDF?'Mão de obra de instalação':'Fabricacao e acabamento completo')+'</span>'
+          +'<span style="font-size:12px;color:#333;line-height:1.4;">'+(_soInstPDF?'Mão de obra de instalação':'Fabricação e acabamento completo')+'</span>'
         +'</div>'
         +(q.urgPct>0?'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;"><span style="color:#ff8050;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">🚨</span><span style="font-size:12px;color:#c04000;font-weight:700;line-height:1.4;">Atendimento prioritário — prazo garantido</span></div>':'')
       +'</div>'
